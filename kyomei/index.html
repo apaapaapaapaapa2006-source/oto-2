@@ -1,0 +1,1001 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>KYOMEI ─ 部屋を鳴らす</title>
+<meta name="description" content="部屋の物音が八本の弦を励起し、部屋の明るさが音色を決める楽器。カメラは体ではなく光を見ている。">
+<meta name="theme-color" content="#f4f1ea">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;600&family=Zen+Kaku+Gothic+New:wght@300;500&display=swap" rel="stylesheet">
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  KYOMEI ─ 共鳴                          ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  PALETTE   生成 kinari    #f4f1ea   raw paper white   (ground — HIGH KEY)
+            黒鉛 kokuen    #23232a   graphite          (strings, type)
+            鉛筆 enpitsu   #8b8b95   pencil grey       (secondary rules)
+            朱   shu       #d6452f   vermilion         (the single accent)
+            水   mizu      #cfd8e0   pale sky          (grid)
+            MOOD: a quiet acoustics laboratory at midday. Bright, precise,
+            measured. Deliberately the OPPOSITE of a dark synth UI — the
+            whole gallery had drifted to dark-on-black and this is the
+            corrective.
+
+  BACKGROUND  A drafting grid — 1 unit minor, 8 units major — on flat cream.
+            No gradient, no vignette, no glow. Flat ink on flat paper.
+
+  TYPE      IBM Plex Mono throughout the instrument panel: uppercase,
+            wide-tracked, tabular numerals that tick like a real meter.
+            Zen Kaku Gothic New Light for Japanese prose only.
+
+  MOTION    Snappy and mechanical — every UI transition is 120ms on
+            cubic-bezier(.2,.9,.25,1) and SNAPS. The only continuous motion
+            in the piece is the strings themselves, which is the point:
+            the instrument is still, the sound is alive.
+
+  SIGNATURE 1. STANDING WAVES. Each string renders as a real standing wave,
+               y = A·sin(nπx/L)·sin(ωt), amplitude driven by that
+               resonator's own live analyser. Double-drawn at opposite
+               phase for motion blur, exactly like a photographed string.
+            2. HALFTONE ROOM. The camera feed is rendered as a field of ink
+               dots whose radius is the pixel's darkness — so when you cup
+               your hand over the lens you watch the dots swell AND hear
+               the tone darken at the same instant.
+
+  AUDIO     A bank of 8 COMB RESONATORS (delay → damping lowpass → feedback),
+            each doubled and detuned a few cents for shimmer, excited by
+            gated bursts of live microphone signal. The room plays it: a
+            tap, a cough, a rustle, a hum. Nothing is synthesised from an
+            oscillator — every note you hear started as air in your room.
+            Tuned to D major pentatonic, D2–D4.
+
+            CONSTRAINT WORTH KNOWING: a DelayNode inside a feedback cycle
+            carries an implicit one-render-quantum (128 sample) delay, so
+            the shortest achievable loop is ~2.9ms ⇒ ~344Hz ceiling. The
+            bank is written to live below that, and delayTime is
+            compensated by 128/sampleRate so the tuning lands true.
+
+  INPUT     The camera is a LIGHT SENSOR, not a body tracker — no skeleton
+            model is loaded at all. Scene luminance sets the master cutoff
+            and the string decay; scene hue biases which strings the room
+            excites; saturation sets the detune spread. Cover the lens and
+            the instrument goes dark and short. No other piece in either
+            gallery uses the camera this way, and none is played by the
+            sound of the room rather than the motion of a body.
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<style>
+  *{ margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body{
+    width:100%; height:100%; overflow:hidden; background:#f4f1ea; color:#23232a;
+    font-family:'IBM Plex Mono',ui-monospace,Menlo,monospace;
+    user-select:none; -webkit-user-select:none; overscroll-behavior:none;
+  }
+  #stage{ position:fixed; inset:0; overflow:hidden; background:#f4f1ea; }
+  #video{ position:absolute; width:2px; height:2px; opacity:0; pointer-events:none; top:0; left:0; }
+  #wave{ position:absolute; inset:0; width:100%; height:100%; touch-action:none; }
+
+  /* ── instrument panel ───────────────────────────────────── */
+  #panel{
+    position:absolute; top:max(1rem,env(safe-area-inset-top)); left:1.1rem;
+    pointer-events:none; z-index:5;
+  }
+  .plate{ display:flex; align-items:baseline; gap:.7rem; }
+  .plate .mark{
+    font-weight:600; font-size:1.02rem; letter-spacing:.44em; color:#23232a;
+  }
+  .plate .jp{
+    font-family:'Zen Kaku Gothic New',sans-serif; font-weight:300;
+    font-size:.66rem; letter-spacing:.24em; color:#8b8b95;
+  }
+  .serial{ margin-top:.25rem; font-size:.52rem; letter-spacing:.3em; color:#8b8b95; }
+
+  /* meters */
+  #meters{
+    position:absolute; left:1.1rem; bottom:max(1.1rem,env(safe-area-inset-bottom));
+    display:flex; flex-direction:column; gap:.55rem; z-index:5; pointer-events:none;
+  }
+  .meter{ display:flex; align-items:center; gap:.55rem; }
+  .meter .k{ font-size:.52rem; letter-spacing:.24em; color:#8b8b95; width:4.2rem; }
+  .meter .track{
+    width:min(30vw,140px); height:5px; background:#e3dfd5;
+    border:1px solid #d6d1c5; position:relative; overflow:hidden;
+  }
+  .meter .fillbar{
+    position:absolute; left:0; top:0; bottom:0; width:0%; background:#23232a;
+    transition:width .12s cubic-bezier(.2,.9,.25,1);
+  }
+  .meter.accent .fillbar{ background:#d6452f; }
+  .meter .v{ font-size:.56rem; color:#23232a; width:2.6rem; text-align:right; font-variant-numeric:tabular-nums; }
+
+  .btns{
+    position:absolute; top:max(1rem,env(safe-area-inset-top)); right:1.1rem;
+    display:flex; gap:.45rem; z-index:6;
+  }
+  .btn{
+    font-family:inherit; font-size:.6rem; letter-spacing:.16em; color:#23232a;
+    background:#f4f1ea; border:1px solid #23232a; border-radius:0;
+    padding:.46rem .8rem; cursor:pointer;
+    transition:background .12s cubic-bezier(.2,.9,.25,1), color .12s cubic-bezier(.2,.9,.25,1);
+  }
+  .btn:hover,.btn:focus-visible{ background:#23232a; color:#f4f1ea; outline:none; }
+  .btn:active{ background:#d6452f; border-color:#d6452f; color:#f4f1ea; }
+  .btn.warn{ border-color:#d6452f; color:#d6452f; }
+
+  #notice{
+    position:absolute; left:50%; bottom:max(1.2rem,env(safe-area-inset-bottom));
+    transform:translateX(-50%); z-index:7;
+    font-size:.58rem; letter-spacing:.14em; color:#d6452f;
+    border:1px solid #d6452f; padding:.4rem .8rem; background:#f4f1ea;
+    opacity:0; transition:opacity .12s cubic-bezier(.2,.9,.25,1);
+    white-space:nowrap; pointer-events:none;
+  }
+  #notice.on{ opacity:1; }
+
+  /* ── intro ──────────────────────────────────────────────── */
+  #intro{
+    position:absolute; inset:0; z-index:20; background:#f4f1ea;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    gap:1.1rem; padding:1.6rem; text-align:center;
+    transition:opacity .24s cubic-bezier(.2,.9,.25,1), visibility .24s;
+  }
+  #intro.hide{ opacity:0; visibility:hidden; pointer-events:none; }
+  #intro .rule{ width:min(80vw,26rem); height:1px; background:#23232a; }
+  #intro h1{
+    font-weight:600; font-size:clamp(1.9rem,8vw,3rem); letter-spacing:.42em;
+    text-indent:.42em; color:#23232a;
+  }
+  #intro .jp{
+    font-family:'Zen Kaku Gothic New',sans-serif; font-weight:300;
+    font-size:.7rem; letter-spacing:.4em; color:#8b8b95;
+  }
+  #intro p{
+    font-family:'Zen Kaku Gothic New',sans-serif; font-weight:300;
+    font-size:.82rem; line-height:2.1; max-width:23rem; color:#23232a;
+  }
+  #intro .fine{ font-size:.68rem; color:#8b8b95; line-height:1.95; }
+  #howto{ border:1px solid #d6d1c5; background:#faf8f3; }
+  #go{
+    font-family:inherit; font-weight:600; font-size:.78rem; letter-spacing:.34em;
+    text-indent:.34em; color:#f4f1ea; background:#23232a; border:1px solid #23232a;
+    padding:.8rem 2.2rem; cursor:pointer; margin-top:.3rem;
+    transition:background .12s cubic-bezier(.2,.9,.25,1), transform .12s cubic-bezier(.2,.9,.25,1);
+  }
+  #go:hover{ background:#d6452f; border-color:#d6452f; }
+  #go:active{ transform:scale(.97); }
+  #go[disabled]{ opacity:.4; cursor:default; }
+
+  #err{
+    position:absolute; z-index:40; left:50%; top:50%; transform:translate(-50%,-50%);
+    width:min(92vw,26rem); padding:1.2rem 1.3rem; background:#f4f1ea;
+    border:1px solid #d6452f; color:#23232a;
+    font-family:'Zen Kaku Gothic New',sans-serif; font-weight:300;
+    font-size:.76rem; line-height:2; white-space:pre-wrap; display:none;
+  }
+  @media (max-width:560px){
+    #panel .plate .mark{ font-size:.86rem; letter-spacing:.3em; }
+    .meter .track{ width:min(38vw,120px); }
+    .meter .k{ width:3.4rem; }
+  }
+</style>
+</head>
+<body>
+<div id="stage">
+  <video id="video" playsinline autoplay muted></video>
+  <canvas id="wave"></canvas>
+
+  <div id="panel">
+    <div class="plate"><span class="mark">KYOMEI</span><span class="jp">共鳴</span></div>
+    <div class="serial" id="serial">RESONATOR BANK ／ 8 STRINGS ／ D PENTATONIC</div>
+  </div>
+
+  <div id="meters">
+    <div class="meter"><span class="k">BRIGHT</span><span class="track"><span class="fillbar" id="mBright"></span></span><span class="v" id="vBright">—</span></div>
+    <div class="meter"><span class="k">HUE</span><span class="track"><span class="fillbar" id="mHue"></span></span><span class="v" id="vHue">—</span></div>
+    <div class="meter accent"><span class="k">ROOM</span><span class="track"><span class="fillbar" id="mRoom"></span></span><span class="v" id="vRoom">—</span></div>
+  </div>
+
+  <div class="btns">
+    <button class="btn" id="flipBtn" type="button">⟲ カメラ</button>
+    <button class="btn" id="dampBtn" type="button">消音</button>
+  </div>
+
+  <div id="notice"></div>
+
+  <section id="intro">
+    <div class="jp">OTO II ／ 楽器</div>
+    <h1>KYOMEI</h1>
+    <div class="rule"></div>
+    <canvas id="howto" width="460" height="176"></canvas>
+    <p>部屋の物音が、八本の弦を鳴らします。<br>指を鳴らす、机を叩く、息を吹く、ハミングする。</p>
+    <p class="fine">カメラは体ではなく<b>光</b>を見ています。<br>レンズを手でおおうと、音が暗く短くなります。<br>弦は指でなぞっても鳴らせます。</p>
+    <p class="fine" style="color:#d6452f">イヤホン推奨（スピーカーだとハウリングすることがあります）</p>
+    <button id="go" type="button">START</button>
+  </section>
+
+  <div id="err"></div>
+</div>
+
+<script>
+(function(){
+'use strict';
+
+// ═══════════════════════════════════════════════════════════════════════
+//  DOM
+// ═══════════════════════════════════════════════════════════════════════
+var video   = document.getElementById('video');
+var canvas  = document.getElementById('wave');
+var ctx     = canvas.getContext('2d');
+var intro   = document.getElementById('intro');
+var goBtn   = document.getElementById('go');
+var flipBtn = document.getElementById('flipBtn');
+var dampBtn = document.getElementById('dampBtn');
+var errBox  = document.getElementById('err');
+var notice  = document.getElementById('notice');
+var howto   = document.getElementById('howto');
+var mBright = document.getElementById('mBright'), vBright = document.getElementById('vBright');
+var mHue    = document.getElementById('mHue'),    vHue    = document.getElementById('vHue');
+var mRoom   = document.getElementById('mRoom'),   vRoom   = document.getElementById('vRoom');
+
+// ═══════════════════════════════════════════════════════════════════════
+//  CONSTANTS
+// ═══════════════════════════════════════════════════════════════════════
+// D major pentatonic, D2..D4. Every fundamental sits below the ~344Hz
+// ceiling imposed by the implicit render-quantum delay in a feedback cycle.
+var NOTES = [38, 45, 50, 52, 54, 57, 59, 62];
+var NAMES = ['D2','A2','D3','E3','F♯3','A3','B3','D4'];
+var MODES = [1, 2, 1, 3, 2, 1, 3, 2];        // standing-wave mode per string
+
+var LIGHT_W = 64, LIGHT_H = 48;              // light-sensor resolution
+var TRANSIENT_FLOOR = 0.016;                 // absolute RMS gate
+var TRANSIENT_RATIO = 1.75;                  // ...and it must beat the room baseline
+var TRANSIENT_MS    = 85;                    // retrigger cooldown
+var FB_MIN = 0.860, FB_MAX = 0.952;          // string decay range (never ≥1)
+var RUNAWAY_RMS = 0.55, RUNAWAY_MS = 1200;   // howl detector
+
+// ═══════════════════════════════════════════════════════════════════════
+//  STATE
+// ═══════════════════════════════════════════════════════════════════════
+var state = 'boot';                          // boot | live  (no failure state)
+var W = 1, H = 1, DPR = 1;
+var strings = [];                            // {level, phase, flash, ...}
+var bright = 0.5, hue = 0.5, sat = 0.2, roomLevel = 0;
+var baseline = 0.01, lastTransient = -1e9, loudSince = 0;
+var lightData = null, haveLight = false;
+var micOK = false, tNow = 0, lastT = 0;
+var damped = false;
+var noticeUntil = 0;
+
+// ═══════════════════════════════════════════════════════════════════════
+//  LAYOUT
+// ═══════════════════════════════════════════════════════════════════════
+var L = { x0:0, x1:0, y0:0, y1:0, gap:0, halftone:{ x:0, y:0, w:0, h:0 }, spec:{ x:0, y:0, w:0, h:0 } };
+
+function resize(){
+  DPR = Math.min(2, window.devicePixelRatio || 1);
+  var cw = Math.max(1, window.innerWidth), ch = Math.max(1, window.innerHeight);
+  canvas.width  = Math.max(1, Math.round(cw * DPR));
+  canvas.height = Math.max(1, Math.round(ch * DPR));
+  canvas.style.width = cw + 'px'; canvas.style.height = ch + 'px';
+  W = canvas.width; H = canvas.height;
+
+  var portrait = H > W;
+  var pad = Math.round(Math.min(W, H) * 0.055);
+  var htW = Math.round(portrait ? W * 0.30 : W * 0.19);
+  var htH = Math.round(htW * 0.75);
+
+  L.halftone.w = htW; L.halftone.h = htH;
+  L.halftone.x = W - pad - htW;
+  L.halftone.y = Math.round(H * (portrait ? 0.13 : 0.14));
+
+  L.x0 = Math.round(pad + Math.min(W, H) * 0.075);
+  L.x1 = Math.round(W - pad - (portrait ? 0 : htW + pad * 0.6));
+  if (L.x1 - L.x0 < W * 0.30) L.x1 = Math.round(W - pad);
+  L.y0 = Math.round(H * (portrait ? 0.30 : 0.24));
+  L.y1 = Math.round(H * (portrait ? 0.74 : 0.76));
+  L.gap = (L.y1 - L.y0) / Math.max(1, NOTES.length - 1);
+
+  L.spec.x = L.x0; L.spec.w = Math.max(10, L.x1 - L.x0);
+  L.spec.h = Math.round(Math.min(W, H) * 0.045);
+  L.spec.y = Math.round(H * 0.845);
+}
+window.addEventListener('resize', resize);
+window.addEventListener('orientationchange', resize);
+resize();
+
+// ═══════════════════════════════════════════════════════════════════════
+//  AUDIO — the comb-resonator bank
+// ═══════════════════════════════════════════════════════════════════════
+var AC = null, comp = null, master = null, noiseBuf = null;
+var micSrc = null, micHP = null, micAn = null, exciteGain = null, tapGain = null;
+var outAn = null, toneLP = null;
+var micTime = null, micFreq = null, outTime = null;
+
+function mtof(m){ return 440 * Math.pow(2, (m - 69) / 12); }
+
+function initAudio(){
+  var Ctor = window.AudioContext || window.webkitAudioContext;
+  if (!Ctor) return false;
+  AC = new Ctor();
+  if (AC.state === 'suspended' && AC.resume) AC.resume();
+
+  comp = AC.createDynamicsCompressor();
+  try {
+    comp.threshold.value = -22; comp.knee.value = 22;
+    comp.ratio.value = 14; comp.attack.value = 0.003; comp.release.value = 0.25;
+  } catch(e){}
+
+  // master tone control — the camera's brightness lives here
+  toneLP = AC.createBiquadFilter();
+  toneLP.type = 'lowpass'; toneLP.frequency.value = 2400; toneLP.Q.value = 0.4;
+
+  master = AC.createGain(); master.gain.value = 0.9;
+  outAn = AC.createAnalyser(); outAn.fftSize = 512;
+
+  comp.connect(toneLP); toneLP.connect(master);
+  master.connect(outAn); master.connect(AC.destination);
+  outTime = new Uint8Array(outAn.fftSize);
+
+  // one noise buffer, reused for every manual pluck
+  var n = Math.max(1, Math.floor(AC.sampleRate * 0.5));
+  noiseBuf = AC.createBuffer(1, n, AC.sampleRate);
+  var nd = noiseBuf.getChannelData(0);
+  for (var i = 0; i < n; i++) nd[i] = Math.random() * 2 - 1;
+
+  // excitation bus: everything that can ring a string arrives here
+  exciteGain = AC.createGain(); exciteGain.gain.value = 0;
+
+  buildStrings();
+  return true;
+}
+
+function buildStrings(){
+  strings = [];
+  var quantum = 128 / AC.sampleRate;   // the implicit delay inside a cycle
+  for (var i = 0; i < NOTES.length; i++){
+    var f = mtof(NOTES[i]);
+    var S = {
+      note: NOTES[i], name: NAMES[i], freq: f, mode: MODES[i],
+      level: 0, target: 0, phase: Math.random() * Math.PI * 2,
+      flash: 0, lastPluck: -1e9, weight: 0.5, voices: [],
+      inGain: AC.createGain(), outGain: AC.createGain(),
+      an: AC.createAnalyser(), buf: null
+    };
+    S.inGain.gain.value = 0.5;
+    S.outGain.gain.value = 0.42;
+    S.an.fftSize = 256;
+    S.buf = new Uint8Array(S.an.fftSize);
+
+    // two combs per string, detuned a few cents — this is the shimmer
+    for (var v = 0; v < 2; v++){
+      var cents = (v === 0 ? -1 : 1) * 3.0;
+      var fv = f * Math.pow(2, cents / 1200);
+      var d  = AC.createDelay(1.0);
+      d.delayTime.value = Math.max(0.0004, 1 / fv - quantum);
+      var damp = AC.createBiquadFilter();
+      damp.type = 'lowpass'; damp.frequency.value = 2600; damp.Q.value = 0.25;
+      var fb = AC.createGain(); fb.gain.value = 0.92;
+      var body = AC.createBiquadFilter();
+      body.type = 'bandpass'; body.frequency.value = fv; body.Q.value = 1.6;
+
+      S.inGain.connect(d);
+      d.connect(damp);
+      damp.connect(fb);
+      fb.connect(d);                     // the cycle — legal because it holds a DelayNode
+      damp.connect(body);
+      body.connect(S.outGain);
+      S.voices.push({ d:d, damp:damp, fb:fb, body:body, fv:fv, cents:cents });
+    }
+    S.outGain.connect(S.an);
+    S.outGain.connect(comp);
+    exciteGain.connect(S.inGain);
+    strings.push(S);
+  }
+}
+
+// Retune the detune spread live — saturation of the room controls the shimmer.
+function applySpread(){
+  if (!AC || !strings.length) return;
+  var quantum = 128 / AC.sampleRate;
+  var spread = 1.2 + sat * 9.0;            // cents
+  for (var i = 0; i < strings.length; i++){
+    var S = strings[i];
+    for (var v = 0; v < S.voices.length; v++){
+      var vo = S.voices[v];
+      var fv = S.freq * Math.pow(2, ((v === 0 ? -1 : 1) * spread) / 1200);
+      vo.fv = fv;
+      try { vo.d.delayTime.setTargetAtTime(Math.max(0.0004, 1 / fv - quantum), AC.currentTime, 0.08); } catch(e){}
+    }
+  }
+}
+
+// Brightness of the room → cutoff + decay. Cover the lens, the tone dies back.
+function applyLight(){
+  if (!AC) return;
+  var t = AC.currentTime;
+  var b = Math.max(0, Math.min(1, bright));
+  var cutoff = 320 * Math.pow(18.5, b);            // 320 Hz … ~5.9 kHz
+  var damping = 520 * Math.pow(7.0, b);            // in-loop damping
+  var fb = FB_MIN + (FB_MAX - FB_MIN) * b;
+  try { toneLP.frequency.setTargetAtTime(cutoff, t, 0.12); } catch(e){}
+  for (var i = 0; i < strings.length; i++){
+    for (var v = 0; v < strings[i].voices.length; v++){
+      var vo = strings[i].voices[v];
+      try {
+        vo.damp.frequency.setTargetAtTime(damping, t, 0.14);
+        vo.fb.gain.setTargetAtTime(damped ? 0.55 : fb, t, 0.10);
+      } catch(e){}
+    }
+  }
+}
+
+// Which strings does this sound want to ring? Weighted by the mic spectrum
+// near each fundamental, biased by the room's hue (warm → low, cool → high).
+function updateWeights(){
+  if (!AC || !micAn || !micFreq) return;
+  micAn.getByteFrequencyData(micFreq);
+  var nyq = AC.sampleRate / 2, bins = micFreq.length;
+  var tilt = (hue - 0.5) * 2;                       // -1 warm … +1 cool
+  var tot = 0, i, w = [];
+  for (i = 0; i < strings.length; i++){
+    var S = strings[i], e = 0;
+    for (var h = 1; h <= 3; h++){
+      var b = Math.round((S.freq * h) / nyq * bins);
+      if (b >= 0 && b < bins) e += micFreq[b] / 255 / h;
+    }
+    var pos = i / Math.max(1, strings.length - 1);  // 0 low … 1 high
+    var bias = 1 + tilt * (pos - 0.5) * 1.1;
+    var val = (0.22 + e) * Math.max(0.15, bias);
+    w.push(val); tot += val;
+  }
+  for (i = 0; i < strings.length; i++){
+    var norm = tot > 0.0001 ? w[i] / tot * strings.length : 1;
+    strings[i].weight = norm;
+    try { strings[i].inGain.gain.setTargetAtTime(Math.max(0.02, Math.min(1.4, norm * 0.5)), AC.currentTime, 0.05); } catch(e){}
+  }
+}
+
+// A short burst of the LIVE MIC opens onto the bank. Gating (rather than a
+// permanently open mic path) is what keeps this from howling on speakers.
+function excite(level){
+  if (!AC || !exciteGain) return;
+  var t = AC.currentTime;
+  var amp = Math.max(0.02, Math.min(0.55, level * 5.5));
+  try {
+    exciteGain.gain.cancelScheduledValues(t);
+    exciteGain.gain.setValueAtTime(Math.max(0.0008, exciteGain.gain.value), t);
+    exciteGain.gain.linearRampToValueAtTime(amp, t + 0.004);
+    exciteGain.gain.exponentialRampToValueAtTime(0.0008, t + 0.075);
+  } catch(e){}
+}
+
+// A finger on a string: a filtered noise burst into that one comb.
+function pluck(i, force){
+  if (!AC || !strings[i] || !noiseBuf) return;
+  var S = strings[i];
+  if (tNow - S.lastPluck < 110) return;
+  S.lastPluck = tNow;
+  var t = AC.currentTime;
+  var src = AC.createBufferSource(); src.buffer = noiseBuf;
+  var bp = AC.createBiquadFilter();
+  bp.type = 'bandpass'; bp.frequency.value = S.freq * 2.2; bp.Q.value = 0.9;
+  var g = AC.createGain();
+  var amp = 0.30 * (force === undefined ? 1 : Math.max(0.2, Math.min(1, force)));
+  g.gain.setValueAtTime(0, t);
+  g.gain.linearRampToValueAtTime(amp, t + 0.003);
+  g.gain.exponentialRampToValueAtTime(0.0008, t + 0.05);
+  src.connect(bp); bp.connect(g); g.connect(S.inGain);
+  try { src.start(t); src.stop(t + 0.12); } catch(e){}
+  S.flash = 1;
+}
+
+function rmsOf(arr){
+  var s = 0;
+  for (var i = 0; i < arr.length; i++){ var v = (arr[i] - 128) / 128; s += v * v; }
+  return Math.sqrt(s / Math.max(1, arr.length));
+}
+
+function showNotice(text, ms){
+  notice.textContent = text;
+  notice.classList.add('on');
+  noticeUntil = tNow + (ms || 2200);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  CAMERA + MIC
+// ═══════════════════════════════════════════════════════════════════════
+var facing = 'user', stream = null;
+
+function showError(e){
+  var msg = (e && e.message) ? e.message : String(e || 'unknown');
+  errBox.style.display = 'block';
+  errBox.textContent = 'カメラを起動できませんでした：' + msg +
+    '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+}
+
+function getMedia(withAudio){
+  var md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) return Promise.reject(new Error('getUserMedia is unavailable'));
+  return md.getUserMedia({
+    video: { facingMode: { ideal: facing }, width: { ideal: 640 }, height: { ideal: 480 } },
+    audio: withAudio ? {
+      echoCancellation: false, noiseSuppression: false, autoGainControl: false
+    } : false
+  });
+}
+
+function attachMic(st){
+  if (!AC || !st || !st.getAudioTracks || !st.getAudioTracks().length) return false;
+  try {
+    micSrc = AC.createMediaStreamSource(st);
+    micHP = AC.createBiquadFilter();
+    micHP.type = 'highpass'; micHP.frequency.value = 70; micHP.Q.value = 0.5;
+    micAn = AC.createAnalyser(); micAn.fftSize = 1024; micAn.smoothingTimeConstant = 0.55;
+    micTime = new Uint8Array(micAn.fftSize);
+    micFreq = new Uint8Array(micAn.frequencyBinCount);
+    micSrc.connect(micHP);
+    micHP.connect(micAn);          // analysis tap (never reaches the speakers)
+    micHP.connect(exciteGain);     // and the gated excitation path
+    return true;
+  } catch(e){ return false; }
+}
+
+function startAll(){
+  return getMedia(true).then(function(st){
+    stream = st;
+    video.srcObject = st;
+    var p = video.play();
+    micOK = attachMic(st);
+    return (p && p.then) ? p.catch(function(){}) : null;
+  }).catch(function(e){
+    // audio may be refused on its own — the instrument still works by finger
+    return getMedia(false).then(function(st){
+      stream = st; video.srcObject = st; micOK = false;
+      var p = video.play();
+      return (p && p.then) ? p.catch(function(){}) : null;
+    });
+  });
+}
+
+flipBtn.addEventListener('click', function(){
+  facing = (facing === 'user') ? 'environment' : 'user';
+  var old = stream;
+  getMedia(micOK).then(function(st){
+    if (old && old.getTracks) old.getTracks().forEach(function(tr){ tr.stop(); });
+    stream = st; video.srcObject = st;
+    if (micOK){ micOK = attachMic(st); }
+    var p = video.play(); if (p && p.then) p.catch(function(){});
+  }).catch(function(){ /* keep the previous stream */ });
+});
+
+dampBtn.addEventListener('click', function(){
+  damped = !damped;
+  dampBtn.textContent = damped ? '解放' : '消音';
+  dampBtn.classList.toggle('warn', damped);
+  applyLight();
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+//  LIGHT SENSOR — the camera reads the room, not a body
+// ═══════════════════════════════════════════════════════════════════════
+var lcan = document.createElement('canvas');
+lcan.width = LIGHT_W; lcan.height = LIGHT_H;
+var lctx = lcan.getContext('2d', { willReadFrequently:true });
+
+function readLight(){
+  if (!video.videoWidth || !video.videoHeight){ haveLight = false; return; }
+  try { lctx.drawImage(video, 0, 0, LIGHT_W, LIGHT_H); } catch(e){ haveLight = false; return; }
+  var d;
+  try { d = lctx.getImageData(0, 0, LIGHT_W, LIGHT_H).data; } catch(e){ haveLight = false; return; }
+  if (!d || d.length < LIGHT_W * LIGHT_H * 4){ haveLight = false; return; }
+  lightData = d; haveLight = true;
+
+  var n = LIGHT_W * LIGHT_H, sy = 0, sr = 0, sg = 0, sb = 0;
+  for (var i = 0; i < n; i++){
+    var o = i * 4, r = d[o], g = d[o+1], b = d[o+2];
+    sy += 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    sr += r; sg += g; sb += b;
+  }
+  var mb = (sy / n) / 255;
+  var ar = sr / n, ag = sg / n, ab = sb / n;
+  var mx = Math.max(ar, ag, ab), mn = Math.min(ar, ag, ab);
+  var msat = mx > 0.5 ? (mx - mn) / mx : 0;
+  // "hue" collapsed to a single warm↔cool axis, which is what the ear can follow
+  var warmCool = 0.5 + ((ab - ar) / 255) * 1.6;
+
+  // Brightness is the played gesture (cupping the lens), so it tracks fast —
+  // ~0.5s time constant at the 12Hz sample rate. Hue and saturation are
+  // timbral colour rather than gesture, so they stay deliberately slow.
+  bright += (Math.max(0, Math.min(1, mb)) - bright) * 0.16;
+  hue    += (Math.max(0, Math.min(1, warmCool)) - hue) * 0.05;
+  sat    += (Math.max(0, Math.min(1, msat)) - sat) * 0.05;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  RENDER
+// ═══════════════════════════════════════════════════════════════════════
+function drawGrid(){
+  ctx.fillStyle = '#f4f1ea';
+  ctx.fillRect(0, 0, W, H);
+  var u = Math.max(6, Math.round(Math.min(W, H) / 72));
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = 'rgba(207,216,224,.55)';
+  ctx.beginPath();
+  for (var x = 0; x <= W; x += u){ ctx.moveTo(x + .5, 0); ctx.lineTo(x + .5, H); }
+  for (var y = 0; y <= H; y += u){ ctx.moveTo(0, y + .5); ctx.lineTo(W, y + .5); }
+  ctx.stroke();
+  ctx.strokeStyle = 'rgba(139,139,149,.30)';
+  ctx.beginPath();
+  for (var x2 = 0; x2 <= W; x2 += u * 8){ ctx.moveTo(x2 + .5, 0); ctx.lineTo(x2 + .5, H); }
+  for (var y2 = 0; y2 <= H; y2 += u * 8){ ctx.moveTo(0, y2 + .5); ctx.lineTo(W, y2 + .5); }
+  ctx.stroke();
+}
+
+// SIGNATURE 1 — a real standing wave per string.
+function drawStrings(){
+  var fs = Math.max(8, Math.round(Math.min(W, H) * 0.019));
+  ctx.font = fs + 'px "IBM Plex Mono", monospace';
+  ctx.textBaseline = 'middle';
+  var span = Math.max(1, L.x1 - L.x0);
+
+  for (var i = 0; i < strings.length; i++){
+    var S = strings[i];
+    var y0 = L.y0 + L.gap * i;
+    var amp = S.level * Math.min(L.gap * 0.44, Math.min(W, H) * 0.055);
+    var mix = Math.max(0, Math.min(1, S.level * 2.4 + S.flash * 0.8));
+    var col = [
+      Math.round(35 + (214 - 35) * mix),
+      Math.round(35 + (69 - 35) * mix),
+      Math.round(42 + (47 - 42) * mix)
+    ];
+    var stroke = 'rgb(' + col[0] + ',' + col[1] + ',' + col[2] + ')';
+
+    // node ticks — where this mode's string is pinned
+    ctx.strokeStyle = 'rgba(139,139,149,.45)';
+    ctx.lineWidth = 1;
+    for (var k = 0; k <= S.mode; k++){
+      var nx = L.x0 + span * (k / S.mode);
+      ctx.beginPath(); ctx.moveTo(nx, y0 - 4); ctx.lineTo(nx, y0 + 4); ctx.stroke();
+    }
+
+    // two passes at opposite phase: photographic motion blur
+    for (var pass = 0; pass < 2; pass++){
+      var ph = S.phase + (pass ? Math.PI : 0);
+      ctx.strokeStyle = stroke;
+      ctx.globalAlpha = pass ? 0.30 : 1;
+      ctx.lineWidth = Math.max(1, Math.min(W, H) * (pass ? 0.0018 : 0.0026));
+      ctx.beginPath();
+      for (var s = 0; s <= 96; s++){
+        var u = s / 96;
+        var yy = y0 + amp * Math.sin(S.mode * Math.PI * u) * Math.sin(ph);
+        var xx = L.x0 + span * u;
+        if (s === 0) ctx.moveTo(xx, yy); else ctx.lineTo(xx, yy);
+      }
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+
+    // envelope trace — the oscilloscope ghost of the vibration
+    if (S.level > 0.02){
+      ctx.strokeStyle = 'rgba(214,69,47,' + Math.min(0.5, S.level * 1.1).toFixed(3) + ')';
+      ctx.lineWidth = 1;
+      for (var sgn = -1; sgn <= 1; sgn += 2){
+        ctx.beginPath();
+        for (var s2 = 0; s2 <= 48; s2++){
+          var u2 = s2 / 48;
+          var yy2 = y0 + sgn * amp * Math.abs(Math.sin(S.mode * Math.PI * u2));
+          var xx2 = L.x0 + span * u2;
+          if (s2 === 0) ctx.moveTo(xx2, yy2); else ctx.lineTo(xx2, yy2);
+        }
+        ctx.stroke();
+      }
+    }
+
+    // label + level readout
+    ctx.fillStyle = mix > 0.35 ? '#d6452f' : '#8b8b95';
+    ctx.textAlign = 'right';
+    ctx.fillText(S.name, L.x0 - fs * 0.7, y0);
+    ctx.textAlign = 'left';
+    ctx.fillStyle = 'rgba(139,139,149,.85)';
+    var barW = Math.min(W, H) * 0.030;
+    ctx.fillStyle = 'rgba(227,223,213,1)';
+    ctx.fillRect(L.x1 + fs * 0.5, y0 - 2, barW, 4);
+    ctx.fillStyle = mix > 0.35 ? '#d6452f' : '#23232a';
+    ctx.fillRect(L.x1 + fs * 0.5, y0 - 2, Math.max(0.5, barW * Math.min(1, S.level * 1.6)), 4);
+  }
+}
+
+// SIGNATURE 2 — the room as an ink halftone. Cover the lens, the dots swell.
+function drawHalftone(){
+  var R = L.halftone;
+  ctx.strokeStyle = '#23232a'; ctx.lineWidth = 1;
+  ctx.strokeRect(R.x + .5, R.y + .5, R.w, R.h);
+  ctx.fillStyle = '#8b8b95';
+  ctx.font = Math.max(7, Math.round(Math.min(W, H) * 0.013)) + 'px "IBM Plex Mono", monospace';
+  ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
+  ctx.fillText('ROOM / LIGHT SENSOR', R.x, R.y - 4);
+
+  if (!haveLight || !lightData){
+    ctx.fillStyle = '#8b8b95';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('NO SIGNAL', R.x + R.w / 2, R.y + R.h / 2);
+    return;
+  }
+  var cols = 30, rows = 22;
+  var cw = R.w / cols, chh = R.h / rows;
+  var rad = Math.min(cw, chh) * 0.62;
+  ctx.fillStyle = '#23232a';
+  for (var gy = 0; gy < rows; gy++){
+    for (var gx = 0; gx < cols; gx++){
+      var sxp = Math.min(LIGHT_W - 1, Math.floor((gx + 0.5) / cols * LIGHT_W));
+      var syp = Math.min(LIGHT_H - 1, Math.floor((gy + 0.5) / rows * LIGHT_H));
+      var o = (syp * LIGHT_W + sxp) * 4;
+      var lum = (0.2126 * lightData[o] + 0.7152 * lightData[o+1] + 0.0722 * lightData[o+2]) / 255;
+      var r = rad * Math.max(0, Math.min(1, 1 - lum));
+      if (r < 0.35) continue;
+      // mirrored so it reads like a mirror, as every other piece does
+      var px = R.x + R.w - (gx + 0.5) * cw;
+      var py = R.y + (gy + 0.5) * chh;
+      ctx.beginPath(); ctx.arc(px, py, r, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+}
+
+function drawSpectrum(){
+  var R = L.spec;
+  ctx.strokeStyle = 'rgba(139,139,149,.55)'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(R.x, R.y + R.h + .5); ctx.lineTo(R.x + R.w, R.y + R.h + .5); ctx.stroke();
+  ctx.fillStyle = '#8b8b95';
+  ctx.font = Math.max(7, Math.round(Math.min(W, H) * 0.013)) + 'px "IBM Plex Mono", monospace';
+  ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+  ctx.fillText(micOK ? 'ROOM SPECTRUM' : 'MIC OFF ／ 指で弦をなぞってください', R.x, R.y + R.h + 6);
+  if (!micOK || !micFreq) return;
+  var bars = 56;
+  for (var i = 0; i < bars; i++){
+    var b = Math.floor(Math.pow(i / bars, 1.7) * (micFreq.length * 0.62));
+    var v = micFreq[Math.min(micFreq.length - 1, b)] / 255;
+    var bh = Math.max(0.5, v * R.h);
+    ctx.fillStyle = v > 0.62 ? '#d6452f' : '#23232a';
+    ctx.fillRect(R.x + (i / bars) * R.w, R.y + R.h - bh, Math.max(1, R.w / bars * 0.55), bh);
+  }
+}
+
+function render(){
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  drawGrid();
+  drawHalftone();
+  drawStrings();
+  drawSpectrum();
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  MAIN LOOP
+// ═══════════════════════════════════════════════════════════════════════
+var lightTick = 0, weightTick = 0;
+
+function loop(t){
+  requestAnimationFrame(loop);
+  tNow = t;
+  var dt = lastT ? Math.min(0.05, (t - lastT) / 1000) : 0.016;
+  lastT = t;
+
+  if (state !== 'live'){ return; }
+
+  // the camera is a slow sensor; 12Hz is plenty and keeps the frame cheap
+  lightTick += dt;
+  if (lightTick > 0.083){ lightTick = 0; readLight(); applyLight(); applySpread(); }
+
+  // ── microphone: envelope follower + transient gate ──────────────────
+  if (micOK && micAn && micTime){
+    micAn.getByteTimeDomainData(micTime);
+    var rms = rmsOf(micTime);
+    roomLevel += (rms - roomLevel) * 0.25;
+    baseline += (rms - baseline) * (rms > baseline ? 0.012 : 0.06);
+    if (rms > TRANSIENT_FLOOR && rms > baseline * TRANSIENT_RATIO && t - lastTransient > TRANSIENT_MS){
+      lastTransient = t;
+      excite(rms - baseline);
+      // light up whichever strings this sound favours
+      for (var wi = 0; wi < strings.length; wi++){
+        if (strings[wi].weight > 1.0) strings[wi].flash = Math.min(1, strings[wi].flash + 0.5);
+      }
+    }
+    weightTick += dt;
+    if (weightTick > 0.1){ weightTick = 0; updateWeights(); }
+  }
+
+  // ── read every string's own analyser: this drives the drawing ───────
+  for (var i = 0; i < strings.length; i++){
+    var S = strings[i];
+    S.an.getByteTimeDomainData(S.buf);
+    var lv = Math.min(1, rmsOf(S.buf) * 3.4);
+    S.level += (lv - S.level) * Math.min(1, dt * 14);
+    S.flash = Math.max(0, S.flash - dt * 3.2);
+    S.phase += dt * (3.2 + (S.freq / 90));
+    if (S.phase > 1e6) S.phase = 0;
+  }
+
+  // ── howl guard: sustained loud output means the room is feeding back ─
+  if (outAn && outTime){
+    outAn.getByteTimeDomainData(outTime);
+    var orms = rmsOf(outTime);
+    if (orms > RUNAWAY_RMS){
+      if (!loudSince) loudSince = t;
+      else if (t - loudSince > RUNAWAY_MS){
+        loudSince = 0;
+        try { master.gain.setTargetAtTime(Math.max(0.15, master.gain.value * 0.55), AC.currentTime, 0.05); } catch(e){}
+        showNotice('ハウリング防止：音量を下げました', 2400);
+      }
+    } else loudSince = 0;
+  }
+
+  // ── meters ──────────────────────────────────────────────────────────
+  mBright.style.width = (bright * 100).toFixed(1) + '%';
+  vBright.textContent = (bright * 100).toFixed(0);
+  mHue.style.width = (hue * 100).toFixed(1) + '%';
+  vHue.textContent = hue < 0.42 ? '暖' : (hue > 0.58 ? '寒' : '中');
+  mRoom.style.width = (Math.min(1, roomLevel * 6) * 100).toFixed(1) + '%';
+  vRoom.textContent = micOK ? (Math.min(1, roomLevel * 6) * 100).toFixed(0) : 'OFF';
+
+  if (noticeUntil && t > noticeUntil){ notice.classList.remove('on'); noticeUntil = 0; }
+
+  render();
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  FINGER ON THE STRINGS
+// ═══════════════════════════════════════════════════════════════════════
+function stringAt(cx, cy){
+  if (cx < L.x0 - Math.min(W, H) * 0.06 || cx > L.x1 + Math.min(W, H) * 0.06) return -1;
+  var best = -1, bd = L.gap * 0.55;
+  for (var i = 0; i < strings.length; i++){
+    var d = Math.abs(cy - (L.y0 + L.gap * i));
+    if (d < bd){ bd = d; best = i; }
+  }
+  return best;
+}
+var dragging = false, lastStrum = -1;
+function localPt(e){
+  var r = canvas.getBoundingClientRect();
+  var sx = r.width > 0 ? W / r.width : 1, sy = r.height > 0 ? H / r.height : 1;
+  return { x: (e.clientX - r.left) * sx, y: (e.clientY - r.top) * sy };
+}
+canvas.addEventListener('pointerdown', function(e){
+  if (state !== 'live') return;
+  dragging = true;
+  var p = localPt(e); var i = stringAt(p.x, p.y);
+  if (i >= 0){ pluck(i, 1); lastStrum = i; }
+});
+canvas.addEventListener('pointermove', function(e){
+  if (!dragging || state !== 'live') return;
+  var p = localPt(e); var i = stringAt(p.x, p.y);
+  if (i >= 0 && i !== lastStrum){ pluck(i, 0.75); lastStrum = i; }
+});
+function endDrag(){ dragging = false; lastStrum = -1; }
+canvas.addEventListener('pointerup', endDrag);
+canvas.addEventListener('pointercancel', endDrag);
+canvas.addEventListener('pointerleave', endDrag);
+window.addEventListener('keydown', function(e){
+  if (state !== 'live') return;
+  var n = parseInt(e.key, 10);
+  if (n >= 1 && n <= strings.length) pluck(n - 1, 1);
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+//  HOW-TO DIAGRAM — two beats: the room rings it, the light colours it
+// ═══════════════════════════════════════════════════════════════════════
+var hctx = howto.getContext('2d');
+var hStart = 0;
+function drawHowto(t){
+  if (!hStart) hStart = t;
+  var T = ((t - hStart) / 1000) % 4.0;
+  var w = howto.width, h = howto.height;
+  hctx.fillStyle = '#faf8f3'; hctx.fillRect(0, 0, w, h);
+
+  var beatA = T < 2.0;
+  var u = beatA ? T / 2.0 : (T - 2.0) / 2.0;
+
+  // four little strings on the right
+  var sx0 = w * 0.42, sx1 = w * 0.92;
+  for (var i = 0; i < 4; i++){
+    var y = h * (0.24 + i * 0.17);
+    var env = beatA ? Math.max(0, 1 - Math.abs(u - 0.22) * 3.4) : (1 - u) * 0.35;
+    var amp = env * 11 * (i === 1 || i === 2 ? 1 : 0.6);
+    var damp = beatA ? 1 : (1 - u * 0.75);
+    hctx.strokeStyle = env > 0.35 ? '#d6452f' : '#23232a';
+    hctx.lineWidth = 1.4;
+    hctx.beginPath();
+    for (var s = 0; s <= 40; s++){
+      var uu = s / 40;
+      var yy = y + amp * damp * Math.sin(Math.PI * uu * (i % 2 ? 2 : 1)) * Math.sin(T * 26);
+      var xx = sx0 + (sx1 - sx0) * uu;
+      if (s === 0) hctx.moveTo(xx, yy); else hctx.lineTo(xx, yy);
+    }
+    hctx.stroke();
+  }
+
+  hctx.font = '10px "IBM Plex Mono", monospace';
+  hctx.textBaseline = 'middle';
+
+  if (beatA){
+    // beat 1: a sound in the room reaches the strings
+    var cx = w * 0.17, cy = h * 0.5;
+    hctx.strokeStyle = '#23232a'; hctx.lineWidth = 1.2;
+    for (var r = 0; r < 3; r++){
+      var rr = ((u * 2.1 + r * 0.33) % 1) * 46;
+      hctx.globalAlpha = Math.max(0, 1 - rr / 46);
+      hctx.beginPath(); hctx.arc(cx, cy, Math.max(1, rr), -0.9, 0.9); hctx.stroke();
+    }
+    hctx.globalAlpha = 1;
+    hctx.fillStyle = '#23232a';
+    hctx.beginPath(); hctx.arc(cx, cy, 6, 0, Math.PI * 2); hctx.fill();
+    hctx.fillStyle = '#8b8b95'; hctx.textAlign = 'center';
+    hctx.fillText('部屋の音', cx, cy + 30);
+  } else {
+    // beat 2: a hand covers the lens and the tone bar collapses
+    var lx = w * 0.17, ly = h * 0.44;
+    hctx.strokeStyle = '#23232a'; hctx.lineWidth = 1.2;
+    hctx.beginPath(); hctx.arc(lx, ly, 15, 0, Math.PI * 2); hctx.stroke();
+    hctx.beginPath(); hctx.arc(lx, ly, 7, 0, Math.PI * 2); hctx.stroke();
+    var cover = Math.max(0, Math.min(1, (u - 0.15) * 2.2));
+    hctx.fillStyle = '#23232a';
+    hctx.fillRect(lx - 22, ly - 22 + 44 * (1 - cover), 44, 44 * cover);
+    hctx.fillStyle = '#8b8b95'; hctx.textAlign = 'center';
+    hctx.fillText('レンズを覆う', lx, ly + 34);
+    // tone bar dropping
+    var bw = 56, bx = w * 0.42 - 8, by = h * 0.88;
+    hctx.strokeStyle = '#8b8b95'; hctx.lineWidth = 1;
+    hctx.strokeRect(bx + .5, by + .5, bw, 5);
+    hctx.fillStyle = '#d6452f';
+    hctx.fillRect(bx, by, Math.max(1, bw * (1 - cover * 0.85)), 5);
+    hctx.fillStyle = '#8b8b95'; hctx.textAlign = 'left';
+    hctx.fillText('音が暗くなる', bx + bw + 8, by + 3);
+  }
+}
+function howtoLoop(t){ if (state === 'boot'){ drawHowto(t); requestAnimationFrame(howtoLoop); } }
+
+// ═══════════════════════════════════════════════════════════════════════
+//  START
+// ═══════════════════════════════════════════════════════════════════════
+goBtn.addEventListener('click', function(){
+  goBtn.disabled = true;
+  goBtn.textContent = 'OPENING…';
+  var ok = initAudio();                   // built inside the gesture
+  if (!ok){
+    goBtn.disabled = false; goBtn.textContent = 'START';
+    showError(new Error('Web Audio is unavailable'));
+    return;
+  }
+  startAll().then(function(){
+    intro.classList.add('hide');
+    state = 'live';
+    applyLight();
+    if (!micOK) showNotice('マイクなし：弦を指でなぞって鳴らせます', 3600);
+  }).catch(function(e){
+    goBtn.disabled = false; goBtn.textContent = 'START';
+    showError(e);
+  });
+});
+
+requestAnimationFrame(loop);
+requestAnimationFrame(howtoLoop);
+
+// harness hooks
+window.__kyomei = {
+  get state(){ return state; },
+  get strings(){ return strings; },
+  get bright(){ return bright; },
+  get hue(){ return hue; },
+  get sat(){ return sat; },
+  get micOK(){ return micOK; },
+  get damped(){ return damped; },
+  pluck: function(i){ pluck(i, 1); },
+  stringAt: stringAt,
+  get layout(){ return L; }
+};
+
+})();
+</script>
+</body>
+</html>
