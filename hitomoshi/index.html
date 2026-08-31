@@ -1,0 +1,1382 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>HITOMOSHI ─ 火を運ぶ</title>
+<meta name="description" content="手に持った実物の色をカメラに覚えさせ、それを灯芯にして種火から行灯へ火を運ぶゲーム。急ぐほど炎は消える。">
+<meta name="theme-color" content="#1e1b33">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Yuji+Syuku&family=Zen+Maru+Gothic:wght@400;500;700&display=swap" rel="stylesheet">
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  HITOMOSHI ─ 火点し                     ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  PALETTE   宵闇 yoiyami  #1e1b33   deep dusk violet   (sky, top)
+            葡萄 ebi      #4a2a44   plum dusk          (sky, middle)
+            緋   hi       #a8412f   ember red          (sky, low)
+            柿  kaki      #d1743a   persimmon          (horizon)
+            生成 kinari   #f6e7c8   raw-paper cream    (text, lantern paper)
+            金  kin       #f7cf72   lamp gold          (flame core, lit lanterns)
+            MOOD: the ten minutes after sunset at a summer festival. Warm,
+            unhurried, glowing. Never black — the sky always has colour in it.
+
+  BACKGROUND  A four-stop vertical dusk gradient + a slow drifting haze layer
+            + hanging paper-lantern silhouettes that sway. No vignette,
+            no blurred orbs.
+
+  TYPE      Yuji Syuku (brush kaisho) for the title and all numerals — the
+            score reads like it was inked on a festival tally board.
+            Zen Maru Gothic (rounded) for UI copy. Wide letter-spacing on
+            small caps labels.
+
+  MOTION    Floaty and unhurried. Everything ease-out with a long tail;
+            embers rise and drift; lanterns sway on a pendulum. Nothing
+            snaps. Impacts bloom outward rather than punching.
+
+  SIGNATURE Heat-shimmer: the flame you carry warps the scene behind it via a
+            per-frame radial sinusoidal displacement drawn as concentric arc
+            slices, and every lit lantern casts a soft additive pool of light
+            onto the dusk. The screen visibly gets warmer as you light more.
+
+  AUDIO     Karplus-Strong plucked koto (offline-generated buffers, cached per
+            pitch) on the 陰旋法 in-sen scale for lighting; band-swept
+            filtered-noise "fwoosh" on ignition; a lowpassed noise puff with a
+            falling sine for the flame dying; a sine-sub + 4-note chord on
+            stage clear. Everything through one compressor.
+
+  INPUT     COLOUR TRACKING — no skeleton model at all. The player locks the
+            hue of any real object they are holding, and that object becomes
+            the wick. Nothing else in either gallery uses the camera this way.
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<style>
+  *{ margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body{
+    width:100%; height:100%; overflow:hidden; background:#1e1b33;
+    font-family:'Zen Maru Gothic',-apple-system,'Hiragino Maru Gothic ProN',system-ui,sans-serif;
+    color:#f6e7c8; user-select:none; -webkit-user-select:none;
+    overscroll-behavior:none;
+  }
+  #stage{ position:fixed; inset:0; overflow:hidden; background:#1e1b33; }
+  #video{
+    position:absolute; inset:0; width:100%; height:100%; object-fit:cover;
+    transform:scaleX(-1); opacity:.30; filter:saturate(.75) contrast(1.05);
+  }
+  #video.plain{ opacity:.92; filter:none; }
+  #fieldCanvas{ position:absolute; inset:0; width:100%; height:100%; }
+
+  /* ── HUD ───────────────────────────────────────────────── */
+  #hud{ position:absolute; inset:0; pointer-events:none; }
+  .lbl{ font-size:.54rem; letter-spacing:.32em; opacity:.62; display:block; line-height:1.6; }
+  .num{ font-family:'Yuji Syuku',serif; line-height:1; font-variant-numeric:tabular-nums; }
+
+  #tally{
+    position:absolute; top:max(.9rem,env(safe-area-inset-top)); left:1rem;
+    display:flex; gap:1.5rem; align-items:flex-end;
+    text-shadow:0 2px 10px rgba(20,12,30,.75);
+  }
+  #score{ font-size:2.1rem; }
+  #stageN{ font-size:1.25rem; opacity:.9; }
+  #chain{
+    font-size:1rem; color:#f7cf72; opacity:0;
+    transition:opacity .3s ease, transform .3s cubic-bezier(.2,.9,.3,1);
+    transform:translateY(4px);
+  }
+  #chain.on{ opacity:1; transform:translateY(0); }
+
+  /* oil lamp gauge — the only timer, and it has no digits */
+  #oilWrap{
+    position:absolute; left:1rem; bottom:max(1.1rem,env(safe-area-inset-bottom));
+    width:26px; height:min(38vh,220px);
+    border:1px solid rgba(246,231,200,.30); border-radius:13px;
+    overflow:hidden; background:rgba(30,22,45,.42);
+    box-shadow:0 4px 22px rgba(20,12,30,.5);
+  }
+  #oil{
+    position:absolute; left:0; right:0; bottom:0; height:100%;
+    background:linear-gradient(180deg,#f7cf72,#d1743a 60%,#a8412f);
+    transition:height .18s linear;
+  }
+  #oilWrap::after{
+    content:''; position:absolute; inset:0;
+    background:repeating-linear-gradient(180deg,rgba(30,22,45,.34) 0 1px,transparent 1px 14px);
+  }
+  #oilLbl{
+    position:absolute; left:calc(1rem + 34px); bottom:max(1.1rem,env(safe-area-inset-bottom));
+    writing-mode:vertical-rl; font-size:.54rem; letter-spacing:.42em; opacity:.5;
+  }
+
+  /* buttons */
+  .btns{
+    position:absolute; top:max(.9rem,env(safe-area-inset-top)); right:1rem;
+    display:flex; gap:.5rem; pointer-events:auto;
+  }
+  .btn{
+    font-family:inherit; font-size:.68rem; letter-spacing:.14em; color:#f6e7c8;
+    background:rgba(30,22,45,.55); border:1px solid rgba(246,231,200,.28);
+    border-radius:100px; padding:.5rem .85rem; cursor:pointer;
+    backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px);
+    transition:background .25s ease, border-color .25s ease, transform .25s cubic-bezier(.2,.9,.3,1);
+  }
+  .btn:hover,.btn:focus-visible{ background:rgba(209,116,58,.42); border-color:#f7cf72; outline:none; }
+  .btn:active{ transform:scale(.94); }
+
+  /* ── overlays ──────────────────────────────────────────── */
+  .sheet{
+    position:absolute; inset:0; z-index:20; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; gap:1.05rem; padding:1.6rem;
+    text-align:center;
+    background:
+      radial-gradient(120% 80% at 50% 120%, rgba(209,116,58,.30), transparent 62%),
+      linear-gradient(180deg,#1e1b33 0%,#3a2440 42%,#7d3634 78%,#a8412f 100%);
+    transition:opacity .5s ease, visibility .5s;
+  }
+  .sheet.hide{ opacity:0; visibility:hidden; pointer-events:none; }
+  .sheet h1{
+    font-family:'Yuji Syuku',serif; font-size:clamp(2.6rem,13vw,4.4rem);
+    letter-spacing:.14em; line-height:1; color:#f6e7c8;
+    text-shadow:0 0 34px rgba(247,207,114,.42);
+  }
+  .sheet .sub{ font-size:.62rem; letter-spacing:.46em; opacity:.62; }
+  .sheet p{ font-size:.82rem; line-height:2; max-width:22rem; opacity:.9; }
+  .sheet .fine{ font-size:.68rem; line-height:1.9; opacity:.6; max-width:22rem; }
+  .go{
+    margin-top:.4rem; font-family:'Yuji Syuku',serif; font-size:1.15rem; letter-spacing:.28em;
+    color:#241a2e; background:linear-gradient(180deg,#f7cf72,#d1743a);
+    border:none; border-radius:100px; padding:.85rem 2.4rem; cursor:pointer;
+    box-shadow:0 6px 30px rgba(247,207,114,.34);
+    transition:transform .3s cubic-bezier(.2,.9,.3,1), box-shadow .3s ease;
+  }
+  .go:hover{ transform:translateY(-2px) scale(1.03); box-shadow:0 10px 42px rgba(247,207,114,.5); }
+  .go:active{ transform:scale(.95); }
+  .go[disabled]{ opacity:.45; cursor:default; transform:none; box-shadow:none; }
+  #howto{ border-radius:12px; background:rgba(30,22,45,.35); border:1px solid rgba(246,231,200,.16); }
+
+  /* calibration */
+  #calib{ background:rgba(20,14,28,.55); backdrop-filter:blur(2px); -webkit-backdrop-filter:blur(2px); }
+  #ringBox{ position:relative; width:min(46vw,190px); aspect-ratio:1; }
+  #ring{
+    position:absolute; inset:0; border-radius:50%;
+    border:3px dashed rgba(246,231,200,.85);
+    box-shadow:0 0 0 9999px rgba(20,14,28,.45), 0 0 34px rgba(247,207,114,.3);
+    animation:breathe 2.6s ease-in-out infinite;
+  }
+  @keyframes breathe{ 0%,100%{ transform:scale(1); } 50%{ transform:scale(1.055); } }
+  #swatch{
+    position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
+    width:44%; aspect-ratio:1; border-radius:50%;
+    border:2px solid rgba(246,231,200,.55); background:#888;
+    transition:background .12s linear;
+  }
+  #calibHint{ font-size:.72rem; opacity:.72; min-height:1.6em; letter-spacing:.06em; }
+
+  /* game over */
+  #over{ z-index:22; }
+  #over .big{ font-family:'Yuji Syuku',serif; font-size:clamp(3rem,15vw,5rem); line-height:1; }
+  #over .row{ display:flex; gap:2.4rem; margin-top:.4rem; }
+  #over .row div{ text-align:center; }
+
+  #err{
+    position:absolute; z-index:40; left:50%; top:50%; transform:translate(-50%,-50%);
+    width:min(92vw,26rem); padding:1.4rem 1.5rem; border-radius:12px;
+    background:rgba(30,22,45,.94); border:1px solid rgba(246,231,200,.28);
+    font-size:.78rem; line-height:2; white-space:pre-wrap; display:none;
+  }
+  @media (max-width:520px){
+    #tally{ gap:1rem; } #score{ font-size:1.6rem; } #stageN{ font-size:1rem; }
+    #oilWrap{ width:20px; } #oilLbl{ display:none; }
+  }
+</style>
+</head>
+<body>
+<div id="stage">
+  <video id="video" playsinline autoplay muted></video>
+  <canvas id="fieldCanvas"></canvas>
+
+  <div id="hud">
+    <div id="tally">
+      <div><span class="lbl">SCORE</span><span class="num" id="score">0</span></div>
+      <div><span class="lbl">STAGE</span><span class="num" id="stageN">1</span></div>
+      <div><span class="num" id="chain">×1</span></div>
+    </div>
+    <div id="oilWrap"><div id="oil"></div></div>
+    <div id="oilLbl">あぶら</div>
+    <div class="btns">
+      <button class="btn" id="recalibBtn" type="button">🎨 色</button>
+      <button class="btn" id="flipBtn" type="button">⟲ カメラ</button>
+    </div>
+  </div>
+
+  <!-- ── start ─────────────────────────────────────────── -->
+  <section class="sheet" id="intro">
+    <div class="sub">OTO II ・ CARRY THE FLAME</div>
+    <h1>火点し</h1>
+    <canvas id="howto" width="440" height="200"></canvas>
+    <p>手に持ったものを<b>灯芯</b>にします。<br>種火にあてて火をもらい、行灯の前で<b>止まって</b>点ける。</p>
+    <p class="fine">通りすぎるだけでは点きません。静かに運ぶほど<br>灯りは美しく（静・和・急）、点数も油も多く得られます。</p>
+    <button class="go" id="startBtn" type="button">はじめる</button>
+  </section>
+
+  <!-- ── colour calibration ────────────────────────────── -->
+  <section class="sheet hide" id="calib">
+    <div class="sub">STEP 1 ・ COLOUR LOCK</div>
+    <p>持っているものを輪の中に入れてください。<br>マグでもペンでも、手のひらでも大丈夫です。</p>
+    <div id="ringBox"><div id="ring"></div><div id="swatch"></div></div>
+    <div id="calibHint">色をさがしています…</div>
+    <button class="go" id="lockBtn" type="button" disabled>この色でいく</button>
+  </section>
+
+  <!-- ── game over ─────────────────────────────────────── -->
+  <section class="sheet hide" id="over">
+    <div class="sub">油が尽きました</div>
+    <div class="big" id="overScore">0</div>
+    <div class="row">
+      <div><span class="lbl">STAGE</span><span class="num" id="overStage" style="font-size:1.4rem">1</span></div>
+      <div><span class="lbl">灯した数</span><span class="num" id="overLit" style="font-size:1.4rem">0</span></div>
+    </div>
+    <button class="go" id="retryBtn" type="button">もう一度</button>
+  </section>
+
+  <div id="err"></div>
+</div>
+
+<script>
+(function(){
+'use strict';
+
+// ═══════════════════════════════════════════════════════════════════════
+//  DOM
+// ═══════════════════════════════════════════════════════════════════════
+var video      = document.getElementById('video');
+var canvas     = document.getElementById('fieldCanvas');
+var ctx        = canvas.getContext('2d');
+var elScore    = document.getElementById('score');
+var elStage    = document.getElementById('stageN');
+var elChain    = document.getElementById('chain');
+var elOil      = document.getElementById('oil');
+var intro      = document.getElementById('intro');
+var calib      = document.getElementById('calib');
+var over       = document.getElementById('over');
+var startBtn   = document.getElementById('startBtn');
+var lockBtn    = document.getElementById('lockBtn');
+var retryBtn   = document.getElementById('retryBtn');
+var flipBtn    = document.getElementById('flipBtn');
+var recalibBtn = document.getElementById('recalibBtn');
+var swatch     = document.getElementById('swatch');
+var calibHint  = document.getElementById('calibHint');
+var errBox     = document.getElementById('err');
+var overScore  = document.getElementById('overScore');
+var overStage  = document.getElementById('overStage');
+var overLit    = document.getElementById('overLit');
+var howto      = document.getElementById('howto');
+
+// ═══════════════════════════════════════════════════════════════════════
+//  TUNABLES  (values settled against the headless harness, not guessed)
+// ═══════════════════════════════════════════════════════════════════════
+var SW = 160, SH = 120;          // colour-scan resolution
+var MIN_PIX      = 26;           // ≥26 of 19200 px must match to call it a lock
+var REFINE_R     = 34;           // px radius (scan space) for the outlier-reject pass
+var LOST_MS      = 260;          // no match for this long ⇒ tracking lost
+var POS_EMA      = 0.42;         // position smoothing
+var IGNITE_R     = 0.088;        // hit radii, fraction of min(W,H)
+var LANTERN_R    = 0.080;
+var NEAR_R       = 1.55;         // proximity-cue multiplier
+var OIL_MAX      = 40;           // seconds of oil at full
+var FUEL_SPEED_K = 1.10;         // extra burn per screen-width/second of travel
+var SPEED_CAP    = 2.4;          // clamp on measured speed so a tracking jump can't nuke the flame
+var CHAIN_CAP    = 5;
+// Reachable distance under a linear speed-burn is speed/(base+k*speed), which
+// RISES with speed and asymptotes to 1/k — so a burn penalty alone can never
+// make careful play better, it only sets a maximum reach (here ≈0.91 screens).
+// Smoothness is therefore rewarded where it works: the grade of each light.
+var CALM_SPEED   = 1.10;         // speed at which calmness reaches zero
+var GRADE_SEI    = 0.70;         // 静 — a still, deliberate carry
+var GRADE_WA     = 0.40;         // 和 — an ordinary carry
+var DEATH_OIL    = 1.2;          // seconds of oil lost when a flame dies
+// You cannot light a candle by swiping past it. The wick has to SETTLE on the
+// lantern — this is what makes hurrying lose, which a pure burn-rate penalty
+// mathematically cannot do (reachable distance rises with speed).
+var LIGHT_SPEED  = 0.85;         // max wick speed at the moment of contact
+
+function stageLanterns(s){ return Math.min(9, 3 + s); }
+function stageBurn(s){ return Math.min(0.34, 0.180 + 0.022 * (s - 1)); }
+
+// ═══════════════════════════════════════════════════════════════════════
+//  STATE
+// ═══════════════════════════════════════════════════════════════════════
+var state   = 'boot';            // boot | calib | play | over
+var W = 1, H = 1, DPR = 1, U = 1; // U = min(W,H), the layout unit
+var score = 0, stage = 1, chain = 0, litTotal = 0;
+var oil = OIL_MAX;
+var carrying = false, fuel = 0, calm = 1;
+var stageGradeSum = 0, stageGradeN = 0;
+var lanterns = [], source = { x:0.5, y:0.78, pulse:0 };
+var parts = [], trail = [], shake = 0, warmth = 0;
+var flashes = [];                 // expanding rings
+var floaters = [];                // score popups
+var lastT = 0, tNow = 0, hintTimer = 0;
+
+// tracker
+var target = null;                // {h,s,v,achromatic,css}
+var trk = { x:0.5, y:0.5, ok:false, lastSeen:-1e9, vx:0, vy:0, px:0.5, py:0.5, speed:0, init:false };
+
+// ═══════════════════════════════════════════════════════════════════════
+//  CANVAS SIZING
+// ═══════════════════════════════════════════════════════════════════════
+function resize(){
+  DPR = Math.min(2, window.devicePixelRatio || 1);
+  var cw = Math.max(1, window.innerWidth), ch = Math.max(1, window.innerHeight);
+  canvas.width  = Math.max(1, Math.round(cw * DPR));
+  canvas.height = Math.max(1, Math.round(ch * DPR));
+  canvas.style.width = cw + 'px'; canvas.style.height = ch + 'px';
+  W = canvas.width; H = canvas.height; U = Math.min(W, H);
+}
+window.addEventListener('resize', resize);
+window.addEventListener('orientationchange', resize);
+resize();
+
+// map a normalised video point to canvas pixels, matching object-fit:cover
+var mirror = true;
+function fitScale(){
+  var vw = video.videoWidth || 1280, vh = video.videoHeight || 720;
+  var s = Math.max(W / vw, H / vh);
+  return { s:s, dw:vw*s, dh:vh*s, ox:(W - vw*s)/2, oy:(H - vh*s)/2 };
+}
+function toScreen(nx, ny){
+  var f = fitScale();
+  var x = mirror ? (1 - nx) : nx;
+  return { x: f.ox + x * f.dw, y: f.oy + ny * f.dh };
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  AUDIO — Karplus-Strong koto, filtered-noise fwoosh, sine sub
+// ═══════════════════════════════════════════════════════════════════════
+var AC = null, master = null, comp = null, ksCache = {}, noiseBuf = null, proxOsc = null, proxGain = null;
+
+function initAudio(){
+  if (AC) { if (AC.state === 'suspended' && AC.resume) AC.resume(); return; }
+  var Ctor = window.AudioContext || window.webkitAudioContext;
+  if (!Ctor) return;
+  AC = new Ctor();
+  comp = AC.createDynamicsCompressor();
+  try {
+    comp.threshold.value = -20; comp.knee.value = 26;
+    comp.ratio.value = 10; comp.attack.value = 0.004; comp.release.value = 0.22;
+  } catch(e){}
+  master = AC.createGain();
+  master.gain.value = 0.85;
+  comp.connect(master); master.connect(AC.destination);
+
+  // white noise source buffer, generated once
+  var n = Math.max(1, Math.floor(AC.sampleRate * 1.2));
+  noiseBuf = AC.createBuffer(1, n, AC.sampleRate);
+  var d = noiseBuf.getChannelData(0);
+  for (var i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+
+  // proximity voice: a quiet sine that rises as you close on a lantern
+  proxOsc = AC.createOscillator(); proxOsc.type = 'sine';
+  proxGain = AC.createGain(); proxGain.gain.value = 0;
+  proxOsc.connect(proxGain); proxGain.connect(comp);
+  proxOsc.frequency.value = 440;
+  try { proxOsc.start(); } catch(e){}
+}
+function now(){ return AC ? AC.currentTime : 0; }
+function mtof(m){ return 440 * Math.pow(2, (m - 69) / 12); }
+
+// Offline-generated Karplus-Strong pluck: noise burst through a lowpassed
+// delay line. Cached per MIDI note — a koto string, not an oscillator.
+function ksBuffer(midi){
+  var key = String(midi);
+  if (ksCache[key]) return ksCache[key];
+  var sr = AC.sampleRate;
+  var f = mtof(midi);
+  var N = Math.max(2, Math.round(sr / f));
+  var len = Math.max(N + 8, Math.floor(sr * 1.9));
+  var buf = AC.createBuffer(1, len, sr);
+  var out = buf.getChannelData(0);
+  var line = new Float32Array(N);
+  var i;
+  for (i = 0; i < N; i++) line[i] = Math.random() * 2 - 1;
+  // brighten the excitation a touch so low notes still speak
+  var prev = 0, damp = 0.500 - Math.min(0.09, (midi - 50) * 0.0035); // higher notes decay faster
+  var idx = 0;
+  for (i = 0; i < len; i++){
+    var cur = line[idx];
+    var nxt = line[(idx + 1) % N];
+    var v = damp * (cur + nxt) + (1 - 2 * damp) * prev;
+    prev = v;
+    line[idx] = v * 0.9965;
+    out[i] = cur;
+    idx = (idx + 1) % N;
+  }
+  // fade the tail so the buffer never clicks at its end
+  var fade = Math.min(len, Math.floor(sr * 0.25));
+  for (i = 0; i < fade; i++) out[len - 1 - i] *= i / fade;
+  ksCache[key] = buf;
+  return buf;
+}
+
+function pluck(midi, gain, when){
+  if (!AC) return;
+  var t = (when || now()) + 0.001;
+  var src = AC.createBufferSource();
+  src.buffer = ksBuffer(midi);
+  var g = AC.createGain();
+  g.gain.value = 0;
+  g.gain.setValueAtTime(0, t);
+  g.gain.linearRampToValueAtTime(gain, t + 0.006);
+  var bp = AC.createBiquadFilter();
+  bp.type = 'lowpass'; bp.frequency.value = Math.min(9000, mtof(midi) * 7 + 900); bp.Q.value = 0.6;
+  src.connect(bp); bp.connect(g); g.connect(comp);
+  try { src.start(t); src.stop(t + 2.0); } catch(e){}
+}
+
+function noiseVoice(dur, f0, f1, q, gain, type){
+  if (!AC || !noiseBuf) return;
+  var t = now() + 0.001;
+  var src = AC.createBufferSource(); src.buffer = noiseBuf;
+  var bp = AC.createBiquadFilter(); bp.type = type || 'bandpass';
+  bp.frequency.setValueAtTime(f0, t);
+  bp.frequency.exponentialRampToValueAtTime(Math.max(30, f1), t + dur);
+  bp.Q.value = q;
+  var g = AC.createGain();
+  g.gain.setValueAtTime(0, t);
+  g.gain.linearRampToValueAtTime(gain, t + 0.02);
+  g.gain.exponentialRampToValueAtTime(0.0008, t + dur);
+  src.connect(bp); bp.connect(g); g.connect(comp);
+  try { src.start(t); src.stop(t + dur + 0.05); } catch(e){}
+}
+
+function sineVoice(f0, f1, dur, gain){
+  if (!AC) return;
+  var t = now() + 0.001;
+  var o = AC.createOscillator(); o.type = 'sine';
+  o.frequency.setValueAtTime(f0, t);
+  o.frequency.exponentialRampToValueAtTime(Math.max(20, f1), t + dur);
+  var g = AC.createGain();
+  g.gain.setValueAtTime(0, t);
+  g.gain.linearRampToValueAtTime(gain, t + 0.02);
+  g.gain.exponentialRampToValueAtTime(0.0008, t + dur);
+  o.connect(g); g.connect(comp);
+  try { o.start(t); o.stop(t + dur + 0.05); } catch(e){}
+}
+
+var sfx = {
+  ignite:  function(){ noiseVoice(0.55, 260, 2400, 1.1, 0.30); sineVoice(90, 220, 0.30, 0.16); },
+  die:     function(){ noiseVoice(0.60, 900, 130, 0.9, 0.16, 'lowpass'); sineVoice(300, 70, 0.55, 0.13); },
+  clear:   function(){
+             sineVoice(60, 45, 1.6, 0.22);
+             for (var i = 0; i < 4; i++) pluck(SCALE[i % SCALE.length] + 12, 0.30, now() + i * 0.09);
+           },
+  overSfx: function(){ sineVoice(180, 42, 1.5, 0.20); noiseVoice(1.1, 1400, 90, 0.7, 0.13, 'lowpass'); }
+};
+
+// 陰旋法 in-sen: D Eb G A Bb, two octaves
+var SCALE = [50,51,55,57,58,62,63,67,69,70,74];
+
+function setProximity(amount, pitchHz){
+  if (!AC || !proxGain || !proxOsc) return;
+  var t = now();
+  var g = Math.max(0, Math.min(0.055, amount * 0.055));
+  try {
+    proxGain.gain.setTargetAtTime(g, t, 0.05);
+    if (isFinite(pitchHz) && pitchHz > 20) proxOsc.frequency.setTargetAtTime(pitchHz, t, 0.06);
+  } catch(e){}
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  COLOUR TRACKING
+// ═══════════════════════════════════════════════════════════════════════
+var scan = document.createElement('canvas');
+scan.width = SW; scan.height = SH;
+var sctx = scan.getContext('2d', { willReadFrequently:true });
+var scanData = null;
+
+function rgb2hsv(r, g, b){
+  r /= 255; g /= 255; b /= 255;
+  var mx = r > g ? (r > b ? r : b) : (g > b ? g : b);
+  var mn = r < g ? (r < b ? r : b) : (g < b ? g : b);
+  var d = mx - mn, h = 0;
+  if (d > 0.0001){
+    if (mx === r)      h = ((g - b) / d) % 6;
+    else if (mx === g) h = (b - r) / d + 2;
+    else               h = (r - g) / d + 4;
+    h *= 60; if (h < 0) h += 360;
+  }
+  return { h:h, s: mx > 0.0001 ? d / mx : 0, v: mx };
+}
+function hueDist(a, b){ var d = Math.abs(a - b) % 360; return d > 180 ? 360 - d : d; }
+
+function grabScan(){
+  if (!video.videoWidth || !video.videoHeight) return false;
+  try { sctx.drawImage(video, 0, 0, SW, SH); } catch(e){ return false; }
+  try { scanData = sctx.getImageData(0, 0, SW, SH).data; } catch(e){ return false; }
+  return !!scanData && scanData.length >= SW * SH * 4;
+}
+
+// average colour inside the calibration ring (centre, radius 22% of the shorter side)
+function sampleRing(){
+  if (!scanData) return null;
+  var cx = SW / 2, cy = SH / 2, R = Math.min(SW, SH) * 0.22, R2 = R * R;
+  var sr = 0, sg = 0, sb = 0, n = 0;
+  for (var y = Math.max(0, Math.floor(cy - R)); y < Math.min(SH, Math.ceil(cy + R)); y++){
+    var dy = y - cy;
+    for (var x = Math.max(0, Math.floor(cx - R)); x < Math.min(SW, Math.ceil(cx + R)); x++){
+      var dx = x - cx;
+      if (dx * dx + dy * dy > R2) continue;
+      var i = (y * SW + x) * 4;
+      sr += scanData[i]; sg += scanData[i+1]; sb += scanData[i+2]; n++;
+    }
+  }
+  if (n < 12) return null;
+  return { r: sr / n, g: sg / n, b: sb / n, n: n };
+}
+
+function makeTarget(rgb){
+  var hsv = rgb2hsv(rgb.r, rgb.g, rgb.b);
+  var achromatic = hsv.s < 0.20;
+  return {
+    h: hsv.h, s: hsv.s, v: hsv.v,
+    achromatic: achromatic,
+    // a saturated target can afford a wide hue window; a pale one cannot
+    hueTol: achromatic ? 360 : (26 + 16 * Math.min(1, hsv.s)),
+    css: 'rgb(' + Math.round(rgb.r) + ',' + Math.round(rgb.g) + ',' + Math.round(rgb.b) + ')'
+  };
+}
+
+function pixelMatches(r, g, b){
+  var hsv = rgb2hsv(r, g, b);
+  if (target.achromatic){
+    return hsv.s < 0.30 && Math.abs(hsv.v - target.v) < 0.17;
+  }
+  return hsv.s > Math.max(0.16, target.s * 0.42) &&
+         hsv.v > 0.14 &&
+         hueDist(hsv.h, target.h) < target.hueTol;
+}
+
+// two-pass centroid: pass 1 finds the crowd, pass 2 keeps only pixels close to
+// it — that is what stops a stray same-coloured object across the room from
+// dragging the wick halfway off screen.
+function trackColour(t){
+  if (!target || !scanData){ trk.ok = false; return; }
+  var i, x, y, sx = 0, sy = 0, n = 0;
+  for (y = 0; y < SH; y += 1){
+    for (x = 0; x < SW; x += 1){
+      i = (y * SW + x) * 4;
+      if (pixelMatches(scanData[i], scanData[i+1], scanData[i+2])){ sx += x; sy += y; n++; }
+    }
+  }
+  if (n < MIN_PIX){ maybeLose(t); return; }
+  var cx = sx / n, cy = sy / n;
+  var sx2 = 0, sy2 = 0, n2 = 0, R2 = REFINE_R * REFINE_R;
+  for (y = Math.max(0, Math.floor(cy - REFINE_R)); y < Math.min(SH, Math.ceil(cy + REFINE_R)); y++){
+    var dy = y - cy;
+    for (x = Math.max(0, Math.floor(cx - REFINE_R)); x < Math.min(SW, Math.ceil(cx + REFINE_R)); x++){
+      var dx = x - cx;
+      if (dx * dx + dy * dy > R2) continue;
+      i = (y * SW + x) * 4;
+      if (pixelMatches(scanData[i], scanData[i+1], scanData[i+2])){ sx2 += x; sy2 += y; n2++; }
+    }
+  }
+  if (n2 < MIN_PIX){ maybeLose(t); return; }
+  var nx = (sx2 / n2) / SW, ny = (sy2 / n2) / SH;
+  if (!isFinite(nx) || !isFinite(ny)){ maybeLose(t); return; }
+  nx = Math.max(0, Math.min(1, nx)); ny = Math.max(0, Math.min(1, ny));
+
+  if (!trk.init || !trk.ok){
+    // fresh acquisition — snap, and zero the velocity so re-appearing after a
+    // dropout can never register as a huge speed and blow the flame out.
+    trk.x = nx; trk.y = ny; trk.px = nx; trk.py = ny;
+    trk.vx = 0; trk.vy = 0; trk.speed = 0; trk.init = true;
+  } else {
+    trk.x += (nx - trk.x) * POS_EMA;
+    trk.y += (ny - trk.y) * POS_EMA;
+  }
+  trk.ok = true;
+  trk.lastSeen = t;
+}
+function maybeLose(t){
+  if (trk.ok && t - trk.lastSeen > LOST_MS){
+    trk.ok = false; trk.vx = 0; trk.vy = 0; trk.speed = 0;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  CAMERA
+// ═══════════════════════════════════════════════════════════════════════
+var facing = 'user';
+function showError(e){
+  var msg = (e && e.message) ? e.message : String(e || 'unknown');
+  errBox.style.display = 'block';
+  errBox.textContent = 'カメラを起動できませんでした：' + msg +
+    '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+}
+function startStream(){
+  var md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) return Promise.reject(new Error('getUserMedia is unavailable'));
+  if (video.srcObject && video.srcObject.getTracks){
+    video.srcObject.getTracks().forEach(function(tr){ tr.stop(); });
+  }
+  return md.getUserMedia({
+    video: { facingMode: { ideal: facing }, width: { ideal: 1280 }, height: { ideal: 720 } },
+    audio: false
+  }).then(function(stream){
+    video.srcObject = stream;
+    mirror = (facing === 'user');
+    var p = video.play();
+    return (p && p.then) ? p.catch(function(){}) : null;
+  });
+}
+flipBtn.addEventListener('click', function(){
+  facing = (facing === 'user') ? 'environment' : 'user';
+  trk.ok = false; trk.init = false; trk.vx = 0; trk.vy = 0; trk.speed = 0;
+  startStream().catch(function(){ /* keep the previous stream */ });
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+//  PARTICLES / FLASHES / FLOATERS
+// ═══════════════════════════════════════════════════════════════════════
+function spawnEmber(x, y, hot){
+  if (parts.length > 380) return;
+  var a = Math.random() * Math.PI * 2, sp = (0.02 + Math.random() * 0.07) * U;
+  parts.push({
+    x:x, y:y,
+    vx:Math.cos(a) * sp * 0.5,
+    vy:Math.sin(a) * sp * 0.5 - (0.05 + Math.random() * 0.10) * U,
+    life:1, decay:0.55 + Math.random() * 0.7,
+    r:(0.003 + Math.random() * 0.006) * U,
+    hot: hot === undefined ? 1 : hot
+  });
+}
+function spawnBurst(x, y, n, power){
+  for (var i = 0; i < n; i++){
+    if (parts.length > 420) break;
+    var a = (i / n) * Math.PI * 2 + Math.random() * 0.5;
+    var sp = (0.10 + Math.random() * 0.28) * power * U;
+    parts.push({
+      x:x, y:y, vx:Math.cos(a) * sp, vy:Math.sin(a) * sp - 0.05 * U,
+      life:1, decay:0.75 + Math.random() * 0.8,
+      r:(0.0035 + Math.random() * 0.008) * U, hot:1
+    });
+  }
+}
+function ring(x, y, r0, r1, col, dur){ flashes.push({ x:x, y:y, r0:r0, r1:r1, col:col, t:0, dur:dur }); }
+function floatText(x, y, txt, col){ floaters.push({ x:x, y:y, txt:txt, col:col, t:0 }); }
+
+// ═══════════════════════════════════════════════════════════════════════
+//  STAGE SETUP
+// ═══════════════════════════════════════════════════════════════════════
+function rnd(a, b){ return a + Math.random() * (b - a); }
+
+function buildStage(){
+  lanterns = [];
+  var count = stageLanterns(stage);
+  source.x = rnd(0.30, 0.70);
+  source.y = rnd(0.68, 0.84);
+  var guard = 0;
+  while (lanterns.length < count && guard < 900){
+    guard++;
+    var x = rnd(0.12, 0.88), y = rnd(0.12, 0.66);
+    var dSrc = Math.hypot(x - source.x, y - source.y);
+    var okp = dSrc > 0.24 && dSrc < 0.78;
+    for (var i = 0; i < lanterns.length && okp; i++){
+      if (Math.hypot(x - lanterns[i].x, y - lanterns[i].y) < 0.19) okp = false;
+    }
+    if (!okp) continue;
+    lanterns.push({
+      x:x, y:y, lit:false, glow:0, pop:0,
+      sway: Math.random() * Math.PI * 2, tooFast: 0, swished: false,
+      note: SCALE[lanterns.length % SCALE.length]
+    });
+  }
+  // never leave a stage unbuildable — top up with looser spacing if needed
+  while (lanterns.length < count){
+    lanterns.push({
+      x: rnd(0.12, 0.88), y: rnd(0.12, 0.66), lit:false, glow:0, pop:0,
+      sway: Math.random() * Math.PI * 2, tooFast: 0, swished: false,
+      note: SCALE[lanterns.length % SCALE.length]
+    });
+  }
+  carrying = false; fuel = 0; calm = 1; chain = 0; stageGradeSum = 0; stageGradeN = 0; updateChain();
+}
+
+function resetGame(){
+  score = 0; stage = 1; chain = 0; litTotal = 0; oil = OIL_MAX;
+  warmth = 0; parts.length = 0; trail.length = 0; flashes.length = 0; floaters.length = 0;
+  buildStage();
+  elScore.textContent = '0';
+  elStage.textContent = '1';
+  state = 'play';
+}
+
+var clearing = false;
+function nextStage(){
+  if (clearing) return;          // idempotent: a stage can only clear once
+  clearing = true;
+  sfx.clear();
+  shake = Math.max(shake, 0.9);
+  var f = fitScale();
+  for (var i = 0; i < lanterns.length; i++){
+    var p = toScreen(lanterns[i].x, lanterns[i].y);
+    ring(p.x, p.y, U * 0.05, U * 0.34, 'rgba(247,207,114,ALPHA)', 0.9);
+    spawnBurst(p.x, p.y, 12, 0.7);
+  }
+  var avgGrade = stageGradeN ? (stageGradeSum / stageGradeN) : 1;
+  oil = Math.min(OIL_MAX, oil + OIL_MAX * (0.07 + 0.075 * avgGrade));
+  var bonus = Math.round(400 * stage * avgGrade);
+  score += bonus;
+  elScore.textContent = String(score);
+  var rank = avgGrade >= 2.6 ? '静' : avgGrade >= 1.9 ? '和' : '急';
+  floatText(W * 0.5, H * 0.42, rank + ' の点し  +' + bonus, '#f7cf72');
+  setTimeout(function(){
+    if (state !== 'play'){ clearing = false; return; }
+    stage++;
+    elStage.textContent = String(stage);
+    buildStage();
+    clearing = false;
+  }, 900);
+}
+
+var overFired = false;
+function gameOver(){
+  if (state !== 'play' || overFired) return;   // idempotent
+  overFired = true;
+  state = 'over';
+  sfx.overSfx();
+  setProximity(0, 440);
+  overScore.textContent = String(score);
+  overStage.textContent = String(stage);
+  overLit.textContent   = String(litTotal);
+  over.classList.remove('hide');
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  GAME UPDATE
+// ═══════════════════════════════════════════════════════════════════════
+function updateChain(){
+  if (chain >= 2){ elChain.textContent = '×' + Math.min(chain, CHAIN_CAP); elChain.classList.add('on'); }
+  else { elChain.classList.remove('on'); }
+}
+
+function updatePlay(dt){
+  // oil always drains — this is the only clock in the game
+  oil -= dt;
+  if (oil <= 0){ oil = 0; elOil.style.height = '0%'; gameOver(); return; }
+  elOil.style.height = (Math.max(0, Math.min(1, oil / OIL_MAX)) * 100).toFixed(1) + '%';
+
+  var f = fitScale();
+  // velocity in screen-widths per second, measured on the smoothed position
+  if (trk.ok){
+    var dx = trk.x - trk.px, dy = trk.y - trk.py;
+    trk.px = trk.x; trk.py = trk.y;
+    var inst = dt > 0 ? Math.hypot(dx, dy) / dt : 0;
+    if (!isFinite(inst)) inst = 0;
+    trk.speed += (Math.min(SPEED_CAP, inst) - trk.speed) * Math.min(1, dt * 9);
+  } else {
+    trk.speed += (0 - trk.speed) * Math.min(1, dt * 6);
+  }
+  // calmness: a slow-moving average of how gently the wick is being carried
+  var instCalm = Math.max(0, Math.min(1, 1 - trk.speed / CALM_SPEED));
+  calm += (instCalm - calm) * Math.min(1, dt * 2.6);
+
+  var hand = toScreen(trk.x, trk.y);
+  var srcP = toScreen(source.x, source.y);
+  source.pulse += dt * 2.2;
+
+  // ── ignition ────────────────────────────────────────────────────────
+  if (trk.ok && Math.hypot(hand.x - srcP.x, hand.y - srcP.y) < U * IGNITE_R){
+    if (!carrying || fuel < 0.62){
+      var wasCarrying = carrying;
+      carrying = true; fuel = 1;
+      if (!wasCarrying) calm = 1;
+      if (!wasCarrying){
+        sfx.ignite();
+        ring(srcP.x, srcP.y, U * 0.03, U * 0.26, 'rgba(255,170,70,ALPHA)', 0.55);
+        spawnBurst(srcP.x, srcP.y, 16, 0.8);
+      }
+    }
+  }
+
+  // ── burn ────────────────────────────────────────────────────────────
+  if (carrying){
+    var burn = stageBurn(stage) + FUEL_SPEED_K * trk.speed;
+    fuel -= burn * dt;
+    if (trk.ok && Math.random() < 0.9) spawnEmber(hand.x, hand.y, fuel);
+    if (fuel <= 0){
+      fuel = 0; carrying = false;
+      chain = 0; updateChain();
+      oil = Math.max(0, oil - DEATH_OIL);
+      sfx.die();
+      var dp = trk.ok ? hand : srcP;
+      ring(dp.x, dp.y, U * 0.02, U * 0.16, 'rgba(160,150,170,ALPHA)', 0.7);
+      for (var k = 0; k < 10; k++) spawnEmber(dp.x, dp.y, 0.15);
+    }
+  }
+
+  // ── lanterns ────────────────────────────────────────────────────────
+  var nearest = 0, remaining = 0;
+  for (var i = 0; i < lanterns.length; i++){
+    var L = lanterns[i];
+    L.sway += dt * (0.9 + i * 0.07);
+    L.pop  = Math.max(0, L.pop - dt * 2.2);
+    if (!L.lit) remaining++;
+    var lp = toScreen(L.x, L.y);
+    var d  = Math.hypot(hand.x - lp.x, hand.y - lp.y);
+
+    if (!L.lit && carrying && trk.ok){
+      var prox = Math.max(0, 1 - d / (U * LANTERN_R * NEAR_R));
+      if (prox > nearest) nearest = prox;
+      L.glow += (prox - L.glow) * Math.min(1, dt * 8);
+      if (d < U * LANTERN_R && trk.speed > LIGHT_SPEED){
+        // blown past — the lantern rocks, the air whistles, nothing lights
+        L.tooFast = 0.55;
+        L.sway += dt * 5.5;
+        if (!L.swished){
+          L.swished = true;
+          noiseVoice(0.16, 900, 2600, 2.2, 0.055);
+        }
+        hintTimer = 1.6;
+      } else if (d < U * LANTERN_R){
+        L.lit = true; L.pop = 1; L.glow = 1;
+        litTotal++;
+        chain++;
+        var mult = Math.min(chain, CHAIN_CAP);
+        // GRADE — how still was the hand that carried this flame here?
+        var gr = calm >= GRADE_SEI ? 3 : (calm >= GRADE_WA ? 2 : 1);
+        var grName = gr === 3 ? '静' : (gr === 2 ? '和' : '急');
+        var grCol  = gr === 3 ? '#f7cf72' : (gr === 2 ? '#f6e7c8' : '#e08a63');
+        stageGradeSum += gr; stageGradeN++;
+        var gained = 100 * mult * gr * stage;
+        score += gained;
+        elScore.textContent = String(score);
+        updateChain();
+        warmth = Math.min(1, warmth + 0.08);
+        oil = Math.min(OIL_MAX, oil + OIL_MAX * (gr === 3 ? 0.032 : gr === 2 ? 0.016 : 0.004));
+        fuel = Math.min(1, fuel + 0.30 + gr * 0.08);  // calm carries refill deeper
+        pluck(L.note + (gr === 3 ? 12 : 0), 0.30 + gr * 0.03);
+        noiseVoice(0.22, 1800, 500, 1.4, 0.10);
+        ring(lp.x, lp.y, U * 0.02, U * (0.16 + gr * 0.035),
+             (gr === 3 ? 'rgba(247,207,114,ALPHA)' : gr === 2 ? 'rgba(246,231,200,ALPHA)' : 'rgba(224,138,99,ALPHA)'), 0.6);
+        spawnBurst(lp.x, lp.y, 8 + gr * 4, 0.4 + gr * 0.12);
+        floatText(lp.x, lp.y - U * 0.06,
+                  grName + ' +' + gained + (mult > 1 ? '  ×' + mult : ''), grCol);
+        shake = Math.max(shake, 0.20 + gr * 0.05);
+        remaining--;
+      }
+    } else if (!L.lit){
+      L.glow += (0 - L.glow) * Math.min(1, dt * 5);
+    }
+    if (L.tooFast) L.tooFast = Math.max(0, L.tooFast - dt * 1.6);
+    if (L.swished && d > U * LANTERN_R * 1.3) L.swished = false;
+  }
+  setProximity(carrying ? nearest : 0, 520 + nearest * 640);
+
+  if (remaining <= 0 && lanterns.length > 0) nextStage();
+
+  // trail
+  if (trk.ok){
+    trail.push({ x:hand.x, y:hand.y, t:tNow, hot: carrying ? fuel : 0 });
+    if (trail.length > 34) trail.shift();
+  } else if (trail.length){
+    trail.shift();
+  }
+}
+
+function updateParticles(dt){
+  for (var i = parts.length - 1; i >= 0; i--){
+    var p = parts[i];
+    p.life -= p.decay * dt;
+    if (p.life <= 0){ parts.splice(i, 1); continue; }
+    p.vy += -0.10 * U * dt;              // embers rise
+    p.vx *= (1 - 1.6 * dt); p.vy *= (1 - 0.9 * dt);
+    p.x += p.vx * dt; p.y += p.vy * dt;
+  }
+  for (var j = flashes.length - 1; j >= 0; j--){
+    flashes[j].t += dt;
+    if (flashes[j].t > flashes[j].dur) flashes.splice(j, 1);
+  }
+  for (var k = floaters.length - 1; k >= 0; k--){
+    floaters[k].t += dt;
+    if (floaters[k].t > 1.5) floaters.splice(k, 1);
+  }
+  shake = Math.max(0, shake - dt * 2.4);
+  hintTimer = Math.max(0, hintTimer - dt);
+  warmth = Math.max(0, warmth - dt * 0.03);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  RENDER
+// ═══════════════════════════════════════════════════════════════════════
+var haze = 0;
+function easeOut(t){ return 1 - Math.pow(1 - t, 3); }
+
+function drawSky(){
+  var g = ctx.createLinearGradient(0, 0, 0, H);
+  var w = warmth;
+  g.addColorStop(0.00, 'rgb(' + Math.round(30 + 16*w) + ',' + Math.round(27 + 8*w) + ',' + Math.round(51 + 4*w) + ')');
+  g.addColorStop(0.42, 'rgb(' + Math.round(74 + 26*w) + ',' + Math.round(42 + 12*w) + ',' + Math.round(68 + 6*w) + ')');
+  g.addColorStop(0.78, 'rgb(' + Math.round(140 + 30*w) + ',' + Math.round(63 + 18*w) + ',' + Math.round(58 + 8*w) + ')');
+  g.addColorStop(1.00, 'rgb(' + Math.round(201 + 30*w) + ',' + Math.round(102 + 24*w) + ',' + Math.round(58 + 12*w) + ')');
+  ctx.globalAlpha = 0.82;
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  ctx.globalAlpha = 1;
+
+  // drifting haze bands — soft, slow, never a vignette
+  ctx.globalCompositeOperation = 'lighter';
+  for (var i = 0; i < 3; i++){
+    var y = H * (0.55 + i * 0.16) + Math.sin(haze * 0.22 + i) * H * 0.03;
+    var gg = ctx.createLinearGradient(0, y - H * 0.10, 0, y + H * 0.10);
+    gg.addColorStop(0, 'rgba(209,116,58,0)');
+    gg.addColorStop(0.5, 'rgba(209,116,58,' + (0.05 + 0.02 * i) + ')');
+    gg.addColorStop(1, 'rgba(209,116,58,0)');
+    ctx.fillStyle = gg; ctx.fillRect(0, y - H * 0.10, W, H * 0.20);
+  }
+  ctx.globalCompositeOperation = 'source-over';
+}
+
+function drawLantern(L){
+  var p = toScreen(L.x, L.y);
+  var s = U * 0.052;
+  var sway = Math.sin(L.sway) * 0.10;
+  var pop = easeOut(Math.min(1, 1 - L.pop)) ;
+  var scale = 1 + L.pop * 0.35;
+
+  ctx.save();
+  ctx.translate(p.x, p.y);
+  ctx.rotate(sway + (tf > 0.01 ? Math.sin(tNow * 0.045) * 0.22 * tf : 0));
+  ctx.scale(scale, scale);
+
+  // pooled light on the dusk
+  if (L.lit || L.glow > 0.01){
+    var lum = L.lit ? 1 : L.glow * 0.6;
+    ctx.globalCompositeOperation = 'lighter';
+    var g = ctx.createRadialGradient(0, 0, 0, 0, 0, s * 6.2);
+    g.addColorStop(0, 'rgba(247,207,114,' + (0.34 * lum).toFixed(3) + ')');
+    g.addColorStop(0.45, 'rgba(209,116,58,' + (0.13 * lum).toFixed(3) + ')');
+    g.addColorStop(1, 'rgba(209,116,58,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(0, 0, s * 6.2, 0, Math.PI * 2); ctx.fill();
+    ctx.globalCompositeOperation = 'source-over';
+  }
+
+  // cord
+  ctx.strokeStyle = 'rgba(246,231,200,.30)';
+  ctx.lineWidth = Math.max(1, U * 0.0022);
+  ctx.beginPath(); ctx.moveTo(0, -s * 1.5); ctx.lineTo(0, -s * 3.4); ctx.stroke();
+
+  // paper body — a rounded andon
+  var tf = L.tooFast || 0;
+  var body = L.lit
+    ? 'rgba(250,224,160,.94)'
+    : (tf > 0.01
+        ? 'rgba(' + Math.round(184 - 40 * tf) + ',' + Math.round(180 + 30 * tf) + ',' + Math.round(200 + 40 * tf) + ',' + (0.34 + L.glow * 0.42).toFixed(3) + ')'
+        : 'rgba(184,164,140,' + (0.34 + L.glow * 0.42).toFixed(3) + ')');
+  ctx.fillStyle = body;
+  ctx.beginPath();
+  ctx.ellipse(0, 0, s * 0.78, s * 1.14, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // ribs
+  ctx.strokeStyle = L.lit ? 'rgba(168,65,47,.42)' : 'rgba(30,22,45,.30)';
+  ctx.lineWidth = Math.max(1, U * 0.0016);
+  for (var r = -2; r <= 2; r++){
+    var yy = r * s * 0.34;
+    var hw = s * 0.78 * Math.sqrt(Math.max(0, 1 - Math.pow(yy / (s * 1.14), 2)));
+    ctx.beginPath(); ctx.moveTo(-hw, yy); ctx.lineTo(hw, yy); ctx.stroke();
+  }
+  // caps
+  ctx.fillStyle = L.lit ? 'rgba(120,46,38,.9)' : 'rgba(50,38,48,.75)';
+  ctx.fillRect(-s * 0.34, -s * 1.26, s * 0.68, s * 0.16);
+  ctx.fillRect(-s * 0.34,  s * 1.10, s * 0.68, s * 0.16);
+
+  ctx.restore();
+}
+
+function drawSource(){
+  var p = toScreen(source.x, source.y);
+  var s = U * 0.055;
+  var beat = 1 + Math.sin(source.pulse) * 0.07;
+
+  ctx.save(); ctx.translate(p.x, p.y);
+  ctx.globalCompositeOperation = 'lighter';
+  var g = ctx.createRadialGradient(0, 0, 0, 0, 0, s * 7 * beat);
+  g.addColorStop(0, 'rgba(255,196,110,.52)');
+  g.addColorStop(0.35, 'rgba(209,116,58,.20)');
+  g.addColorStop(1, 'rgba(209,116,58,0)');
+  ctx.fillStyle = g;
+  ctx.beginPath(); ctx.arc(0, 0, s * 7 * beat, 0, Math.PI * 2); ctx.fill();
+  ctx.globalCompositeOperation = 'source-over';
+
+  // brazier bowl
+  ctx.fillStyle = 'rgba(46,32,42,.92)';
+  ctx.beginPath();
+  ctx.moveTo(-s, s * 0.35); ctx.lineTo(s, s * 0.35);
+  ctx.lineTo(s * 0.66, s * 1.05); ctx.lineTo(-s * 0.66, s * 1.05);
+  ctx.closePath(); ctx.fill();
+  ctx.strokeStyle = 'rgba(247,207,114,.45)';
+  ctx.lineWidth = Math.max(1, U * 0.002); ctx.stroke();
+
+  drawFlameShape(0, -s * 0.15, s * 0.85 * beat, 1);
+  ctx.restore();
+
+  ctx.fillStyle = 'rgba(246,231,200,.55)';
+  ctx.font = Math.round(U * 0.026) + 'px "Zen Maru Gothic", sans-serif';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+  ctx.fillText('種火', p.x, p.y + s * 1.35);
+}
+
+// a teardrop flame built from two quadratics — used by the brazier and the wick
+function drawFlameShape(x, y, s, hot){
+  var wob = Math.sin(tNow * 0.011 + x * 0.01) * s * 0.14;
+  ctx.globalCompositeOperation = 'lighter';
+  var g = ctx.createRadialGradient(x, y, 0, x, y, s * 2.6);
+  g.addColorStop(0, 'rgba(255,242,205,' + (0.85 * hot).toFixed(3) + ')');
+  g.addColorStop(0.28, 'rgba(255,183,71,' + (0.46 * hot).toFixed(3) + ')');
+  g.addColorStop(1, 'rgba(255,107,44,0)');
+  ctx.fillStyle = g;
+  ctx.beginPath(); ctx.arc(x, y, s * 2.6, 0, Math.PI * 2); ctx.fill();
+
+  ctx.fillStyle = 'rgba(255,206,120,' + (0.92 * hot).toFixed(3) + ')';
+  ctx.beginPath();
+  ctx.moveTo(x, y - s * 1.7);
+  ctx.quadraticCurveTo(x + s * 0.8 + wob, y - s * 0.2, x, y + s * 0.75);
+  ctx.quadraticCurveTo(x - s * 0.8 + wob, y - s * 0.2, x, y - s * 1.7);
+  ctx.fill();
+  ctx.fillStyle = 'rgba(255,252,240,' + (0.9 * hot).toFixed(3) + ')';
+  ctx.beginPath();
+  ctx.moveTo(x, y - s * 0.85);
+  ctx.quadraticCurveTo(x + s * 0.34, y - s * 0.1, x, y + s * 0.42);
+  ctx.quadraticCurveTo(x - s * 0.34, y - s * 0.1, x, y - s * 0.85);
+  ctx.fill();
+  ctx.globalCompositeOperation = 'source-over';
+}
+
+// SIGNATURE — heat shimmer: concentric arc slices of the already-drawn scene
+// nudged by a travelling sine, so the dusk behind the flame ripples.
+function drawShimmer(cx, cy, strength){
+  if (strength <= 0.02) return;
+  var R = U * 0.20 * (0.7 + strength * 0.6);
+  var slices = 9;
+  for (var i = slices; i >= 1; i--){
+    var r = R * (i / slices);
+    var off = Math.sin(tNow * 0.006 + i * 0.9) * U * 0.006 * strength;
+    ctx.save();
+    ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.clip();
+    ctx.globalAlpha = 0.30;
+    try {
+      ctx.drawImage(canvas,
+        cx - r, cy - r, r * 2, r * 2,
+        cx - r + off, cy - r - Math.abs(off) * 0.6, r * 2, r * 2);
+    } catch(e){}
+    ctx.restore();
+  }
+  ctx.globalAlpha = 1;
+}
+
+function drawTrail(){
+  if (trail.length < 2) return;
+  ctx.globalCompositeOperation = 'lighter';
+  for (var i = 1; i < trail.length; i++){
+    var a = i / trail.length;
+    var p0 = trail[i-1], p1 = trail[i];
+    var hot = p1.hot;
+    ctx.strokeStyle = hot > 0
+      ? 'rgba(255,' + Math.round(150 + 80 * hot) + ',80,' + (a * a * 0.36 * hot).toFixed(3) + ')'
+      : 'rgba(246,231,200,' + (a * a * 0.10).toFixed(3) + ')';
+    ctx.lineWidth = Math.max(1, U * 0.012 * a * (0.4 + hot));
+    ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(p0.x, p0.y); ctx.lineTo(p1.x, p1.y); ctx.stroke();
+  }
+  ctx.globalCompositeOperation = 'source-over';
+}
+
+function drawReticle(){
+  var p = toScreen(trk.x, trk.y);
+  var seen = trk.ok;
+  var s = U * 0.032;
+  ctx.save(); ctx.translate(p.x, p.y);
+  ctx.globalAlpha = seen ? 1 : 0.30;
+  ctx.strokeStyle = target ? target.css : '#f6e7c8';
+  ctx.lineWidth = Math.max(1.5, U * 0.0028);
+  ctx.beginPath(); ctx.arc(0, 0, s, 0, Math.PI * 2); ctx.stroke();
+  ctx.strokeStyle = 'rgba(246,231,200,.75)';
+  for (var i = 0; i < 4; i++){
+    var a = i * Math.PI / 2 + Math.PI / 4 + tNow * 0.0006;
+    ctx.beginPath();
+    ctx.moveTo(Math.cos(a) * s * 1.25, Math.sin(a) * s * 1.25);
+    ctx.lineTo(Math.cos(a) * s * 1.7,  Math.sin(a) * s * 1.7);
+    ctx.stroke();
+  }
+  ctx.restore();
+  ctx.globalAlpha = 1;
+
+  if (!seen){
+    ctx.fillStyle = 'rgba(246,231,200,.72)';
+    ctx.font = Math.round(U * 0.028) + 'px "Zen Maru Gothic", sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('見失いました — もう一度かざして', W * 0.5, H * 0.5);
+  }
+}
+
+function render(){
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  ctx.save();
+  if (shake > 0.001){
+    var m = shake * U * 0.012;
+    ctx.translate((Math.random() - 0.5) * m, (Math.random() - 0.5) * m);
+  }
+
+  drawSky();
+
+  var i;
+  for (i = 0; i < lanterns.length; i++) drawLantern(lanterns[i]);
+  drawSource();
+  drawTrail();
+
+  // particles
+  ctx.globalCompositeOperation = 'lighter';
+  for (i = 0; i < parts.length; i++){
+    var p = parts[i];
+    var a = Math.max(0, Math.min(1, p.life));
+    var hot = Math.max(0, Math.min(1, p.hot));
+    ctx.fillStyle = 'rgba(255,' + Math.round(140 + 100 * hot) + ',' + Math.round(60 + 60 * hot) + ',' + (a * 0.8).toFixed(3) + ')';
+    ctx.beginPath(); ctx.arc(p.x, p.y, Math.max(0.5, p.r * a), 0, Math.PI * 2); ctx.fill();
+  }
+  // rings
+  for (i = 0; i < flashes.length; i++){
+    var fl = flashes[i];
+    var k = Math.max(0, Math.min(1, fl.t / fl.dur));
+    var r = fl.r0 + (fl.r1 - fl.r0) * easeOut(k);
+    ctx.strokeStyle = fl.col.replace('ALPHA', (1 - k).toFixed(3));
+    ctx.lineWidth = Math.max(1, U * 0.006 * (1 - k));
+    ctx.beginPath(); ctx.arc(fl.x, fl.y, Math.max(0.5, r), 0, Math.PI * 2); ctx.stroke();
+  }
+  ctx.globalCompositeOperation = 'source-over';
+
+  // the carried flame + its shimmer
+  if (state === 'play'){
+    var hp = toScreen(trk.x, trk.y);
+    if (carrying && fuel > 0){
+      drawShimmer(hp.x, hp.y, fuel);
+      drawFlameShape(hp.x, hp.y - U * 0.035, U * 0.030 * (0.45 + fuel * 0.75), Math.max(0.15, fuel));
+      // fuel arc — a ring that burns down, no numbers. Its colour is the
+      // live grade feedback: gold when still, red when you are hurrying.
+      var cg = Math.max(0, Math.min(1, calm));
+      ctx.strokeStyle = 'rgba(' + Math.round(247 - 25 * (1 - cg)) + ',' +
+                        Math.round(207 - 90 * (1 - cg)) + ',' +
+                        Math.round(114 - 40 * (1 - cg)) + ',.88)';
+      ctx.lineWidth = Math.max(2, U * 0.006);
+      ctx.beginPath();
+      ctx.arc(hp.x, hp.y, U * 0.048, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.max(0, Math.min(1, fuel)));
+      ctx.stroke();
+    }
+    drawReticle();
+    if (hintTimer > 0){
+      ctx.globalAlpha = Math.min(1, hintTimer / 0.5);
+      ctx.fillStyle = 'rgba(246,231,200,.92)';
+      ctx.font = Math.round(U * 0.038) + 'px "Zen Maru Gothic", sans-serif';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('灯の前で、止まる', W * 0.5, H * 0.14);
+      ctx.globalAlpha = 1;
+    }
+  }
+
+  // floating score text
+  for (i = 0; i < floaters.length; i++){
+    var fo = floaters[i];
+    var k2 = Math.min(1, fo.t / 1.5);
+    ctx.globalAlpha = 1 - k2 * k2;
+    ctx.fillStyle = fo.col;
+    ctx.font = '600 ' + Math.round(U * 0.042) + 'px "Yuji Syuku", serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(fo.txt, fo.x, fo.y - easeOut(k2) * U * 0.10);
+    ctx.globalAlpha = 1;
+  }
+
+  ctx.restore();
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  MAIN LOOP
+// ═══════════════════════════════════════════════════════════════════════
+function loop(t){
+  requestAnimationFrame(loop);
+  tNow = t;
+  var dt = lastT ? Math.min(0.05, (t - lastT) / 1000) : 0.016;
+  lastT = t;
+  haze += dt;
+
+  var got = grabScan();
+  if (state === 'calib'){
+    if (got){
+      var rgb = sampleRing();
+      if (rgb){
+        var css = 'rgb(' + Math.round(rgb.r) + ',' + Math.round(rgb.g) + ',' + Math.round(rgb.b) + ')';
+        swatch.style.background = css;
+        var hsv = rgb2hsv(rgb.r, rgb.g, rgb.b);
+        lockBtn.disabled = false;
+        calibHint.textContent = hsv.s < 0.20
+          ? 'うすい色です。はっきりした色のほうが追いやすい。'
+          : 'いい色です。ロックできます。';
+      }
+    }
+    return;
+  }
+
+  if (state === 'play'){
+    if (got) trackColour(t);
+    else maybeLose(t);
+    updatePlay(dt);
+  }
+  updateParticles(dt);
+  if (state === 'play' || state === 'over') render();
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  HOW-TO DIAGRAM — a 3.4s loop that teaches the gesture without words
+// ═══════════════════════════════════════════════════════════════════════
+var hctx = howto.getContext('2d');
+var hStart = 0;
+function drawHowto(t){
+  if (!hStart) hStart = t;
+  var T = ((t - hStart) / 1000) % 3.4;
+  var w = howto.width, h = howto.height;
+  hctx.clearRect(0, 0, w, h);
+
+  var srcX = w * 0.20, srcY = h * 0.66;
+  var lanX = w * 0.80, lanY = h * 0.36;
+
+  // brazier
+  hctx.fillStyle = 'rgba(46,32,42,.9)';
+  hctx.fillRect(srcX - 16, srcY + 6, 32, 14);
+  hctx.fillStyle = 'rgba(255,183,71,.95)';
+  hctx.beginPath();
+  hctx.moveTo(srcX, srcY - 20);
+  hctx.quadraticCurveTo(srcX + 11, srcY - 2, srcX, srcY + 8);
+  hctx.quadraticCurveTo(srcX - 11, srcY - 2, srcX, srcY - 20);
+  hctx.fill();
+
+  var phase, u;
+  if (T < 0.9)      { phase = 0; u = T / 0.9; }          // approach the flame
+  else if (T < 1.2) { phase = 1; u = (T - 0.9) / 0.3; }  // ignite
+  else if (T < 2.5) { phase = 2; u = (T - 1.2) / 1.3; }  // carry
+  else              { phase = 3; u = (T - 2.5) / 0.9; }  // lantern lights
+
+  var ox = w * 0.06, oy = h * 0.42, lit = false;
+  if (phase === 0){ var e = 1 - Math.pow(1 - u, 3); ox = w*0.06 + (srcX - w*0.06) * e; oy = h*0.42 + (srcY - h*0.42) * e; }
+  else if (phase === 1){ ox = srcX; oy = srcY; }
+  else if (phase === 2){ var e2 = u < .5 ? 2*u*u : 1 - Math.pow(-2*u+2,2)/2; ox = srcX + (lanX - srcX) * e2; oy = srcY + (lanY - srcY) * e2; }
+  else { ox = lanX; oy = lanY; lit = true; }
+
+  // lantern
+  hctx.fillStyle = lit ? 'rgba(250,224,160,.96)' : 'rgba(184,164,140,.45)';
+  hctx.beginPath(); hctx.ellipse(lanX, lanY, 15, 21, 0, 0, Math.PI * 2); hctx.fill();
+  if (lit){
+    hctx.strokeStyle = 'rgba(247,207,114,' + (1 - u).toFixed(2) + ')';
+    hctx.lineWidth = 2;
+    hctx.beginPath(); hctx.arc(lanX, lanY, 24 + u * 40, 0, Math.PI * 2); hctx.stroke();
+  }
+
+  // the object in your hand
+  hctx.fillStyle = '#5fd6c2';
+  hctx.beginPath(); hctx.arc(ox, oy, 11, 0, Math.PI * 2); hctx.fill();
+  hctx.strokeStyle = 'rgba(246,231,200,.8)'; hctx.lineWidth = 1.5;
+  hctx.beginPath(); hctx.arc(ox, oy, 16, 0, Math.PI * 2); hctx.stroke();
+
+  // the flame riding on it
+  if (phase >= 1){
+    var burn = phase === 2 ? (1 - u * 0.5) : 1;
+    hctx.fillStyle = 'rgba(255,206,120,' + burn.toFixed(2) + ')';
+    hctx.beginPath();
+    hctx.moveTo(ox, oy - 26);
+    hctx.quadraticCurveTo(ox + 8, oy - 14, ox, oy - 8);
+    hctx.quadraticCurveTo(ox - 8, oy - 14, ox, oy - 26);
+    hctx.fill();
+  }
+  hctx.fillStyle = 'rgba(246,231,200,.55)';
+  hctx.font = '11px "Zen Maru Gothic", sans-serif';
+  hctx.textAlign = 'left'; hctx.textBaseline = 'top';
+  hctx.fillText('種火', srcX - 14, srcY + 26);
+  hctx.textAlign = 'right';
+  hctx.fillText('行灯', lanX + 16, lanY + 26);
+}
+function howtoLoop(t){ if (state === 'boot'){ drawHowto(t); requestAnimationFrame(howtoLoop); } }
+
+// ═══════════════════════════════════════════════════════════════════════
+//  FLOW
+// ═══════════════════════════════════════════════════════════════════════
+startBtn.addEventListener('click', function(){
+  initAudio();                              // must happen inside the gesture
+  startBtn.disabled = true;
+  startBtn.textContent = 'カメラを起動中…';
+  startStream().then(function(){
+    intro.classList.add('hide');
+    video.classList.add('plain');           // show the camera plainly while aiming
+    calib.classList.remove('hide');
+    state = 'calib';
+  }).catch(function(e){
+    startBtn.disabled = false;
+    startBtn.textContent = 'はじめる';
+    showError(e);
+  });
+});
+
+lockBtn.addEventListener('click', function(){
+  var rgb = sampleRing();
+  if (!rgb) return;
+  target = makeTarget(rgb);
+  swatch.style.background = target.css;
+  calib.classList.add('hide');
+  video.classList.remove('plain');
+  overFired = false; clearing = false;
+  trk.init = false; trk.ok = false;
+  resetGame();
+  sfx.ignite();
+});
+
+recalibBtn.addEventListener('click', function(){
+  if (state === 'boot') return;
+  state = 'calib';
+  lockBtn.disabled = true;
+  calibHint.textContent = '色をさがしています…';
+  over.classList.add('hide');
+  calib.classList.remove('hide');
+  video.classList.add('plain');
+  setProximity(0, 440);
+});
+
+retryBtn.addEventListener('click', function(){
+  over.classList.add('hide');
+  overFired = false; clearing = false;
+  trk.init = false; trk.ok = false;
+  resetGame();
+});
+
+requestAnimationFrame(loop);
+requestAnimationFrame(howtoLoop);
+
+// expose a little for the headless harness
+window.__hitomoshi = {
+  get state(){ return state; },
+  get score(){ return score; },
+  get stage(){ return stage; },
+  get oil(){ return oil; },
+  get fuel(){ return fuel; },
+  get carrying(){ return carrying; },
+  get calm(){ return calm; },
+  get lanterns(){ return lanterns; },
+  get source(){ return source; },
+  get trk(){ return trk; },
+  get parts(){ return parts; },
+  setTarget: function(t){ target = t; },
+  makeTarget: makeTarget,
+  forceOil: function(v){ oil = v; }
+};
+
+})();
+</script>
+</body>
+</html>
