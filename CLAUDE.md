@@ -18,6 +18,24 @@
    UTC のコミット時刻から 9 時間進めた日付になる点に注意)。
    説明はカンマを含めない（含める場合は行全体を `"` で囲む）。
 
+### 作品台帳（Artifact）も一緒に更新する
+
+オーナー用の一覧ページを Artifact として公開している。**同じ URL を更新し続けること。**
+
+    https://claude.ai/code/artifact/76c24e8c-8a85-4af0-aeae-0ea369543780
+
+ソースは `tools/register.artifact.html`（このリポジトリ内）。手順:
+
+1. `tools/register.artifact.html` の `WORKS` 配列の**先頭**に今夜の作品を追加する
+   （`date` は JST、`key` は `game` / `inst` / `fx`)。
+2. Artifact ツールを `url` に上記 URL を指定して呼び、このファイルを publish する。
+   `url` を省くと**別の Artifact が新規作成されてしまう**ので必ず指定する。
+   publish 前に `action:"read"` でその URL を読むこと（読まずに publish すると拒否される）。
+3. `favicon` は再指定しない（🗂 のまま維持される）。
+
+集計・絞り込み・TSV 出力はページ側の JS が `WORKS` から自動生成するので、
+配列に 1 件足すだけでよい。
+
 ### works.csv は何のためにあるか
 
 オーナーが管理しているスプレッドシートが、この CSV を
