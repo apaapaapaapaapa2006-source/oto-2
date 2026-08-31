@@ -1,0 +1,1274 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Camera FX Studio</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  
+  html, body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #000;
+    font-family: 'SF Mono', 'Menlo', monospace;
+    color: #fff;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  
+  #stage {
+    position: fixed;
+    inset: 0;
+    background: #000;
+    overflow: hidden;
+  }
+  
+  #video {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    transform: scaleX(-1); /* mirror like front camera */
+  }
+  
+  canvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+  }
+  
+  #fxCanvas {
+    transform: scaleX(-1);
+  }
+  
+  /* permission overlay */
+  #intro {
+    position: fixed;
+    inset: 0;
+    background: radial-gradient(ellipse at center, #1a1a1a 0%, #000 70%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 24px;
+    z-index: 100;
+    padding: 24px;
+    text-align: center;
+  }
+  
+  #intro h1 {
+    font-family: 'Courier New', monospace;
+    font-size: 28px;
+    font-weight: 900;
+    letter-spacing: 4px;
+    background: linear-gradient(90deg, #00ff41, #fff, #00ff41);
+    background-size: 200% auto;
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    animation: shine 3s linear infinite;
+  }
+  
+  @keyframes shine {
+    to { background-position: 200% center; }
+  }
+  
+  #intro p {
+    font-size: 13px;
+    color: #888;
+    max-width: 280px;
+    line-height: 1.6;
+    letter-spacing: 1px;
+  }
+  
+  #intro .hint {
+    font-size: 11px;
+    color: #00ff41;
+    letter-spacing: 2px;
+    margin-top: 4px;
+  }
+  
+  #startBtn {
+    padding: 16px 40px;
+    background: #00ff41;
+    color: #000;
+    border: none;
+    font-family: inherit;
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 3px;
+    cursor: pointer;
+    border-radius: 2px;
+    box-shadow: 0 0 30px rgba(0,255,65,.5), inset 0 0 0 2px rgba(0,0,0,.2);
+    transition: transform .15s, box-shadow .15s;
+  }
+  
+  #startBtn:active {
+    transform: scale(.96);
+    box-shadow: 0 0 50px rgba(0,255,65,.8);
+  }
+  
+  /* top label */
+  #fxLabel {
+    position: absolute;
+    top: env(safe-area-inset-top, 20px);
+    left: 0;
+    right: 0;
+    text-align: center;
+    padding-top: 16px;
+    font-size: 11px;
+    letter-spacing: 6px;
+    color: rgba(255,255,255,.6);
+    text-transform: uppercase;
+    pointer-events: none;
+    z-index: 10;
+    text-shadow: 0 0 10px rgba(0,0,0,.8);
+  }
+  
+  #fxLabel .name {
+    display: block;
+    margin-top: 6px;
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: 4px;
+    color: #fff;
+  }
+  
+  /* bottom controls */
+  #controls {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    padding: 20px 16px calc(env(safe-area-inset-bottom, 16px) + 20px);
+    background: linear-gradient(to top, rgba(0,0,0,.85), rgba(0,0,0,0));
+    z-index: 10;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  
+  #effectRow {
+    display: flex;
+    gap: 10px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+    padding: 4px 2px;
+  }
+  
+  #effectRow::-webkit-scrollbar { display: none; }
+  
+  .fx-btn {
+    flex: 0 0 auto;
+    min-width: 72px;
+    height: 72px;
+    border: 1.5px solid rgba(255,255,255,.2);
+    background: rgba(20,20,20,.6);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    color: #fff;
+    border-radius: 18px;
+    font-family: inherit;
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    transition: all .2s cubic-bezier(.34, 1.56, .64, 1);
+    padding: 4px;
+    position: relative;
+    overflow: hidden;
+  }
+  
+  .fx-btn .icon {
+    font-size: 22px;
+    line-height: 1;
+    filter: drop-shadow(0 0 4px currentColor);
+  }
+  
+  .fx-btn.active {
+    border-color: var(--accent, #00ff41);
+    background: rgba(0,0,0,.7);
+    color: var(--accent, #00ff41);
+    transform: translateY(-4px);
+    box-shadow: 0 8px 24px rgba(0,0,0,.5), 0 0 20px var(--accent, #00ff41);
+  }
+  
+  .fx-btn:active {
+    transform: scale(.92);
+  }
+  
+  .fx-btn[data-fx="none"] { --accent: #fff; }
+  .fx-btn[data-fx="matrix"] { --accent: #00ff41; }
+  .fx-btn[data-fx="ascii"] { --accent: #ffaa00; }
+  .fx-btn[data-fx="glitch"] { --accent: #ff0066; }
+  .fx-btn[data-fx="thermal"] { --accent: #ff3300; }
+  .fx-btn[data-fx="kaleido"] { --accent: #00d4ff; }
+  .fx-btn[data-fx="pixel"] { --accent: #ff00ff; }
+  
+  /* shutter / flip row */
+  #actionRow {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 8px;
+  }
+  
+  .icon-btn {
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    border: none;
+    background: rgba(255,255,255,.12);
+    backdrop-filter: blur(20px);
+    color: #fff;
+    font-size: 18px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform .15s;
+  }
+  
+  .icon-btn:active { transform: scale(.9); }
+  
+  #shutter {
+    width: 68px;
+    height: 68px;
+    border-radius: 50%;
+    border: 4px solid #fff;
+    background: transparent;
+    cursor: pointer;
+    position: relative;
+    transition: transform .12s;
+  }
+  
+  #shutter::after {
+    content: '';
+    position: absolute;
+    inset: 4px;
+    border-radius: 50%;
+    background: #fff;
+    transition: all .12s;
+  }
+  
+  #shutter:active { transform: scale(.94); }
+  #shutter:active::after { background: #ff3b30; inset: 8px; }
+  
+  /* flash */
+  #flash {
+    position: fixed;
+    inset: 0;
+    background: #fff;
+    opacity: 0;
+    pointer-events: none;
+    z-index: 50;
+  }
+  
+  #flash.flashing {
+    animation: flash .4s ease-out;
+  }
+  
+  @keyframes flash {
+    0% { opacity: 0; }
+    10% { opacity: .9; }
+    100% { opacity: 0; }
+  }
+  
+  #error {
+    position: fixed;
+    inset: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    background: #000;
+    color: #ff3b30;
+    text-align: center;
+    padding: 24px;
+    z-index: 200;
+    font-size: 14px;
+    line-height: 1.6;
+  }
+  
+  /* gesture HUD */
+  #gestureHud {
+    position: absolute;
+    top: 50%;
+    left: 16px;
+    transform: translateY(-50%);
+    z-index: 11;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity .25s;
+  }
+  
+  #gestureHud.visible { opacity: 1; }
+  
+  #pinchBar {
+    width: 6px;
+    height: 180px;
+    background: rgba(255,255,255,.08);
+    border-radius: 3px;
+    overflow: hidden;
+    position: relative;
+    border: 1px solid rgba(255,255,255,.15);
+  }
+  
+  #pinchFill {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: linear-gradient(to top, #00ff41, #00d4ff);
+    height: 0%;
+    transition: height .08s linear;
+    box-shadow: 0 0 12px #00ff41;
+  }
+  
+  #pinchVal {
+    font-size: 10px;
+    color: rgba(255,255,255,.7);
+    letter-spacing: 2px;
+    font-family: 'SF Mono', monospace;
+    text-shadow: 0 0 6px rgba(0,0,0,.9);
+    min-width: 36px;
+    text-align: center;
+  }
+  
+  #pinchVal.armed {
+    color: #00ff41;
+    text-shadow: 0 0 8px #00ff41;
+  }
+  
+  /* gesture toggle button */
+  #gestureBtn {
+    position: relative;
+  }
+  
+  #gestureBtn.on {
+    background: rgba(0, 255, 65, .2);
+    color: #00ff41;
+    box-shadow: 0 0 16px rgba(0,255,65,.4), inset 0 0 0 1px #00ff41;
+  }
+  
+  #gestureBtn.on::after {
+    content: '';
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #00ff41;
+    box-shadow: 0 0 6px #00ff41;
+    animation: pulse 1.4s ease-in-out infinite;
+  }
+  
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: .3; }
+  }
+  
+  /* hand landmark canvas */
+  #handCanvas {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 9;
+    transform: scaleX(-1);
+  }
+  
+  /* toast for effect change */
+  #toast {
+    position: absolute;
+    top: 30%;
+    left: 50%;
+    transform: translate(-50%, -50%) scale(.8);
+    background: rgba(0,0,0,.7);
+    backdrop-filter: blur(20px);
+    border: 1.5px solid var(--toast-color, #00ff41);
+    color: var(--toast-color, #00ff41);
+    padding: 14px 28px;
+    border-radius: 16px;
+    font-size: 22px;
+    font-weight: 800;
+    letter-spacing: 4px;
+    pointer-events: none;
+    opacity: 0;
+    z-index: 12;
+    box-shadow: 0 0 30px var(--toast-color, #00ff41);
+    text-transform: uppercase;
+  }
+  
+  #toast.show {
+    animation: toastIn .8s cubic-bezier(.34, 1.56, .64, 1) forwards;
+  }
+  
+  @keyframes toastIn {
+    0% { opacity: 0; transform: translate(-50%, -50%) scale(.6); }
+    25% { opacity: 1; transform: translate(-50%, -50%) scale(1.05); }
+    50% { transform: translate(-50%, -50%) scale(1); }
+    100% { opacity: 0; transform: translate(-50%, -50%) scale(.95); }
+  }
+</style>
+</head>
+<body>
+
+<div id="intro">
+  <h1>CAMERA FX</h1>
+  <p>インカメラに6種類のリアルタイムエフェクト。マトリクス、ASCII、サーマルなど。</p>
+  <p class="hint">✋ 親指と人差し指でエフェクト切替</p>
+  <button id="startBtn">START</button>
+</div>
+
+<div id="stage">
+  <video id="video" autoplay playsinline muted></video>
+  <canvas id="fxCanvas"></canvas>
+  <canvas id="handCanvas"></canvas>
+  
+  <div id="fxLabel">
+    <span>EFFECT</span>
+    <span class="name" id="fxName">NONE</span>
+  </div>
+  
+  <div id="gestureHud">
+    <div id="pinchVal">--</div>
+    <div id="pinchBar"><div id="pinchFill"></div></div>
+  </div>
+  
+  <div id="toast"></div>
+  
+  <div id="controls">
+    <div id="effectRow">
+      <button class="fx-btn active" data-fx="none">
+        <span class="icon">○</span>
+        <span>NONE</span>
+      </button>
+      <button class="fx-btn" data-fx="matrix">
+        <span class="icon">⌬</span>
+        <span>MATRIX</span>
+      </button>
+      <button class="fx-btn" data-fx="ascii">
+        <span class="icon">#</span>
+        <span>ASCII</span>
+      </button>
+      <button class="fx-btn" data-fx="glitch">
+        <span class="icon">✕</span>
+        <span>GLITCH</span>
+      </button>
+      <button class="fx-btn" data-fx="thermal">
+        <span class="icon">◉</span>
+        <span>THERMAL</span>
+      </button>
+      <button class="fx-btn" data-fx="kaleido">
+        <span class="icon">✦</span>
+        <span>KALEIDO</span>
+      </button>
+      <button class="fx-btn" data-fx="pixel">
+        <span class="icon">▦</span>
+        <span>PIXEL</span>
+      </button>
+    </div>
+    
+    <div id="actionRow">
+      <button class="icon-btn" id="flipBtn" title="カメラ切替">⇄</button>
+      <button id="shutter" title="撮影"></button>
+      <button class="icon-btn" id="gestureBtn" title="ジェスチャー">✋</button>
+    </div>
+  </div>
+</div>
+
+<div id="flash"></div>
+
+<div id="error">
+  <div>
+    <p>カメラにアクセスできません。<br>ブラウザの設定でカメラを許可してください。</p>
+    <p id="errorDetail" style="font-size:11px;margin-top:12px;color:#888;"></p>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1646424915/hands.js" crossorigin="anonymous"></script>
+
+<script>
+(() => {
+  const video = document.getElementById('video');
+  const canvas = document.getElementById('fxCanvas');
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  const offscreen = document.createElement('canvas');
+  const offCtx = offscreen.getContext('2d', { willReadFrequently: true });
+  
+  let stream = null;
+  let facingMode = 'user';
+  let currentFx = 'none';
+  let raf = null;
+  
+  // Matrix rain state
+  const matrixChars = 'アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲン0123456789ABCDEFｱｲｳｴｵｶｷｸｹｺ'.split('');
+  let matrixCols = [];
+  let lastTime = 0;
+  
+  // Glitch state
+  let glitchOffset = 0;
+  let glitchTime = 0;
+  
+  // ============= START =============
+  document.getElementById('startBtn').addEventListener('click', async () => {
+    try {
+      await initCamera();
+      document.getElementById('intro').style.display = 'none';
+      startRender();
+    } catch (e) {
+      document.getElementById('error').style.display = 'flex';
+      document.getElementById('errorDetail').textContent = e.message || String(e);
+    }
+  });
+  
+  async function initCamera() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      throw new Error('このブラウザはカメラに対応していません');
+    }
+    if (stream) {
+      stream.getTracks().forEach(t => t.stop());
+    }
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode, width: { ideal: 1280 }, height: { ideal: 720 } },
+      audio: false
+    });
+    video.srcObject = stream;
+    await new Promise(res => {
+      if (video.readyState >= 2) res();
+      else video.onloadedmetadata = () => res();
+    });
+    await video.play();
+    resizeCanvas();
+  }
+  
+  function resizeCanvas() {
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = w * dpr;
+    canvas.height = h * dpr;
+    canvas.style.width = w + 'px';
+    canvas.style.height = h + 'px';
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    
+    // offscreen for sampling
+    offscreen.width = Math.floor(w / 4);
+    offscreen.height = Math.floor(h / 4);
+    
+    // matrix columns
+    initMatrix();
+  }
+  
+  window.addEventListener('resize', resizeCanvas);
+  window.addEventListener('orientationchange', () => setTimeout(resizeCanvas, 200));
+  
+  function initMatrix() {
+    const w = window.innerWidth;
+    const fontSize = 14;
+    const cols = Math.ceil(w / fontSize);
+    matrixCols = [];
+    for (let i = 0; i < cols; i++) {
+      matrixCols.push({
+        y: Math.random() * -window.innerHeight,
+        speed: 2 + Math.random() * 4,
+        chars: []
+      });
+    }
+  }
+  
+  // ============= EFFECT BUTTONS =============
+  document.querySelectorAll('.fx-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.fx-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      currentFx = btn.dataset.fx;
+      document.getElementById('fxName').textContent = btn.dataset.fx.toUpperCase();
+      // reset state for some effects
+      if (currentFx === 'matrix') initMatrix();
+    });
+  });
+  
+  // ============= FLIP CAMERA =============
+  document.getElementById('flipBtn').addEventListener('click', async () => {
+    facingMode = facingMode === 'user' ? 'environment' : 'user';
+    try {
+      await initCamera();
+    } catch (e) {
+      // fallback
+      facingMode = facingMode === 'user' ? 'environment' : 'user';
+      await initCamera();
+    }
+  });
+  
+  // ============= SHUTTER =============
+  document.getElementById('shutter').addEventListener('click', () => {
+    document.getElementById('flash').classList.add('flashing');
+    setTimeout(() => document.getElementById('flash').classList.remove('flashing'), 400);
+    saveSnapshot();
+  });
+  
+  function saveSnapshot() {
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const out = document.createElement('canvas');
+    out.width = w * dpr;
+    out.height = h * dpr;
+    const octx = out.getContext('2d');
+    
+    // draw mirrored video
+    octx.save();
+    octx.scale(-1, 1);
+    octx.drawImage(video, -out.width, 0, out.width, out.height);
+    octx.restore();
+    
+    // draw fx canvas (mirrored to match)
+    octx.save();
+    octx.scale(-1, 1);
+    octx.drawImage(canvas, -out.width, 0, out.width, out.height);
+    octx.restore();
+    
+    out.toBlob(blob => {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `camera-fx-${currentFx}-${Date.now()}.png`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }, 'image/png');
+  }
+  
+  // ============= GESTURE: HAND TRACKING =============
+  const handCanvas = document.getElementById('handCanvas');
+  const handCtx = handCanvas.getContext('2d');
+  const gestureBtn = document.getElementById('gestureBtn');
+  const gestureHud = document.getElementById('gestureHud');
+  const pinchFill = document.getElementById('pinchFill');
+  const pinchVal = document.getElementById('pinchVal');
+  const toast = document.getElementById('toast');
+  
+  let hands = null;
+  let handsActive = false;
+  let handsReady = false;
+  let handsLoop = null;
+  
+  // pinch state machine
+  // openness goes 0 (closed/pinch) -> 1 (fully open)
+  // we trigger when openness crosses thresholds AFTER returning past neutral zone
+  const PINCH_CLOSED = 0.25; // below = "閉じてる"
+  const PINCH_OPEN = 0.75;   // above = "開いてる"
+  let pinchState = 'neutral'; // 'closed' | 'open' | 'neutral'
+  let lastTrigger = 0;
+  const TRIGGER_COOLDOWN = 350; // ms
+  
+  function resizeHandCanvas() {
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    handCanvas.width = w * dpr;
+    handCanvas.height = h * dpr;
+    handCanvas.style.width = w + 'px';
+    handCanvas.style.height = h + 'px';
+    handCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+  window.addEventListener('resize', resizeHandCanvas);
+  resizeHandCanvas();
+  
+  async function initHands() {
+    if (hands) return;
+    if (typeof Hands === 'undefined') {
+      console.warn('MediaPipe Hands not loaded');
+      return;
+    }
+    hands = new Hands({
+      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1646424915/${file}`
+    });
+    hands.setOptions({
+      maxNumHands: 1,
+      modelComplexity: 0,
+      minDetectionConfidence: 0.6,
+      minTrackingConfidence: 0.5
+    });
+    hands.onResults(onHandsResults);
+    handsReady = true;
+  }
+  
+  function onHandsResults(results) {
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    handCtx.clearRect(0, 0, w, h);
+    
+    if (!results.multiHandLandmarks || results.multiHandLandmarks.length === 0) {
+      gestureHud.classList.remove('visible');
+      return;
+    }
+    
+    gestureHud.classList.add('visible');
+    const lm = results.multiHandLandmarks[0];
+    
+    // landmarks: 4 = thumb tip, 8 = index tip, 0 = wrist
+    const thumb = lm[4];
+    const index = lm[8];
+    const wrist = lm[0];
+    const middleMcp = lm[9]; // base of middle finger - used to normalize
+    
+    // hand scale = distance from wrist to middle MCP
+    const handScale = dist(wrist, middleMcp);
+    if (handScale < 0.01) return;
+    
+    // pinch distance normalized by hand size
+    const pinchDist = dist(thumb, index) / handScale;
+    // typical range: ~0.15 (closed) to ~1.5+ (open)
+    // map to 0..1 openness
+    let openness = (pinchDist - 0.15) / (1.3 - 0.15);
+    openness = Math.max(0, Math.min(1, openness));
+    
+    // update HUD
+    pinchFill.style.height = (openness * 100) + '%';
+    pinchVal.textContent = Math.round(openness * 100);
+    
+    // draw landmarks (camera is mirrored, handCanvas is mirrored too -> draw in raw coords)
+    drawHand(lm, w, h, openness);
+    
+    // state machine for triggering
+    const now = performance.now();
+    if (openness <= PINCH_CLOSED) {
+      if (pinchState === 'open') {
+        // open -> closed = previous
+        if (now - lastTrigger > TRIGGER_COOLDOWN) {
+          changeEffect(-1);
+          lastTrigger = now;
+        }
+      }
+      pinchState = 'closed';
+      pinchVal.classList.add('armed');
+    } else if (openness >= PINCH_OPEN) {
+      if (pinchState === 'closed') {
+        // closed -> open = next
+        if (now - lastTrigger > TRIGGER_COOLDOWN) {
+          changeEffect(1);
+          lastTrigger = now;
+        }
+      }
+      pinchState = 'open';
+      pinchVal.classList.add('armed');
+    } else {
+      pinchVal.classList.remove('armed');
+    }
+  }
+  
+  function dist(a, b) {
+    const dx = a.x - b.x;
+    const dy = a.y - b.y;
+    const dz = (a.z || 0) - (b.z || 0);
+    return Math.sqrt(dx*dx + dy*dy + dz*dz);
+  }
+  
+  function drawHand(lm, w, h, openness) {
+    // connections (subset of MediaPipe hand graph)
+    const connections = [
+      [0,1],[1,2],[2,3],[3,4],       // thumb
+      [0,5],[5,6],[6,7],[7,8],       // index
+      [5,9],[9,10],[10,11],[11,12],  // middle
+      [9,13],[13,14],[14,15],[15,16],// ring
+      [13,17],[17,18],[18,19],[19,20],
+      [0,17]
+    ];
+    
+    const armed = openness <= PINCH_CLOSED || openness >= PINCH_OPEN;
+    const color = armed ? '#00ff41' : 'rgba(255,255,255,0.6)';
+    
+    handCtx.strokeStyle = color;
+    handCtx.lineWidth = 2;
+    handCtx.shadowColor = armed ? '#00ff41' : 'transparent';
+    handCtx.shadowBlur = armed ? 10 : 0;
+    
+    for (const [a, b] of connections) {
+      handCtx.beginPath();
+      handCtx.moveTo(lm[a].x * w, lm[a].y * h);
+      handCtx.lineTo(lm[b].x * w, lm[b].y * h);
+      handCtx.stroke();
+    }
+    
+    // emphasize thumb (4) and index (8)
+    handCtx.fillStyle = armed ? '#00ff41' : '#fff';
+    for (const i of [4, 8]) {
+      handCtx.beginPath();
+      handCtx.arc(lm[i].x * w, lm[i].y * h, 6, 0, Math.PI * 2);
+      handCtx.fill();
+    }
+    
+    // line between thumb and index with openness-based style
+    handCtx.beginPath();
+    handCtx.moveTo(lm[4].x * w, lm[4].y * h);
+    handCtx.lineTo(lm[8].x * w, lm[8].y * h);
+    handCtx.strokeStyle = armed ? '#00ff41' : 'rgba(0, 212, 255, 0.7)';
+    handCtx.lineWidth = 3;
+    handCtx.setLineDash([4, 4]);
+    handCtx.stroke();
+    handCtx.setLineDash([]);
+    
+    handCtx.shadowBlur = 0;
+  }
+  
+  function changeEffect(dir) {
+    const btns = Array.from(document.querySelectorAll('.fx-btn'));
+    const currentIdx = btns.findIndex(b => b.classList.contains('active'));
+    let nextIdx = (currentIdx + dir + btns.length) % btns.length;
+    btns[nextIdx].click();
+    
+    // toast
+    const fxName = btns[nextIdx].dataset.fx;
+    const accentColors = {
+      none: '#ffffff', matrix: '#00ff41', ascii: '#ffaa00',
+      glitch: '#ff0066', thermal: '#ff3300', kaleido: '#00d4ff', pixel: '#ff00ff'
+    };
+    toast.style.setProperty('--toast-color', accentColors[fxName] || '#00ff41');
+    toast.textContent = (dir > 0 ? '▸ ' : '◂ ') + fxName.toUpperCase();
+    toast.classList.remove('show');
+    void toast.offsetWidth;
+    toast.classList.add('show');
+    
+    // haptic feedback (mobile)
+    if (navigator.vibrate) navigator.vibrate(20);
+  }
+  
+  // gesture button toggles tracking
+  gestureBtn.addEventListener('click', async () => {
+    if (!handsReady) {
+      try { await initHands(); } catch (e) { console.error(e); return; }
+    }
+    handsActive = !handsActive;
+    gestureBtn.classList.toggle('on', handsActive);
+    if (handsActive) {
+      startHandsLoop();
+    } else {
+      stopHandsLoop();
+      handCtx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+      gestureHud.classList.remove('visible');
+    }
+  });
+  
+  function startHandsLoop() {
+    if (handsLoop) return;
+    let processing = false;
+    const tick = async () => {
+      if (!handsActive) return;
+      if (!processing && video.readyState >= 2 && hands) {
+        processing = true;
+        try {
+          await hands.send({ image: video });
+        } catch (e) { /* ignore */ }
+        processing = false;
+      }
+      handsLoop = requestAnimationFrame(tick);
+    };
+    handsLoop = requestAnimationFrame(tick);
+  }
+  
+  function stopHandsLoop() {
+    if (handsLoop) {
+      cancelAnimationFrame(handsLoop);
+      handsLoop = null;
+    }
+  }
+  
+  // ============= RENDER LOOP =============
+  function startRender() {
+    if (raf) cancelAnimationFrame(raf);
+    const loop = (t) => {
+      const dt = t - lastTime;
+      lastTime = t;
+      render(t, dt);
+      raf = requestAnimationFrame(loop);
+    };
+    raf = requestAnimationFrame(loop);
+  }
+  
+  function render(t, dt) {
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    
+    // clear (transparent unless effect draws bg)
+    ctx.clearRect(0, 0, w, h);
+    
+    if (currentFx === 'none') {
+      video.style.opacity = '1';
+      return;
+    }
+    
+    if (currentFx === 'matrix') {
+      drawMatrix(t, dt, w, h);
+    } else if (currentFx === 'ascii') {
+      drawAscii(w, h);
+    } else if (currentFx === 'glitch') {
+      drawGlitch(t, w, h);
+    } else if (currentFx === 'thermal') {
+      drawThermal(w, h);
+    } else if (currentFx === 'kaleido') {
+      drawKaleido(t, w, h);
+    } else if (currentFx === 'pixel') {
+      drawPixel(w, h);
+    }
+  }
+  
+  // ============= EFFECT: MATRIX =============
+  // green falling characters whose density depends on the camera brightness underneath
+  function drawMatrix(t, dt, w, h) {
+    video.style.opacity = '0';
+    
+    // sample camera
+    if (video.readyState >= 2) {
+      offCtx.drawImage(video, 0, 0, offscreen.width, offscreen.height);
+    }
+    
+    // bg fade trail
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.12)';
+    ctx.fillRect(0, 0, w, h);
+    
+    const fontSize = 14;
+    ctx.font = `${fontSize}px monospace`;
+    ctx.textBaseline = 'top';
+    
+    const ow = offscreen.width;
+    const oh = offscreen.height;
+    let imgData;
+    try {
+      imgData = offCtx.getImageData(0, 0, ow, oh).data;
+    } catch (e) { imgData = null; }
+    
+    for (let i = 0; i < matrixCols.length; i++) {
+      const col = matrixCols[i];
+      const x = i * fontSize;
+      
+      // sample brightness at this column (mirrored sampling)
+      let bright = 1;
+      if (imgData) {
+        const sx = Math.floor((1 - x / w) * ow); // mirror
+        const sy = Math.floor((col.y / h) * oh);
+        if (sx >= 0 && sx < ow && sy >= 0 && sy < oh) {
+          const idx = (sy * ow + sx) * 4;
+          bright = (imgData[idx] + imgData[idx+1] + imgData[idx+2]) / (3 * 255);
+        }
+      }
+      
+      const ch = matrixChars[Math.floor(Math.random() * matrixChars.length)];
+      
+      // head - bright white-green
+      ctx.fillStyle = `rgba(200, 255, 200, ${0.9 * bright + 0.1})`;
+      ctx.shadowColor = '#00ff41';
+      ctx.shadowBlur = 8;
+      ctx.fillText(ch, x, col.y);
+      ctx.shadowBlur = 0;
+      
+      // trail behind - darker green
+      for (let k = 1; k < 8; k++) {
+        const ty = col.y - k * fontSize;
+        if (ty < -fontSize) break;
+        const trailCh = matrixChars[Math.floor(Math.random() * matrixChars.length)];
+        const alpha = (1 - k / 8) * (bright * 0.8 + 0.2);
+        ctx.fillStyle = `rgba(0, 255, 65, ${alpha})`;
+        ctx.fillText(trailCh, x, ty);
+      }
+      
+      col.y += col.speed * (dt > 0 ? dt / 16 : 1);
+      if (col.y > h + 100) {
+        col.y = -Math.random() * 200;
+        col.speed = 2 + Math.random() * 4;
+      }
+    }
+  }
+  
+  // ============= EFFECT: ASCII =============
+  // converts brightness to ascii characters in orange
+  function drawAscii(w, h) {
+    video.style.opacity = '0';
+    if (video.readyState < 2) return;
+    
+    const charset = ' .:-=+*#%@';
+    const cellW = 8;
+    const cellH = 12;
+    const cols = Math.ceil(w / cellW);
+    const rows = Math.ceil(h / cellH);
+    
+    offscreen.width = cols;
+    offscreen.height = rows;
+    offCtx.drawImage(video, 0, 0, cols, rows);
+    const data = offCtx.getImageData(0, 0, cols, rows).data;
+    
+    ctx.fillStyle = '#0a0500';
+    ctx.fillRect(0, 0, w, h);
+    
+    ctx.font = `bold ${cellH}px 'Courier New', monospace`;
+    ctx.textBaseline = 'top';
+    
+    for (let y = 0; y < rows; y++) {
+      for (let x = 0; x < cols; x++) {
+        const i = (y * cols + x) * 4;
+        const r = data[i], g = data[i+1], b = data[i+2];
+        const lum = (0.299*r + 0.587*g + 0.114*b) / 255;
+        const ch = charset[Math.floor(lum * (charset.length - 1))];
+        if (ch === ' ') continue;
+        const intensity = lum;
+        ctx.fillStyle = `rgb(${255 * intensity}, ${170 * intensity}, ${30 * intensity})`;
+        ctx.fillText(ch, x * cellW, y * cellH);
+      }
+    }
+  }
+  
+  // ============= EFFECT: GLITCH =============
+  // RGB channel split, scanlines, occasional tear
+  function drawGlitch(t, w, h) {
+    video.style.opacity = '0';
+    if (video.readyState < 2) return;
+    
+    const vw = video.videoWidth;
+    const vh = video.videoHeight;
+    if (!vw) return;
+    
+    // base
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, w, h);
+    
+    // RGB shift
+    const shift = 4 + Math.sin(t * 0.005) * 6;
+    
+    ctx.globalCompositeOperation = 'screen';
+    ctx.filter = 'url(#none)';
+    
+    // red channel
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = '#f00';
+    ctx.drawImage(video, -shift, 0, w, h);
+    ctx.globalCompositeOperation = 'multiply';
+    ctx.fillStyle = '#f00';
+    ctx.fillRect(-shift, 0, w, h);
+    
+    ctx.globalCompositeOperation = 'source-over';
+    
+    // simpler: draw 3 tinted copies offset
+    ctx.clearRect(0, 0, w, h);
+    ctx.globalCompositeOperation = 'lighter';
+    
+    // R
+    ctx.filter = 'brightness(1.3) contrast(1.1)';
+    ctx.fillStyle = 'red';
+    drawTinted(video, -shift, 0, w, h, [255, 0, 80]);
+    drawTinted(video, shift, 2, w, h, [0, 255, 200]);
+    drawTinted(video, 0, -2, w, h, [80, 80, 255]);
+    
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.filter = 'none';
+    
+    // tear bands
+    glitchTime += 1;
+    if (Math.random() < 0.08) glitchOffset = (Math.random() - 0.5) * 80;
+    if (Math.random() < 0.15) {
+      const numTears = 1 + Math.floor(Math.random() * 3);
+      for (let k = 0; k < numTears; k++) {
+        const ty = Math.random() * h;
+        const th = 4 + Math.random() * 30;
+        const tx = (Math.random() - 0.5) * 60;
+        try {
+          const slice = ctx.getImageData(0, ty, w, th);
+          ctx.putImageData(slice, tx, ty);
+        } catch(e){}
+      }
+    }
+    
+    // scanlines
+    ctx.globalCompositeOperation = 'multiply';
+    for (let y = 0; y < h; y += 3) {
+      ctx.fillStyle = 'rgba(0,0,0,0.35)';
+      ctx.fillRect(0, y, w, 1);
+    }
+    ctx.globalCompositeOperation = 'source-over';
+    
+    // hot pink overlay flicker
+    if (Math.random() < 0.04) {
+      ctx.fillStyle = 'rgba(255, 0, 102, 0.15)';
+      ctx.fillRect(0, 0, w, h);
+    }
+  }
+  
+  function drawTinted(src, dx, dy, dw, dh, color) {
+    const tmp = document.createElement('canvas');
+    tmp.width = dw; tmp.height = dh;
+    const tctx = tmp.getContext('2d');
+    tctx.drawImage(src, 0, 0, dw, dh);
+    tctx.globalCompositeOperation = 'multiply';
+    tctx.fillStyle = `rgb(${color[0]},${color[1]},${color[2]})`;
+    tctx.fillRect(0, 0, dw, dh);
+    ctx.drawImage(tmp, dx, dy);
+  }
+  
+  // ============= EFFECT: THERMAL =============
+  // brightness mapped to heatmap colors
+  function drawThermal(w, h) {
+    video.style.opacity = '0';
+    if (video.readyState < 2) return;
+    
+    offscreen.width = Math.floor(w / 2);
+    offscreen.height = Math.floor(h / 2);
+    offCtx.drawImage(video, 0, 0, offscreen.width, offscreen.height);
+    const img = offCtx.getImageData(0, 0, offscreen.width, offscreen.height);
+    const d = img.data;
+    
+    for (let i = 0; i < d.length; i += 4) {
+      const lum = (0.299*d[i] + 0.587*d[i+1] + 0.114*d[i+2]) / 255;
+      const c = thermalColor(lum);
+      d[i] = c[0]; d[i+1] = c[1]; d[i+2] = c[2];
+    }
+    offCtx.putImageData(img, 0, 0);
+    
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(offscreen, 0, 0, w, h);
+    
+    // vignette
+    const grad = ctx.createRadialGradient(w/2, h/2, h*0.3, w/2, h/2, h*0.7);
+    grad.addColorStop(0, 'rgba(0,0,0,0)');
+    grad.addColorStop(1, 'rgba(0,0,0,0.6)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, w, h);
+  }
+  
+  function thermalColor(l) {
+    // blue -> magenta -> red -> orange -> yellow -> white
+    if (l < 0.2) return [0, 0, l*5*120];
+    if (l < 0.4) {
+      const k = (l - 0.2) / 0.2;
+      return [k*180, 0, 120 + k*60];
+    }
+    if (l < 0.6) {
+      const k = (l - 0.4) / 0.2;
+      return [180 + k*75, k*60, 180 - k*180];
+    }
+    if (l < 0.8) {
+      const k = (l - 0.6) / 0.2;
+      return [255, 60 + k*150, 0];
+    }
+    const k = (l - 0.8) / 0.2;
+    return [255, 210 + k*45, k*220];
+  }
+  
+  // ============= EFFECT: KALEIDOSCOPE =============
+  function drawKaleido(t, w, h) {
+    video.style.opacity = '0';
+    if (video.readyState < 2) return;
+    
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, w, h);
+    
+    const segments = 8;
+    const angle = (Math.PI * 2) / segments;
+    const cx = w / 2;
+    const cy = h / 2;
+    const rotation = t * 0.0003;
+    
+    for (let i = 0; i < segments; i++) {
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.rotate(angle * i + rotation);
+      if (i % 2 === 1) ctx.scale(-1, 1);
+      
+      // clip wedge
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.arc(0, 0, Math.max(w, h), -angle/2, angle/2);
+      ctx.closePath();
+      ctx.clip();
+      
+      ctx.translate(-cx, -cy);
+      ctx.drawImage(video, 0, 0, w, h);
+      ctx.restore();
+    }
+    
+    // cyan tint
+    ctx.globalCompositeOperation = 'overlay';
+    const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(w, h)/2);
+    grad.addColorStop(0, 'rgba(0, 212, 255, 0.4)');
+    grad.addColorStop(1, 'rgba(80, 0, 200, 0.3)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, w, h);
+    ctx.globalCompositeOperation = 'source-over';
+    
+    // center sparkle
+    const sparkR = 30 + Math.sin(t * 0.005) * 10;
+    const sg = ctx.createRadialGradient(cx, cy, 0, cx, cy, sparkR);
+    sg.addColorStop(0, 'rgba(255,255,255,0.8)');
+    sg.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = sg;
+    ctx.fillRect(0, 0, w, h);
+  }
+  
+  // ============= EFFECT: PIXEL =============
+  // chunky pixelation + magenta neon outline
+  function drawPixel(w, h) {
+    video.style.opacity = '0';
+    if (video.readyState < 2) return;
+    
+    const px = 24;
+    const cols = Math.ceil(w / px);
+    const rows = Math.ceil(h / px);
+    
+    offscreen.width = cols;
+    offscreen.height = rows;
+    offCtx.drawImage(video, 0, 0, cols, rows);
+    const data = offCtx.getImageData(0, 0, cols, rows).data;
+    
+    ctx.fillStyle = '#0a0010';
+    ctx.fillRect(0, 0, w, h);
+    
+    for (let y = 0; y < rows; y++) {
+      for (let x = 0; x < cols; x++) {
+        const i = (y * cols + x) * 4;
+        const r = data[i], g = data[i+1], b = data[i+2];
+        const lum = (0.299*r + 0.587*g + 0.114*b) / 255;
+        if (lum < 0.1) continue;
+        
+        // posterize toward magenta/cyan
+        const hue = lum > 0.5 ? [255, lum*100, 255] : [lum*200, 0, 200];
+        ctx.fillStyle = `rgb(${hue[0]}, ${hue[1]}, ${hue[2]})`;
+        ctx.fillRect(x * px + 1, y * px + 1, px - 2, px - 2);
+        
+        // bright dot center
+        if (lum > 0.6) {
+          ctx.fillStyle = 'rgba(255,255,255,0.7)';
+          ctx.fillRect(x * px + px/2 - 2, y * px + px/2 - 2, 4, 4);
+        }
+      }
+    }
+    
+    // grid lines
+    ctx.strokeStyle = 'rgba(255, 0, 255, 0.15)';
+    ctx.lineWidth = 1;
+    for (let x = 0; x < w; x += px) {
+      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke();
+    }
+    for (let y = 0; y < h; y += px) {
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
+    }
+  }
+})();
+</script>
+
+</body>
+</html>
