@@ -1,0 +1,980 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>TOKI ─ 時間の層</title>
+<meta name="description" content="今と過去を同じ一枚に映すスリットスキャン。手のあるところだけが「今」で、離れるほど過去になる。握れば時間が止まる。">
+<meta name="theme-color" content="#06070a">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Zen+Kaku+Gothic+New:wght@300;500&display=swap" rel="stylesheet">
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  TOKI ─ 時の層                          ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  PALETTE   真空 shinkuu   #06070a   vacuum black      (ground)
+            燐光 rinkou    #7df9ff   phosphor cyan     (traces, type)
+            琥珀 kohaku    #ffb454   amber             (the active window)
+            紅   beni      #ff4fd8   magenta           (warnings, freeze)
+            残光 zankou    #12303a   after-glow        (grid, dim ticks)
+            MOOD: a laboratory oscilloscope at 3am. Cold, technical,
+            slightly radioactive. This is the ONE dark piece of today's
+            three — HITOMOSHI is warm dusk, KYOMEI is high-key paper.
+
+  BACKGROUND  Pure vacuum black behind the image; the chrome carries a fine
+            scanline field and CRT registration marks at the corners. The
+            video itself is never veiled — the effect IS the picture.
+
+  TYPE      Share Tech Mono throughout, uppercase, wide-tracked, with a
+            1px cyan/magenta fringe on the headings so the type reads as
+            phosphor rather than ink.
+
+  MOTION    Mechanical and instant. Nothing eases in: a mode change SNAPS,
+            and pays for it with a single CRT vertical roll plus a 70ms
+            band flash. The image itself is the only continuous motion.
+
+  SIGNATURE 1. YOUR HAND IS *NOW*. Every mode maps time onto space around
+               the hand: the pixels nearest it come from this instant, and
+               the further away they are the further back in time they are
+               sampled. You sweep the present across your own past.
+            2. THE BUFFER RULER. The bottom of the HUD draws the actual
+               ring buffer — one tick per stored frame, head marked, the
+               active depth window lit amber. You can watch the machine.
+
+  AUDIO     Near-silent by design: a filtered tape-hiss bed and a slow
+            drone whose pitch tracks the time depth, plus a relay clack on
+            mode change. Ambience, not accompaniment. Mutable.
+
+  ENGINEERING  Ring buffer of N reduced-resolution frames (~55k px each,
+            adapted down automatically if the measured frame rate sags).
+            Typed arrays are allocated once; one ImageData is reused for
+            output; SCAN copies whole rows with TypedArray.set because its
+            time offset is constant per row. Every mode writes every pixel.
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<style>
+  *{ margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body{
+    width:100%; height:100%; overflow:hidden; background:#06070a; color:#7df9ff;
+    font-family:'Share Tech Mono',ui-monospace,Menlo,monospace;
+    user-select:none; -webkit-user-select:none; overscroll-behavior:none;
+  }
+  #stage{ position:fixed; inset:0; overflow:hidden; background:#06070a; }
+  #video{ position:absolute; width:2px; height:2px; opacity:0; pointer-events:none; top:0; left:0; }
+  #screen{ position:absolute; inset:0; width:100%; height:100%; }
+
+  /* CRT chrome — scanlines live on the UI layer, never on the image */
+  #chrome{
+    position:absolute; inset:0; pointer-events:none; z-index:4;
+    background:repeating-linear-gradient(180deg,rgba(125,249,255,.030) 0 1px,transparent 1px 3px);
+    mix-blend-mode:screen;
+  }
+
+  #hud{ position:absolute; inset:0; z-index:5; pointer-events:none; }
+  .fringe{ text-shadow:1px 0 rgba(255,79,216,.55), -1px 0 rgba(125,249,255,.45); }
+
+  #title{
+    position:absolute; top:max(.85rem,env(safe-area-inset-top)); left:1rem;
+    font-size:.95rem; letter-spacing:.42em; color:#7df9ff;
+  }
+  #sub{
+    position:absolute; top:calc(max(.85rem,env(safe-area-inset-top)) + 1.25rem); left:1rem;
+    font-size:.54rem; letter-spacing:.28em; color:#3d7f8c;
+  }
+  #stats{
+    position:absolute; top:max(.85rem,env(safe-area-inset-top)); right:1rem;
+    text-align:right; font-size:.56rem; letter-spacing:.2em; color:#3d7f8c; line-height:1.9;
+  }
+  #stats b{ color:#7df9ff; font-weight:normal; }
+  #stats .frz{ color:#ff4fd8; }
+
+  /* mode rail */
+  #rail{
+    position:absolute; left:50%; transform:translateX(-50%);
+    bottom:calc(max(1rem,env(safe-area-inset-bottom)) + 3.4rem);
+    display:flex; gap:.15rem; z-index:6; pointer-events:auto;
+  }
+  .mode{
+    font-family:inherit; font-size:.66rem; letter-spacing:.2em;
+    background:transparent; border:none; color:#3d7f8c;
+    padding:.5rem .55rem; cursor:pointer;
+    transition:color .07s linear;
+  }
+  .mode:hover{ color:#7df9ff; }
+  .mode.on{ color:#ffb454; }
+  .mode.on::before{ content:'['; margin-right:.12em; }
+  .mode.on::after{ content:']'; margin-left:.12em; }
+
+  .btns{
+    position:absolute; bottom:max(1rem,env(safe-area-inset-bottom)); right:1rem;
+    display:flex; gap:.4rem; z-index:6;
+  }
+  .btn{
+    font-family:inherit; font-size:.6rem; letter-spacing:.16em; color:#7df9ff;
+    background:rgba(6,7,10,.7); border:1px solid #1d4a55; padding:.44rem .74rem;
+    cursor:pointer; transition:background .07s linear, border-color .07s linear, color .07s linear;
+  }
+  .btn:hover,.btn:focus-visible{ background:#7df9ff; color:#06070a; border-color:#7df9ff; outline:none; }
+  .btn:active{ background:#ffb454; border-color:#ffb454; color:#06070a; }
+  .btn.off{ color:#3d7f8c; border-color:#12303a; }
+
+  #depthLbl{
+    position:absolute; left:1rem; bottom:calc(max(1rem,env(safe-area-inset-bottom)) + 2.9rem);
+    font-size:.54rem; letter-spacing:.26em; color:#3d7f8c;
+  }
+  #depthLbl b{ color:#ffb454; font-weight:normal; }
+
+  #notice{
+    position:absolute; left:50%; top:14%; transform:translateX(-50%);
+    z-index:7; font-size:.6rem; letter-spacing:.18em; color:#ff4fd8;
+    border:1px solid #ff4fd8; padding:.4rem .85rem; background:rgba(6,7,10,.85);
+    opacity:0; transition:opacity .07s linear; white-space:nowrap; pointer-events:none;
+  }
+  #notice.on{ opacity:1; }
+
+  /* ── intro ──────────────────────────────────────────────── */
+  #intro{
+    position:absolute; inset:0; z-index:20; background:#06070a;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    gap:1rem; padding:1.6rem; text-align:center;
+    transition:opacity .18s linear, visibility .18s;
+  }
+  #intro.hide{ opacity:0; visibility:hidden; pointer-events:none; }
+  #intro h1{ font-size:clamp(2.1rem,10vw,3.6rem); letter-spacing:.5em; text-indent:.5em; color:#7df9ff; }
+  #intro .jp{ font-size:.62rem; letter-spacing:.44em; color:#3d7f8c; }
+  #intro p{
+    font-family:'Zen Kaku Gothic New',sans-serif; font-weight:300;
+    font-size:.82rem; line-height:2.05; max-width:23rem; color:#a8e8f0;
+  }
+  #intro .fine{ font-size:.68rem; color:#3d7f8c; line-height:1.95; }
+  #howto{ border:1px solid #12303a; background:#080b0f; }
+  #go{
+    font-family:inherit; font-size:.8rem; letter-spacing:.4em; text-indent:.4em;
+    color:#06070a; background:#7df9ff; border:1px solid #7df9ff;
+    padding:.75rem 2.1rem; cursor:pointer; margin-top:.3rem;
+    transition:background .07s linear, transform .07s linear;
+  }
+  #go:hover{ background:#ffb454; border-color:#ffb454; }
+  #go:active{ transform:scale(.97); }
+  #go[disabled]{ opacity:.4; cursor:default; }
+
+  #err{
+    position:absolute; z-index:40; left:50%; top:50%; transform:translate(-50%,-50%);
+    width:min(92vw,26rem); padding:1.2rem 1.3rem; background:rgba(6,7,10,.96);
+    border:1px solid #ff4fd8; color:#a8e8f0;
+    font-family:'Zen Kaku Gothic New',sans-serif; font-weight:300;
+    font-size:.76rem; line-height:2; white-space:pre-wrap; display:none;
+  }
+  @media (max-width:560px){
+    #title{ font-size:.78rem; letter-spacing:.3em; }
+    .mode{ font-size:.58rem; letter-spacing:.1em; padding:.5rem .3rem; }
+    #stats{ font-size:.5rem; }
+  }
+</style>
+</head>
+<body>
+<div id="stage">
+  <video id="video" playsinline autoplay muted></video>
+  <canvas id="screen"></canvas>
+  <div id="chrome"></div>
+
+  <div id="hud">
+    <div id="title" class="fringe">TOKI</div>
+    <div id="sub">TIME—DISPLACEMENT UNIT ／ 時の層</div>
+    <div id="stats">
+      <div>MODE <b id="sMode">SCAN</b></div>
+      <div>DEPTH <b id="sDepth">24</b>F</div>
+      <div>RES <b id="sRes">—</b></div>
+      <div><b id="sFps">—</b> FPS</div>
+      <div id="sHand">HAND ／ SEARCHING</div>
+    </div>
+    <div id="depthLbl">TIME DEPTH ／ <b id="depthName">中</b></div>
+  </div>
+
+  <div id="rail">
+    <button class="mode on" id="m0" type="button">SCAN</button>
+    <button class="mode" id="m1" type="button">TUNNEL</button>
+    <button class="mode" id="m2" type="button">WAKE</button>
+    <button class="mode" id="m3" type="button">PRISM</button>
+  </div>
+
+  <div class="btns">
+    <button class="btn" id="depthBtn" type="button">深さ</button>
+    <button class="btn" id="soundBtn" type="button">音</button>
+    <button class="btn" id="flipBtn" type="button">⟲ カメラ</button>
+  </div>
+
+  <div id="notice"></div>
+
+  <section id="intro">
+    <div class="jp">OTO II ／ エフェクト</div>
+    <h1>TOKI</h1>
+    <canvas id="howto" width="460" height="184"></canvas>
+    <p>一枚の絵の中に、<b>今</b>と<b>少し前</b>が同時に映ります。<br>手のあるところが「今」で、離れるほど過去です。</p>
+    <p class="fine">手をゆっくり動かすと、自分の残像が引き伸ばされます。<br><b>手を握る</b>と時間が止まり、止まった時間の中を探せます。</p>
+    <button id="go" type="button">START</button>
+  </section>
+
+  <div id="err"></div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+<script>
+(function(){
+'use strict';
+
+// ═══════════════════════════════════════════════════════════════════════
+//  DOM
+// ═══════════════════════════════════════════════════════════════════════
+var video    = document.getElementById('video');
+var canvas   = document.getElementById('screen');
+var ctx      = canvas.getContext('2d');
+var intro    = document.getElementById('intro');
+var goBtn    = document.getElementById('go');
+var flipBtn  = document.getElementById('flipBtn');
+var depthBtn = document.getElementById('depthBtn');
+var soundBtn = document.getElementById('soundBtn');
+var errBox   = document.getElementById('err');
+var notice   = document.getElementById('notice');
+var howto    = document.getElementById('howto');
+var sMode    = document.getElementById('sMode');
+var sDepth   = document.getElementById('sDepth');
+var sRes     = document.getElementById('sRes');
+var sFps     = document.getElementById('sFps');
+var sHand    = document.getElementById('sHand');
+var depthName= document.getElementById('depthName');
+var modeBtns = [document.getElementById('m0'), document.getElementById('m1'),
+                document.getElementById('m2'), document.getElementById('m3')];
+
+// ═══════════════════════════════════════════════════════════════════════
+//  CONSTANTS
+// ═══════════════════════════════════════════════════════════════════════
+var MODE_NAMES = ['SCAN','TUNNEL','WAKE','PRISM'];
+var RING_N     = 40;                    // stored frames
+var DEPTHS     = [10, 24, 38];          // frames back, per depth level
+var DEPTH_JP   = ['浅','中','深'];
+var TARGET_PX  = 55000;                 // internal pixels — the real-time budget
+var MIN_PX     = 20000;
+var GESTURE_HOLD = 4;                   // frames of agreement before freeze toggles
+var GESTURE_COOLDOWN = 420;             // ms between freeze toggles
+
+// ═══════════════════════════════════════════════════════════════════════
+//  STATE
+// ═══════════════════════════════════════════════════════════════════════
+var state = 'boot';                     // boot | live
+var W = 1, H = 1, DPR = 1;
+var IW = 0, IH = 0;                     // internal buffer size
+var ring = [], head = 0, filled = 0;
+var outImg = null, wake = null;
+var mode = 0, depthIdx = 1, frozen = false, soundOn = true;
+var nowX = 0.5, nowY = 0.5;             // "now" point, normalised to the buffer
+var handLm = null, handSeen = 0, handAlive = false;
+var handSerial = 0, seenSerial = -1;
+var fistFrames = 0, openFrames = 0, lastToggle = -1e9;
+var rollT = 0, flashT = 0;
+var tNow = 0, lastT = 0, fps = 60, fpsAcc = 0, fpsN = 0, slowFor = 0;
+var noticeUntil = 0;
+var autoPhase = 0;
+
+// ═══════════════════════════════════════════════════════════════════════
+//  BUFFERS
+// ═══════════════════════════════════════════════════════════════════════
+var capCan = document.createElement('canvas');
+var capCtx = capCan.getContext('2d', { willReadFrequently:true });
+var outCan = document.createElement('canvas');
+var outCtx = outCan.getContext('2d');
+
+function allocBuffers(budget){
+  var aspect = W / Math.max(1, H);
+  var ih = Math.max(60, Math.round(Math.sqrt(Math.max(MIN_PX, budget) / Math.max(0.2, aspect))));
+  var iw = Math.max(80, Math.round(ih * aspect));
+  IW = iw; IH = ih;
+  capCan.width = IW; capCan.height = IH;
+  outCan.width = IW; outCan.height = IH;
+  var len = IW * IH * 4;
+  ring = new Array(RING_N);
+  for (var i = 0; i < RING_N; i++) ring[i] = new Uint8ClampedArray(len);
+  head = 0; filled = 0;
+  outImg = outCtx.createImageData(IW, IH);
+  // start opaque so a half-written frame can never show transparent pixels
+  var od = outImg.data;
+  for (var p = 3; p < od.length; p += 4) od[p] = 255;
+  wake = new Float32Array(IW * IH);
+  sRes.textContent = IW + '×' + IH;
+}
+
+function resize(){
+  DPR = Math.min(2, window.devicePixelRatio || 1);
+  var cw = Math.max(1, window.innerWidth), ch = Math.max(1, window.innerHeight);
+  canvas.width  = Math.max(1, Math.round(cw * DPR));
+  canvas.height = Math.max(1, Math.round(ch * DPR));
+  canvas.style.width = cw + 'px'; canvas.style.height = ch + 'px';
+  W = canvas.width; H = canvas.height;
+  allocBuffers(curBudget);
+}
+var curBudget = TARGET_PX;
+window.addEventListener('resize', resize);
+window.addEventListener('orientationchange', resize);
+resize();
+
+// ═══════════════════════════════════════════════════════════════════════
+//  CAPTURE — cover-fit crop of the video into the internal buffer
+// ═══════════════════════════════════════════════════════════════════════
+var mirror = true;
+
+function capture(){
+  var vw = video.videoWidth, vh = video.videoHeight;
+  if (!vw || !vh) return false;
+  var scale = Math.max(IW / vw, IH / vh);
+  var sw = IW / scale, sh = IH / scale;
+  var sx = (vw - sw) / 2, sy = (vh - sh) / 2;
+  if (!(sw > 0 && sh > 0)) return false;
+  capCtx.save();
+  if (mirror){ capCtx.translate(IW, 0); capCtx.scale(-1, 1); }
+  try { capCtx.drawImage(video, sx, sy, sw, sh, 0, 0, IW, IH); }
+  catch(e){ capCtx.restore(); return false; }
+  capCtx.restore();
+  var d;
+  try { d = capCtx.getImageData(0, 0, IW, IH).data; } catch(e){ return false; }
+  if (!d || d.length !== IW * IH * 4) return false;
+  if (!frozen){
+    head = (head + 1) % RING_N;
+    ring[head].set(d);
+    if (filled < RING_N) filled++;
+  }
+  return true;
+}
+
+function slice(k){
+  // k frames into the past, clamped to what the ring actually holds
+  var back = Math.min(k, Math.max(0, filled - 1));
+  return ring[(head - back + RING_N * 2) % RING_N];
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  THE FOUR TIME MAPPINGS — each writes every pixel, every frame
+// ═══════════════════════════════════════════════════════════════════════
+function compose(){
+  var out = outImg.data;
+  var depth = DEPTHS[depthIdx];
+  var hx = nowX * (IW - 1), hy = nowY * (IH - 1);
+  var x, y, i, k, src, o;
+
+  if (mode === 0){
+    // SCAN — time is a function of the row's distance from the hand's row.
+    // The offset is constant per row, so whole rows copy with TypedArray.set.
+    var maxDy = Math.max(1, Math.max(hy, (IH - 1) - hy));
+    var rowBytes = IW * 4;
+    for (y = 0; y < IH; y++){
+      k = Math.round(depth * Math.abs(y - hy) / maxDy);
+      src = slice(k);
+      o = y * rowBytes;
+      out.set(src.subarray(o, o + rowBytes), o);
+    }
+
+  } else if (mode === 1){
+    // TUNNEL — time is radial distance from the hand. A cone into the past.
+    var maxR = Math.sqrt(IW * IW + IH * IH);
+    for (y = 0; y < IH; y++){
+      var dy = y - hy, dy2 = dy * dy;
+      var rowO = y * IW * 4;
+      for (x = 0; x < IW; x++){
+        var dx = x - hx;
+        var dist = Math.sqrt(dx * dx + dy2) / maxR;
+        k = Math.round(depth * Math.min(1, dist * 1.8));
+        src = slice(k);
+        i = rowO + x * 4;
+        out[i]     = src[i];
+        out[i + 1] = src[i + 1];
+        out[i + 2] = src[i + 2];
+        out[i + 3] = 255;
+      }
+    }
+
+  } else if (mode === 2){
+    // WAKE — a decaying field painted by the hand. Where you have swept
+    // recently is NOW; everything you have not touched sinks into the past.
+    var decay = 0.965;
+    var rad = Math.max(4, IW * 0.13), rad2 = rad * rad;
+    var wy0 = Math.max(0, Math.floor(hy - rad)), wy1 = Math.min(IH, Math.ceil(hy + rad));
+    var wx0 = Math.max(0, Math.floor(hx - rad)), wx1 = Math.min(IW, Math.ceil(hx + rad));
+    for (i = 0; i < wake.length; i++) wake[i] *= decay;
+    if (handAlive){
+      for (y = wy0; y < wy1; y++){
+        var wdy = y - hy, wdy2 = wdy * wdy;
+        for (x = wx0; x < wx1; x++){
+          var wdx = x - hx, d2 = wdx * wdx + wdy2;
+          if (d2 > rad2) continue;
+          var f = 1 - d2 / rad2;
+          var wi = y * IW + x;
+          var nv = f * f;
+          if (nv > wake[wi]) wake[wi] = nv;
+        }
+      }
+    }
+    for (y = 0; y < IH; y++){
+      var rowO2 = y * IW * 4, rowW = y * IW;
+      for (x = 0; x < IW; x++){
+        k = Math.round(depth * (1 - wake[rowW + x]));
+        src = slice(k);
+        i = rowO2 + x * 4;
+        out[i]     = src[i];
+        out[i + 1] = src[i + 1];
+        out[i + 2] = src[i + 2];
+        out[i + 3] = 255;
+      }
+    }
+
+  } else {
+    // PRISM — the three colour channels are sampled at three different
+    // instants, converging to a single sharp image right at the hand.
+    var maxR2 = Math.sqrt(IW * IW + IH * IH) * 0.55;
+    for (y = 0; y < IH; y++){
+      var pdy = y - hy, pdy2 = pdy * pdy;
+      var rowO3 = y * IW * 4;
+      for (x = 0; x < IW; x++){
+        var pdx = x - hx;
+        var sep = Math.min(1, Math.sqrt(pdx * pdx + pdy2) / maxR2);
+        var sR = slice(Math.round(depth * sep));
+        var sG = slice(Math.round(depth * sep * 0.55));
+        var sB = slice(0);
+        i = rowO3 + x * 4;
+        out[i]     = sR[i];
+        out[i + 1] = sG[i + 1];
+        out[i + 2] = sB[i + 2];
+        out[i + 3] = 255;
+      }
+    }
+  }
+  outCtx.putImageData(outImg, 0, 0);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  HAND — MediaPipe, every landmark access guarded
+// ═══════════════════════════════════════════════════════════════════════
+var hands = null, mpCamera = null, mpReady = false, mpFrame = 0;
+
+function initHands(){
+  if (typeof window.Hands !== 'function') return false;
+  try {
+    hands = new window.Hands({ locateFile: function(f){
+      return 'https://cdn.jsdelivr.net/npm/@mediapipe/hands/' + f;
+    }});
+    hands.setOptions({ maxNumHands:1, modelComplexity:0,
+                       minDetectionConfidence:0.6, minTrackingConfidence:0.5 });
+    hands.onResults(onHands);
+    mpReady = true;
+    return true;
+  } catch(e){ return false; }
+}
+
+function validHand(results){
+  if (!results) return null;
+  var lms = results.multiHandLandmarks;
+  if (!lms || !lms.length) return null;
+  var lm = lms[0];
+  if (!lm || lm.length < 21) return null;
+  for (var i = 0; i < 21; i++){
+    var p = lm[i];
+    if (!p || typeof p.x !== 'number' || typeof p.y !== 'number') return null;
+    if (!isFinite(p.x) || !isFinite(p.y)) return null;
+  }
+  return lm;
+}
+
+function onHands(results){
+  var lm = validHand(results);
+  if (!lm){ return; }
+  handLm = lm;
+  handSeen = tNow;
+  handSerial++;          // gesture accounting keys off this, NOT the frame count
+}
+
+// finger extension against the wrist — robust to hand size and distance
+function extendedCount(lm){
+  var w = lm[0];
+  var tips = [8, 12, 16, 20], pips = [6, 10, 14, 18], n = 0;
+  for (var i = 0; i < 4; i++){
+    var t = lm[tips[i]], p = lm[pips[i]];
+    if (!t || !p) continue;
+    var dt = Math.hypot(t.x - w.x, t.y - w.y);
+    var dp = Math.hypot(p.x - w.x, p.y - w.y);
+    if (dt > dp * 1.14) n++;
+  }
+  return n;
+}
+
+function updateHand(dt){
+  var fresh = handLm && (tNow - handSeen < 380);
+  if (!fresh){
+    if (handAlive){
+      // lost mid-gesture: drop all gesture state so reacquisition cannot
+      // fire a spurious freeze toggle
+      fistFrames = 0; openFrames = 0; seenSerial = handSerial;
+    }
+    handAlive = false;
+    handLm = null;
+    sHand.textContent = 'HAND ／ SEARCHING';
+    // no hand: sweep "now" on a slow lissajous so the effect still reads
+    autoPhase += dt;
+    nowX += ((0.5 + Math.sin(autoPhase * 0.55) * 0.30) - nowX) * Math.min(1, dt * 1.6);
+    nowY += ((0.5 + Math.cos(autoPhase * 0.37) * 0.28) - nowY) * Math.min(1, dt * 1.6);
+    return;
+  }
+  handAlive = true;
+  var lm = handLm;
+  // palm centre: wrist + the four MCPs, all verified present by validHand
+  var cx = (lm[0].x + lm[5].x + lm[9].x + lm[13].x + lm[17].x) / 5;
+  var cy = (lm[0].y + lm[5].y + lm[9].y + lm[13].y + lm[17].y) / 5;
+  var tx = mirror ? 1 - cx : cx;
+  nowX += (Math.max(0, Math.min(1, tx)) - nowX) * Math.min(1, dt * 12);
+  nowY += (Math.max(0, Math.min(1, cy)) - nowY) * Math.min(1, dt * 12);
+
+  // MediaPipe delivers results more slowly than we render, so the SAME result
+  // is visible for several frames. Counting it once per frame would make the
+  // hold threshold meaningless and let a momentary fist during a tracking
+  // wobble complete the gesture. Only genuinely new landmarks advance it.
+  var ext = extendedCount(lm);
+  if (handSerial !== seenSerial){
+    seenSerial = handSerial;
+    if (ext === 0){ fistFrames++; openFrames = 0; }
+    else if (ext >= 3){ openFrames++; fistFrames = 0; }
+    else { fistFrames = 0; openFrames = 0; }
+  }
+
+  if (tNow - lastToggle > GESTURE_COOLDOWN){
+    if (!frozen && fistFrames >= GESTURE_HOLD){ setFrozen(true); lastToggle = tNow; }
+    else if (frozen && openFrames >= GESTURE_HOLD){ setFrozen(false); lastToggle = tNow; }
+  }
+  sHand.innerHTML = frozen
+    ? '<span class="frz">HAND ／ FROZEN</span>'
+    : 'HAND ／ LOCK ' + ext + 'F';
+}
+
+function setFrozen(v){
+  if (frozen === v) return;
+  frozen = v;
+  flashT = 1; rollT = v ? 1 : 0.6;
+  clack(v ? 190 : 120);
+  showNotice(v ? '時間停止 ／ 手を開くと再開' : '時間再開', 1400);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  AUDIO — a hiss bed and a drone. Ambience only.
+// ═══════════════════════════════════════════════════════════════════════
+var AC = null, comp = null, master = null, hissGain = null, droneOsc = null, droneGain = null, noiseBuf = null;
+
+function initAudio(){
+  var Ctor = window.AudioContext || window.webkitAudioContext;
+  if (!Ctor) return;
+  AC = new Ctor();
+  if (AC.state === 'suspended' && AC.resume) AC.resume();
+  comp = AC.createDynamicsCompressor();
+  try {
+    comp.threshold.value = -24; comp.knee.value = 20; comp.ratio.value = 12;
+    comp.attack.value = 0.004; comp.release.value = 0.25;
+  } catch(e){}
+  master = AC.createGain(); master.gain.value = soundOn ? 0.5 : 0;
+  comp.connect(master); master.connect(AC.destination);
+
+  var n = Math.max(1, Math.floor(AC.sampleRate * 2));
+  noiseBuf = AC.createBuffer(1, n, AC.sampleRate);
+  var d = noiseBuf.getChannelData(0);
+  for (var i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+
+  // tape hiss bed
+  var hs = AC.createBufferSource(); hs.buffer = noiseBuf; hs.loop = true;
+  var hf = AC.createBiquadFilter(); hf.type = 'bandpass';
+  hf.frequency.value = 5200; hf.Q.value = 0.6;
+  hissGain = AC.createGain(); hissGain.gain.value = 0.030;
+  hs.connect(hf); hf.connect(hissGain); hissGain.connect(comp);
+  try { hs.start(); } catch(e){}
+
+  // drone — its pitch tracks the time depth
+  droneOsc = AC.createOscillator(); droneOsc.type = 'triangle';
+  var dlp = AC.createBiquadFilter(); dlp.type = 'lowpass';
+  dlp.frequency.value = 480; dlp.Q.value = 0.7;
+  droneGain = AC.createGain(); droneGain.gain.value = 0.055;
+  droneOsc.connect(dlp); dlp.connect(droneGain); droneGain.connect(comp);
+  droneOsc.frequency.value = 62;
+  try { droneOsc.start(); } catch(e){}
+  applyDroneDepth();
+}
+
+function applyDroneDepth(){
+  if (!AC || !droneOsc) return;
+  var f = [88, 62, 44][depthIdx] || 62;
+  try { droneOsc.frequency.setTargetAtTime(f, AC.currentTime, 0.25); } catch(e){}
+}
+
+// relay clack on any switch
+function clack(freq){
+  if (!AC || !noiseBuf) return;
+  var t = AC.currentTime;
+  var s = AC.createBufferSource(); s.buffer = noiseBuf;
+  var bp = AC.createBiquadFilter(); bp.type = 'bandpass';
+  bp.frequency.setValueAtTime(freq * 6, t);
+  bp.frequency.exponentialRampToValueAtTime(Math.max(60, freq), t + 0.05);
+  bp.Q.value = 3.2;
+  var g = AC.createGain();
+  g.gain.setValueAtTime(0, t);
+  g.gain.linearRampToValueAtTime(0.22, t + 0.002);
+  g.gain.exponentialRampToValueAtTime(0.0008, t + 0.06);
+  s.connect(bp); bp.connect(g); g.connect(comp);
+  try { s.start(t); s.stop(t + 0.1); } catch(e){}
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  CAMERA
+// ═══════════════════════════════════════════════════════════════════════
+var facing = 'user', stream = null;
+
+function showError(e){
+  var msg = (e && e.message) ? e.message : String(e || 'unknown');
+  errBox.style.display = 'block';
+  errBox.textContent = 'カメラを起動できませんでした：' + msg +
+    '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+}
+function startStream(){
+  var md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) return Promise.reject(new Error('getUserMedia is unavailable'));
+  if (stream && stream.getTracks) stream.getTracks().forEach(function(t){ t.stop(); });
+  return md.getUserMedia({
+    video: { facingMode: { ideal: facing }, width: { ideal: 1280 }, height: { ideal: 720 } },
+    audio: false
+  }).then(function(st){
+    stream = st; video.srcObject = st;
+    mirror = (facing === 'user');
+    var p = video.play();
+    return (p && p.then) ? p.catch(function(){}) : null;
+  });
+}
+function startMpCamera(){
+  if (!mpReady || typeof window.Camera !== 'function') return;
+  try {
+    if (mpCamera && mpCamera.stop) mpCamera.stop();
+    mpCamera = new window.Camera(video, {
+      onFrame: function(){
+        // half rate: the hand is a slow signal and the pixel loop needs the budget
+        mpFrame++;
+        if (state !== 'live' || !hands || (mpFrame & 1)) return Promise.resolve();
+        return hands.send({ image: video }).catch(function(){});
+      },
+      width: 640, height: 480
+    });
+    mpCamera.start();
+  } catch(e){ mpReady = false; }
+}
+flipBtn.addEventListener('click', function(){
+  facing = (facing === 'user') ? 'environment' : 'user';
+  handLm = null; handAlive = false; fistFrames = 0; openFrames = 0;
+  filled = 0;                                   // the past no longer matches the present
+  startStream().then(startMpCamera).catch(function(){});
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+//  CONTROLS
+// ═══════════════════════════════════════════════════════════════════════
+function setMode(m){
+  if (m === mode || m < 0 || m >= MODE_NAMES.length) return;
+  mode = m;
+  for (var i = 0; i < modeBtns.length; i++) modeBtns[i].classList.toggle('on', i === m);
+  sMode.textContent = MODE_NAMES[m];
+  rollT = 1; flashT = 1;
+  clack(240);
+  if (wake) wake.fill(0);
+}
+for (var mi = 0; mi < modeBtns.length; mi++){
+  (function(i){ modeBtns[i].addEventListener('click', function(){ setMode(i); }); })(mi);
+}
+depthBtn.addEventListener('click', function(){
+  depthIdx = (depthIdx + 1) % DEPTHS.length;
+  sDepth.textContent = String(DEPTHS[depthIdx]);
+  depthName.textContent = DEPTH_JP[depthIdx];
+  flashT = 0.7; clack(300);
+  applyDroneDepth();
+});
+soundBtn.addEventListener('click', function(){
+  soundOn = !soundOn;
+  soundBtn.classList.toggle('off', !soundOn);
+  soundBtn.textContent = soundOn ? '音' : '消';
+  if (AC && master){
+    try { master.gain.setTargetAtTime(soundOn ? 0.5 : 0.0001, AC.currentTime, 0.05); } catch(e){}
+  }
+});
+window.addEventListener('keydown', function(e){
+  if (state !== 'live') return;
+  var n = parseInt(e.key, 10);
+  if (n >= 1 && n <= MODE_NAMES.length) setMode(n - 1);
+  if (e.key === ' ') { setFrozen(!frozen); lastToggle = tNow; }
+});
+canvas.addEventListener('pointerdown', function(){
+  if (state === 'live'){ setFrozen(!frozen); lastToggle = tNow; }
+});
+
+function showNotice(text, ms){
+  notice.textContent = text;
+  notice.classList.add('on');
+  noticeUntil = tNow + (ms || 1600);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  HUD PAINTING (on the main canvas, above the image)
+// ═══════════════════════════════════════════════════════════════════════
+function drawHand(){
+  if (!handAlive || !handLm) return;
+  var lm = handLm;
+  var U = Math.min(W, H);
+  function P(i){
+    var p = lm[i];
+    var x = mirror ? 1 - p.x : p.x;
+    return { x: x * W, y: p.y * H };
+  }
+  var BONES = [[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],
+               [9,13],[13,14],[14,15],[15,16],[13,17],[17,18],[18,19],[19,20],[0,17]];
+  ctx.strokeStyle = frozen ? 'rgba(255,79,216,.75)' : 'rgba(125,249,255,.70)';
+  ctx.lineWidth = Math.max(1, U * 0.0022);
+  ctx.beginPath();
+  for (var b = 0; b < BONES.length; b++){
+    var a = P(BONES[b][0]), c = P(BONES[b][1]);
+    ctx.moveTo(a.x, a.y); ctx.lineTo(c.x, c.y);
+  }
+  ctx.stroke();
+  ctx.fillStyle = frozen ? '#ff4fd8' : '#7df9ff';
+  for (var i = 0; i < 21; i++){
+    var p = P(i);
+    ctx.beginPath(); ctx.arc(p.x, p.y, Math.max(1, U * 0.0032), 0, Math.PI * 2); ctx.fill();
+  }
+  // "NOW" crosshair at the palm
+  var nx = nowX * W, ny = nowY * H, r = U * 0.045;
+  ctx.strokeStyle = '#ffb454'; ctx.lineWidth = Math.max(1, U * 0.0018);
+  ctx.beginPath(); ctx.arc(nx, ny, r, 0, Math.PI * 2); ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(nx - r * 1.5, ny); ctx.lineTo(nx - r * 0.4, ny);
+  ctx.moveTo(nx + r * 0.4, ny); ctx.lineTo(nx + r * 1.5, ny);
+  ctx.moveTo(nx, ny - r * 1.5); ctx.lineTo(nx, ny - r * 0.4);
+  ctx.moveTo(nx, ny + r * 0.4); ctx.lineTo(nx, ny + r * 1.5);
+  ctx.stroke();
+  ctx.fillStyle = '#ffb454';
+  ctx.font = Math.round(U * 0.020) + 'px "Share Tech Mono", monospace';
+  ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+  ctx.fillText('NOW', nx + r * 1.7, ny);
+}
+
+// SIGNATURE — the ring buffer itself, drawn
+function drawBufferRuler(){
+  var U = Math.min(W, H);
+  var w = Math.min(W * 0.62, U * 1.1);
+  var x0 = (W - w) / 2;
+  var y  = H - Math.max(U * 0.055, 34);
+  var tick = w / RING_N;
+  var depth = DEPTHS[depthIdx];
+  ctx.lineWidth = 1;
+  for (var i = 0; i < RING_N; i++){
+    var inWindow = i <= depth;
+    var have = i < filled;
+    var h = inWindow ? U * 0.016 : U * 0.008;
+    ctx.strokeStyle = !have ? 'rgba(18,48,58,.9)'
+                    : inWindow ? 'rgba(255,180,84,.9)' : 'rgba(125,249,255,.35)';
+    var tx = Math.round(x0 + i * tick) + 0.5;
+    ctx.beginPath(); ctx.moveTo(tx, y); ctx.lineTo(tx, y - h); ctx.stroke();
+  }
+  ctx.strokeStyle = frozen ? '#ff4fd8' : '#7df9ff';
+  ctx.lineWidth = Math.max(1.5, U * 0.0022);
+  ctx.beginPath(); ctx.moveTo(x0 + 0.5, y + 4); ctx.lineTo(x0 + 0.5, y - U * 0.026); ctx.stroke();
+  ctx.fillStyle = 'rgba(125,249,255,.55)';
+  ctx.font = Math.round(U * 0.015) + 'px "Share Tech Mono", monospace';
+  ctx.textBaseline = 'top'; ctx.textAlign = 'left';
+  ctx.fillText('NOW', x0, y + 6);
+  ctx.textAlign = 'right';
+  ctx.fillText('-' + RING_N + 'F', x0 + w, y + 6);
+}
+
+function drawRegistration(){
+  var U = Math.min(W, H), m = U * 0.028, len = U * 0.020;
+  ctx.strokeStyle = 'rgba(125,249,255,.30)';
+  ctx.lineWidth = 1;
+  var pts = [[m, m, 1, 1], [W - m, m, -1, 1], [m, H - m, 1, -1], [W - m, H - m, -1, -1]];
+  ctx.beginPath();
+  for (var i = 0; i < 4; i++){
+    var p = pts[i];
+    ctx.moveTo(p[0], p[1]); ctx.lineTo(p[0] + len * p[2], p[1]);
+    ctx.moveTo(p[0], p[1]); ctx.lineTo(p[0], p[1] + len * p[3]);
+  }
+  ctx.stroke();
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  MAIN LOOP
+// ═══════════════════════════════════════════════════════════════════════
+function present(){
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.fillStyle = '#06070a';
+  ctx.fillRect(0, 0, W, H);
+
+  // CRT vertical roll on a switch — one tear, then it settles
+  var off = rollT > 0 ? Math.round(rollT * rollT * H * 0.55) : 0;
+  ctx.drawImage(outCan, 0, off, W, H);
+  if (off > 0) ctx.drawImage(outCan, 0, off - H, W, H);
+
+  if (flashT > 0){
+    var band = H * 0.10;
+    var by = (1 - flashT) * H;
+    ctx.fillStyle = 'rgba(125,249,255,' + (flashT * 0.30).toFixed(3) + ')';
+    ctx.fillRect(0, Math.max(0, by - band / 2), W, band);
+    ctx.fillStyle = 'rgba(255,255,255,' + (flashT * 0.06).toFixed(3) + ')';
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  drawHand();
+  drawBufferRuler();
+  drawRegistration();
+}
+
+function maybeAdapt(dt){
+  fpsAcc += dt; fpsN++;
+  if (fpsAcc >= 0.5){
+    fps = fpsN / fpsAcc;
+    sFps.textContent = fps.toFixed(0);
+    fpsAcc = 0; fpsN = 0;
+    // sustained slowness ⇒ shrink the internal buffer rather than drop frames
+    if (fps < 26 && curBudget > MIN_PX){
+      slowFor++;
+      if (slowFor >= 3){
+        slowFor = 0;
+        curBudget = Math.max(MIN_PX, Math.round(curBudget * 0.72));
+        allocBuffers(curBudget);
+        showNotice('解像度を下げました ／ ' + IW + '×' + IH, 1600);
+      }
+    } else if (fps > 50) slowFor = 0;
+  }
+}
+
+function loop(t){
+  requestAnimationFrame(loop);
+  tNow = t;
+  var dt = lastT ? Math.min(0.05, (t - lastT) / 1000) : 0.016;
+  lastT = t;
+
+  if (state !== 'live') return;
+
+  rollT  = Math.max(0, rollT - dt * 4.5);
+  flashT = Math.max(0, flashT - dt * 6.0);
+
+  updateHand(dt);
+  if (capture() && filled > 0) compose();
+  present();
+  maybeAdapt(dt);
+
+  if (noticeUntil && t > noticeUntil){ notice.classList.remove('on'); noticeUntil = 0; }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  HOW-TO DIAGRAM
+// ═══════════════════════════════════════════════════════════════════════
+var hctx = howto.getContext('2d');
+var hStart = 0;
+function drawHowto(t){
+  if (!hStart) hStart = t;
+  var T = ((t - hStart) / 1000) % 4.4;
+  var w = howto.width, h = howto.height;
+  hctx.fillStyle = '#080b0f'; hctx.fillRect(0, 0, w, h);
+
+  var beatA = T < 2.9;
+  var u = beatA ? T / 2.9 : (T - 2.9) / 1.5;
+  var handX = beatA ? w * (0.18 + 0.64 * (0.5 - 0.5 * Math.cos(u * Math.PI * 2))) : w * 0.5;
+
+  // stack of time layers: the row nearest the hand is "now"
+  var rows = 11;
+  for (var i = 0; i < rows; i++){
+    var y = h * 0.20 + i * (h * 0.50 / (rows - 1));
+    var centreRow = (rows - 1) / 2;
+    var age = Math.abs(i - centreRow) / centreRow;
+    var shift = beatA ? age * 46 * Math.sin(u * Math.PI * 2 + 1.1) : 0;
+    hctx.strokeStyle = age < 0.18 ? '#ffb454'
+      : 'rgba(125,249,255,' + (0.68 - age * 0.46).toFixed(2) + ')';
+    hctx.lineWidth = age < 0.18 ? 2 : 1.2;
+    hctx.beginPath();
+    hctx.moveTo(w * 0.14 + shift, y);
+    hctx.lineTo(w * 0.86 + shift, y);
+    hctx.stroke();
+  }
+
+  hctx.font = '10px "Share Tech Mono", monospace';
+  hctx.textBaseline = 'middle';
+
+  if (beatA){
+    // an open hand sweeping — the present travels with it
+    hctx.strokeStyle = '#7df9ff'; hctx.lineWidth = 1.4;
+    hctx.beginPath(); hctx.arc(handX, h * 0.45, 13, 0, Math.PI * 2); hctx.stroke();
+    for (var f = 0; f < 4; f++){
+      var a = -1.5 + f * 0.42;
+      hctx.beginPath();
+      hctx.moveTo(handX + Math.cos(a) * 13, h * 0.45 + Math.sin(a) * 13);
+      hctx.lineTo(handX + Math.cos(a) * 24, h * 0.45 + Math.sin(a) * 24);
+      hctx.stroke();
+    }
+    hctx.fillStyle = '#ffb454'; hctx.textAlign = 'center';
+    hctx.fillText('NOW', handX, h * 0.45 - 30);
+    hctx.fillStyle = '#3d7f8c';
+    hctx.fillText('離れるほど過去', w * 0.5, h * 0.86);
+  } else {
+    // a fist — time stops
+    hctx.strokeStyle = '#ff4fd8'; hctx.lineWidth = 1.6;
+    hctx.beginPath(); hctx.arc(handX, h * 0.45, 12, 0, Math.PI * 2); hctx.stroke();
+    hctx.beginPath(); hctx.arc(handX, h * 0.45, 6, 0, Math.PI * 2); hctx.stroke();
+    var blink = (Math.floor(T * 5) % 2) === 0;
+    hctx.fillStyle = blink ? '#ff4fd8' : '#5a2a4a';
+    hctx.textAlign = 'center';
+    hctx.fillText('握る ／ 時間停止', w * 0.5, h * 0.86);
+  }
+}
+function howtoLoop(t){ if (state === 'boot'){ drawHowto(t); requestAnimationFrame(howtoLoop); } }
+
+// ═══════════════════════════════════════════════════════════════════════
+//  START
+// ═══════════════════════════════════════════════════════════════════════
+goBtn.addEventListener('click', function(){
+  goBtn.disabled = true;
+  goBtn.textContent = 'OPENING…';
+  initAudio();                              // inside the gesture
+  startStream().then(function(){
+    intro.classList.add('hide');
+    state = 'live';
+    sDepth.textContent = String(DEPTHS[depthIdx]);
+    depthName.textContent = DEPTH_JP[depthIdx];
+    if (initHands()) startMpCamera();
+    else showNotice('手の認識を読み込めません ／ 自動スイープで動作します', 3200);
+  }).catch(function(e){
+    goBtn.disabled = false; goBtn.textContent = 'START';
+    showError(e);
+  });
+});
+
+requestAnimationFrame(loop);
+requestAnimationFrame(howtoLoop);
+
+// harness hooks
+window.__toki = {
+  get state(){ return state; },
+  get mode(){ return mode; },
+  get frozen(){ return frozen; },
+  get depthIdx(){ return depthIdx; },
+  get filled(){ return filled; },
+  get head(){ return head; },
+  get ringN(){ return RING_N; },
+  get dims(){ return { IW:IW, IH:IH }; },
+  get now(){ return { x:nowX, y:nowY }; },
+  get handAlive(){ return handAlive; },
+  get budget(){ return curBudget; },
+  setMode: setMode,
+  onHands: onHands,
+  extendedCount: extendedCount
+};
+
+})();
+</script>
+</body>
+</html>
