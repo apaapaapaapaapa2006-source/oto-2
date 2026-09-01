@@ -1,0 +1,1053 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>AMITEN ─ 網点の刷り台</title>
+<meta name="description" content="カメラ映像をその場で網点に分解して刷る印刷機。手を動かすと版がずれて色が裂け、両手を合わせると一枚刷り上がる。三色・一色・点描・木版の四つの版。">
+<meta name="theme-color" content="#efe9dc">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Zen+Kaku+Gothic+New:wght@500;700&display=swap" rel="stylesheet">
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  AMITEN ─ 網点                           ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  PALETTE   生成 kinari  #efe9dc  uncoated paper            (ground)
+            蛍光桃      #ff4b8b  fluorescent pink           (ink)
+            藍          #00a3c4  aqua                       (ink)
+            黄          #ffd23f  yellow                     (ink)
+            墨          #1a1a1a  black                      (ink, type)
+            MOOD: a risograph print shop. Bright, flat, unashamedly inky.
+            Nothing is lit and nothing glows — this is pigment on paper.
+
+  BACKGROUND  Uncoated paper with crop marks at the four corners and a
+            printer's colour bar down one edge. The print sits on the
+            paper as a sheet with a hard drop shadow, slightly rotated,
+            exactly as it would lie on the table beside the press.
+
+  TYPE      Bebas Neue, all caps, tight, for the machine readouts — the
+            language of a press spec sheet. Zen Kaku Gothic New bold for
+            the Japanese. Numbers are tabular and never animate.
+
+  MOTION    Mechanical. Mode changes SNAP with a 60ms ink-roll flash; no
+            easing anywhere in the chrome. The one eased thing in the
+            piece is a printed sheet lifting off the press, because paper
+            has weight.
+
+  SIGNATURE 1. YOUR HANDS PULL THE PLATES APART. Each hand carries a
+               registration target, and the ink plate it holds follows it.
+               Move your hands and the colour separations slide off each
+               other — the real, physical misregistration of a badly
+               loaded press, under direct manual control.
+            2. THE PRESS. Bring both hands together (or hold one fist) and
+               the press stamps: the paper flashes, the machine thumps,
+               and the sheet you just made lifts off the screen and drifts
+               away. The counter goes up by one.
+
+  AUDIO     Machine noise, designed, quiet. A running ink-roller bed —
+            filtered noise whose level tracks how far out of register you
+            are, so the press hisses when you tear it apart. A press thump
+            (low bandpass burst plus a wooden click) and a relay clack on
+            mode change. No music. Mutable.
+
+  ENGINEERING  The screen is analytic, not a dot-drawing pass: for every
+            pixel, a rotated cluster-dot function 0.5+0.25(cos2piU+cos2piV)
+            is compared against that plate's ink coverage. U and V advance
+            by a constant per pixel along a row, so the whole thing is two
+            adds and two table lookups per plate per pixel — no trig, no
+            per-dot geometry. The eight ink combinations are premultiplied
+            into a lookup table, so compositing is one indexed read.
+            Everything is processed at a reduced internal resolution that
+            adapts to the measured frame time, typed arrays are allocated
+            once per size change, and ONE ImageData is reused for output.
+            Every plate writes every pixel, and every source read is
+            clamped into the buffer before it is used.
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<style>
+  *{ margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body{
+    width:100%; height:100%; overflow:hidden; background:#efe9dc; color:#1a1a1a;
+    font-family:'Zen Kaku Gothic New',-apple-system,'Hiragino Kaku Gothic ProN',system-ui,sans-serif;
+    -webkit-user-select:none; user-select:none;
+  }
+  #stage{ position:fixed; inset:0; }
+  canvas#cv{ position:absolute; inset:0; width:100%; height:100%; display:block; }
+  video#vid{ position:absolute; width:2px; height:2px; opacity:0; pointer-events:none; left:-10px; top:-10px; }
+
+  .chrome{ position:absolute; inset:0; pointer-events:none; }
+  .row{ position:absolute; display:flex; align-items:center; gap:.35rem; pointer-events:auto; flex-wrap:wrap; }
+  .tl{ top:calc(env(safe-area-inset-top,0px) + .8rem); left:.8rem; }
+  .tr{ top:calc(env(safe-area-inset-top,0px) + .8rem); right:.8rem; }
+  .bl{ bottom:calc(env(safe-area-inset-bottom,0px) + .8rem); left:.8rem; max-width:calc(100vw - 1.6rem); }
+  .btn{
+    font-family:'Bebas Neue',Impact,sans-serif; font-size:.9rem; line-height:1;
+    letter-spacing:.1em; color:#1a1a1a; background:#efe9dc;
+    border:2px solid #1a1a1a; border-radius:0; padding:.42rem .6rem .3rem; cursor:pointer;
+  }
+  .btn:hover{ background:#1a1a1a; color:#efe9dc; }
+  .btn.on{ background:#ff4b8b; border-color:#1a1a1a; color:#1a1a1a; }
+  .btn.off{ color:#8d867a; border-color:#8d867a; }
+  .btn .jp{ font-family:'Zen Kaku Gothic New',sans-serif; font-weight:700; font-size:.6rem; letter-spacing:.06em; margin-left:.3rem; }
+
+  /* ── press spec sheet ─────────────────────────────────── */
+  #spec{
+    position:absolute; top:calc(env(safe-area-inset-top,0px) + .8rem); left:50%;
+    transform:translateX(-50%); pointer-events:none; text-align:center;
+    font-family:'Bebas Neue',Impact,sans-serif;
+  }
+  #specName{ font-size:clamp(1.5rem,6.4vw,2.1rem); letter-spacing:.16em; line-height:1; }
+  #specSub{
+    font-family:'Zen Kaku Gothic New',sans-serif; font-weight:500;
+    font-size:.6rem; letter-spacing:.3em; color:#6b6459; margin-top:.25rem;
+  }
+  #readout{
+    position:absolute; bottom:calc(env(safe-area-inset-bottom,0px) + .8rem); right:.8rem;
+    pointer-events:none; text-align:right;
+    font-family:'Bebas Neue',Impact,sans-serif; font-size:.82rem; letter-spacing:.09em;
+    line-height:1.35; color:#1a1a1a; font-variant-numeric:tabular-nums;
+  }
+  #readout .k{ color:#6b6459; }
+  #readout b{ font-weight:400; }
+
+  /* ── overlay ──────────────────────────────────────────── */
+  #ov{
+    position:absolute; inset:0; z-index:20; display:flex;
+    align-items:center; justify-content:center; padding:1.3rem;
+    background:#efe9dc; text-align:center; overflow:auto;
+  }
+  #ov.hide{ display:none; }
+  .sheet{ width:min(94vw,25rem); }
+  .big{
+    font-family:'Bebas Neue',Impact,sans-serif; font-size:clamp(3.4rem,17vw,5.4rem);
+    line-height:.86; letter-spacing:.04em;
+  }
+  .big i{ font-style:normal; color:#ff4b8b; }
+  .jpname{
+    font-weight:700; font-size:.86rem; letter-spacing:.6em; text-indent:.6em;
+    margin-top:.7rem; color:#1a1a1a;
+  }
+  .lede{ font-size:.78rem; line-height:2.05; color:#5d564b; margin-top:1.1rem; }
+  #howto{ display:block; margin:1.1rem auto .3rem; width:min(86vw,19rem); height:auto; border:2px solid #1a1a1a; }
+  .howcap{ font-size:.62rem; letter-spacing:.14em; color:#6b6459; line-height:1.95; }
+  #go{
+    margin-top:1.4rem; font-family:'Bebas Neue',Impact,sans-serif; font-size:1.4rem;
+    letter-spacing:.22em; text-indent:.22em; color:#efe9dc; background:#1a1a1a;
+    border:2px solid #1a1a1a; border-radius:0; padding:.55rem 2.2rem .4rem; cursor:pointer;
+  }
+  #go:hover{ background:#ff4b8b; color:#1a1a1a; }
+  #go:disabled{ opacity:.4; cursor:default; }
+  #err{
+    display:none; margin-top:1rem; font-size:.72rem; line-height:1.9; color:#b5304f;
+    white-space:pre-line; border:2px solid #b5304f; padding:.65rem .75rem; text-align:left;
+  }
+  .note{ margin-top:1.15rem; font-size:.57rem; letter-spacing:.1em; color:#8d867a; line-height:1.95; }
+  @media (max-height:600px){
+    #howto{ width:min(56vw,13rem); } .lede{ margin-top:.6rem; line-height:1.75; } #go{ margin-top:.8rem; }
+  }
+</style>
+</head>
+<body>
+<div id="stage">
+  <video id="vid" playsinline muted autoplay></video>
+  <canvas id="cv"></canvas>
+
+  <div class="chrome">
+    <div class="row tl">
+      <button class="btn" id="flipBtn" type="button">CAM<span class="jp">⟲</span></button>
+    </div>
+    <div class="row tr">
+      <button class="btn" id="printBtn" type="button">PRINT<span class="jp">刷る</span></button>
+      <button class="btn" id="soundBtn" type="button">SND</button>
+    </div>
+    <div class="row bl" id="modeRow">
+      <button class="btn on" type="button" data-m="0">RISO<span class="jp">三色</span></button>
+      <button class="btn" type="button" data-m="1">MONO<span class="jp">一色</span></button>
+      <button class="btn" type="button" data-m="2">GRAIN<span class="jp">点描</span></button>
+      <button class="btn" type="button" data-m="3">BLOCK<span class="jp">木版</span></button>
+    </div>
+
+    <div id="spec">
+      <div id="specName">RISO / CMY</div>
+      <div id="specSub">三色分解 ・ 網点</div>
+    </div>
+
+    <div id="readout">
+      <div><span class="k">SCREEN</span> <b id="rScreen">7.0</b>PX</div>
+      <div><span class="k">MISREG</span> <b id="rMis">0.0</b>PX</div>
+      <div><span class="k">SHEETS</span> <b id="rSheets">0</b></div>
+      <div><span class="k">RES</span> <b id="rRes">—</b></div>
+    </div>
+  </div>
+
+  <div id="ov">
+    <div class="sheet">
+      <div class="big">AMI<i>TEN</i></div>
+      <div class="jpname">網点</div>
+      <p class="lede">カメラの映像を、その場で網点に分解して刷る印刷機です。<br>手を動かすと版がずれて、色が裂けます。</p>
+      <canvas id="howto" width="620" height="300"></canvas>
+      <p class="howcap">手＝版の位置。指をつまむと網点の細かさ。<br>両手を合わせるか、こぶしを握ると一枚刷れます。</p>
+      <button id="go" type="button">START</button>
+      <div id="err"></div>
+      <p class="note">カメラ映像は端末の外に出ません。<br>明るい場所ほどきれいに分解されます。</p>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+<script>
+"use strict";
+// ═══════════════════════════════════════════════════════════════════════
+//  DOM
+// ═══════════════════════════════════════════════════════════════════════
+var video    = document.getElementById('vid');
+var cv       = document.getElementById('cv');
+var ctx      = cv.getContext('2d');
+var ov       = document.getElementById('ov');
+var goBtn    = document.getElementById('go');
+var errBox   = document.getElementById('err');
+var flipBtn  = document.getElementById('flipBtn');
+var printBtn = document.getElementById('printBtn');
+var soundBtn = document.getElementById('soundBtn');
+var modeRow  = document.getElementById('modeRow');
+var howto    = document.getElementById('howto');
+var howCtx   = howto.getContext('2d');
+var specName = document.getElementById('specName');
+var specSub  = document.getElementById('specSub');
+var rScreen  = document.getElementById('rScreen');
+var rMis     = document.getElementById('rMis');
+var rSheets  = document.getElementById('rSheets');
+var rRes     = document.getElementById('rRes');
+
+// ═══════════════════════════════════════════════════════════════════════
+//  THE PRESSES — each mode is an ink setup, not a different filter
+// ═══════════════════════════════════════════════════════════════════════
+// plate.src : 0=R 1=G 2=B 3=luminance
+// plate.kind: 'screen' = halftone dot, 'level' = flat threshold (woodblock)
+var PAPER = [239, 233, 220];
+var MODES = [
+  { name:'RISO / CMY', jp:'三色分解 ・ 網点', paper:[243, 239, 230], kind:'screen',
+    plates:[ { src:0, ang:15, ink:[  0, 163, 196] },        // cyan   from R
+             { src:1, ang:75, ink:[255,  75, 139] },        // pink   from G
+             { src:2, ang: 0, ink:[255, 210,  63] } ] },    // yellow from B
+  { name:'MONO / 45°', jp:'一色 ・ 新聞網点', paper:[239, 233, 220], kind:'screen',
+    plates:[ { src:3, ang:45, ink:[ 26,  26,  26] } ] },
+  { name:'GRAIN / DUO', jp:'点描 ・ 二色', paper:[236, 232, 226], kind:'noise',
+    plates:[ { src:3, ang: 0, ink:[ 26,  32,  48] },
+             { src:0, ang: 0, ink:[255,  75, 139] } ] },
+  { name:'BLOCK / 3', jp:'木版 ・ 三版重ね', paper:[236, 226, 203], kind:'level',
+    plates:[ { src:3, ang:0, ink:[214, 176,  84], lvl:0.82 },   // 黄土
+             { src:3, ang:0, ink:[196,  71,  48], lvl:0.52 },   // 朱
+             { src:3, ang:0, ink:[ 38,  58,  92], lvl:0.28 } ] } // 藍
+];
+var mode = 0;
+
+// premultiplied ink-combination table: index = bitmask over plates
+var COMBO = new Uint8Array(8 * 3);
+function buildCombo(){
+  var m = MODES[mode], pl = m.plates, n = pl.length, k, p, r, g, b;
+  for (k = 0; k < 8; k++){
+    r = m.paper[0]; g = m.paper[1]; b = m.paper[2];
+    for (p = 0; p < n; p++){
+      if (k & (1 << p)){
+        r = (r * pl[p].ink[0]) / 255;
+        g = (g * pl[p].ink[1]) / 255;
+        b = (b * pl[p].ink[2]) / 255;
+      }
+    }
+    COMBO[k * 3]     = r < 0 ? 0 : r > 255 ? 255 : r;
+    COMBO[k * 3 + 1] = g < 0 ? 0 : g > 255 ? 255 : g;
+    COMBO[k * 3 + 2] = b < 0 ? 0 : b > 255 ? 255 : b;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  COS TABLE — the screen function never calls trig
+// ═══════════════════════════════════════════════════════════════════════
+var COSN = 1024;
+var COS = new Float32Array(COSN);
+(function(){ for (var i = 0; i < COSN; i++) COS[i] = Math.cos(i / COSN * Math.PI * 2); })();
+
+// ═══════════════════════════════════════════════════════════════════════
+//  BUFFERS
+// ═══════════════════════════════════════════════════════════════════════
+var W = 1, H = 1, U = 1, DPR = 1;
+var srcCv = document.createElement('canvas'), srcCtx = srcCv.getContext('2d');
+var outCv = document.createElement('canvas'), outCtx = outCv.getContext('2d');
+var sheetCv = document.createElement('canvas'), sheetCtx = sheetCv.getContext('2d');
+var paperCv = document.createElement('canvas'), paperCtx = paperCv.getContext('2d');
+var outImg = null, noiseArr = null;
+// Start conservative and let the adaptive loop earn its way up, so a phone
+// never spends its first second dropping frames.
+var IW = 0, IH = 0, targetPx = 96000, ASP = 4 / 3;
+
+function allocBuffers(){
+  var w = Math.max(64, Math.round(Math.sqrt(targetPx * ASP)));
+  var h = Math.max(48, Math.round(w / ASP));
+  if (w === IW && h === IH) return;
+  IW = w; IH = h;
+  srcCv.width = IW; srcCv.height = IH;
+  outCv.width = IW; outCv.height = IH;
+  outImg = outCtx.createImageData(IW, IH);
+  var d = outImg.data;
+  for (var i = 3; i < d.length; i += 4) d[i] = 255;      // alpha, written once
+  noiseArr = new Float32Array(IW * IH);
+  var s = 987654321;
+  for (i = 0; i < noiseArr.length; i++){
+    s ^= s << 13; s ^= s >>> 17; s ^= s << 5; s |= 0;
+    noiseArr[i] = ((s >>> 8) / 16777216) * 0.86 + 0.07;
+  }
+  if (rRes) rRes.textContent = IW + '×' + IH;
+}
+
+function buildPaper(){
+  var w = Math.max(1, Math.round(W)), h = Math.max(1, Math.round(H));
+  paperCv.width = w; paperCv.height = h;
+  var c = paperCtx;
+  c.fillStyle = 'rgb(' + PAPER[0] + ',' + PAPER[1] + ',' + PAPER[2] + ')';
+  c.fillRect(0, 0, w, h);
+  // uncoated speckle
+  var n = Math.round(w * h / 900);
+  for (var i = 0; i < n; i++){
+    c.fillStyle = Math.random() < 0.5 ? 'rgba(120,112,96,.055)' : 'rgba(255,255,255,.09)';
+    var r = 0.5 + Math.random() * 1.6;
+    c.beginPath(); c.arc(Math.random() * w, Math.random() * h, r, 0, Math.PI * 2); c.fill();
+  }
+}
+
+function fit(){
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  var w = Math.max(1, window.innerWidth), h = Math.max(1, window.innerHeight);
+  cv.width = Math.round(w * DPR); cv.height = Math.round(h * DPR);
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  W = w; H = h; U = Math.min(w, h);
+  buildPaper();
+  allocBuffers();
+}
+window.addEventListener('resize', fit);
+window.addEventListener('orientationchange', function(){ setTimeout(fit, 240); });
+
+// ═══════════════════════════════════════════════════════════════════════
+//  AUDIO — press machinery only
+// ═══════════════════════════════════════════════════════════════════════
+var AC = null, master = null, comp = null, noiseBuf = null, soundOn = true;
+var rollerGain = null;
+function initAudio(){
+  var Ctor = window.AudioContext || window.webkitAudioContext;
+  if (!Ctor) return;
+  if (!AC){
+    try { AC = new Ctor(); } catch(e){ AC = null; return; }
+    comp = AC.createDynamicsCompressor();
+    try {
+      comp.threshold.value = -16; comp.knee.value = 22;
+      comp.ratio.value = 8; comp.attack.value = 0.004; comp.release.value = 0.2;
+    } catch(e){}
+    master = AC.createGain(); master.gain.value = 0.9;
+    master.connect(comp); comp.connect(AC.destination);
+    var n = Math.floor(AC.sampleRate * 0.5);
+    noiseBuf = AC.createBuffer(1, n, AC.sampleRate);
+    var d = noiseBuf.getChannelData(0);
+    for (var i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+    // the ink-roller bed: always running, level tracks how far out of register
+    var s = AC.createBufferSource(); s.buffer = noiseBuf; s.loop = true;
+    var bp = AC.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 1750; bp.Q.value = 0.8;
+    rollerGain = AC.createGain(); rollerGain.gain.value = 0;
+    s.connect(bp); bp.connect(rollerGain); rollerGain.connect(master);
+    try { s.start(); } catch(e){}
+  }
+  if (AC.state === 'suspended' && AC.resume) AC.resume();
+}
+function nsrc(){ var s = AC.createBufferSource(); s.buffer = noiseBuf; s.loop = true; return s; }
+function env(t0, peak, atk, dec){
+  var g = AC.createGain();
+  g.gain.setValueAtTime(0.0001, t0);
+  g.gain.exponentialRampToValueAtTime(Math.max(0.0002, peak), t0 + atk);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + atk + dec);
+  return g;
+}
+function thump(){
+  if (!AC || !soundOn) return;
+  var t = AC.currentTime;
+  var o = AC.createOscillator(); o.type = 'sine';
+  o.frequency.setValueAtTime(126, t);
+  o.frequency.exponentialRampToValueAtTime(52, t + 0.13);
+  var g = env(t, 0.55, 0.003, 0.20);
+  o.connect(g); g.connect(master); o.start(t); o.stop(t + 0.26);
+  var s = nsrc(), f = AC.createBiquadFilter();
+  f.type = 'bandpass'; f.frequency.value = 820; f.Q.value = 1.4;
+  var g2 = env(t, 0.32, 0.001, 0.09);
+  s.connect(f); f.connect(g2); g2.connect(master); s.start(t); s.stop(t + 0.14);
+  var s2 = nsrc(), f2 = AC.createBiquadFilter();
+  f2.type = 'highpass'; f2.frequency.value = 3600;
+  var g3 = env(t, 0.10, 0.001, 0.035);
+  s2.connect(f2); f2.connect(g3); g3.connect(master); s2.start(t); s2.stop(t + 0.06);
+}
+function clack(){
+  if (!AC || !soundOn) return;
+  var t = AC.currentTime;
+  var s = nsrc(), f = AC.createBiquadFilter();
+  f.type = 'bandpass'; f.frequency.value = 1450; f.Q.value = 5;
+  var g = env(t, 0.22, 0.0015, 0.055);
+  s.connect(f); f.connect(g); g.connect(master); s.start(t); s.stop(t + 0.09);
+}
+soundBtn.addEventListener('click', function(){
+  soundOn = !soundOn;
+  soundBtn.classList.toggle('off', !soundOn);
+  if (rollerGain) try { rollerGain.gain.value = 0; } catch(e){}
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+//  CAMERA
+// ═══════════════════════════════════════════════════════════════════════
+var facing = 'user', mirror = true, stream = null;
+function showError(e){
+  var msg = (e && e.message) ? e.message : String(e || 'unknown');
+  errBox.style.display = 'block';
+  errBox.textContent = 'カメラを起動できませんでした：' + msg +
+    '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+}
+function startStream(){
+  var md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) return Promise.reject(new Error('getUserMedia is unavailable'));
+  if (stream && stream.getTracks) stream.getTracks().forEach(function(t){ t.stop(); });
+  return md.getUserMedia({
+    video: { facingMode: { ideal: facing }, width: { ideal: 1280 }, height: { ideal: 720 } },
+    audio: false
+  }).then(function(st){
+    stream = st; video.srcObject = st;
+    mirror = (facing === 'user');
+    var p = video.play();
+    return (p && p.then) ? p.catch(function(){}) : null;
+  });
+}
+flipBtn.addEventListener('click', function(){
+  facing = (facing === 'user') ? 'environment' : 'user';
+  loseHands();
+  startStream().then(startMpCamera).catch(function(){});
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+//  HANDS — up to two; each one carries an ink plate
+// ═══════════════════════════════════════════════════════════════════════
+var hands = null, mpCamera = null, mpReady = false;
+var handsLm = [], lastHandT = 0, LOST_MS = 280;
+var FRESH_MS = 110;   // a press gesture only accumulates on landmarks this new
+
+function initHands(){
+  if (typeof window.Hands !== 'function') return false;
+  try {
+    hands = new window.Hands({ locateFile: function(f){
+      return 'https://cdn.jsdelivr.net/npm/@mediapipe/hands/' + f;
+    }});
+    hands.setOptions({ maxNumHands:2, modelComplexity:0,
+                       minDetectionConfidence:0.6, minTrackingConfidence:0.5 });
+    hands.onResults(onHands);
+    mpReady = true;
+    return true;
+  } catch(e){ return false; }
+}
+function validLm(c){
+  if (!c || c.length < 21) return null;
+  for (var i = 0; i < 21; i++){
+    var p = c[i];
+    if (!p || typeof p.x !== 'number' || typeof p.y !== 'number' ||
+        !isFinite(p.x) || !isFinite(p.y)) return null;
+  }
+  return c;
+}
+function onHands(res){
+  var out = [];
+  if (res && res.multiHandLandmarks && res.multiHandLandmarks.length){
+    for (var i = 0; i < res.multiHandLandmarks.length && out.length < 2; i++){
+      var v = validLm(res.multiHandLandmarks[i]);
+      if (v) out.push(v);
+    }
+  }
+  if (out.length){ handsLm = out; lastHandT = now(); }
+}
+function loseHands(){
+  handsLm = [];
+  fistT = 0; togetherT = 0; pressArmed = true;   // never fire on reacquisition
+  for (var i = 0; i < 2; i++){ tracked[i].live = false; }
+}
+function startMpCamera(){
+  if (!mpReady || typeof window.Camera !== 'function') return;
+  try {
+    if (mpCamera && mpCamera.stop) mpCamera.stop();
+    mpCamera = new window.Camera(video, {
+      onFrame: function(){
+        if (!hands || state !== 'live') return Promise.resolve();
+        return hands.send({ image: video }).catch(function(){});
+      },
+      width: 640, height: 480
+    });
+    mpCamera.start();
+  } catch(e){ mpReady = false; }
+}
+
+function dd(a, b){ var dx = (a.x - b.x) * ASP, dy = a.y - b.y; return Math.sqrt(dx * dx + dy * dy); }
+// per-hand: centre, pinch aperture, and whether it is a fist
+function readHand(lm){
+  var S = dd(lm[0], lm[9]);
+  if (!(S > 0.02)) return null;
+  var ap = (dd(lm[4], lm[8]) / S - 0.22) / 0.95;
+  ap = ap < 0 ? 0 : ap > 1 ? 1 : ap;
+  var MCP = [9, 13, 17], TIP = [12, 16, 20], st = 0, k, j;
+  for (k = 0; k < 3; k++){
+    var b = MCP[k], seg = 0;
+    for (j = 0; j < 3; j++) seg += dd(lm[b + j], lm[b + j + 1]);
+    if (!(seg > 0)) return null;
+    st += dd(lm[TIP[k]], lm[b]) / seg;
+  }
+  st /= 3;
+  var cx = (lm[0].x + lm[9].x) * 0.5, cy = (lm[0].y + lm[9].y) * 0.5;
+  if (!isFinite(cx) || !isFinite(cy) || !isFinite(ap) || !isFinite(st)) return null;
+  return { x: mirror ? 1 - cx : cx, y: cy, ap: ap, fist: st < 0.62, S: S };
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  PRESS STATE
+// ═══════════════════════════════════════════════════════════════════════
+var state = 'boot';
+var tracked = [{ x:0.34, y:0.5, live:false }, { x:0.66, y:0.5, live:false }];
+var screenT = 7.0, screenTarget = 7.0;
+var offs = [{ x:0, y:0 }, { x:0, y:0 }, { x:0, y:0 }];
+var misreg = 0;
+var sheets = 0, sheetAnim = 0, flash = 0, shake = 0, rollFlash = 0;
+var fistT = 0, togetherT = 0, pressCool = 0, pressArmed = true;
+// Held-gesture thresholds must sit comfortably ABOVE the freshness window,
+// or a gesture half-made and then abandoned can be completed by the stale
+// landmarks that linger after the hands leave. 0.11s of tolerated coast
+// against a 0.40s requirement leaves the margin the bench asks for.
+var FIST_NEED = 0.55, TOGETHER_NEED = 0.40, TOGETHER_DIST = 0.20, COOL = 0.9;
+var frameMs = 12, adaptCool = 0;
+var last = now();
+
+function now(){ return (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now(); }
+
+function setMode(m){
+  if (m === mode || m < 0 || m >= MODES.length) return;
+  mode = m;
+  buildCombo();
+  specName.textContent = MODES[m].name;
+  specSub.textContent = MODES[m].jp;
+  var bs = modeRow.querySelectorAll('button');
+  for (var i = 0; i < bs.length; i++) bs[i].classList.toggle('on', i === m);
+  rollFlash = 1;
+  clack();
+}
+(function(){
+  var bs = modeRow.querySelectorAll('button');
+  for (var i = 0; i < bs.length; i++){
+    (function(k){ bs[k].addEventListener('click', function(){ setMode(k); }); })(i);
+  }
+})();
+
+function doPress(){
+  if (pressCool > 0 || state !== 'live') return;      // exactly one sheet per press
+  pressCool = COOL;
+  sheets++;
+  rSheets.textContent = String(sheets);
+  flash = 1; shake = 1; sheetAnim = 1;
+  if (outCv.width > 1 && outCv.height > 1){
+    sheetCv.width = outCv.width; sheetCv.height = outCv.height;
+    try { sheetCtx.drawImage(outCv, 0, 0); } catch(e){}
+  }
+  thump();
+}
+printBtn.addEventListener('click', doPress);
+
+// ═══════════════════════════════════════════════════════════════════════
+//  THE PLATE RENDERERS
+// ═══════════════════════════════════════════════════════════════════════
+var D2R = Math.PI / 180;
+
+// clamped source index for plate p at (x,y)
+function renderScreens(src, dst, plates, per, T){
+  // Hoist everything the inner loop touches into locals. A per-pixel loop
+  // should never reach out to module scope for a constant.
+  var iw = IW, ih = IH, combo = COMBO, cos = COS, cn = COSN, floor = Math.floor;
+  var n = plates.length, i, p, x, y;
+  var invT = 1 / T;
+  // per-plate row walkers
+  var cs = [], sn = [], ox = [], oy = [];
+  for (p = 0; p < n; p++){
+    var a = plates[p].ang * D2R;
+    cs.push(Math.cos(a) * invT); sn.push(Math.sin(a) * invT);
+    ox.push(per[p] ? per[p].x : 0); oy.push(per[p] ? per[p].y : 0);
+  }
+  var di = 0;
+  for (y = 0; y < ih; y++){
+    for (p = 0; p < n; p++){
+      // clamp the sampled row once per row per plate
+      var sy = y + oy[p]; sy = sy < 0 ? 0 : sy >= ih ? ih - 1 : sy;
+      plates[p]._row = sy * iw;
+      plates[p]._u = y * sn[p];        // u = ( x cos + y sin ) / T
+      plates[p]._v = y * cs[p];        // v = (-x sin + y cos ) / T
+    }
+    for (x = 0; x < iw; x++){
+      var mask = 0;
+      for (p = 0; p < n; p++){
+        var pl = plates[p];
+        var sx = x + ox[p]; sx = sx < 0 ? 0 : sx >= iw ? iw - 1 : sx;
+        var si = (pl._row + sx) << 2;
+        var val = pl.src === 3
+          ? (src[si] * 0.299 + src[si + 1] * 0.587 + src[si + 2] * 0.114)
+          : src[si + pl.src];
+        var cov = 1 - val * 0.00392156862745098;      // ink coverage 0..1
+        var u = pl._u + x * cs[p], v = pl._v - x * sn[p];
+        var ui = (u - floor(u)) * cn | 0;
+        var vi = (v - floor(v)) * cn | 0;
+        var thr = 0.5 + 0.25 * (cos[ui] + cos[vi]);
+        if (cov > thr) mask |= (1 << p);
+      }
+      var c = mask * 3;
+      dst[di] = combo[c]; dst[di + 1] = combo[c + 1]; dst[di + 2] = combo[c + 2];
+      di += 4;
+    }
+  }
+}
+
+function renderNoise(src, dst, plates, per){
+  var iw = IW, ih = IH, combo = COMBO, noise = noiseArr;
+  var n = plates.length, i, p, x, y;
+  var ox = [], oy = [];
+  for (p = 0; p < n; p++){ ox.push(per[p] ? per[p].x : 0); oy.push(per[p] ? per[p].y : 0); }
+  var di = 0, ni = 0;
+  for (y = 0; y < ih; y++){
+    for (p = 0; p < n; p++){
+      var sy = y + oy[p]; sy = sy < 0 ? 0 : sy >= ih ? ih - 1 : sy;
+      plates[p]._row = sy * iw;
+    }
+    for (x = 0; x < iw; x++){
+      var thr = noise[ni++];
+      var mask = 0;
+      for (p = 0; p < n; p++){
+        var pl = plates[p];
+        var sx = x + ox[p]; sx = sx < 0 ? 0 : sx >= iw ? iw - 1 : sx;
+        var si = (pl._row + sx) << 2;
+        var val = pl.src === 3
+          ? (src[si] * 0.299 + src[si + 1] * 0.587 + src[si + 2] * 0.114)
+          : src[si + pl.src];
+        var cov = 1 - val * 0.00392156862745098;
+        // the second plate is offset in tone so the two inks do not coincide
+        if (cov > (p === 0 ? thr : 1 - thr) ) mask |= (1 << p);
+      }
+      var c = mask * 3;
+      dst[di] = combo[c]; dst[di + 1] = combo[c + 1]; dst[di + 2] = combo[c + 2];
+      di += 4;
+    }
+  }
+}
+
+function renderLevels(src, dst, plates, per){
+  var iw = IW, ih = IH, combo = COMBO;
+  var n = plates.length, p, x, y;
+  var ox = [], oy = [];
+  for (p = 0; p < n; p++){ ox.push(per[p] ? per[p].x : 0); oy.push(per[p] ? per[p].y : 0); }
+  var di = 0;
+  for (y = 0; y < ih; y++){
+    for (p = 0; p < n; p++){
+      var sy = y + oy[p]; sy = sy < 0 ? 0 : sy >= ih ? ih - 1 : sy;
+      plates[p]._row = sy * iw;
+    }
+    for (x = 0; x < iw; x++){
+      var mask = 0;
+      for (p = 0; p < n; p++){
+        var pl = plates[p];
+        var sx = x + ox[p]; sx = sx < 0 ? 0 : sx >= iw ? iw - 1 : sx;
+        var si = (pl._row + sx) << 2;
+        var lum = (src[si] * 0.299 + src[si + 1] * 0.587 + src[si + 2] * 0.114) * 0.00392156862745098;
+        if (lum < pl.lvl) mask |= (1 << p);
+      }
+      var c = mask * 3;
+      dst[di] = combo[c]; dst[di + 1] = combo[c + 1]; dst[di + 2] = combo[c + 2];
+      di += 4;
+    }
+  }
+}
+
+function press(){
+  if (!outImg || IW < 2 || IH < 2) return;
+  if (!video || !video.videoWidth) return;
+  // pull the frame down to the working resolution
+  srcCtx.save();
+  if (mirror){ srcCtx.translate(IW, 0); srcCtx.scale(-1, 1); }
+  try { srcCtx.drawImage(video, 0, 0, IW, IH); } catch(e){ srcCtx.restore(); return; }
+  srcCtx.restore();
+  var srcImg;
+  try { srcImg = srcCtx.getImageData(0, 0, IW, IH); } catch(e){ return; }
+  var src = srcImg.data, dst = outImg.data;
+  var m = MODES[mode];
+  var per = [];
+  for (var p = 0; p < m.plates.length; p++){
+    per.push({ x: Math.round(offs[p] ? offs[p].x : 0), y: Math.round(offs[p] ? offs[p].y : 0) });
+  }
+  if (m.kind === 'noise') renderNoise(src, dst, m.plates, per);
+  else if (m.kind === 'level') renderLevels(src, dst, m.plates, per);
+  else renderScreens(src, dst, m.plates, per, Math.max(2.2, screenT));
+  outCtx.putImageData(outImg, 0, 0);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  LOOP
+// ═══════════════════════════════════════════════════════════════════════
+function loop(){
+  var t = now();
+  var dt = Math.min(0.05, (t - last) / 1000);
+  last = t;
+
+  if (handsLm.length && t - lastHandT > LOST_MS) loseHands();
+  if (video && video.videoWidth > 0 && video.videoHeight > 0){
+    var a = video.videoWidth / video.videoHeight;
+    if (isFinite(a) && a > 0 && Math.abs(a - ASP) > 0.01){ ASP = a; allocBuffers(); }
+  }
+
+  // ── read the hands ─────────────────────────────────────
+  var reads = [], i;
+  for (i = 0; i < handsLm.length && i < 2; i++){
+    var r = readHand(handsLm[i]);
+    if (r) reads.push(r);
+  }
+  // keep the two slots left-to-right so plates do not swap when a hand blinks
+  if (reads.length === 2 && reads[0].x > reads[1].x){ var sw = reads[0]; reads[0] = reads[1]; reads[1] = sw; }
+
+  for (i = 0; i < 2; i++){
+    if (i < reads.length){
+      tracked[i].x += (reads[i].x - tracked[i].x) * Math.min(1, dt * 11);
+      tracked[i].y += (reads[i].y - tracked[i].y) * Math.min(1, dt * 11);
+      tracked[i].live = true;
+    } else {
+      // no hand for this slot: ease the plate back into register
+      tracked[i].x += (0.5 - tracked[i].x) * Math.min(1, dt * 2.2);
+      tracked[i].y += (0.5 - tracked[i].y) * Math.min(1, dt * 2.2);
+      tracked[i].live = false;
+    }
+  }
+
+  if (state === 'live'){
+    // screen frequency from the pinch of whichever hand is pinching hardest,
+    // frozen while a fist is held so the press gesture cannot change it
+    var anyFist = false, ap = -1;
+    for (i = 0; i < reads.length; i++){
+      if (reads[i].fist) anyFist = true;
+      else if (reads[i].ap > ap) ap = reads[i].ap;
+    }
+    if (ap >= 0) screenTarget = 3.2 + (1 - ap) * 11.0;
+    screenT += (screenTarget - screenT) * Math.min(1, dt * 4.5);
+
+    // ── plate offsets ────────────────────────────────────
+    var MAX = IW * 0.075;
+    var h0 = tracked[0], h1 = tracked[1];
+    var two = reads.length >= 2;
+    var m = MODES[mode];
+    for (i = 0; i < 3; i++){
+      var tx = 0, ty = 0;
+      if (i === 0){ tx = (h0.x - 0.5) * 2 * MAX; ty = (h0.y - 0.5) * 2 * MAX; }
+      else if (i === 1){
+        if (two){ tx = (h1.x - 0.5) * 2 * MAX; ty = (h1.y - 0.5) * 2 * MAX; }
+        else    { tx = -(h0.x - 0.5) * 1.3 * MAX; ty = -(h0.y - 0.5) * 1.3 * MAX; }
+      } else { tx = (h0.x - 0.5) * 0.5 * MAX; ty = -(h0.y - 0.5) * 0.5 * MAX; }
+      if (!isFinite(tx)) tx = 0;
+      if (!isFinite(ty)) ty = 0;
+      offs[i].x += (tx - offs[i].x) * Math.min(1, dt * 8);
+      offs[i].y += (ty - offs[i].y) * Math.min(1, dt * 8);
+    }
+    misreg = 0;
+    for (i = 0; i < m.plates.length; i++){
+      var d = Math.sqrt(offs[i].x * offs[i].x + offs[i].y * offs[i].y);
+      if (d > misreg) misreg = d;
+    }
+
+    // ── press gestures ───────────────────────────────────
+    pressCool = Math.max(0, pressCool - dt);
+    // Edge triggered: the press fires once when the gesture completes and
+    // will not fire again until you let go of it. Holding a fist down is one
+    // sheet, not a stream of them — a press has a lever, not an autofire.
+    // The plate offsets may coast on the last landmarks so the print does not
+    // stutter, but a press only counts while tracking is FRESH — otherwise
+    // taking your hands away keeps the gesture timer running and prints.
+    var fresh = handsLm.length > 0 && (t - lastHandT) < FRESH_MS;
+    var holding = false;
+    if (!fresh){ togetherT = 0; fistT = 0; }
+    else if (two){
+      var hd = Math.hypot(reads[0].x - reads[1].x, reads[0].y - reads[1].y);
+      togetherT = hd < TOGETHER_DIST ? togetherT + dt : 0;
+      fistT = 0;
+      holding = togetherT > 0;
+      if (togetherT >= TOGETHER_NEED && pressArmed){ pressArmed = false; doPress(); }
+    } else if (fresh && reads.length === 1){
+      togetherT = 0;
+      fistT = reads[0].fist ? fistT + dt : 0;
+      holding = fistT > 0;
+      if (fistT >= FIST_NEED && pressArmed){ pressArmed = false; doPress(); }
+    } else { togetherT = 0; fistT = 0; }
+    if (!holding) pressArmed = true;
+
+    // ── the ink-roller bed follows the misregistration ───
+    if (rollerGain){
+      var lv = soundOn ? Math.min(0.11, (misreg / Math.max(1, IW * 0.075)) * 0.11) : 0;
+      try { rollerGain.gain.value = isFinite(lv) ? lv : 0; } catch(e){}
+    }
+
+    // ── render, and adapt the working resolution ─────────
+    var t0 = now();
+    press();
+    var el = now() - t0;
+    frameMs += (el - frameMs) * 0.12;
+    adaptCool -= dt;
+    if (adaptCool <= 0){
+      if (frameMs > 15 && targetPx > 46000){ targetPx = Math.round(targetPx * 0.74); allocBuffers(); adaptCool = 1.2; frameMs = 10; }
+      else if (frameMs < 5.5 && targetPx < 132000){ targetPx = Math.round(targetPx * 1.25); if (targetPx > 132000) targetPx = 132000; allocBuffers(); adaptCool = 1.2; frameMs = 10; }
+    }
+
+    rScreen.textContent = screenT.toFixed(1);
+    rMis.textContent = misreg.toFixed(1);
+  }
+
+  flash = Math.max(0, flash - dt * 5.5);
+  shake = Math.max(0, shake - dt * 6.5);
+  rollFlash = Math.max(0, rollFlash - dt * 9);
+  if (sheetAnim > 0) sheetAnim = Math.max(0, sheetAnim - dt * 0.85);
+
+  draw(t);
+  requestAnimationFrame(loop);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  DRAW
+// ═══════════════════════════════════════════════════════════════════════
+function printRect(){
+  // the sheet, centred, cover-fitting the camera aspect with a paper margin
+  var pad = U * 0.055;
+  var aw = W - pad * 2, ah = H - pad * 2.6;
+  var w = aw, h = w / ASP;
+  if (h > ah){ h = ah; w = h * ASP; }
+  return { x:(W - w) / 2, y:(H - h) / 2 - U * 0.008, w:w, h:h };
+}
+
+function draw(t){
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  if (paperCv.width > 1) ctx.drawImage(paperCv, 0, 0, W, H);
+  else { ctx.fillStyle = '#efe9dc'; ctx.fillRect(0, 0, W, H); }
+
+  var R = printRect();
+
+  ctx.save();
+  var sh = shake * shake * U * 0.014;
+  if (sh > 0.05) ctx.translate((Math.random() - 0.5) * sh, (Math.random() - 0.5) * sh);
+
+  // hard press shadow
+  ctx.fillStyle = 'rgba(26,26,26,.16)';
+  ctx.fillRect(R.x + U * 0.010, R.y + U * 0.010, R.w, R.h);
+
+  // the print itself
+  if (outCv.width > 1 && state === 'live'){
+    ctx.imageSmoothingEnabled = false;
+    try { ctx.drawImage(outCv, R.x, R.y, R.w, R.h); } catch(e){}
+    ctx.imageSmoothingEnabled = true;
+  } else {
+    ctx.fillStyle = '#e6dfd0'; ctx.fillRect(R.x, R.y, R.w, R.h);
+  }
+  ctx.strokeStyle = '#1a1a1a'; ctx.lineWidth = 2;
+  ctx.strokeRect(R.x - 1, R.y - 1, R.w + 2, R.h + 2);
+
+  if (rollFlash > 0.001){
+    ctx.globalAlpha = rollFlash * 0.55;
+    ctx.fillStyle = '#ff4b8b';
+    ctx.fillRect(R.x, R.y + R.h * (1 - rollFlash) * 0.9, R.w, R.h * 0.07);
+    ctx.globalAlpha = 1;
+  }
+
+  // registration targets on the hands
+  if (state === 'live'){
+    var inks = MODES[mode].plates;
+    for (var i = 0; i < 2; i++){
+      if (!tracked[i].live) continue;
+      var ink = inks[Math.min(i, inks.length - 1)].ink;
+      regMark(R.x + tracked[i].x * R.w, R.y + tracked[i].y * R.h,
+              U * 0.032, 'rgb(' + ink[0] + ',' + ink[1] + ',' + ink[2] + ')');
+    }
+    if (!tracked[0].live && !tracked[1].live){
+      ctx.globalAlpha = 0.45 + Math.sin(t * 0.004) * 0.2;
+      ctx.fillStyle = '#1a1a1a';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.font = '700 ' + (U * 0.032).toFixed(1) + 'px "Zen Kaku Gothic New",sans-serif';
+      ctx.fillText('手をかざすと版がずれます', R.x + R.w / 2, R.y + R.h / 2);
+      ctx.globalAlpha = 1;
+    }
+  }
+  ctx.restore();
+
+  // the printed sheet lifting off
+  if (sheetAnim > 0.001 && sheetCv.width > 1){
+    var e = 1 - sheetAnim;
+    var ease = 1 - Math.pow(1 - e, 3);
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, sheetAnim * 0.9);
+    var lift = ease * U * 0.55;
+    var scl = 1 + ease * 0.06;
+    ctx.translate(R.x + R.w / 2, R.y + R.h / 2 - lift);
+    ctx.rotate(ease * 0.06);
+    ctx.imageSmoothingEnabled = false;
+    try { ctx.drawImage(sheetCv, -R.w * scl / 2, -R.h * scl / 2, R.w * scl, R.h * scl); } catch(e2){}
+    ctx.imageSmoothingEnabled = true;
+    ctx.restore();
+  }
+
+  // crop marks + colour bar
+  cropMarks(R);
+
+  if (flash > 0.001){
+    ctx.globalAlpha = flash * 0.75;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, W, H);
+    ctx.globalAlpha = 1;
+  }
+}
+
+function regMark(x, y, r, col){
+  if (!isFinite(x) || !isFinite(y) || !(r > 0)) return;
+  ctx.save();
+  ctx.strokeStyle = col; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(x, y, r * 0.52, 0, Math.PI * 2); ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(x - r, y); ctx.lineTo(x + r, y);
+  ctx.moveTo(x, y - r); ctx.lineTo(x, y + r);
+  ctx.stroke();
+  ctx.restore();
+}
+
+var BAR = [[255, 75, 139], [0, 163, 196], [255, 210, 63], [26, 26, 26]];
+function cropMarks(R){
+  ctx.save();
+  ctx.strokeStyle = '#1a1a1a'; ctx.lineWidth = 1;
+  var g = U * 0.022, L = U * 0.032;
+  var pts = [[R.x, R.y, -1, -1], [R.x + R.w, R.y, 1, -1],
+             [R.x, R.y + R.h, -1, 1], [R.x + R.w, R.y + R.h, 1, 1]];
+  for (var i = 0; i < 4; i++){
+    var p = pts[i];
+    ctx.beginPath();
+    ctx.moveTo(p[0] + p[2] * g, p[1]); ctx.lineTo(p[0] + p[2] * (g + L), p[1]);
+    ctx.moveTo(p[0], p[1] + p[3] * g); ctx.lineTo(p[0], p[1] + p[3] * (g + L));
+    ctx.stroke();
+  }
+  // colour bar down the left paper margin
+  var bw = Math.max(4, U * 0.014), bh = Math.max(4, U * 0.020);
+  var bx = Math.max(2, R.x - U * 0.038), by = R.y;
+  for (i = 0; i < BAR.length; i++){
+    ctx.fillStyle = 'rgb(' + BAR[i][0] + ',' + BAR[i][1] + ',' + BAR[i][2] + ')';
+    ctx.fillRect(bx, by + i * (bh + 2), bw, bh);
+  }
+  ctx.restore();
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  OVERLAY TUTORIAL — two plates sliding apart, then the press
+// ═══════════════════════════════════════════════════════════════════════
+function drawHowto(t){
+  var c = howCtx, w = howto.width, h = howto.height;
+  c.setTransform(1, 0, 0, 1, 0, 0);
+  c.fillStyle = '#f3efe6'; c.fillRect(0, 0, w, h);
+  var cyc = 3600, ph = (t % cyc) / cyc;
+  var spread = ph < 0.62 ? Math.sin(ph / 0.62 * Math.PI) : 0;
+  var stamp = ph > 0.66 && ph < 0.80 ? 1 - (ph - 0.66) / 0.14 : 0;
+  var off = spread * w * 0.045;
+  // three overlapping halftone discs, sliding apart
+  var inks = [[0, 163, 196], [255, 75, 139], [255, 210, 63]];
+  var dirs = [[-1, -0.35], [1, 0.35], [0.2, -1]];
+  for (var k = 0; k < 3; k++){
+    c.save();
+    c.globalAlpha = 0.78;
+    c.fillStyle = 'rgb(' + inks[k][0] + ',' + inks[k][1] + ',' + inks[k][2] + ')';
+    var cx = w * 0.5 + dirs[k][0] * off, cy = h * 0.48 + dirs[k][1] * off;
+    // draw the disc as actual dots, on a rotated grid
+    var ang = k * 30 * Math.PI / 180, T = h * 0.055;
+    var rad = h * 0.27;
+    for (var yy = -rad; yy <= rad; yy += T){
+      for (var xx = -rad; xx <= rad; xx += T){
+        var rx = xx * Math.cos(ang) - yy * Math.sin(ang);
+        var ry = xx * Math.sin(ang) + yy * Math.cos(ang);
+        var d = Math.sqrt(rx * rx + ry * ry);
+        if (d > rad) continue;
+        var rr = T * 0.46 * (1 - d / rad * 0.55);
+        if (rr <= 0.2) continue;
+        c.beginPath(); c.arc(cx + rx, cy + ry, rr, 0, Math.PI * 2); c.fill();
+      }
+    }
+    c.restore();
+  }
+  // hands as registration targets
+  c.strokeStyle = '#1a1a1a'; c.lineWidth = 2;
+  for (k = 0; k < 2; k++){
+    var hx = w * 0.5 + (k ? 1 : -1) * (w * 0.17 + off * 1.6);
+    var hy = h * 0.48 + (k ? 1 : -1) * off * 0.5;
+    var r = h * 0.055;
+    c.beginPath(); c.arc(hx, hy, r * 0.55, 0, Math.PI * 2); c.stroke();
+    c.beginPath();
+    c.moveTo(hx - r, hy); c.lineTo(hx + r, hy);
+    c.moveTo(hx, hy - r); c.lineTo(hx, hy + r);
+    c.stroke();
+  }
+  if (stamp > 0){
+    c.globalAlpha = stamp * 0.8; c.fillStyle = '#ffffff';
+    c.fillRect(0, 0, w, h); c.globalAlpha = 1;
+  }
+  c.fillStyle = '#6b6459';
+  c.font = '700 ' + Math.round(h * 0.072) + 'px "Zen Kaku Gothic New",sans-serif';
+  c.textAlign = 'center'; c.textBaseline = 'middle';
+  c.fillText(ph < 0.62 ? '手を動かすと版がずれる' : '合わせると刷り上がる', w * 0.5, h * 0.91);
+  c.strokeStyle = '#1a1a1a'; c.lineWidth = 2;
+  c.strokeRect(1, 1, w - 2, h - 2);
+}
+function howtoLoop(){
+  if (state === 'boot'){ drawHowto(now()); requestAnimationFrame(howtoLoop); }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  BOOT
+// ═══════════════════════════════════════════════════════════════════════
+goBtn.addEventListener('click', function(){
+  goBtn.disabled = true;
+  errBox.style.display = 'none';
+  initAudio();
+  var already = !!(stream && video && video.srcObject);
+  goBtn.textContent = already ? 'START' : 'CAMERA…';
+  var p = already ? Promise.resolve() : startStream();
+  p.then(function(){
+    if (!mpReady) initHands();
+    startMpCamera();
+    state = 'live';
+    ov.classList.add('hide');
+    goBtn.textContent = 'START';
+  }).catch(function(e){
+    showError(e);
+    goBtn.disabled = false;
+    goBtn.textContent = 'RETRY';
+  });
+});
+
+buildCombo();
+fit();
+requestAnimationFrame(loop);
+requestAnimationFrame(howtoLoop);
+
+// headless harness hooks
+window.__AMITEN__ = {
+  MODES: MODES, setMode: setMode, doPress: doPress,
+  feed: function(list){ onHands({ multiHandLandmarks: list || [] }); },
+  size: function(){ return { IW:IW, IH:IH, targetPx:targetPx }; },
+  state: function(){ return { state:state, mode:mode, sheets:sheets, misreg:misreg,
+                              screenT:screenT, fistT:fistT, togetherT:togetherT,
+                              pressCool:pressCool, armed:pressArmed, hands:handsLm.length, fresh:(now()-lastHandT)<FRESH_MS,
+                              live:[tracked[0].live, tracked[1].live] }; },
+  setTargetPx: function(v){ targetPx = v; allocBuffers(); },
+  outCanvas: function(){ return outCv; },
+  outData: function(){ return outImg ? outImg.data : null; },
+  COMBO: COMBO, buildCombo: buildCombo
+};
+</script>
+</body>
+</html>
