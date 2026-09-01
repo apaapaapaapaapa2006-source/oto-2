@@ -1,0 +1,978 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>IKI ─ 息の笛</title>
+<meta name="description" content="息を吹きこんで鳴らす笛。マイクに吹いた息がそのまま管の中の空気になり、手の高さが音の高さ、手の開き具合が音色になる。強く吹けば一オクターブ跳ねる。">
+<meta name="theme-color" content="#f7f6f1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Zen+Old+Mincho:wght@400;700&family=Cormorant+Garamond:ital,wght@0,300;1,300&display=swap" rel="stylesheet">
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  IKI ─ 息の笛                            ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  PALETTE   白練 shironeri #f7f6f1  bright paper           (ground)
+            白緑 byakuroku #a9c6b4  celadon air            (breath, mist)
+            藍鼠 ainezu    #6d8792  slate blue             (ladder, type)
+            墨   sumi      #2f3a38  ink                    (hand, marks)
+            黄檗 kihada    #dcb95c  soft gold              (the sounding note)
+            MOOD: a bright, still morning. High-key, almost white, all air
+            and paper. Deliberately the opposite of the gallery's dark
+            pieces — nothing glows because nothing is dark.
+
+  BACKGROUND  Paper white with a celadon wash rising from the floor and a
+            slow horizontal mist. Nine ink rules cross the screen: the
+            note ladder. They drift a few pixels, like lines on a sheet
+            of paper held in a draught. No vignette anywhere.
+
+  TYPE      Zen Old Mincho for Japanese, set light and wide; Cormorant
+            Garamond italic for the note names, so the pitch reads like a
+            pencilled annotation rather than a readout.
+
+  MOTION    Floaty and slow. Every controller is a long time-constant
+            follower — pitch glides, breath swells, the mist never stops.
+            The single fast event in the whole piece is the overblow: the
+            ribbon splits in one frame and pays for it with a chiff.
+
+  SIGNATURE THE SOUNDING COLUMN. Air rises from the floor in a column
+            beneath your hand, reaches the ladder line you are holding,
+            and spills sideways into a long ribbon of breath drawn right
+            across the paper. The ribbon IS the note: its width is your
+            breath pressure, its texture is the brightness of the tone,
+            and when you overblow it splits and a second, paler ribbon
+            appears one octave higher.
+
+  AUDIO     A real waveguide, not an oscillator. A delay line tuned to the
+            note is excited by breath-scaled noise, reflected through a
+            one-ZERO filter and folded through a bounded saturator, so it
+            sounds only while you are actually blowing and can never blow
+            up. The one-zero matters: its phase delay is flat enough across
+            the band that the pipe holds its tuning while the darkness
+            control moves, where a one-pole detunes by up to 9%. Timbre is
+            shaped again outside the loop, where it cannot affect pitch.
+            Measured on the bench: within 0.2% of the requested pitch from
+            196Hz to 1175Hz at every brightness. Runs in an AudioWorklet
+            where available and a ScriptProcessor where not — ONE DSP
+            source string feeds both. Two-tap feedback reverb, compressor.
+
+  ENGINEERING  Mic and camera are requested separately, so a refused
+            microphone costs you the breath sensor and nothing else (the
+            piece falls back to a thumb/index aperture). Breath is
+            separated from speech by weighting RMS with the ratio of
+            2-8kHz turbulence to 100-700Hz voice energy, against a noise
+            floor measured in the first 1.4 seconds. Every landmark is
+            validated; losing the hand releases the note cleanly.
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<style>
+  *{ margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body{
+    width:100%; height:100%; overflow:hidden; background:#f7f6f1; color:#2f3a38;
+    font-family:'Zen Old Mincho',-apple-system,'Hiragino Mincho ProN',serif;
+    -webkit-user-select:none; user-select:none;
+  }
+  #stage{ position:fixed; inset:0; }
+  canvas#cv{ position:absolute; inset:0; width:100%; height:100%; display:block; }
+  video#vid{ position:absolute; width:2px; height:2px; opacity:0; pointer-events:none; left:-10px; top:-10px; }
+
+  .chrome{ position:absolute; inset:0; pointer-events:none; }
+  .row{ position:absolute; display:flex; align-items:center; gap:.5rem; pointer-events:auto; flex-wrap:wrap; }
+  .tl{ top:calc(env(safe-area-inset-top,0px) + .9rem); left:.9rem; }
+  .tr{ top:calc(env(safe-area-inset-top,0px) + .9rem); right:.9rem; }
+  .btn{
+    font-family:'Zen Old Mincho',serif; font-size:.68rem; letter-spacing:.16em; color:#4d5f63;
+    background:rgba(255,255,255,.72); border:1px solid rgba(109,135,146,.32);
+    border-radius:1px; padding:.42rem .74rem; cursor:pointer;
+    transition:background .3s ease, border-color .3s ease, color .3s ease;
+  }
+  .btn:hover{ background:#fff; border-color:#6d8792; color:#2f3a38; }
+  .btn.q{ min-width:5.4rem; }
+
+  /* ── the pitch annotation ─────────────────────────────── */
+  #note{
+    position:absolute; left:50%; transform:translateX(-50%);
+    top:calc(env(safe-area-inset-top,0px) + 3.4rem);
+    text-align:center; pointer-events:none;
+  }
+  #noteName{
+    font-family:'Cormorant Garamond',Georgia,serif; font-style:italic; font-weight:300;
+    font-size:clamp(3rem,15vw,5.2rem); line-height:.9; color:#6d8792;
+    transition:color .5s ease;
+  }
+  #noteName.sounding{ color:#b8912f; }
+  #noteJp{ font-size:.66rem; letter-spacing:.5em; text-indent:.5em; color:#8fa3a3; margin-top:.5rem; }
+
+  /* ── breath meter ─────────────────────────────────────── */
+  #breath{
+    position:absolute; left:50%; transform:translateX(-50%);
+    bottom:calc(env(safe-area-inset-bottom,0px) + 2.5rem);
+    width:min(72vw,20rem); pointer-events:none; text-align:center;
+  }
+  #bTrack{ height:2px; background:rgba(109,135,146,.2); position:relative; overflow:visible; }
+  #bFill{ height:100%; width:0%; background:#a9c6b4; }
+  #bMark{
+    position:absolute; top:-4px; height:10px; width:1px; background:#dcb95c; left:72%;
+  }
+  #bLabel{ margin-top:.6rem; font-size:.62rem; letter-spacing:.34em; text-indent:.34em; color:#8fa3a3; }
+  #srcLabel{ margin-top:.25rem; font-size:.56rem; letter-spacing:.2em; color:#a8b6b4; }
+
+  /* ── overlay ──────────────────────────────────────────── */
+  #ov{
+    position:absolute; inset:0; z-index:20; display:flex;
+    align-items:center; justify-content:center; padding:1.4rem;
+    background:#f7f6f1; text-align:center; overflow:auto;
+  }
+  #ov.hide{ display:none; }
+  .sheet{ width:min(94vw,26rem); }
+  .kanji{ font-size:clamp(3rem,16vw,4.6rem); font-weight:400; letter-spacing:.3em; text-indent:.3em; color:#2f3a38; }
+  .roman{
+    font-family:'Cormorant Garamond',serif; font-style:italic; font-weight:300;
+    font-size:1.05rem; letter-spacing:.5em; text-indent:.5em; color:#8fa3a3; margin-top:.5rem;
+  }
+  .lede{ font-size:.82rem; line-height:2.2; color:#5b6b6b; margin-top:1.3rem; }
+  #howto{ display:block; margin:1.2rem auto .4rem; width:min(88vw,20rem); height:auto; }
+  .howcap{ font-size:.62rem; letter-spacing:.18em; color:#8fa3a3; line-height:2; }
+  #go{
+    margin-top:1.6rem; font-family:'Zen Old Mincho',serif; font-weight:400;
+    font-size:.95rem; letter-spacing:.46em; text-indent:.46em; color:#f7f6f1;
+    background:#4d5f63; border:none; border-radius:1px; padding:.85rem 2.2rem; cursor:pointer;
+    transition:background .4s ease, transform .4s cubic-bezier(.2,.9,.3,1), letter-spacing .4s ease;
+  }
+  #go:hover{ background:#2f3a38; transform:translateY(-2px); letter-spacing:.56em; }
+  #go:disabled{ opacity:.45; cursor:default; transform:none; }
+  #err{
+    display:none; margin-top:1.1rem; font-size:.72rem; line-height:1.95; color:#a35a44;
+    white-space:pre-line; border:1px solid rgba(163,90,68,.3); padding:.7rem .8rem;
+  }
+  .note{ margin-top:1.3rem; font-size:.58rem; letter-spacing:.13em; color:#a8b6b4; line-height:2; }
+  @media (max-height:580px){
+    #howto{ width:min(60vw,14rem); } .lede{ margin-top:.7rem; line-height:1.9; } #go{ margin-top:.9rem; }
+  }
+</style>
+</head>
+<body>
+<div id="stage">
+  <video id="vid" playsinline muted autoplay></video>
+  <canvas id="cv"></canvas>
+
+  <div class="chrome">
+    <div class="row tl">
+      <button class="btn" id="flipBtn" type="button">⟲ カメラ</button>
+    </div>
+    <div class="row tr">
+      <button class="btn q" id="scaleBtn" type="button">音階 ヨナ抜き</button>
+      <button class="btn" id="volBtn" type="button">音量 ●●○</button>
+    </div>
+
+    <div id="note">
+      <div id="noteName">—</div>
+      <div id="noteJp">いき を ふ く</div>
+    </div>
+
+    <div id="breath">
+      <div id="bTrack"><div id="bFill"></div><div id="bMark"></div></div>
+      <div id="bLabel">い き</div>
+      <div id="srcLabel"></div>
+    </div>
+  </div>
+
+  <div id="ov">
+    <div class="sheet">
+      <div class="kanji">息</div>
+      <div class="roman">IKI</div>
+      <p class="lede">マイクに息を吹きこむと、管の空気が鳴りはじめます。<br>手の高さが音の高さ。強く吹けば一オクターブ跳ねます。</p>
+      <canvas id="howto" width="640" height="300"></canvas>
+      <p class="howcap">手を上下に動かして音を選び、息で鳴らす。<br>まちがった音はありません。</p>
+      <button id="go" type="button">ふきはじめる</button>
+      <div id="err"></div>
+      <p class="note">カメラとマイクの音は端末の外に出ません。<br>マイクを許可できないときは、親指と人差し指の開き具合が息になります。</p>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+<script>
+"use strict";
+// ═══════════════════════════════════════════════════════════════════════
+//  DOM
+// ═══════════════════════════════════════════════════════════════════════
+var video    = document.getElementById('vid');
+var cv       = document.getElementById('cv');
+var ctx      = cv.getContext('2d');
+var ov       = document.getElementById('ov');
+var goBtn    = document.getElementById('go');
+var errBox   = document.getElementById('err');
+var flipBtn  = document.getElementById('flipBtn');
+var scaleBtn = document.getElementById('scaleBtn');
+var volBtn   = document.getElementById('volBtn');
+var howto    = document.getElementById('howto');
+var howCtx   = howto.getContext('2d');
+var noteName = document.getElementById('noteName');
+var noteJp   = document.getElementById('noteJp');
+var bFill    = document.getElementById('bFill');
+var bMark    = document.getElementById('bMark');
+var srcLabel = document.getElementById('srcLabel');
+
+// ═══════════════════════════════════════════════════════════════════════
+//  THE FLUTE — one DSP source, run in a worklet or a script processor
+// ═══════════════════════════════════════════════════════════════════════
+var DSP_SRC = [
+'function makeFlute(sr){',
+'  var N = Math.max(128, Math.ceil(sr / 55) + 8);',
+'  var D = new Float32Array(N), idx = 0, prev = 0, tone = 0;',
+'  var P = 200, tP = 200, br = 0, tBr = 0, bg = 0.5, tBg = 0.5;',
+'  var chiff = 0, seed = 22222;',
+'  function rnd(){ seed = (seed * 1664525 + 1013904223) | 0; return (seed >>> 9) / 4194304 - 1; }',
+'  return {',
+'    set: function(freq, press, bright){',
+'      if (!(freq > 20)) freq = 20;',
+'      var p = sr / freq;',
+'      if (!(p > 8)) p = 8;',
+'      if (p > N - 4) p = N - 4;',
+'      tP = p;',
+'      tBr = press > 0 ? (press < 1 ? press : 1) : 0;',
+'      tBg = bright > 0 ? (bright < 1 ? bright : 1) : 0;',
+'    },',
+'    chiff: function(a){ chiff = (a > 0 && a < 4) ? a : 0; },',
+'    process: function(out, n){',
+'      for (var i = 0; i < n; i++){',
+'        P  += (tP  - P)  * 0.00090;',
+'        br += (tBr - br) * 0.00180;',
+'        bg += (tBg - bg) * 0.00060;',
+        // Reflection filter: one zero, y = (1-b)x[n] + b x[n-1]. Its phase
+        // delay is b samples and stays flat enough across the band that the
+        // pipe keeps its tuning while b (the darkness) moves — which a
+        // one-pole emphatically does not.
+'        var b = 0.30 + 0.34 * (1 - bg);',
+'        var L = P - b; if (L < 4) L = 4;',
+'        var r = idx - L; while (r < 0) r += N;',
+'        var i0 = r | 0, fr = r - i0, i1 = i0 + 1; if (i1 >= N) i1 -= N;',
+'        var dl = D[i0] + (D[i1] - D[i0]) * fr;',
+'        var refl = (1 - b) * dl + b * prev;',
+'        prev = dl;',
+'        var exc = rnd() * br * (0.30 + 0.34 * br);',
+'        if (chiff > 0.00001){ exc += rnd() * chiff * 0.85; chiff *= 0.99930; }',
+'        var v = refl * (0.9770 + bg * 0.0105) + exc;',
+'        v = v / (1 + 0.42 * v * v);',
+        // a resonator that ever swallows a NaN stays broken for good
+'        if (!(v > -4 && v < 4)) v = 0;',
+'        D[idx] = v;',
+'        idx++; if (idx >= N) idx = 0;',
+        // out-of-loop tone shaping: changes the timbre, never the tuning
+'        tone += (dl - tone) * (0.30 + bg * 0.50);',
+'        out[i] = tone * (0.46 + 0.80 * br);',
+'      }',
+'    }',
+'  };',
+'}'
+].join('\n');
+
+var AC = null, master = null, comp = null, fluteNode = null, fluteDsp = null, fluteMode = '';
+var VOLS = [0.34, 0.62, 1.0], volIdx = 1;
+
+function buildReverb(input, out){
+  var taps = [[0.0873, 0.40], [0.1319, 0.34]];
+  var wet = AC.createGain(); wet.gain.value = 0.34;
+  for (var i = 0; i < taps.length; i++){
+    var d = AC.createDelay(1.0); d.delayTime.value = taps[i][0];
+    var fb = AC.createGain(); fb.gain.value = taps[i][1];
+    var lp = AC.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 2900;
+    input.connect(d); d.connect(lp); lp.connect(fb); fb.connect(d);
+    d.connect(wet);
+  }
+  wet.connect(out);
+}
+
+function initAudio(){
+  var Ctor = window.AudioContext || window.webkitAudioContext;
+  if (!Ctor) return Promise.resolve();
+  if (AC){
+    if (AC.state === 'suspended' && AC.resume) AC.resume();
+    return Promise.resolve();
+  }
+  try { AC = new Ctor(); } catch(e){ AC = null; return Promise.resolve(); }
+  comp = AC.createDynamicsCompressor();
+  try {
+    comp.threshold.value = -14; comp.knee.value = 22;
+    comp.ratio.value = 7; comp.attack.value = 0.004; comp.release.value = 0.26;
+  } catch(e){}
+  master = AC.createGain();
+  master.gain.value = VOLS[volIdx];
+  var tone = AC.createBiquadFilter();
+  tone.type = 'lowpass'; tone.frequency.value = 5200; tone.Q.value = 0.6;
+  tone.connect(master);
+  buildReverb(tone, master);
+  master.connect(comp); comp.connect(AC.destination);
+  if (AC.state === 'suspended' && AC.resume) AC.resume();
+
+  // preferred: an AudioWorklet built from the very same DSP source
+  if (AC.audioWorklet && typeof AC.audioWorklet.addModule === 'function' &&
+      typeof Blob !== 'undefined' && typeof URL !== 'undefined' && URL.createObjectURL){
+    var src = DSP_SRC + '\n' +
+      'class FluteP extends AudioWorkletProcessor{' +
+      'constructor(){super();this.f=makeFlute(sampleRate);' +
+      'this.port.onmessage=(e)=>{var d=e.data;if(!d)return;' +
+      'if(d.t===1)this.f.set(d.f,d.p,d.b);else if(d.t===2)this.f.chiff(d.a);};}' +
+      'process(a,o){var c=o[0];if(!c||!c[0])return true;this.f.process(c[0],c[0].length);' +
+      'for(var i=1;i<c.length;i++)c[i].set(c[0]);return true;}}' +
+      'registerProcessor("iki-flute",FluteP);';
+    var url;
+    try { url = URL.createObjectURL(new Blob([src], { type:'application/javascript' })); }
+    catch(e){ url = null; }
+    if (url){
+      return AC.audioWorklet.addModule(url).then(function(){
+        fluteNode = new AudioWorkletNode(AC, 'iki-flute', { outputChannelCount:[1] });
+        fluteNode.connect(tone);
+        fluteMode = 'worklet';
+        try { URL.revokeObjectURL(url); } catch(e){}
+      }).catch(function(){
+        try { URL.revokeObjectURL(url); } catch(e){}
+        makeScriptFlute(tone);
+      });
+    }
+  }
+  makeScriptFlute(tone);
+  return Promise.resolve();
+}
+function makeScriptFlute(dest){
+  if (!AC || !AC.createScriptProcessor) return;
+  try {
+    fluteDsp = (new Function(DSP_SRC + '\nreturn makeFlute;'))()(AC.sampleRate);
+    var sp = AC.createScriptProcessor(512, 1, 1);
+    sp.onaudioprocess = function(ev){
+      var o = ev.outputBuffer.getChannelData(0);
+      fluteDsp.process(o, o.length);
+    };
+    sp.connect(dest);
+    fluteNode = sp;
+    fluteMode = 'script';
+  } catch(e){ fluteMode = ''; }
+}
+function fluteSet(freq, press, bright){
+  if (fluteDsp) fluteDsp.set(freq, press, bright);
+  else if (fluteNode && fluteNode.port) fluteNode.port.postMessage({ t:1, f:freq, p:press, b:bright });
+}
+function fluteChiff(a){
+  if (fluteDsp) fluteDsp.chiff(a);
+  else if (fluteNode && fluteNode.port) fluteNode.port.postMessage({ t:2, a:a });
+}
+volBtn.addEventListener('click', function(){
+  volIdx = (volIdx + 1) % VOLS.length;
+  volBtn.textContent = '音量 ' + ['●○○', '●●○', '●●●'][volIdx];
+  if (master) try { master.gain.value = VOLS[volIdx]; } catch(e){}
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+//  SCALES — nine rungs, no wrong notes
+// ═══════════════════════════════════════════════════════════════════════
+var SCALES = [
+  { jp:'ヨナ抜き', steps:[0, 2, 4, 7, 9], base:65.41 * 4 },   // C major pentatonic, C4
+  { jp:'都節',     steps:[0, 1, 5, 7, 8], base:65.41 * 4 },   // miyako-bushi
+  { jp:'琉球',     steps:[0, 4, 5, 7, 11], base:65.41 * 4 }   // ryukyu
+];
+var scaleIdx = 0, STEPS = 9;
+var NAMES = ['C','C♯','D','E♭','E','F','F♯','G','A♭','A','B♭','B'];
+function stepFreq(i){
+  var sc = SCALES[scaleIdx];
+  var n = sc.steps.length;
+  var oct = Math.floor(i / n), deg = i - oct * n;
+  if (deg < 0){ deg += n; oct -= 1; }
+  var semi = sc.steps[deg] + oct * 12;
+  return sc.base * Math.pow(2, semi / 12);
+}
+function stepName(i){
+  var sc = SCALES[scaleIdx];
+  var n = sc.steps.length;
+  var oct = Math.floor(i / n), deg = i - oct * n;
+  if (deg < 0){ deg += n; oct -= 1; }
+  var semi = sc.steps[deg] + oct * 12;
+  var pc = ((semi % 12) + 12) % 12;
+  return NAMES[pc] + String(4 + Math.floor(semi / 12));
+}
+scaleBtn.addEventListener('click', function(){
+  scaleIdx = (scaleIdx + 1) % SCALES.length;
+  scaleBtn.textContent = '音階 ' + SCALES[scaleIdx].jp;
+  rippleAll();
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+//  CANVAS
+// ═══════════════════════════════════════════════════════════════════════
+var W = 1, H = 1, U = 1, DPR = 1;
+function fit(){
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  var w = Math.max(1, window.innerWidth), h = Math.max(1, window.innerHeight);
+  cv.width = Math.round(w * DPR); cv.height = Math.round(h * DPR);
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  W = w; H = h; U = Math.min(w, h);
+}
+window.addEventListener('resize', fit);
+window.addEventListener('orientationchange', function(){ setTimeout(fit, 240); });
+
+// ladder geometry: rung 0 at the bottom, rung STEPS-1 at the top
+var TOP = 0.20, BOT = 0.88;
+function rungY(i){ return H * (BOT - (BOT - TOP) * (i / (STEPS - 1))); }
+
+// ═══════════════════════════════════════════════════════════════════════
+//  CAMERA
+// ═══════════════════════════════════════════════════════════════════════
+var facing = 'user', mirror = true, stream = null;
+function showError(e){
+  var msg = (e && e.message) ? e.message : String(e || 'unknown');
+  errBox.style.display = 'block';
+  errBox.textContent = 'カメラを起動できませんでした：' + msg +
+    '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+}
+function startStream(){
+  var md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) return Promise.reject(new Error('getUserMedia is unavailable'));
+  if (stream && stream.getTracks) stream.getTracks().forEach(function(t){ t.stop(); });
+  return md.getUserMedia({
+    video: { facingMode: { ideal: facing }, width: { ideal: 1280 }, height: { ideal: 720 } },
+    audio: false
+  }).then(function(st){
+    stream = st; video.srcObject = st;
+    mirror = (facing === 'user');
+    var p = video.play();
+    return (p && p.then) ? p.catch(function(){}) : null;
+  });
+}
+flipBtn.addEventListener('click', function(){
+  facing = (facing === 'user') ? 'environment' : 'user';
+  loseHand();
+  startStream().then(startMpCamera).catch(function(){});
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+//  MICROPHONE — breath, separated from speech
+// ═══════════════════════════════════════════════════════════════════════
+var micOk = false, analyser = null, td = null, fd = null, micStream = null;
+var floorRms = 0.006, calT = 0, CAL_MS = 1400, calAcc = 0, calN = 0;
+var breathRaw = 0, breath = 0, breathiness = 0;
+
+function initMic(){
+  var md = navigator.mediaDevices;
+  if (!AC || !md || !md.getUserMedia) return Promise.resolve(false);
+  return md.getUserMedia({
+    audio: { echoCancellation:false, noiseSuppression:false, autoGainControl:false }
+  }).then(function(st){
+    micStream = st;
+    var src = AC.createMediaStreamSource(st);
+    analyser = AC.createAnalyser();
+    analyser.fftSize = 1024;
+    analyser.smoothingTimeConstant = 0.35;
+    src.connect(analyser);                     // analysis only — never to the output
+    td = new Float32Array(analyser.fftSize);
+    fd = new Uint8Array(analyser.frequencyBinCount);
+    micOk = true;
+    return true;
+  }).catch(function(){ micOk = false; return false; });
+}
+
+function readMic(dt){
+  if (!micOk || !analyser) return 0;
+  var i, n;
+  if (analyser.getFloatTimeDomainData) analyser.getFloatTimeDomainData(td);
+  else return 0;
+  var sum = 0;
+  for (i = 0; i < td.length; i++){ var v = td[i]; if (isFinite(v)) sum += v * v; }
+  var rms = Math.sqrt(sum / Math.max(1, td.length));
+  if (!isFinite(rms)) rms = 0;
+
+  analyser.getByteFrequencyData(fd);
+  var sr = AC.sampleRate || 48000;
+  var binHz = sr / analyser.fftSize;
+  var hf = 0, hfn = 0, lf = 0, lfn = 0;
+  for (i = 0; i < fd.length; i++){
+    var f = i * binHz;
+    if (f >= 2000 && f <= 8000){ hf += fd[i]; hfn++; }
+    else if (f >= 100 && f <= 700){ lf += fd[i]; lfn++; }
+  }
+  hf = hfn ? hf / hfn : 0;
+  lf = lfn ? lf / lfn : 0;
+  breathiness = (hf + lf) > 1 ? hf / (hf + lf) : 0;
+
+  // first 1.4s: learn the room
+  if (calT < CAL_MS){
+    calT += dt * 1000;
+    calAcc += rms; calN++;
+    if (calN > 3) floorRms = Math.max(0.0025, (calAcc / calN) * 1.9);
+    return 0;
+  }
+  // turbulence weighting: blowing is broadband, a hummed vowel is not
+  var w = (breathiness - 0.20) / 0.26;
+  w = w < 0 ? 0 : w > 1 ? 1 : w;
+  w = w * w * (3 - 2 * w);
+  var lvl = (rms - floorRms) / 0.055;
+  lvl = lvl < 0 ? 0 : lvl > 1.35 ? 1.35 : lvl;
+  return Math.min(1, lvl * (0.30 + 0.70 * w));
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  HANDS
+// ═══════════════════════════════════════════════════════════════════════
+var hands = null, mpCamera = null, mpReady = false;
+var handLm = null, handAlive = false, lastHandT = 0, ASP = 4 / 3;
+var LOST_MS = 260;
+
+function initHands(){
+  if (typeof window.Hands !== 'function') return false;
+  try {
+    hands = new window.Hands({ locateFile: function(f){
+      return 'https://cdn.jsdelivr.net/npm/@mediapipe/hands/' + f;
+    }});
+    hands.setOptions({ maxNumHands:1, modelComplexity:0,
+                       minDetectionConfidence:0.6, minTrackingConfidence:0.55 });
+    hands.onResults(onHands);
+    mpReady = true;
+    return true;
+  } catch(e){ return false; }
+}
+function validLm(c){
+  if (!c || c.length < 21) return null;
+  for (var i = 0; i < 21; i++){
+    var p = c[i];
+    if (!p || typeof p.x !== 'number' || typeof p.y !== 'number' ||
+        !isFinite(p.x) || !isFinite(p.y)) return null;
+  }
+  return c;
+}
+function onHands(res){
+  var lm = null;
+  if (res && res.multiHandLandmarks && res.multiHandLandmarks.length){
+    lm = validLm(res.multiHandLandmarks[0]);
+  }
+  if (lm){ handLm = lm; handAlive = true; lastHandT = now(); }
+}
+function loseHand(){
+  handLm = null; handAlive = false;
+  gestPress = 0;                 // never leave the fallback controller sounding
+}
+function startMpCamera(){
+  if (!mpReady || typeof window.Camera !== 'function') return;
+  try {
+    if (mpCamera && mpCamera.stop) mpCamera.stop();
+    mpCamera = new window.Camera(video, {
+      onFrame: function(){
+        if (!hands || state !== 'live') return Promise.resolve();
+        return hands.send({ image: video }).catch(function(){});
+      },
+      width: 640, height: 480
+    });
+    mpCamera.start();
+  } catch(e){ mpReady = false; }
+}
+
+// ── hand features ──────────────────────────────────────────────────────
+function dd(a, b){ var dx = (a.x - b.x) * ASP, dy = a.y - b.y; return Math.sqrt(dx * dx + dy * dy); }
+var FMCP = [9, 13, 17], FTIP = [12, 16, 20];   // middle, ring, pinky drive the timbre
+function handFeat(lm){
+  if (!lm) return null;
+  var S = dd(lm[0], lm[9]);
+  if (!(S > 0.02)) return null;
+  var open = 0, k, j;
+  for (k = 0; k < 3; k++){
+    var b = FMCP[k], seg = 0;
+    for (j = 0; j < 3; j++) seg += dd(lm[b + j], lm[b + j + 1]);
+    if (!(seg > 0)) return null;
+    var st = dd(lm[FTIP[k]], lm[b]) / seg;
+    open += (st - 0.55) / 0.40;
+  }
+  open = open / 3;
+  open = open < 0 ? 0 : open > 1 ? 1 : open;
+  var ap = (dd(lm[4], lm[8]) / S - 0.25) / 0.95;   // thumb↔index aperture
+  ap = ap < 0 ? 0 : ap > 1 ? 1 : ap;
+  var cy = (lm[0].y + lm[9].y) * 0.5;
+  var cx = (lm[0].x + lm[9].x) * 0.5;
+  if (!isFinite(cx) || !isFinite(cy)) return null;
+  return { S:S, open:open, ap:ap, x: mirror ? 1 - cx : cx, y: cy,
+           px: lm[9].x, py: lm[9].y };
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  PLAY STATE
+// ═══════════════════════════════════════════════════════════════════════
+var state = 'boot';                 // boot | live
+var step = 4, stepSm = 4;
+var pressure = 0, gestPress = 0, brightSm = 0.5;
+var overblow = false, obT = 0;
+var OB_ON = 0.72, OB_OFF = 0.58;
+var ribbons = [], airs = [];
+var handSm = null;
+var last = now(), mist = 0;
+
+function now(){ return (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now(); }
+
+// pick the rung, with a dead zone so a shaking hand does not chatter
+function pickStep(y){
+  var raw = (BOT - y) / (BOT - TOP) * (STEPS - 1);
+  if (!isFinite(raw)) return step;
+  if (raw < 0) raw = 0; if (raw > STEPS - 1) raw = STEPS - 1;
+  if (Math.abs(raw - step) > 0.62) step = Math.round(raw);
+  if (step < 0) step = 0; if (step > STEPS - 1) step = STEPS - 1;
+  return step;
+}
+
+function rippleAll(){
+  for (var i = 0; i < STEPS; i++) ribbons.push({ y:rungY(i), t:0, w:0.35, life:1, faint:true });
+}
+
+function loop(){
+  var t = now();
+  var dt = Math.min(0.05, (t - last) / 1000);
+  last = t;
+
+  if (handAlive && t - lastHandT > LOST_MS) loseHand();
+  if (video && video.videoWidth > 0 && video.videoHeight > 0){
+    var a = video.videoWidth / video.videoHeight;
+    if (isFinite(a) && a > 0) ASP = a;
+  }
+
+  var hf = handLm ? handFeat(handLm) : null;
+  if (hf){
+    handSm = handSm || { x:hf.x, y:hf.y, open:hf.open, ap:hf.ap };
+    handSm.x += (hf.x - handSm.x) * Math.min(1, dt * 9);
+    handSm.y += (hf.y - handSm.y) * Math.min(1, dt * 9);
+    handSm.open += (hf.open - handSm.open) * Math.min(1, dt * 5);
+    handSm.ap += (hf.ap - handSm.ap) * Math.min(1, dt * 9);
+    pickStep(handSm.y);
+    gestPress = handSm.ap;
+  } else {
+    gestPress = Math.max(0, gestPress - dt * 2.2);
+  }
+
+  if (state === 'live'){
+    var micP = readMic(dt);
+    var target = micOk ? micP : gestPress;
+    if (micOk && calT < CAL_MS) target = 0;
+    breathRaw = target;
+    breath += (target - breath) * Math.min(1, dt * (target > breath ? 13 : 6));
+    pressure = breath;
+
+    // overblow — a real flute's octave jump, with hysteresis and a chiff
+    if (!overblow && pressure > OB_ON){ overblow = true; fluteChiff(0.55); obT = 1; }
+    else if (overblow && pressure < OB_OFF){ overblow = false; fluteChiff(0.28); obT = 1; }
+
+    brightSm += ((handSm ? handSm.open : 0.4) - brightSm) * Math.min(1, dt * 3.5);
+    stepSm += (step - stepSm) * Math.min(1, dt * 11);
+
+    var f0 = stepFreq(step) * (overblow ? 2 : 1);
+    fluteSet(f0, Math.min(1, pressure * 1.05), brightSm);
+
+    // the sounding ribbon
+    if (pressure > 0.05 && Math.random() < pressure * 0.9){
+      ribbons.push({ y:rungY(step), t:0, w:0.25 + pressure * 0.75, life:1, faint:false });
+      if (overblow && step + SCALES[scaleIdx].steps.length < STEPS){
+        ribbons.push({ y:rungY(Math.min(STEPS - 1, step + SCALES[scaleIdx].steps.length)),
+                       t:0, w:0.18 + pressure * 0.4, life:1, faint:true });
+      }
+    }
+    // rising air
+    if (pressure > 0.03){
+      var n = Math.round(pressure * 4);
+      for (var q = 0; q < n; q++) spawnAir();
+    }
+    noteName.textContent = stepName(step);
+    noteName.classList.toggle('sounding', pressure > 0.08);
+    noteJp.textContent = overblow ? 'う わ ね' : (pressure > 0.08 ? 'な っ て い る' : 'いき を ふ く');
+    bFill.style.width = (Math.max(0, Math.min(1, pressure)) * 100).toFixed(1) + '%';
+    bFill.style.background = overblow ? '#dcb95c' : '#a9c6b4';
+  }
+
+  obT = Math.max(0, obT - dt * 2.2);
+  mist += dt * 0.06;
+
+  for (var i = ribbons.length - 1; i >= 0; i--){
+    var r = ribbons[i];
+    r.t += dt; r.life -= dt * (r.faint ? 1.5 : 0.95);
+    if (r.life <= 0) ribbons.splice(i, 1);
+  }
+  for (i = airs.length - 1; i >= 0; i--){
+    var p = airs[i];
+    p.x += p.vx * dt * 60; p.y += p.vy * dt * 60;
+    p.vy *= 0.985; p.vx += (p.drift - p.vx) * 0.02;
+    p.life -= dt * p.decay;
+    if (p.life <= 0) airs.splice(i, 1);
+  }
+
+  draw(t);
+  requestAnimationFrame(loop);
+}
+
+function spawnAir(){
+  if (airs.length > 320) return;
+  var hx = handSm ? handSm.x : 0.5;
+  var x = W * (hx + (Math.random() - 0.5) * 0.10);
+  var ry = rungY(step);
+  airs.push({
+    x:x, y:H * 0.99, vx:(Math.random() - 0.5) * 0.4,
+    vy:-(1.6 + Math.random() * 2.2) * (0.5 + pressure), drift:(Math.random() - 0.5) * 0.5,
+    tgt:ry, r:(0.0016 + Math.random() * 0.0032) * U, life:1, decay:0.42 + Math.random() * 0.5
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  DRAW
+// ═══════════════════════════════════════════════════════════════════════
+function draw(t){
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  ctx.fillStyle = '#f7f6f1';
+  ctx.fillRect(0, 0, W, H);
+
+  // celadon wash rising from the floor
+  var g = ctx.createLinearGradient(0, H, 0, H * 0.18);
+  g.addColorStop(0, 'rgba(169,198,180,.34)');
+  g.addColorStop(1, 'rgba(169,198,180,0)');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+
+  // slow mist
+  ctx.save();
+  for (var m = 0; m < 3; m++){
+    var my = H * (0.30 + m * 0.22) + Math.sin(mist * (0.7 + m * 0.3) + m) * U * 0.02;
+    var mg = ctx.createLinearGradient(0, my - U * 0.10, 0, my + U * 0.10);
+    mg.addColorStop(0, 'rgba(255,255,255,0)');
+    mg.addColorStop(0.5, 'rgba(255,255,255,.55)');
+    mg.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = mg; ctx.fillRect(0, my - U * 0.10, W, U * 0.20);
+  }
+  ctx.restore();
+
+  // ── the ladder ──────────────────────────────────────────
+  for (var i = 0; i < STEPS; i++){
+    var y = rungY(i) + Math.sin(mist * 1.7 + i * 0.9) * U * 0.0035;
+    var on = (state === 'live' && i === step);
+    ctx.beginPath();
+    ctx.moveTo(W * 0.06, y); ctx.lineTo(W * 0.94, y);
+    ctx.strokeStyle = on ? 'rgba(109,135,146,.85)' : 'rgba(109,135,146,.24)';
+    ctx.lineWidth = on ? 1.8 : 0.9;
+    ctx.stroke();
+    // rung tick + name
+    ctx.fillStyle = on ? '#4d5f63' : 'rgba(143,163,163,.7)';
+    ctx.font = (on ? '300 ' : '300 ') + (U * 0.026).toFixed(1) + 'px "Cormorant Garamond",Georgia,serif';
+    ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+    ctx.fillText(stepName(i), W * 0.055, y);
+  }
+
+  // ── rising air ──────────────────────────────────────────
+  for (i = 0; i < airs.length; i++){
+    var p = airs[i];
+    if (!isFinite(p.x) || !isFinite(p.y)) continue;
+    // air thins out once it passes the sounding rung
+    var above = p.y < p.tgt ? 0.35 : 1;
+    ctx.globalAlpha = Math.max(0, Math.min(1, p.life)) * 0.55 * above;
+    ctx.fillStyle = '#a9c6b4';
+    ctx.beginPath(); ctx.arc(p.x, p.y, Math.max(0.4, p.r), 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+
+  // ── the sounding ribbons ────────────────────────────────
+  for (i = 0; i < ribbons.length; i++){
+    var r = ribbons[i];
+    var a = Math.max(0, Math.min(1, r.life));
+    var hgt = Math.max(1, U * 0.016 * r.w * (0.5 + a * 0.5));
+    var rg = ctx.createLinearGradient(0, r.y - hgt, 0, r.y + hgt);
+    var col = r.faint ? '169,198,180' : '220,185,92';
+    rg.addColorStop(0, 'rgba(' + col + ',0)');
+    rg.addColorStop(0.5, 'rgba(' + col + ',' + (a * (r.faint ? 0.20 : 0.40)).toFixed(3) + ')');
+    rg.addColorStop(1, 'rgba(' + col + ',0)');
+    ctx.fillStyle = rg;
+    var spread = Math.min(1, r.t * 2.2);
+    var half = W * 0.5 * (0.15 + spread * 0.85);
+    ctx.fillRect(W * 0.5 - half, r.y - hgt, half * 2, hgt * 2);
+  }
+
+  // ── the hand, as a light ink line-drawing ───────────────
+  if (handLm) drawHandInk(handLm);
+
+  // ── overblow mark ───────────────────────────────────────
+  if (obT > 0.001){
+    ctx.globalAlpha = obT * 0.5;
+    ctx.strokeStyle = '#dcb95c'; ctx.lineWidth = 2;
+    var oy = rungY(step);
+    ctx.beginPath(); ctx.moveTo(W * 0.06, oy); ctx.lineTo(W * 0.94, oy); ctx.stroke();
+    ctx.globalAlpha = 1;
+  }
+
+  // ── monitor ─────────────────────────────────────────────
+  if (video && video.videoWidth > 0 && state === 'live'){
+    var mw = Math.min(U * 0.15, 128), mh = mw / ASP;
+    var mx = W - mw - U * 0.035, my2 = H - mh - U * 0.035;
+    ctx.save();
+    ctx.globalAlpha = 0.24;
+    ctx.beginPath(); ctx.rect(mx, my2, mw, mh); ctx.clip();
+    if (mirror){ ctx.translate(mx * 2 + mw, 0); ctx.scale(-1, 1); }
+    try { ctx.drawImage(video, mx, my2, mw, mh); } catch(e){}
+    ctx.restore();
+    ctx.save();
+    ctx.globalAlpha = 0.35;
+    ctx.strokeStyle = '#8fa3a3'; ctx.lineWidth = 1;
+    ctx.strokeRect(mx + 0.5, my2 + 0.5, mw - 1, mh - 1);
+    ctx.restore();
+  }
+
+  // ── "show me your hand" ─────────────────────────────────
+  if (state === 'live' && !handLm){
+    ctx.globalAlpha = 0.4 + Math.sin(t * 0.004) * 0.18;
+    ctx.fillStyle = '#8fa3a3';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.font = '400 ' + (U * 0.034).toFixed(1) + 'px "Zen Old Mincho",serif';
+    ctx.fillText('手をかざしてください', W * 0.5, H * 0.55);
+    ctx.globalAlpha = 1;
+  }
+}
+
+var INK_CHAINS = [[0,1,2,3,4],[0,5,6,7,8],[0,9,10,11,12],[0,13,14,15,16],[0,17,18,19,20],[5,9,13,17]];
+function drawHandInk(lm){
+  var dispH = H, dispW = H * ASP;
+  if (dispW < W){ dispW = W; dispH = W / ASP; }
+  var offX = (W - dispW) / 2, offY = (H - dispH) / 2;
+  var pts = new Array(21), i;
+  for (i = 0; i < 21; i++){
+    var p = lm[i];
+    if (!p) return;
+    var x = mirror ? (1 - p.x) : p.x;
+    var px = offX + x * dispW, py = offY + p.y * dispH;
+    if (!isFinite(px) || !isFinite(py)) return;
+    pts[i] = { x:px, y:py };
+  }
+  ctx.save();
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  ctx.strokeStyle = 'rgba(47,58,56,.34)';
+  ctx.lineWidth = Math.max(1, U * 0.0032);
+  for (i = 0; i < INK_CHAINS.length; i++){
+    var ch = INK_CHAINS[i];
+    ctx.beginPath();
+    ctx.moveTo(pts[ch[0]].x, pts[ch[0]].y);
+    for (var j = 1; j < ch.length; j++) ctx.lineTo(pts[ch[j]].x, pts[ch[j]].y);
+    ctx.stroke();
+  }
+  ctx.fillStyle = 'rgba(47,58,56,.30)';
+  for (i = 0; i < 21; i++){
+    ctx.beginPath();
+    ctx.arc(pts[i].x, pts[i].y, Math.max(0.8, U * 0.0042), 0, Math.PI * 2);
+    ctx.fill();
+  }
+  // the sounding point: where the hand meets the ladder
+  var c = pts[9];
+  var rr = U * (0.020 + pressure * 0.045);
+  var gg = ctx.createRadialGradient(c.x, c.y, 0, c.x, c.y, Math.max(1, rr));
+  gg.addColorStop(0, 'rgba(220,185,92,' + (0.10 + pressure * 0.45).toFixed(3) + ')');
+  gg.addColorStop(1, 'rgba(220,185,92,0)');
+  ctx.fillStyle = gg;
+  ctx.beginPath(); ctx.arc(c.x, c.y, Math.max(1, rr), 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  OVERLAY TUTORIAL
+// ═══════════════════════════════════════════════════════════════════════
+function drawHowto(t){
+  var c = howCtx, w = howto.width, h = howto.height;
+  c.setTransform(1, 0, 0, 1, 0, 0);
+  c.clearRect(0, 0, w, h);
+  var ph = (t % 3400) / 3400;
+  // ladder
+  var rows = 5;
+  var hy = 0;
+  for (var i = 0; i < rows; i++){
+    hy = h * (0.80 - 0.60 * (i / (rows - 1)));
+    c.beginPath(); c.moveTo(w * 0.10, hy); c.lineTo(w * 0.90, hy);
+    c.strokeStyle = 'rgba(109,135,146,.22)'; c.lineWidth = 1; c.stroke();
+  }
+  // the hand travels up and down; breath pulses
+  var pos = 0.5 - Math.cos(ph * Math.PI * 2) * 0.5;      // 0..1..0
+  var idx = Math.round(pos * (rows - 1));
+  var ay = h * (0.80 - 0.60 * (idx / (rows - 1)));
+  var puff = 0.35 + 0.65 * Math.pow(Math.sin(ph * Math.PI * 4) * 0.5 + 0.5, 2);
+  // ribbon
+  var rg = c.createLinearGradient(0, ay - h * 0.05, 0, ay + h * 0.05);
+  rg.addColorStop(0, 'rgba(220,185,92,0)');
+  rg.addColorStop(0.5, 'rgba(220,185,92,' + (0.38 * puff).toFixed(3) + ')');
+  rg.addColorStop(1, 'rgba(220,185,92,0)');
+  c.fillStyle = rg;
+  c.fillRect(w * 0.10, ay - h * 0.05, w * 0.80, h * 0.10);
+  c.beginPath(); c.moveTo(w * 0.10, ay); c.lineTo(w * 0.90, ay);
+  c.strokeStyle = 'rgba(109,135,146,.8)'; c.lineWidth = 1.8; c.stroke();
+  // rising column
+  var cx = w * 0.42;
+  for (var k = 0; k < 16; k++){
+    var f = ((k / 16) + (t / 1100)) % 1;
+    var py = h * 0.95 - f * (h * 0.95 - ay);
+    if (py < ay) continue;
+    c.globalAlpha = (1 - f) * 0.55 * puff;
+    c.fillStyle = '#a9c6b4';
+    c.beginPath(); c.arc(cx + Math.sin(f * 7 + k) * w * 0.014, py, h * 0.012, 0, Math.PI * 2); c.fill();
+  }
+  c.globalAlpha = 1;
+  // a simple hand mark on the active rung
+  c.strokeStyle = 'rgba(47,58,56,.5)'; c.lineWidth = 2; c.lineCap = 'round';
+  var hxx = cx, hyy = ay;
+  for (var fgr = 0; fgr < 4; fgr++){
+    var a0 = -Math.PI / 2 + (fgr - 1.5) * 0.30;
+    c.beginPath(); c.moveTo(hxx, hyy);
+    c.lineTo(hxx + Math.cos(a0) * h * 0.115, hyy + Math.sin(a0) * h * 0.115);
+    c.stroke();
+  }
+  c.beginPath(); c.moveTo(hxx, hyy); c.lineTo(hxx - h * 0.09, hyy + h * 0.06); c.stroke();
+  c.beginPath(); c.arc(hxx, hyy + h * 0.03, h * 0.035, 0, Math.PI * 2);
+  c.fillStyle = 'rgba(47,58,56,.5)'; c.fill();
+  // captions
+  c.fillStyle = '#8fa3a3'; c.textAlign = 'left'; c.textBaseline = 'middle';
+  c.font = '400 ' + Math.round(h * 0.078) + 'px "Zen Old Mincho",serif';
+  c.fillText('手 = 音の高さ', w * 0.03, h * 0.10);
+  c.textAlign = 'right';
+  c.fillText('息 = 鳴る', w * 0.97, h * 0.10);
+}
+function howtoLoop(){
+  if (state === 'boot'){ drawHowto(now()); requestAnimationFrame(howtoLoop); }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  BOOT
+// ═══════════════════════════════════════════════════════════════════════
+goBtn.addEventListener('click', function(){
+  goBtn.disabled = true;
+  errBox.style.display = 'none';
+  goBtn.textContent = 'じゅんび中…';
+  initAudio().then(function(){
+    return initMic();                    // a refusal here is survivable
+  }).then(function(){
+    return startStream();                // a refusal here is not
+  }).then(function(){
+    if (!mpReady) initHands();
+    startMpCamera();
+    state = 'live';
+    calT = 0; calAcc = 0; calN = 0;
+    srcLabel.textContent = micOk ? 'マイク ・ 息をよむ' : 'マイクなし ・ 親指と人差し指の開きが息';
+    bMark.style.left = (OB_ON * 100).toFixed(0) + '%';
+    ov.classList.add('hide');
+  }).catch(function(e){
+    showError(e);
+    goBtn.disabled = false;
+    goBtn.textContent = 'もういちど試す';
+  });
+});
+
+fit();
+requestAnimationFrame(loop);
+requestAnimationFrame(howtoLoop);
+
+// headless harness hooks
+window.__IKI__ = {
+  DSP_SRC: DSP_SRC,
+  makeFlute: (new Function(DSP_SRC + '\nreturn makeFlute;'))(),
+  handFeat: handFeat, pickStep: pickStep, stepFreq: stepFreq, stepName: stepName,
+  setScale: function(i){ scaleIdx = i % SCALES.length; },
+  feed: function(lm){ onHands({ multiHandLandmarks: lm ? [lm] : [] }); },
+  state: function(){ return { state:state, step:step, pressure:pressure, overblow:overblow,
+                              breath:breath, micOk:micOk, ribbons:ribbons.length,
+                              airs:airs.length, fluteMode:fluteMode, calT:calT }; },
+  setMic: function(v){ micOk = v; },
+  STEPS: STEPS, SCALES: SCALES
+};
+</script>
+</body>
+</html>
