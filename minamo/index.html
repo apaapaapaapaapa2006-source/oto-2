@@ -1,0 +1,892 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>MINAMO ─ 水面ごしのカメラ</title>
+<meta name="description" content="カメラ映像が水面の下に沈むエフェクト。動くと波が立ち、波は端で跳ね返って干渉する。指先で水をつつき、じっとしていると水が凪いで自分の顔が戻ってくる。">
+<meta name="theme-color" content="#eef6f4">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@400;500;700&display=swap" rel="stylesheet">
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  MINAMO ─ 水面                           ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  PALETTE   湯   yu      #eef6f4  pale steam-white        (ground, chrome)
+            水   mizu    #7fc8d8  aqua                    (water body)
+            瑠璃 ruri    #2b6a86  deep blue               (type, depth)
+            檜   hinoki  #d9b98a  warm wood               (accents)
+            白   shiro   #ffffff  specular                (caustics)
+            MOOD: a morning bathhouse. Bright, humid, tiled, steamy. The
+            collection's four existing effects are all hard and graphic —
+            printed, scanned, glitched. This one is the opposite: soft,
+            wet, and entirely made of physics.
+
+  BACKGROUND  None. The water is full bleed, edge to edge — you are under
+            the surface looking up, not looking at an object on a table.
+            The chrome floats on top behind frosted, dripping glass.
+
+  TYPE      M PLUS Rounded 1c. Soft, humid, generous — deliberately the
+            roundest type in the collection against KAGEE's Mincho,
+            AMITEN's Bebas condensed and IKI's Cormorant.
+
+  MOTION    Buoyant. Nothing snaps: panels bob on a slow sine, the mode
+            change is a swell that crosses the pool rather than a cut.
+            The only fast thing in the piece is the drop itself.
+
+  SIGNATURE REAL WAVES, NOT A WOBBLE TEXTURE. A 2D wave equation is
+            integrated every frame on the pixel grid; ripples spread at a
+            true speed, REFLECT off the four edges, and INTERFERE with
+            each other — you can watch two ripples cross and cancel. The
+            camera is then refracted through the surface gradient, with
+            specular caustics from the same normals. Hold still and the
+            water actually calms: the damping term drains the energy and
+            your face comes back into focus.
+
+  AUDIO     Water only. A drip is a sine sweeping UP a minor third with a
+            resonant plink over it — the way a real drop into water rises
+            in pitch as the cavity closes. Rate limited so rain never
+            turns to mud. A near-silent room tone underneath. Mutable.
+
+  ENGINEERING  Two Float32 height buffers, ping-ponged, allocated once per
+            size. The step leaves a one-pixel fixed border, which is what
+            makes the edges reflect. The render loop clamps every neighbour
+            and every source sample into the buffer, writes every pixel,
+            and hoists all module state — Math included — into locals,
+            which is worth 20x through an interpreter. Internal resolution
+            adapts to measured frame time. Excitation comes from hand
+            landmarks (precise pokes) and from frame difference (your whole
+            body), both scaled by speed.
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<style>
+  *{ margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body{
+    width:100%; height:100%; overflow:hidden; background:#dfeceb; color:#2b6a86;
+    font-family:'M PLUS Rounded 1c',-apple-system,'Hiragino Maru Gothic ProN',system-ui,sans-serif;
+    -webkit-user-select:none; user-select:none;
+  }
+  #stage{ position:fixed; inset:0; }
+  canvas#cv{ position:absolute; inset:0; width:100%; height:100%; display:block; }
+  video#vid{ position:absolute; width:2px; height:2px; opacity:0; pointer-events:none; left:-10px; top:-10px; }
+
+  .chrome{ position:absolute; inset:0; pointer-events:none; }
+  .row{ position:absolute; display:flex; align-items:center; gap:.4rem; pointer-events:auto; flex-wrap:wrap; }
+  .tl{ top:calc(env(safe-area-inset-top,0px) + .9rem); left:.9rem; }
+  .tr{ top:calc(env(safe-area-inset-top,0px) + .9rem); right:.9rem; }
+  .bc{
+    bottom:calc(env(safe-area-inset-bottom,0px) + 1rem); left:50%;
+    transform:translateX(-50%); justify-content:center;
+    max-width:calc(100vw - 1.4rem);
+  }
+  /* frosted, wet glass */
+  .btn{
+    font-family:inherit; font-weight:500; font-size:.72rem; letter-spacing:.1em;
+    color:#2b6a86; background:rgba(255,255,255,.62);
+    border:1px solid rgba(255,255,255,.85); border-radius:100px;
+    padding:.46rem .9rem; cursor:pointer;
+    backdrop-filter:blur(7px); -webkit-backdrop-filter:blur(7px);
+    box-shadow:0 2px 10px rgba(43,106,134,.12), inset 0 1px 0 rgba(255,255,255,.9);
+    transition:background .35s ease, color .35s ease, transform .35s cubic-bezier(.2,.9,.3,1);
+  }
+  .btn:hover{ background:rgba(255,255,255,.92); transform:translateY(-1px); }
+  .btn.on{ background:#7fc8d8; color:#123c4e; border-color:#a8dde8; }
+  .btn.off{ color:#8fa9b4; }
+  .btn small{ font-size:.6rem; letter-spacing:.04em; opacity:.7; margin-left:.28rem; }
+
+  #title{
+    position:absolute; top:calc(env(safe-area-inset-top,0px) + .95rem);
+    left:50%; transform:translateX(-50%); pointer-events:none; text-align:center;
+  }
+  #tName{
+    font-weight:700; font-size:.86rem; letter-spacing:.42em; text-indent:.42em;
+    color:rgba(255,255,255,.96);
+    text-shadow:0 1px 3px rgba(20,70,90,.45), 0 0 18px rgba(20,70,90,.25);
+  }
+  #tSub{
+    font-size:.6rem; letter-spacing:.24em; margin-top:.2rem;
+    color:rgba(255,255,255,.8); text-shadow:0 1px 3px rgba(20,70,90,.5);
+  }
+
+  #calm{
+    position:absolute; left:50%; transform:translateX(-50%);
+    bottom:calc(env(safe-area-inset-bottom,0px) + 3.4rem);
+    pointer-events:none; text-align:center;
+    font-size:.6rem; letter-spacing:.22em; color:rgba(255,255,255,.85);
+    text-shadow:0 1px 3px rgba(20,70,90,.5);
+    opacity:0; transition:opacity 1.2s ease;
+  }
+  #calm.on{ opacity:1; }
+
+  /* ── overlay ──────────────────────────────────────────── */
+  #ov{
+    position:absolute; inset:0; z-index:20; display:flex;
+    align-items:center; justify-content:center; padding:1.4rem;
+    background:
+      radial-gradient(ellipse 80% 60% at 50% 38%, #ffffff 0%, #eef6f4 45%, #d3e7e8 100%);
+    text-align:center; overflow:auto;
+  }
+  #ov.hide{ display:none; }
+  .sheet{ width:min(94vw,25rem); }
+  .kanji{
+    font-weight:700; font-size:clamp(2.8rem,15vw,4.4rem);
+    letter-spacing:.24em; text-indent:.24em; color:#2b6a86;
+  }
+  .roman{
+    font-size:.64rem; letter-spacing:.56em; text-indent:.56em;
+    color:#7fa9b8; margin-top:.55rem; font-weight:500;
+  }
+  .lede{ font-size:.8rem; line-height:2.1; color:#4d7d90; margin-top:1.2rem; }
+  #howto{ display:block; margin:1.15rem auto .35rem; width:min(86vw,19rem); height:auto; border-radius:14px; }
+  .howcap{ font-size:.62rem; letter-spacing:.14em; color:#7fa9b8; line-height:2; }
+  #go{
+    margin-top:1.5rem; font-family:inherit; font-weight:700;
+    font-size:.92rem; letter-spacing:.36em; text-indent:.36em;
+    color:#ffffff; background:#4fa8c0; border:none; border-radius:100px;
+    padding:.85rem 2.3rem; cursor:pointer;
+    box-shadow:0 6px 20px rgba(79,168,192,.4);
+    transition:transform .3s cubic-bezier(.2,.9,.3,1), box-shadow .3s ease, background .3s ease;
+  }
+  #go:hover{ transform:translateY(-2px); background:#3f97af; box-shadow:0 10px 28px rgba(79,168,192,.5); }
+  #go:disabled{ opacity:.5; cursor:default; transform:none; }
+  #err{
+    display:none; margin-top:1.1rem; font-size:.72rem; line-height:1.95; color:#a8545f;
+    white-space:pre-line; border:1px solid rgba(168,84,95,.35); border-radius:10px; padding:.7rem .8rem;
+  }
+  .note{ margin-top:1.2rem; font-size:.58rem; letter-spacing:.1em; color:#93b3bd; line-height:2; }
+  @media (max-height:580px){
+    #howto{ width:min(58vw,13rem); } .lede{ margin-top:.7rem; line-height:1.8; } #go{ margin-top:.9rem; }
+  }
+</style>
+</head>
+<body>
+<div id="stage">
+  <video id="vid" playsinline muted autoplay></video>
+  <canvas id="cv"></canvas>
+
+  <div class="chrome">
+    <div class="row tl">
+      <button class="btn" id="flipBtn" type="button">⟲ カメラ</button>
+    </div>
+    <div class="row tr">
+      <button class="btn" id="rainBtn" type="button">雨</button>
+      <button class="btn" id="soundBtn" type="button">♪</button>
+    </div>
+
+    <div id="title">
+      <div id="tName">水面</div>
+      <div id="tSub">MINAMO</div>
+    </div>
+
+    <div id="calm">しずかにしていると、水がないでいきます</div>
+
+    <div class="row bc" id="modeRow">
+      <button class="btn on" type="button" data-m="0">水面<small>MIZU</small></button>
+      <button class="btn" type="button" data-m="1">硝子<small>GLASS</small></button>
+      <button class="btn" type="button" data-m="2">銀<small>MERCURY</small></button>
+    </div>
+  </div>
+
+  <div id="ov">
+    <div class="sheet">
+      <div class="kanji">水面</div>
+      <div class="roman">MINAMO</div>
+      <p class="lede">カメラの映像が、水の底に沈みます。<br>動けば波が立ち、じっとしていれば凪ぎます。</p>
+      <canvas id="howto" width="620" height="300"></canvas>
+      <p class="howcap">指先で水をつつく。体を動かすと大きく波立つ。<br>波は画面の端で跳ね返って、ぶつかり合います。</p>
+      <button id="go" type="button">みずにさわる</button>
+      <div id="err"></div>
+      <p class="note">カメラ映像は端末の外に出ません。<br>明るい場所ほど水がきれいに見えます。</p>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+<script>
+"use strict";
+// ═══════════════════════════════════════════════════════════════════════
+//  DOM
+// ═══════════════════════════════════════════════════════════════════════
+var video    = document.getElementById('vid');
+var cv       = document.getElementById('cv');
+var ctx      = cv.getContext('2d');
+var ov       = document.getElementById('ov');
+var goBtn    = document.getElementById('go');
+var errBox   = document.getElementById('err');
+var flipBtn  = document.getElementById('flipBtn');
+var rainBtn  = document.getElementById('rainBtn');
+var soundBtn = document.getElementById('soundBtn');
+var modeRow  = document.getElementById('modeRow');
+var howto    = document.getElementById('howto');
+var howCtx   = howto.getContext('2d');
+var tName    = document.getElementById('tName');
+var tSub     = document.getElementById('tSub');
+var calmEl   = document.getElementById('calm');
+
+// ═══════════════════════════════════════════════════════════════════════
+//  MODES
+// ═══════════════════════════════════════════════════════════════════════
+var MODES = [
+  { jp:'水面', en:'MIZU',    refract: 22, spec: 210, disp: 0.00, tintR:0.90, tintG:1.00, tintB:1.04 },
+  { jp:'硝子', en:'GLASS',   refract: 54, spec: 150, disp: 0.14, tintR:0.98, tintG:0.99, tintB:1.00 },
+  { jp:'銀',   en:'MERCURY', refract: 70, spec: 320, disp: 0.00, tintR:1.00, tintG:1.00, tintB:1.00 }
+];
+var mode = 0, rainOn = false;
+
+// ═══════════════════════════════════════════════════════════════════════
+//  BUFFERS
+// ═══════════════════════════════════════════════════════════════════════
+var W = 1, H = 1, U = 1, DPR = 1;
+var srcCv = document.createElement('canvas'), srcCtx = srcCv.getContext('2d');
+var outCv = document.createElement('canvas'), outCtx = outCv.getContext('2d');
+var outImg = null;
+var hCur = null, hPrev = null, prevLum = null;
+var IW = 0, IH = 0, targetPx = 88000, ASP = 4 / 3;
+var MAX_PX = 130000, MIN_PX = 34000, maxAllowed = 130000;
+
+// silver ramp for the MERCURY mode, built once
+var SILVER = new Uint8Array(256 * 3);
+(function(){
+  for (var i = 0; i < 256; i++){
+    var t = i / 255;
+    var s = t * t * (3 - 2 * t);                    // smoothstep
+    SILVER[i * 3]     = Math.round(18 + s * 232);
+    SILVER[i * 3 + 1] = Math.round(26 + s * 226);
+    SILVER[i * 3 + 2] = Math.round(38 + s * 217);
+  }
+})();
+
+function allocBuffers(){
+  var w = Math.max(48, Math.round(Math.sqrt(targetPx * ASP)));
+  var h = Math.max(36, Math.round(w / ASP));
+  if (w === IW && h === IH) return;
+  var pw = IW, ph = IH;
+  IW = w; IH = h;
+  srcCv.width = IW; srcCv.height = IH;
+  outCv.width = IW; outCv.height = IH;
+  outImg = outCtx.createImageData(IW, IH);
+  var d = outImg.data;
+  for (var i = 3; i < d.length; i += 4) d[i] = 255;   // alpha, written once
+  var oldCur = hCur, oldPrev = hPrev, oldW = pw, oldH = ph;
+  hCur = new Float32Array(IW * IH);
+  hPrev = new Float32Array(IW * IH);
+  prevLum = new Uint8Array(IW * IH);
+  lumPrimed = false;
+  // Carry the water across the resize. Dropping it would flatten the pool
+  // mid-ripple every time the adaptive sizing moved; both buffers are
+  // resampled so the waves keep their shape AND their motion.
+  if (oldCur && oldPrev && oldW > 1 && oldH > 1){
+    for (var ry = 0; ry < IH; ry++){
+      var sy = (ry * oldH / IH) | 0;
+      if (sy > oldH - 1) sy = oldH - 1;
+      var dRow = ry * IW, sRow = sy * oldW;
+      for (var rx = 0; rx < IW; rx++){
+        var sx = (rx * oldW / IW) | 0;
+        if (sx > oldW - 1) sx = oldW - 1;
+        hCur[dRow + rx]  = oldCur[sRow + sx];
+        hPrev[dRow + rx] = oldPrev[sRow + sx];
+      }
+    }
+  }
+}
+
+function fit(){
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  var w = Math.max(1, window.innerWidth), h = Math.max(1, window.innerHeight);
+  cv.width = Math.round(w * DPR); cv.height = Math.round(h * DPR);
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  W = w; H = h; U = Math.min(w, h);
+  allocBuffers();
+}
+window.addEventListener('resize', fit);
+window.addEventListener('orientationchange', function(){ setTimeout(fit, 240); });
+
+// ═══════════════════════════════════════════════════════════════════════
+//  THE WATER
+// ═══════════════════════════════════════════════════════════════════════
+var DAMP = 0.9935;      // how long a ripple lives
+var energy = 0;         // running measure of how disturbed the surface is
+
+// A drop: press the surface down over a small disc.
+function drop(gx, gy, power, radius){
+  if (!hCur || IW < 4 || IH < 4) return;
+  if (!isFinite(gx) || !isFinite(gy) || !isFinite(power)) return;
+  var r = radius === undefined ? 3 : radius;
+  if (!(r >= 1)) r = 1;
+  if (r > 14) r = 14;
+  var cx = Math.round(gx), cy = Math.round(gy);
+  if (cx < 1) cx = 1; if (cx > IW - 2) cx = IW - 2;
+  if (cy < 1) cy = 1; if (cy > IH - 2) cy = IH - 2;
+  var p = power;
+  if (p > 260) p = 260; if (p < -260) p = -260;
+  var x0 = cx - r, x1 = cx + r, y0 = cy - r, y1 = cy + r;
+  if (x0 < 1) x0 = 1; if (x1 > IW - 2) x1 = IW - 2;
+  if (y0 < 1) y0 = 1; if (y1 > IH - 2) y1 = IH - 2;
+  var rr = r * r;
+  for (var y = y0; y <= y1; y++){
+    var dy = y - cy, row = y * IW;
+    for (var x = x0; x <= x1; x++){
+      var dx = x - cx, d2 = dx * dx + dy * dy;
+      if (d2 > rr) continue;
+      hCur[row + x] -= p * (1 - d2 / rr);
+    }
+  }
+}
+
+// One integration step of the 2D wave equation. The one-pixel border is
+// never written, which is exactly what makes the edges reflect.
+function stepWater(){
+  var cur = hCur, prv = hPrev, w = IW, h = IH, damp = DAMP;
+  var e = 0;
+  for (var y = 1; y < h - 1; y++){
+    var row = y * w;
+    for (var x = 1; x < w - 1; x++){
+      var i = row + x;
+      var v = (cur[i - 1] + cur[i + 1] + cur[i - w] + cur[i + w]) * 0.5 - prv[i];
+      v *= damp;
+      prv[i] = v;
+      e += v < 0 ? -v : v;
+    }
+  }
+  var t = hCur; hCur = hPrev; hPrev = t;    // ping-pong
+  energy = e / (w * h);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  RENDER — refraction + caustics, every pixel written
+// ═══════════════════════════════════════════════════════════════════════
+function renderWater(src, dst){
+  var cur = hCur, w = IW, h = IH;
+  var m = MODES[mode];
+  var refract = m.refract, specK = m.spec, disp = m.disp;
+  var tr = m.tintR, tg = m.tintG, tb = m.tintB;
+  var silver = SILVER, isMetal = (mode === 2);
+  var di = 0;
+  for (var y = 0; y < h; y++){
+    var yUp = y > 0 ? y - 1 : 0, yDn = y < h - 1 ? y + 1 : h - 1;
+    var row = y * w, rowUp = yUp * w, rowDn = yDn * w;
+    for (var x = 0; x < w; x++){
+      var xL = x > 0 ? x - 1 : 0, xR = x < w - 1 ? x + 1 : w - 1;
+      // surface gradient == the normal of the water
+      var gx = cur[row + xL] - cur[row + xR];
+      var gy = cur[rowUp + x] - cur[rowDn + x];
+
+      var ox = gx * refract, oy = gy * refract;
+      var sx = x + ox, sy = y + oy;
+      sx = sx < 0 ? 0 : sx > w - 1 ? w - 1 : sx;
+      sy = sy < 0 ? 0 : sy > h - 1 ? h - 1 : sy;
+      var si = ((sy | 0) * w + (sx | 0)) << 2;
+
+      // specular caustic from the same normal
+      var spec = (gx + gy) * specK;
+      if (spec < 0) spec = 0;
+      if (spec > 150) spec = 150;
+
+      var r, g, b;
+      if (isMetal){
+        var lum = (src[si] * 0.299 + src[si + 1] * 0.587 + src[si + 2] * 0.114);
+        var sh = lum * 0.55 + spec * 1.35 + (gx - gy) * 90 + 40;
+        sh = sh < 0 ? 0 : sh > 255 ? 255 : sh;
+        var k = (sh | 0) * 3;
+        r = silver[k]; g = silver[k + 1]; b = silver[k + 2];
+      } else if (disp > 0){
+        // chromatic dispersion: each channel refracts by a different amount
+        var sxr = x + ox * (1 + disp), syr = y + oy * (1 + disp);
+        var sxb = x + ox * (1 - disp), syb = y + oy * (1 - disp);
+        sxr = sxr < 0 ? 0 : sxr > w - 1 ? w - 1 : sxr;
+        syr = syr < 0 ? 0 : syr > h - 1 ? h - 1 : syr;
+        sxb = sxb < 0 ? 0 : sxb > w - 1 ? w - 1 : sxb;
+        syb = syb < 0 ? 0 : syb > h - 1 ? h - 1 : syb;
+        r = src[(((syr | 0) * w + (sxr | 0)) << 2)] * tr + spec;
+        g = src[si + 1] * tg + spec;
+        b = src[(((syb | 0) * w + (sxb | 0)) << 2) + 2] * tb + spec;
+      } else {
+        r = src[si] * tr + spec;
+        g = src[si + 1] * tg + spec;
+        b = src[si + 2] * tb + spec;
+      }
+      dst[di]     = r < 0 ? 0 : r > 255 ? 255 : r;
+      dst[di + 1] = g < 0 ? 0 : g > 255 ? 255 : g;
+      dst[di + 2] = b < 0 ? 0 : b > 255 ? 255 : b;
+      di += 4;
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  EXCITATION — your body stirs the water
+// ═══════════════════════════════════════════════════════════════════════
+var MOTION_THRESH = 20, motionSum = 0, lumPrimed = false;
+function stirFromMotion(src){
+  var prev = prevLum, w = IW, h = IH;
+  // The first frame after any (re)allocation has no previous frame to compare
+  // against. Diffing against an empty buffer would slam the whole surface at
+  // once — on entry, and again after every adaptive resolution change.
+  if (!lumPrimed){
+    var pi = 0, pj = 0;
+    for (var py = 0; py < h; py++){
+      for (var px = 0; px < w; px++){
+        prev[pj++] = (src[pi] * 77 + src[pi + 1] * 150 + src[pi + 2] * 29) >> 8;
+        pi += 4;
+      }
+    }
+    lumPrimed = true; motionSum = 0;
+    return;
+  }
+  var thresh = MOTION_THRESH;
+  var total = 0, si = 0, i = 0;
+  for (var y = 0; y < h; y++){
+    for (var x = 0; x < w; x++){
+      var lum = (src[si] * 77 + src[si + 1] * 150 + src[si + 2] * 29) >> 8;
+      var d = lum - prev[i];
+      if (d < 0) d = -d;
+      prev[i] = lum;
+      if (d > thresh && y > 0 && y < h - 1 && x > 0 && x < w - 1){
+        hCur[i] -= (d - thresh) * 0.055;
+        total += d - thresh;
+      }
+      si += 4; i++;
+    }
+  }
+  motionSum = total / (w * h);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  AUDIO — water only
+// ═══════════════════════════════════════════════════════════════════════
+var AC = null, master = null, comp = null, noiseBuf = null, soundOn = true;
+var lastDrip = 0;
+function initAudio(){
+  var Ctor = window.AudioContext || window.webkitAudioContext;
+  if (!Ctor) return;
+  if (!AC){
+    try { AC = new Ctor(); } catch(e){ AC = null; return; }
+    comp = AC.createDynamicsCompressor();
+    try {
+      comp.threshold.value = -18; comp.knee.value = 24;
+      comp.ratio.value = 8; comp.attack.value = 0.003; comp.release.value = 0.25;
+    } catch(e){}
+    master = AC.createGain(); master.gain.value = 0.8;
+    master.connect(comp); comp.connect(AC.destination);
+    var n = Math.floor(AC.sampleRate * 0.4);
+    noiseBuf = AC.createBuffer(1, n, AC.sampleRate);
+    var d = noiseBuf.getChannelData(0);
+    for (var i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+    // a near-silent room tone, so the space feels enclosed
+    var s = AC.createBufferSource(); s.buffer = noiseBuf; s.loop = true;
+    var lp = AC.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 380;
+    var g = AC.createGain(); g.gain.value = 0.012;
+    s.connect(lp); lp.connect(g); g.connect(master);
+    try { s.start(); } catch(e){}
+  }
+  if (AC.state === 'suspended' && AC.resume) AC.resume();
+}
+// A real drop rises in pitch as the cavity closes behind it.
+function drip(vol){
+  if (!AC || !soundOn) return;
+  var t = AC.currentTime;
+  if (t - lastDrip < 0.055) return;      // rain must never turn to mud
+  lastDrip = t;
+  var v = vol === undefined ? 1 : vol;
+  if (v > 1) v = 1; if (v < 0.05) v = 0.05;
+  var f0 = 520 + Math.random() * 620;
+  var o = AC.createOscillator();
+  o.type = 'sine';
+  o.frequency.setValueAtTime(f0, t);
+  o.frequency.exponentialRampToValueAtTime(f0 * 1.19, t + 0.055);
+  var g = AC.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.30 * v, t + 0.004);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.16);
+  o.connect(g); g.connect(master);
+  o.start(t); o.stop(t + 0.2);
+  var s = AC.createBufferSource(); s.buffer = noiseBuf;
+  var bp = AC.createBiquadFilter();
+  bp.type = 'bandpass'; bp.frequency.value = f0 * 2.4; bp.Q.value = 9;
+  var g2 = AC.createGain();
+  g2.gain.setValueAtTime(0.0001, t);
+  g2.gain.exponentialRampToValueAtTime(0.10 * v, t + 0.002);
+  g2.gain.exponentialRampToValueAtTime(0.0001, t + 0.05);
+  s.connect(bp); bp.connect(g2); g2.connect(master);
+  s.start(t); s.stop(t + 0.07);
+}
+soundBtn.addEventListener('click', function(){
+  soundOn = !soundOn;
+  soundBtn.classList.toggle('off', !soundOn);
+  soundBtn.textContent = soundOn ? '♪' : '♪̸';
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+//  CAMERA
+// ═══════════════════════════════════════════════════════════════════════
+var facing = 'user', mirror = true, stream = null;
+function showError(e){
+  var msg = (e && e.message) ? e.message : String(e || 'unknown');
+  errBox.style.display = 'block';
+  errBox.textContent = 'カメラを起動できませんでした：' + msg +
+    '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+}
+function startStream(){
+  var md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) return Promise.reject(new Error('getUserMedia is unavailable'));
+  if (stream && stream.getTracks) stream.getTracks().forEach(function(t){ t.stop(); });
+  return md.getUserMedia({
+    video: { facingMode: { ideal: facing }, width: { ideal: 1280 }, height: { ideal: 720 } },
+    audio: false
+  }).then(function(st){
+    stream = st; video.srcObject = st;
+    mirror = (facing === 'user');
+    var p = video.play();
+    return (p && p.then) ? p.catch(function(){}) : null;
+  });
+}
+flipBtn.addEventListener('click', function(){
+  facing = (facing === 'user') ? 'environment' : 'user';
+  loseHands();
+  lumPrimed = false;                   // the old frame is no longer this camera
+  startStream().then(startMpCamera).catch(function(){});
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+//  HANDS — fingertips poke the surface
+// ═══════════════════════════════════════════════════════════════════════
+var hands = null, mpCamera = null, mpReady = false;
+var handsLm = [], lastHandT = 0, LOST_MS = 260;
+var TIPS = [4, 8, 12, 16, 20];
+var tipPrev = [];    // per hand slot, per tip: last grid position
+
+function initHands(){
+  if (typeof window.Hands !== 'function') return false;
+  try {
+    hands = new window.Hands({ locateFile: function(f){
+      return 'https://cdn.jsdelivr.net/npm/@mediapipe/hands/' + f;
+    }});
+    hands.setOptions({ maxNumHands:2, modelComplexity:0,
+                       minDetectionConfidence:0.6, minTrackingConfidence:0.5 });
+    hands.onResults(onHands);
+    mpReady = true;
+    return true;
+  } catch(e){ return false; }
+}
+function validLm(c){
+  if (!c || c.length < 21) return null;
+  for (var i = 0; i < 21; i++){
+    var p = c[i];
+    if (!p || typeof p.x !== 'number' || typeof p.y !== 'number' ||
+        !isFinite(p.x) || !isFinite(p.y)) return null;
+  }
+  return c;
+}
+function onHands(res){
+  var out = [];
+  if (res && res.multiHandLandmarks && res.multiHandLandmarks.length){
+    for (var i = 0; i < res.multiHandLandmarks.length && out.length < 2; i++){
+      var v = validLm(res.multiHandLandmarks[i]);
+      if (v) out.push(v);
+    }
+  }
+  if (out.length){ handsLm = out; lastHandT = now(); }
+}
+function loseHands(){
+  handsLm = [];
+  tipPrev = [];        // drop the velocity history so nothing splashes on return
+}
+function startMpCamera(){
+  if (!mpReady || typeof window.Camera !== 'function') return;
+  try {
+    if (mpCamera && mpCamera.stop) mpCamera.stop();
+    mpCamera = new window.Camera(video, {
+      onFrame: function(){
+        if (!hands || state !== 'live') return Promise.resolve();
+        return hands.send({ image: video }).catch(function(){});
+      },
+      width: 640, height: 480
+    });
+    mpCamera.start();
+  } catch(e){ mpReady = false; }
+}
+
+// fingertips make drops scaled by how fast they are moving
+var ripples = [];
+function stirFromHands(){
+  var hs = handsLm;
+  for (var k = 0; k < hs.length && k < 2; k++){
+    var lm = hs[k];
+    if (!lm) continue;
+    if (!tipPrev[k]) tipPrev[k] = [];
+    for (var t = 0; t < TIPS.length; t++){
+      var p = lm[TIPS[t]];
+      if (!p) continue;
+      var nx = mirror ? (1 - p.x) : p.x;
+      if (!isFinite(nx) || !isFinite(p.y)) continue;
+      var gx = nx * IW, gy = p.y * IH;
+      var prev = tipPrev[k][t];
+      tipPrev[k][t] = { x:gx, y:gy };
+      if (!prev) continue;
+      var dx = gx - prev.x, dy = gy - prev.y;
+      var sp = Math.sqrt(dx * dx + dy * dy);
+      if (!isFinite(sp)) continue;
+      // always a small dimple, more when the finger is moving
+      var power = 9 + sp * 16;
+      if (power > 190) power = 190;
+      drop(gx, gy, power, t === 0 ? 4 : 3);
+      if (sp > 2.2 && Math.random() < 0.24) drip(Math.min(1, sp / 12));
+      if (sp > 1.4) ripples.push({ x: nx, y: p.y, t: 0, s: Math.min(1, sp / 10) });
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  STATE
+// ═══════════════════════════════════════════════════════════════════════
+var state = 'boot';
+var frameMs = 10, adaptCool = 0, last = now(), bob = 0;
+var calmT = 0, swell = 0;
+
+function now(){ return (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now(); }
+
+function setMode(m){
+  if (m === mode || m < 0 || m >= MODES.length) return;
+  mode = m;
+  var bs = modeRow.querySelectorAll('button');
+  for (var i = 0; i < bs.length; i++) bs[i].classList.toggle('on', i === m);
+  tName.textContent = MODES[m].jp;
+  tSub.textContent = MODES[m].en;
+  swell = 1;
+  // a mode change arrives as a swell crossing the pool, not a cut
+  for (var k = 0; k < 5; k++) drop(IW * (0.1 + k * 0.2), IH * 0.5, 60, 6);
+  drip(0.7);
+}
+(function(){
+  var bs = modeRow.querySelectorAll('button');
+  for (var i = 0; i < bs.length; i++){
+    (function(k){ bs[k].addEventListener('click', function(){ setMode(k); }); })(i);
+  }
+})();
+rainBtn.addEventListener('click', function(){
+  rainOn = !rainOn;
+  rainBtn.classList.toggle('on', rainOn);
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+//  LOOP
+// ═══════════════════════════════════════════════════════════════════════
+function loop(){
+  var t = now();
+  var dt = Math.min(0.05, (t - last) / 1000);
+  last = t;
+
+  if (handsLm.length && t - lastHandT > LOST_MS) loseHands();
+  if (video && video.videoWidth > 0 && video.videoHeight > 0){
+    var a = video.videoWidth / video.videoHeight;
+    if (isFinite(a) && a > 0 && Math.abs(a - ASP) > 0.01){ ASP = a; allocBuffers(); }
+  }
+
+  if (state === 'live'){
+    // Resize FIRST, then render: doing it the other way round throws away the
+    // frame that was just rendered into the buffer being replaced.
+    adaptCool -= dt;
+    if (adaptCool <= 0){
+      if (frameMs > 15 && targetPx > MIN_PX){
+        targetPx = Math.round(targetPx * 0.74);
+        // never climb back above a size that has already proved too slow
+        maxAllowed = targetPx;
+        allocBuffers(); adaptCool = 1.2; frameMs = 10;
+      } else if (frameMs < 5.5 && targetPx < maxAllowed){
+        targetPx = Math.round(targetPx * 1.25);
+        if (targetPx > maxAllowed) targetPx = maxAllowed;
+        allocBuffers(); adaptCool = 1.2; frameMs = 10;
+      }
+    }
+    var t0 = now();
+    process();
+    var el = now() - t0;
+    frameMs += (el - frameMs) * 0.12;
+    calmT = (energy < 0.06 && motionSum < 0.05) ? calmT + dt : 0;
+    calmEl.classList.toggle('on', calmT > 2.2);
+  }
+
+  swell = Math.max(0, swell - dt * 1.6);
+  bob += dt;
+  for (var i = ripples.length - 1; i >= 0; i--){
+    ripples[i].t += dt * 1.7;
+    if (ripples[i].t >= 1) ripples.splice(i, 1);
+  }
+
+  draw(t);
+  requestAnimationFrame(loop);
+}
+
+function process(){
+  if (!outImg || IW < 4 || IH < 4) return;
+  if (!video || !video.videoWidth) return;
+  srcCtx.save();
+  if (mirror){ srcCtx.translate(IW, 0); srcCtx.scale(-1, 1); }
+  try { srcCtx.drawImage(video, 0, 0, IW, IH); } catch(e){ srcCtx.restore(); return; }
+  srcCtx.restore();
+  var srcImg;
+  try { srcImg = srcCtx.getImageData(0, 0, IW, IH); } catch(e){ return; }
+  var src = srcImg.data;
+
+  stirFromMotion(src);
+  stirFromHands();
+  if (rainOn){
+    var n = 1 + (Math.random() * 2 | 0);
+    for (var k = 0; k < n; k++){
+      if (Math.random() < 0.55){
+        drop(Math.random() * IW, Math.random() * IH, 55 + Math.random() * 90, 2 + (Math.random() * 3 | 0));
+        if (Math.random() < 0.28) drip(0.35 + Math.random() * 0.4);
+      }
+    }
+  }
+  stepWater();
+  renderWater(src, outImg.data);
+  outCtx.putImageData(outImg, 0, 0);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  DRAW
+// ═══════════════════════════════════════════════════════════════════════
+function draw(t){
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  if (outCv.width > 1 && state === 'live'){
+    // full bleed: the water IS the picture
+    try { ctx.drawImage(outCv, 0, 0, W, H); } catch(e){}
+  } else {
+    ctx.fillStyle = '#dfeceb';
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  // a soft aqua depth wash at the edges, so the pool has walls
+  var g = ctx.createRadialGradient(W * 0.5, H * 0.45, U * 0.22, W * 0.5, H * 0.5, U * 0.95);
+  g.addColorStop(0, 'rgba(127,200,216,0)');
+  g.addColorStop(1, 'rgba(43,106,134,.28)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+
+  // expanding rings where fingertips broke the surface
+  for (var i = 0; i < ripples.length; i++){
+    var r = ripples[i];
+    var p = r.t;
+    var rad = U * (0.012 + p * 0.10);
+    if (!(rad > 0)) continue;
+    ctx.globalAlpha = Math.max(0, (1 - p)) * 0.45 * r.s;
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = Math.max(1, U * 0.004 * (1 - p));
+    ctx.beginPath();
+    ctx.arc(r.x * W, r.y * H, rad, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+
+  if (swell > 0.001){
+    ctx.globalAlpha = swell * 0.20;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, W, H);
+    ctx.globalAlpha = 1;
+  }
+
+  if (state === 'live' && !handsLm.length){
+    ctx.globalAlpha = 0.42 + Math.sin(t * 0.0032) * 0.18;
+    ctx.fillStyle = '#ffffff';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.font = '500 ' + (U * 0.033).toFixed(1) + 'px "M PLUS Rounded 1c",sans-serif';
+    ctx.fillText('手をかざすと、指先で水がへこみます', W * 0.5, H * 0.5);
+    ctx.globalAlpha = 1;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  OVERLAY TUTORIAL — two ripples meeting and interfering
+// ═══════════════════════════════════════════════════════════════════════
+function drawHowto(t){
+  var c = howCtx, w = howto.width, h = howto.height;
+  c.setTransform(1, 0, 0, 1, 0, 0);
+  var bg = c.createLinearGradient(0, 0, 0, h);
+  bg.addColorStop(0, '#bfe2e8');
+  bg.addColorStop(1, '#8ac6d6');
+  c.fillStyle = bg; c.fillRect(0, 0, w, h);
+
+  var cyc = 3000, ph = (t % cyc) / cyc;
+  var srcs = [{ x:w * 0.32, y:h * 0.5, d:0 }, { x:w * 0.68, y:h * 0.5, d:0.28 }];
+  for (var s = 0; s < srcs.length; s++){
+    var o = srcs[s];
+    var local = ph - o.d;
+    if (local < 0) local += 1;
+    for (var k = 0; k < 4; k++){
+      var p = local - k * 0.22;
+      if (p < 0) p += 1;
+      if (p > 0.92) continue;
+      var rad = p * h * 0.72;
+      if (!(rad > 0)) continue;
+      c.globalAlpha = Math.max(0, 1 - p) * 0.55;
+      c.strokeStyle = '#ffffff';
+      c.lineWidth = 2.4 * (1 - p) + 0.6;
+      c.beginPath(); c.arc(o.x, o.y, rad, 0, Math.PI * 2); c.stroke();
+    }
+    c.globalAlpha = 1;
+    // the fingertip making them
+    c.fillStyle = 'rgba(255,255,255,.9)';
+    c.beginPath(); c.arc(o.x, o.y, h * 0.028, 0, Math.PI * 2); c.fill();
+  }
+  c.fillStyle = 'rgba(20,70,90,.62)';
+  c.font = '700 ' + Math.round(h * 0.075) + 'px "M PLUS Rounded 1c",sans-serif';
+  c.textAlign = 'center'; c.textBaseline = 'middle';
+  c.fillText('波はぶつかって干渉します', w * 0.5, h * 0.885);
+}
+function howtoLoop(){
+  if (state === 'boot'){ drawHowto(now()); requestAnimationFrame(howtoLoop); }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  BOOT
+// ═══════════════════════════════════════════════════════════════════════
+goBtn.addEventListener('click', function(){
+  goBtn.disabled = true;
+  errBox.style.display = 'none';
+  initAudio();
+  var already = !!(stream && video && video.srcObject);
+  goBtn.textContent = already ? 'みずにさわる' : 'カメラを起動中…';
+  var p = already ? Promise.resolve() : startStream();
+  p.then(function(){
+    if (!mpReady) initHands();
+    startMpCamera();
+    state = 'live';
+    ov.classList.add('hide');
+    goBtn.textContent = 'みずにさわる';
+    // one drop to announce the surface
+    drop(IW * 0.5, IH * 0.42, 150, 5);
+    drip(0.8);
+  }).catch(function(e){
+    showError(e);
+    goBtn.disabled = false;
+    goBtn.textContent = 'もういちど試す';
+  });
+});
+
+fit();
+requestAnimationFrame(loop);
+requestAnimationFrame(howtoLoop);
+
+// headless harness hooks
+window.__MINAMO__ = {
+  MODES: MODES, setMode: setMode, drop: drop, stepWater: stepWater,
+  feed: function(list){ onHands({ multiHandLandmarks: list || [] }); },
+  size: function(){ return { IW:IW, IH:IH, targetPx:targetPx }; },
+  setTargetPx: function(v){ targetPx = v; if (v > maxAllowed) maxAllowed = v; allocBuffers(); },
+  outData: function(){ return outImg ? outImg.data : null; },
+  height: function(){ return hCur; },
+  // zero BOTH ping-pong buffers: clearing only the front one leaves the
+  // back buffer's energy to be reinjected on the next step
+  calm: function(){ if (hCur) hCur.fill(0); if (hPrev) hPrev.fill(0); },
+  primed: function(){ return lumPrimed; },
+  setRain: function(v){ rainOn = !!v; },
+  state: function(){ return { state:state, mode:mode, rain:rainOn, energy:energy,
+                              motion:motionSum, hands:handsLm.length,
+                              ripples:ripples.length, calmT:calmT }; }
+};
+</script>
+</body>
+</html>
