@@ -55,9 +55,16 @@
             and every source sample into the buffer, writes every pixel,
             and hoists all module state — Math included — into locals,
             which is worth 20x through an interpreter. Internal resolution
-            adapts to measured frame time. Excitation comes from hand
-            landmarks (precise pokes) and from frame difference (your whole
-            body), both scaled by speed.
+            adapts, shrinking on the REAL frame interval (the pixel loops are
+            only part of the cost) and growing only when the loop time and the
+            frame interval both show headroom. The ceiling steps down with a
+            shrink but relaxes again after a sustained comfortable spell, so a
+            single busy moment cannot pin the quality low; a 画質 control
+            overrides the whole thing. RESET
+            drains the pool over a third of a second instead of cutting to
+            flat. Excitation comes from hand landmarks (precise pokes) and
+            from frame difference (your whole body, sampled every other
+            frame), both scaled by speed.
   ══════════════════════════════════════════════════════════════════════════
 -->
 <style>
@@ -168,9 +175,11 @@
   <div class="chrome">
     <div class="row tl">
       <button class="btn" id="flipBtn" type="button">⟲ カメラ</button>
+      <button class="btn" id="resetBtn" type="button">しずめる<small>RESET</small></button>
     </div>
     <div class="row tr">
       <button class="btn" id="rainBtn" type="button">雨</button>
+      <button class="btn" id="qualBtn" type="button">画質<small id="qualLbl">オート</small></button>
       <button class="btn" id="soundBtn" type="button">♪</button>
     </div>
 
@@ -179,7 +188,7 @@
       <div id="tSub">MINAMO</div>
     </div>
 
-    <div id="calm">しずかにしていると、水がないでいきます</div>
+    <div id="calm">しずかにしていると、水がしずまっていきます</div>
 
     <div class="row bc" id="modeRow">
       <button class="btn on" type="button" data-m="0">水面<small>MIZU</small></button>
@@ -218,6 +227,9 @@ var errBox   = document.getElementById('err');
 var flipBtn  = document.getElementById('flipBtn');
 var rainBtn  = document.getElementById('rainBtn');
 var soundBtn = document.getElementById('soundBtn');
+var resetBtn  = document.getElementById('resetBtn');
+var qualBtn   = document.getElementById('qualBtn');
+var qualLbl   = document.getElementById('qualLbl');
 var modeRow  = document.getElementById('modeRow');
 var howto    = document.getElementById('howto');
 var howCtx   = howto.getContext('2d');
@@ -243,8 +255,14 @@ var srcCv = document.createElement('canvas'), srcCtx = srcCv.getContext('2d');
 var outCv = document.createElement('canvas'), outCtx = outCv.getContext('2d');
 var outImg = null;
 var hCur = null, hPrev = null, prevLum = null;
-var IW = 0, IH = 0, targetPx = 88000, ASP = 4 / 3;
-var MAX_PX = 130000, MIN_PX = 34000, maxAllowed = 130000;
+// Refraction through a smooth surface carries almost no high-frequency
+// detail, and the result is scaled up to the display anyway, so the working
+// grid can be much smaller than the screen. Starting low and earning the way
+// up beats starting high and stuttering until the controller notices.
+var IW = 0, IH = 0, targetPx = 60000, ASP = 4 / 3;
+var MAX_PX = 96000, MIN_PX = 26000, maxAllowed = 96000;
+var QUALS = [{ jp:'オート', px:0 }, { jp:'高', px:96000 }, { jp:'低', px:30000 }];
+var qualIdx = 0;
 
 // silver ramp for the MERCURY mode, built once
 var SILVER = new Uint8Array(256 * 3);
@@ -642,7 +660,8 @@ function stirFromHands(){
 //  STATE
 // ═══════════════════════════════════════════════════════════════════════
 var state = 'boot';
-var frameMs = 10, adaptCool = 0, last = now(), bob = 0;
+var frameMs = 10, frameDt = 16.7, adaptCool = 0, last = now(), bob = 0;
+var calming = 0, motionPhase = 0;
 var calmT = 0, swell = 0;
 
 function now(){ return (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now(); }
@@ -669,6 +688,21 @@ rainBtn.addEventListener('click', function(){
   rainOn = !rainOn;
   rainBtn.classList.toggle('on', rainOn);
 });
+// Reset: drain the pool over a third of a second rather than cutting it to
+// flat, because nothing else in this piece snaps.
+resetBtn.addEventListener('click', function(){
+  calming = 1;
+  drip(0.5);
+});
+qualBtn.addEventListener('click', function(){
+  qualIdx = (qualIdx + 1) % QUALS.length;
+  var q = QUALS[qualIdx];
+  qualLbl.textContent = q.jp;
+  qualBtn.classList.toggle('on', q.px !== 0);
+  if (q.px){ maxAllowed = q.px; targetPx = q.px; allocBuffers(); }
+  else { maxAllowed = MAX_PX; }
+  adaptCool = 1.2; frameMs = 10; frameDt = 16.7;
+});
 
 // ═══════════════════════════════════════════════════════════════════════
 //  LOOP
@@ -687,21 +721,35 @@ function loop(){
   if (state === 'live'){
     // Resize FIRST, then render: doing it the other way round throws away the
     // frame that was just rendered into the buffer being replaced.
+    // The pixel loops are only PART of the cost — the readback, the upscale
+    // and the browser's own compositing are not in frameMs at all. Measuring
+    // only what we time here made the controller grow the grid on a device
+    // that was already dropping frames. Shrinking listens to the real frame
+    // interval; growing needs BOTH signals to agree there is headroom.
+    frameDt += (dt * 1000 - frameDt) * 0.10;
     adaptCool -= dt;
-    if (adaptCool <= 0){
-      if (frameMs > 15 && targetPx > MIN_PX){
+    if (adaptCool <= 0 && QUALS[qualIdx].px === 0){
+      if ((frameDt > 23 || frameMs > 13) && targetPx > MIN_PX){
         targetPx = Math.round(targetPx * 0.74);
-        // never climb back above a size that has already proved too slow
-        maxAllowed = targetPx;
-        allocBuffers(); adaptCool = 1.2; frameMs = 10;
-      } else if (frameMs < 5.5 && targetPx < maxAllowed){
-        targetPx = Math.round(targetPx * 1.25);
-        if (targetPx > maxAllowed) targetPx = maxAllowed;
-        allocBuffers(); adaptCool = 1.2; frameMs = 10;
+        if (targetPx < MIN_PX) targetPx = MIN_PX;
+        maxAllowed = targetPx;      // step the ceiling down with it
+        allocBuffers(); adaptCool = 1.5; frameMs = 10; frameDt = 16.7;
+      } else if (frameDt < 18.5 && frameMs < 5){
+        if (targetPx < maxAllowed){
+          targetPx = Math.round(targetPx * 1.22);
+          if (targetPx > maxAllowed) targetPx = maxAllowed;
+          allocBuffers(); adaptCool = 1.5; frameMs = 10; frameDt = 16.7;
+        } else if (maxAllowed < MAX_PX){
+          // The ceiling relaxes when the device has been comfortable for a
+          // while. A hard ratchet would let one busy moment — another tab,
+          // a notification — pin the quality low until reload.
+          maxAllowed = Math.min(MAX_PX, Math.round(maxAllowed * 1.10));
+          adaptCool = 3.0;
+        }
       }
     }
     var t0 = now();
-    process();
+    process(dt);
     var el = now() - t0;
     frameMs += (el - frameMs) * 0.12;
     calmT = (energy < 0.06 && motionSum < 0.05) ? calmT + dt : 0;
@@ -719,7 +767,7 @@ function loop(){
   requestAnimationFrame(loop);
 }
 
-function process(){
+function process(dt){
   if (!outImg || IW < 4 || IH < 4) return;
   if (!video || !video.videoWidth) return;
   srcCtx.save();
@@ -730,7 +778,10 @@ function process(){
   try { srcImg = srcCtx.getImageData(0, 0, IW, IH); } catch(e){ return; }
   var src = srcImg.data;
 
-  stirFromMotion(src);
+  // Motion is a slow signal: differencing every other frame halves a full
+  // per-pixel pass and, against a 2-frame-old image, is if anything cleaner.
+  motionPhase = (motionPhase + 1) & 1;
+  if (!lumPrimed || motionPhase === 0) stirFromMotion(src);
   stirFromHands();
   if (rainOn){
     var n = 1 + (Math.random() * 2 | 0);
@@ -742,6 +793,12 @@ function process(){
     }
   }
   stepWater();
+  if (calming > 0){
+    var ck = 0.70, cA = hCur, cB = hPrev;
+    for (var ci = 0; ci < cA.length; ci++){ cA[ci] *= ck; cB[ci] *= ck; }
+    calming -= (dt || 0.016) * 3;
+    if (calming <= 0){ calming = 0; cA.fill(0); cB.fill(0); }
+  }
   renderWater(src, outImg.data);
   outCtx.putImageData(outImg, 0, 0);
 }
@@ -883,6 +940,8 @@ window.__MINAMO__ = {
   calm: function(){ if (hCur) hCur.fill(0); if (hPrev) hPrev.fill(0); },
   primed: function(){ return lumPrimed; },
   setRain: function(v){ rainOn = !!v; },
+  calming: function(){ return calming; },
+  quality: function(){ return { idx:qualIdx, maxAllowed:maxAllowed }; },
   state: function(){ return { state:state, mode:mode, rain:rainOn, energy:energy,
                               motion:motionSum, hands:handsLm.length,
                               ripples:ripples.length, calmT:calmT }; }
