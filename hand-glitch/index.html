@@ -25,7 +25,6 @@
     z-index: 1;
     transition: filter 0.6s ease;
   }
-  #video.active { filter: saturate(0.75) brightness(0.82) contrast(1.05); }
   #vignette {
     position: absolute; inset: 0;
     z-index: 2;
@@ -121,6 +120,7 @@
       <button id="clear">🗑 クリア</button>
       <button id="layout">▦ レイアウト</button>
       <button id="mode">モード: 通常</button>
+      <button id="colorMode">🎨 カラー</button>
       <button id="mute">🔊 音ON</button>
     </div>
   </div>
@@ -151,12 +151,29 @@ const clearBtn = document.getElementById('clear');
 const layoutBtn = document.getElementById('layout');
 const modeBtn = document.getElementById('mode');
 const muteBtn = document.getElementById('mute');
+const colorModeBtn = document.getElementById('colorMode');
 const errEl = document.getElementById('err');
 
 let handLandmarker = null;
 let running = false;
 let mode = 0; // 0: normal, 1: heavy glitch, 2: minimal
 const modeNames = ['通常', 'グリッチ強', 'ミニマル'];
+
+// 映像の色合い: 0=カラー, 1=モノクロ, 2=セピア
+// 手のグラフィックは別canvas(#overlay)に描いているのでこのフィルターの影響を受けず、
+// モノクロ/セピア時はネオングリーン/レッドがくっきり浮かぶ。
+let colorMode = 0;
+const colorModeNames = ['カラー', 'モノクロ', 'セピア'];
+const colorModeFilters = [
+  { normal: 'none',                                    active: 'saturate(0.75) brightness(0.82) contrast(1.05)' },
+  { normal: 'grayscale(1) contrast(1.08)',              active: 'grayscale(1) brightness(0.8) contrast(1.18)' },
+  { normal: 'sepia(0.75) saturate(1.35) contrast(1.05)', active: 'sepia(0.9) saturate(1.5) brightness(0.78) contrast(1.1)' }
+];
+function updateVideoFilter(bothHands) {
+  const f = colorModeFilters[colorMode];
+  video.style.filter = bothHands ? f.active : f.normal;
+}
+updateVideoFilter(false);
 
 const HAND_CONNECTIONS = [
   [0,1],[1,2],[2,3],[3,4],
@@ -948,7 +965,7 @@ async function loop() {
   // 演出: 両手検出時はビネット + 映像を落ち着かせてパネルを主役に
   const bothHands = !!(leftHand && rightHand);
   vignette.classList.toggle('active', bothHands);
-  video.classList.toggle('active', bothHands);
+  updateVideoFilter(bothHands);
 
   if (bothHands) {
     const lSym = palmL ? '✋' : '🤚';
@@ -978,6 +995,7 @@ snapBtn.addEventListener('click', () => {
   out.width = W; out.height = H;
   const ctx = out.getContext('2d');
   ctx.save();
+  ctx.filter = video.style.filter || 'none';
   ctx.translate(W, 0);
   ctx.scale(-1, 1);
   const vw = video.videoWidth, vh = video.videoHeight;
@@ -1015,6 +1033,12 @@ modeBtn.addEventListener('click', () => {
 muteBtn.addEventListener('click', () => {
   muted = !muted;
   muteBtn.textContent = muted ? '🔇 音OFF' : '🔊 音ON';
+});
+
+colorModeBtn.addEventListener('click', () => {
+  colorMode = (colorMode + 1) % colorModeFilters.length;
+  colorModeBtn.textContent = `🎨 ${colorModeNames[colorMode]}`;
+  updateVideoFilter(!!(leftHand && rightHand));
 });
 
 startBtn.addEventListener('click', async () => {
