@@ -1,0 +1,940 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>NAGORI ─ 動きの名残</title>
+<meta name="description" content="画面が二度と描き直されないカメラエフェクト。動いた向きに絵が引きずられるだけなので、体を動かすほど自分が背景へ溶けていく。手のひらを止めると、そこだけ今の映像に拭き戻せる。">
+<meta name="theme-color" content="#0b0a10">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@600;800&family=Murecho:wght@300;500&display=swap" rel="stylesheet">
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  NAGORI ─ 名残                           ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  PALETTE   漆   urushi    #0b0a10  near-black, violet cast   (ground)
+            玉虫 tamamushi #29d3c2  iridescent teal           (chrome, edge)
+            紅藤 benifuji  #b56cf0  violet                    (accent)
+            金   kin       #f0c04a  gold                      (the cut)
+            灰   hai       #9aa0b0  cool grey                 (type)
+            MOOD: petrol on black water. The gallery's other six effects are
+            paper, print, scan, glass, water and phosphor — all of them low
+            chroma. This one is the saturated, painterly one: oil-slick
+            colour smeared across a dark ground.
+
+  BACKGROUND  None, and that is the point. The smear IS the picture, full
+            bleed. The chrome sits on top in thin iridescent rules with no
+            panels behind them, so nothing competes with the image.
+
+  TYPE      Syne for the Latin — wide, slightly strange, unlike any other
+            face in the collection — with Murecho, light, for the Japanese.
+            Both new here.
+
+  MOTION    Viscous. Everything lags: the chrome fades over 600ms on a heavy
+            curve and the mode change bleeds across the frame instead of
+            cutting. The ONE hard edge in the piece is the cut (I-frame),
+            which is meant to feel like a splice.
+
+  SIGNATURE THE PICTURE IS NEVER REDRAWN, ONLY DRAGGED. Motion is estimated
+            the way a video codec does it — block matching with a three-step
+            search — and then the accumulated frame is advected along that
+            field. Nothing repaints it, so every movement you make smears
+            your own face out into the room and it stays smeared. Second:
+            YOUR PALM IS A SQUEEGEE. Hold a hand still and the disc under it
+            wipes back to the live camera; move it and that patch starts
+            dissolving again immediately.
+
+  AUDIO     Tape, quietly. A hiss bed whose level follows how much of the
+            frame is moving, and a head-thunk on the cut — filtered noise
+            plus a pitch-dropping sine. No music. Mutable.
+
+  ENGINEERING  Luminance block matching (10px blocks, three-step search over
+            +-5px, SAD on a subsampled grid) gives one vector per block; the
+            field is then bilinearly interpolated per pixel so the smear is
+            smooth rather than blocky. Advection reads the accumulator and
+            writes the output in one pass, then a native typed-array copy
+            feeds it back — no second full loop. Every source read is clamped
+            into the buffer, every pixel is written, all module state is
+            hoisted into locals, and the working resolution adapts on the
+            real frame interval with a 画質 override.
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<style>
+  *{ margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body{
+    width:100%; height:100%; overflow:hidden; background:#0b0a10; color:#9aa0b0;
+    font-family:'Murecho',-apple-system,'Hiragino Sans','Noto Sans JP',system-ui,sans-serif;
+    -webkit-user-select:none; user-select:none;
+  }
+  #stage{ position:fixed; inset:0; }
+  canvas#cv{ position:absolute; inset:0; width:100%; height:100%; display:block; }
+  video#vid{ position:absolute; width:2px; height:2px; opacity:0; pointer-events:none; left:-10px; top:-10px; }
+
+  .chrome{ position:absolute; inset:0; pointer-events:none; }
+  .row{ position:absolute; display:flex; align-items:center; gap:.55rem; pointer-events:auto; flex-wrap:wrap; }
+  .tl{ top:calc(env(safe-area-inset-top,0px) + 1rem); left:1rem; }
+  .tr{ top:calc(env(safe-area-inset-top,0px) + 1rem); right:1rem; }
+  .bc{
+    bottom:calc(env(safe-area-inset-bottom,0px) + 1.1rem); left:50%;
+    transform:translateX(-50%); justify-content:center; max-width:calc(100vw - 1.6rem);
+  }
+  /* thin iridescent rules, no panels */
+  .btn{
+    font-family:'Syne',system-ui,sans-serif; font-weight:600;
+    font-size:.66rem; letter-spacing:.2em; text-transform:uppercase;
+    color:#8fe6dc; background:transparent;
+    border:1px solid rgba(41,211,194,.34); border-radius:2px;
+    padding:.45rem .8rem; cursor:pointer;
+    transition:color .6s cubic-bezier(.16,.7,.3,1), border-color .6s cubic-bezier(.16,.7,.3,1), background .6s cubic-bezier(.16,.7,.3,1);
+  }
+  .btn:hover{ color:#0b0a10; background:#29d3c2; border-color:#29d3c2; }
+  .btn.on{ color:#0b0a10; background:#29d3c2; border-color:#29d3c2; }
+  .btn.off{ color:#4c5566; border-color:rgba(120,130,150,.22); }
+  .btn .jp{ font-family:'Murecho',sans-serif; font-weight:300; font-size:.62rem; letter-spacing:.06em; margin-right:.35rem; text-transform:none; }
+  .btn.cut{ color:#f0c04a; border-color:rgba(240,192,74,.45); }
+  .btn.cut:hover{ color:#0b0a10; background:#f0c04a; border-color:#f0c04a; }
+
+  #hud{
+    position:absolute; top:calc(env(safe-area-inset-top,0px) + 1rem);
+    left:50%; transform:translateX(-50%); pointer-events:none; text-align:center;
+  }
+  #hName{
+    font-family:'Syne',system-ui,sans-serif; font-weight:800;
+    font-size:.82rem; letter-spacing:.34em; text-indent:.34em; color:#cfd6e2;
+  }
+  #hSub{ font-size:.58rem; letter-spacing:.2em; color:#5f6878; margin-top:.25rem; }
+
+  #meter{
+    position:absolute; bottom:calc(env(safe-area-inset-bottom,0px) + 3.6rem);
+    left:50%; transform:translateX(-50%); width:min(52vw,15rem); pointer-events:none;
+  }
+  #mTrack{ height:1px; background:rgba(154,160,176,.22); }
+  #mFill{ height:1px; width:0%; background:#b56cf0; }
+  #mLabel{
+    margin-top:.5rem; text-align:center; font-size:.55rem;
+    letter-spacing:.26em; color:#5f6878;
+  }
+
+  /* ── overlay ──────────────────────────────────────────── */
+  #ov{
+    position:absolute; inset:0; z-index:20; display:flex;
+    align-items:center; justify-content:center; padding:1.4rem;
+    background:radial-gradient(ellipse 75% 60% at 50% 42%, #16131f 0%, #0b0a10 70%);
+    text-align:center; overflow:auto;
+  }
+  #ov.hide{ display:none; }
+  .sheet{ width:min(94vw,25rem); }
+  .big{
+    font-family:'Syne',system-ui,sans-serif; font-weight:800;
+    font-size:clamp(2.6rem,13vw,4rem); letter-spacing:.06em; line-height:1;
+    background:linear-gradient(96deg,#29d3c2 0%,#b56cf0 52%,#f0c04a 100%);
+    -webkit-background-clip:text; background-clip:text; color:transparent;
+  }
+  .jpname{
+    font-weight:500; font-size:.9rem; letter-spacing:.56em; text-indent:.56em;
+    margin-top:.85rem; color:#cfd6e2;
+  }
+  .lede{ font-size:.79rem; line-height:2.1; color:#7f8899; margin-top:1.2rem; }
+  #howto{ display:block; margin:1.2rem auto .4rem; width:min(86vw,19rem); height:auto; border-radius:3px; }
+  .howcap{ font-size:.61rem; letter-spacing:.14em; color:#5f6878; line-height:2; }
+  #go{
+    margin-top:1.5rem; font-family:'Syne',system-ui,sans-serif; font-weight:800;
+    font-size:.86rem; letter-spacing:.3em; text-indent:.3em; text-transform:uppercase;
+    color:#0b0a10; background:#29d3c2; border:none; border-radius:2px;
+    padding:.85rem 2.2rem; cursor:pointer;
+    transition:transform .5s cubic-bezier(.16,.7,.3,1), background .5s ease, box-shadow .5s ease;
+    box-shadow:0 0 34px rgba(41,211,194,.28);
+  }
+  #go:hover{ transform:translateY(-2px); background:#5ce9da; box-shadow:0 6px 44px rgba(41,211,194,.45); }
+  #go:disabled{ opacity:.45; cursor:default; transform:none; }
+  #err{
+    display:none; margin-top:1.1rem; font-size:.72rem; line-height:1.95; color:#e08aa0;
+    white-space:pre-line; border:1px solid rgba(224,138,160,.32); border-radius:3px; padding:.7rem .8rem;
+  }
+  .note{ margin-top:1.25rem; font-size:.56rem; letter-spacing:.1em; color:#454d5c; line-height:2; }
+  @media (max-height:580px){
+    #howto{ width:min(58vw,13rem); } .lede{ margin-top:.7rem; line-height:1.8; } #go{ margin-top:.9rem; }
+  }
+</style>
+</head>
+<body>
+<div id="stage">
+  <video id="vid" playsinline muted autoplay></video>
+  <canvas id="cv"></canvas>
+
+  <div class="chrome">
+    <div class="row tl">
+      <button class="btn" id="flipBtn" type="button">⟲ <span class="jp">カメラ</span></button>
+      <button class="btn cut" id="cutBtn" type="button"><span class="jp">切る</span>CUT</button>
+    </div>
+    <div class="row tr">
+      <button class="btn" id="qualBtn" type="button"><span class="jp">画質</span><span id="qualLbl">AUTO</span></button>
+      <button class="btn" id="soundBtn" type="button">SND</button>
+    </div>
+
+    <div id="hud">
+      <div id="hName">NAGORI</div>
+      <div id="hSub">名残 ・ 引きずるだけ</div>
+    </div>
+
+    <div id="meter">
+      <div id="mTrack"><div id="mFill"></div></div>
+      <div id="mLabel">溶けぐあい</div>
+    </div>
+
+    <div class="row bc" id="modeRow">
+      <button class="btn on" type="button" data-m="0"><span class="jp">名残</span>DRIFT</button>
+      <button class="btn" type="button" data-m="1"><span class="jp">油</span>OIL</button>
+      <button class="btn" type="button" data-m="2"><span class="jp">凍</span>FREEZE</button>
+    </div>
+  </div>
+
+  <div id="ov">
+    <div class="sheet">
+      <div class="big">NAGORI</div>
+      <div class="jpname">名残</div>
+      <p class="lede">この画面は二度と描き直されません。<br>動いた向きに、引きずられていくだけです。</p>
+      <canvas id="howto" width="620" height="300"></canvas>
+      <p class="howcap">動くほど自分が背景へ溶ける。<br>手のひらを止めると、そこだけ今に拭き戻る。</p>
+      <button id="go" type="button">はじめる</button>
+      <div id="err"></div>
+      <p class="note">カメラ映像は端末の外に出ません。<br>明るい場所のほうが、動きをよく拾います。</p>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+<script>
+"use strict";
+// ═══════════════════════════════════════════════════════════════════════
+//  DOM
+// ═══════════════════════════════════════════════════════════════════════
+var video    = document.getElementById('vid');
+var cv       = document.getElementById('cv');
+var ctx      = cv.getContext('2d');
+var ov       = document.getElementById('ov');
+var goBtn    = document.getElementById('go');
+var errBox   = document.getElementById('err');
+var flipBtn  = document.getElementById('flipBtn');
+var cutBtn   = document.getElementById('cutBtn');
+var qualBtn  = document.getElementById('qualBtn');
+var qualLbl  = document.getElementById('qualLbl');
+var soundBtn = document.getElementById('soundBtn');
+var modeRow  = document.getElementById('modeRow');
+var howto    = document.getElementById('howto');
+var howCtx   = howto.getContext('2d');
+var hName    = document.getElementById('hName');
+var hSub     = document.getElementById('hSub');
+var mFill    = document.getElementById('mFill');
+
+// ═══════════════════════════════════════════════════════════════════════
+//  MODES — how much of the live frame is ever allowed back in
+// ═══════════════════════════════════════════════════════════════════════
+var MODES = [
+  { jp:'名残', en:'DRIFT',  sub:'名残 ・ 引きずるだけ',   refresh:0.055, chroma:0.00, gain:1.00 },
+  { jp:'油',   en:'OIL',    sub:'油 ・ 色がずれて残る',   refresh:0.028, chroma:0.20, gain:1.06 },
+  { jp:'凍',   en:'FREEZE', sub:'凍 ・ 拭くまで戻らない', refresh:0.000, chroma:0.07, gain:1.00 }
+];
+var mode = 0;
+
+// ═══════════════════════════════════════════════════════════════════════
+//  BUFFERS
+// ═══════════════════════════════════════════════════════════════════════
+var W = 1, H = 1, U = 1, DPR = 1;
+var srcCv = document.createElement('canvas'), srcCtx = srcCv.getContext('2d');
+var outCv = document.createElement('canvas'), outCtx = outCv.getContext('2d');
+var outImg = null, acc = null;
+var lumCur = null, lumPrev = null, mvx = null, mvy = null;
+var IW = 0, IH = 0, BW = 0, BH = 0;
+var BLOCK = 10, SEARCH = 5;
+var ASP = 4 / 3;
+var targetPx = 56000;
+var MAX_PX = 88000, MIN_PX = 24000, maxAllowed = 88000;
+var QUALS = [{ en:'AUTO', px:0 }, { en:'HIGH', px:88000 }, { en:'LOW', px:26000 }];
+var qualIdx = 0;
+var needSeed = true;      // the accumulator has nothing in it yet
+
+function allocBuffers(){
+  var w = Math.max(48, Math.round(Math.sqrt(targetPx * ASP)));
+  var h = Math.max(36, Math.round(w / ASP));
+  if (w === IW && h === IH) return;
+  IW = w; IH = h;
+  BW = Math.ceil(IW / BLOCK); BH = Math.ceil(IH / BLOCK);
+  srcCv.width = IW; srcCv.height = IH;
+  outCv.width = IW; outCv.height = IH;
+  outImg = outCtx.createImageData(IW, IH);
+  var d = outImg.data;
+  for (var i = 3; i < d.length; i += 4) d[i] = 255;   // alpha, written once
+  acc = new Uint8ClampedArray(IW * IH * 4);
+  lumCur = new Uint8Array(IW * IH);
+  lumPrev = new Uint8Array(IW * IH);
+  mvx = new Float32Array(BW * BH);
+  mvy = new Float32Array(BW * BH);
+  needSeed = true;          // a new size means a new picture to start from
+}
+
+function fit(){
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  var w = Math.max(1, window.innerWidth), h = Math.max(1, window.innerHeight);
+  cv.width = Math.round(w * DPR); cv.height = Math.round(h * DPR);
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  W = w; H = h; U = Math.min(w, h);
+  allocBuffers();
+}
+window.addEventListener('resize', fit);
+window.addEventListener('orientationchange', function(){ setTimeout(fit, 240); });
+
+// ═══════════════════════════════════════════════════════════════════════
+//  MOTION ESTIMATION — block matching, three-step search
+// ═══════════════════════════════════════════════════════════════════════
+var motionEnergy = 0;
+
+function toLuma(src){
+  var lum = lumCur, n = IW * IH, si = 0;
+  for (var i = 0; i < n; i++){
+    lum[i] = (src[si] * 77 + src[si + 1] * 150 + src[si + 2] * 29) >> 8;
+    si += 4;
+  }
+}
+
+// Sum of absolute differences between the block at (bx0,by0) in cur and the
+// same block displaced by (dx,dy) in prev, sampled every other pixel.
+function sad(cur, prev, bx0, by0, bw, bh, dx, dy, w, h, best){
+  var total = 0;
+  for (var y = 0; y < bh; y += 2){
+    var cy = by0 + y, py = cy + dy;
+    if (py < 0) py = 0; else if (py > h - 1) py = h - 1;
+    var cRow = cy * w, pRow = py * w;
+    for (var x = 0; x < bw; x += 2){
+      var cx = bx0 + x, px = cx + dx;
+      if (px < 0) px = 0; else if (px > w - 1) px = w - 1;
+      var d = cur[cRow + cx] - prev[pRow + px];
+      total += d < 0 ? -d : d;
+    }
+    if (total > best) return total;      // early out
+  }
+  return total;
+}
+
+function estimateMotion(){
+  var cur = lumCur, prev = lumPrev, w = IW, h = IH, B = BLOCK;
+  var bw = BW, bh = BH, vx = mvx, vy = mvy;
+  var energy = 0;
+  for (var by = 0; by < bh; by++){
+    var by0 = by * B, bhh = by0 + B > h ? h - by0 : B;
+    if (bhh < 2) bhh = 2;
+    if (by0 > h - 2) by0 = h - 2;
+    for (var bx = 0; bx < bw; bx++){
+      var bx0 = bx * B, bww = bx0 + B > w ? w - bx0 : B;
+      if (bww < 2) bww = 2;
+      if (bx0 > w - 2) bx0 = w - 2;
+      // three-step search: step 4, 2, 1 around the running best
+      var cxv = 0, cyv = 0;
+      var bestCost = sad(cur, prev, bx0, by0, bww, bhh, 0, 0, w, h, 1e9);
+      for (var step = 4; step >= 1; step >>= 1){
+        var nx = cxv, ny = cyv, improved = false;
+        for (var oy = -1; oy <= 1; oy++){
+          for (var ox = -1; ox <= 1; ox++){
+            if (ox === 0 && oy === 0) continue;
+            var tx = cxv + ox * step, ty = cyv + oy * step;
+            if (tx < -SEARCH || tx > SEARCH || ty < -SEARCH || ty > SEARCH) continue;
+            var c = sad(cur, prev, bx0, by0, bww, bhh, tx, ty, w, h, bestCost);
+            if (c < bestCost){ bestCost = c; nx = tx; ny = ty; improved = true; }
+          }
+        }
+        cxv = nx; cyv = ny;
+        if (!improved && step === 1) break;
+      }
+      var bi = by * bw + bx;
+      // The search finds the displacement that maps CUR back onto PREV, so the
+      // content itself moved by the negative of it. Store the content motion,
+      // because that is what the advection and everything else want to mean.
+      // Getting this sign wrong smears the picture AGAINST the movement.
+      // Eased so the field does not twitch block to block.
+      vx[bi] += ((-cxv) - vx[bi]) * 0.55;
+      vy[bi] += ((-cyv) - vy[bi]) * 0.55;
+      energy += (cxv < 0 ? -cxv : cxv) + (cyv < 0 ? -cyv : cyv);
+    }
+  }
+  motionEnergy = energy / (bw * bh);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  ADVECTION — read the accumulator, write the output, one pass
+// ═══════════════════════════════════════════════════════════════════════
+function advect(src, dst){
+  var a = acc, vx = mvx, vy = mvy;
+  var w = IW, h = IH, bw = BW, bh = BH, B = BLOCK;
+  var m = MODES[mode];
+  var refresh = m.refresh, chroma = m.chroma, gain = m.gain;
+  var half = B * 0.5, inv = 1 / B;
+  var di = 0;
+  for (var y = 0; y < h; y++){
+    // bilinear weights down the block grid
+    var fy = (y - half) * inv;
+    var by0 = fy | 0; if (fy < 0) by0 = 0;
+    if (by0 > bh - 2) by0 = bh - 2 < 0 ? 0 : bh - 2;
+    var ty = fy - by0; if (ty < 0) ty = 0; else if (ty > 1) ty = 1;
+    var rowA = by0 * bw, rowB = (by0 + 1 < bh ? by0 + 1 : by0) * bw;
+    var srcRow = y * w;
+    for (var x = 0; x < w; x++){
+      var fx = (x - half) * inv;
+      var bx0 = fx | 0; if (fx < 0) bx0 = 0;
+      if (bx0 > bw - 2) bx0 = bw - 2 < 0 ? 0 : bw - 2;
+      var tx = fx - bx0; if (tx < 0) tx = 0; else if (tx > 1) tx = 1;
+      var bx1 = bx0 + 1 < bw ? bx0 + 1 : bx0;
+
+      var v00 = vx[rowA + bx0], v10 = vx[rowA + bx1];
+      var v01 = vx[rowB + bx0], v11 = vx[rowB + bx1];
+      var dx = (v00 + (v10 - v00) * tx) + ((v01 + (v11 - v01) * tx) - (v00 + (v10 - v00) * tx)) * ty;
+      var u00 = vy[rowA + bx0], u10 = vy[rowA + bx1];
+      var u01 = vy[rowB + bx0], u11 = vy[rowB + bx1];
+      var dy = (u00 + (u10 - u00) * tx) + ((u01 + (u11 - u01) * tx) - (u00 + (u10 - u00) * tx)) * ty;
+
+      var r, g, b;
+      var si = (srcRow + x) << 2;
+      if (chroma > 0){
+        // Each channel is dragged a different distance: oil-slick trails.
+        // Inlined rather than three calls — this is the heaviest mode and the
+        // call overhead alone put it over a 30fps budget.
+        var rx = x - dx * (1 + chroma), ry = y - dy * (1 + chroma);
+        if (rx < 0) rx = 0; else if (rx > w - 1) rx = w - 1;
+        if (ry < 0) ry = 0; else if (ry > h - 1) ry = h - 1;
+        var gx2 = x - dx, gy2 = y - dy;
+        if (gx2 < 0) gx2 = 0; else if (gx2 > w - 1) gx2 = w - 1;
+        if (gy2 < 0) gy2 = 0; else if (gy2 > h - 1) gy2 = h - 1;
+        var bx2 = x - dx * (1 - chroma), by2 = y - dy * (1 - chroma);
+        if (bx2 < 0) bx2 = 0; else if (bx2 > w - 1) bx2 = w - 1;
+        if (by2 < 0) by2 = 0; else if (by2 > h - 1) by2 = h - 1;
+        r = a[((((ry | 0) * w) + (rx | 0)) << 2)];
+        g = a[((((gy2 | 0) * w) + (gx2 | 0)) << 2) + 1];
+        b = a[((((by2 | 0) * w) + (bx2 | 0)) << 2) + 2];
+      } else {
+        var sx = x - dx, sy = y - dy;
+        if (sx < 0) sx = 0; else if (sx > w - 1) sx = w - 1;
+        if (sy < 0) sy = 0; else if (sy > h - 1) sy = h - 1;
+        var ai = (((sy | 0) * w) + (sx | 0)) << 2;
+        r = a[ai]; g = a[ai + 1]; b = a[ai + 2];
+      }
+      if (refresh > 0){
+        r += (src[si]     - r) * refresh;
+        g += (src[si + 1] - g) * refresh;
+        b += (src[si + 2] - b) * refresh;
+      }
+      r *= gain; g *= gain; b *= gain;
+      dst[di]     = r < 0 ? 0 : r > 255 ? 255 : r;
+      dst[di + 1] = g < 0 ? 0 : g > 255 ? 255 : g;
+      dst[di + 2] = b < 0 ? 0 : b > 255 ? 255 : b;
+      di += 4;
+    }
+  }
+}
+
+// ── the palm squeegee: a still hand wipes its disc back to the live frame ──
+function wipe(dst, src, gx, gy, radius, strength){
+  if (!(radius > 0) || !(strength > 0)) return;
+  if (!isFinite(gx) || !isFinite(gy)) return;
+  var w = IW, h = IH;
+  var x0 = Math.floor(gx - radius), x1 = Math.ceil(gx + radius);
+  var y0 = Math.floor(gy - radius), y1 = Math.ceil(gy + radius);
+  if (x0 < 0) x0 = 0; if (y0 < 0) y0 = 0;
+  if (x1 > w - 1) x1 = w - 1; if (y1 > h - 1) y1 = h - 1;
+  var rr = radius * radius;
+  for (var y = y0; y <= y1; y++){
+    var dy = y - gy, row = y * w;
+    for (var x = x0; x <= x1; x++){
+      var dx = x - gx, d2 = dx * dx + dy * dy;
+      if (d2 > rr) continue;
+      var k = (1 - d2 / rr) * strength;
+      if (k <= 0) continue;
+      if (k > 1) k = 1;
+      var i = (row + x) << 2;
+      dst[i]     += (src[i]     - dst[i])     * k;
+      dst[i + 1] += (src[i + 1] - dst[i + 1]) * k;
+      dst[i + 2] += (src[i + 2] - dst[i + 2]) * k;
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  AUDIO — tape, quietly
+// ═══════════════════════════════════════════════════════════════════════
+var AC = null, master = null, comp = null, noiseBuf = null, soundOn = true;
+var hissGain = null;
+function initAudio(){
+  var Ctor = window.AudioContext || window.webkitAudioContext;
+  if (!Ctor) return;
+  if (!AC){
+    try { AC = new Ctor(); } catch(e){ AC = null; return; }
+    comp = AC.createDynamicsCompressor();
+    try {
+      comp.threshold.value = -18; comp.knee.value = 22;
+      comp.ratio.value = 8; comp.attack.value = 0.004; comp.release.value = 0.24;
+    } catch(e){}
+    master = AC.createGain(); master.gain.value = 0.8;
+    master.connect(comp); comp.connect(AC.destination);
+    var n = Math.floor(AC.sampleRate * 0.5);
+    noiseBuf = AC.createBuffer(1, n, AC.sampleRate);
+    var d = noiseBuf.getChannelData(0);
+    for (var i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+    var s = AC.createBufferSource(); s.buffer = noiseBuf; s.loop = true;
+    var bp = AC.createBiquadFilter(); bp.type = 'bandpass';
+    bp.frequency.value = 3200; bp.Q.value = 0.5;
+    hissGain = AC.createGain(); hissGain.gain.value = 0;
+    s.connect(bp); bp.connect(hissGain); hissGain.connect(master);
+    try { s.start(); } catch(e){}
+  }
+  if (AC.state === 'suspended' && AC.resume) AC.resume();
+}
+function thunk(){
+  if (!AC || !soundOn) return;
+  var t = AC.currentTime;
+  var o = AC.createOscillator(); o.type = 'sine';
+  o.frequency.setValueAtTime(180, t);
+  o.frequency.exponentialRampToValueAtTime(48, t + 0.09);
+  var g = AC.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.42, t + 0.003);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.16);
+  o.connect(g); g.connect(master); o.start(t); o.stop(t + 0.2);
+  var s = AC.createBufferSource(); s.buffer = noiseBuf;
+  var f = AC.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 2400;
+  var g2 = AC.createGain();
+  g2.gain.setValueAtTime(0.0001, t);
+  g2.gain.exponentialRampToValueAtTime(0.24, t + 0.002);
+  g2.gain.exponentialRampToValueAtTime(0.0001, t + 0.07);
+  s.connect(f); f.connect(g2); g2.connect(master); s.start(t); s.stop(t + 0.1);
+}
+soundBtn.addEventListener('click', function(){
+  soundOn = !soundOn;
+  soundBtn.classList.toggle('off', !soundOn);
+  if (hissGain) try { hissGain.gain.value = 0; } catch(e){}
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+//  CAMERA
+// ═══════════════════════════════════════════════════════════════════════
+var facing = 'user', mirror = true, stream = null;
+function showError(e){
+  var msg = (e && e.message) ? e.message : String(e || 'unknown');
+  errBox.style.display = 'block';
+  errBox.textContent = 'カメラを起動できませんでした：' + msg +
+    '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+}
+function startStream(){
+  var md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) return Promise.reject(new Error('getUserMedia is unavailable'));
+  if (stream && stream.getTracks) stream.getTracks().forEach(function(t){ t.stop(); });
+  return md.getUserMedia({
+    video: { facingMode: { ideal: facing }, width: { ideal: 1280 }, height: { ideal: 720 } },
+    audio: false
+  }).then(function(st){
+    stream = st; video.srcObject = st;
+    mirror = (facing === 'user');
+    var p = video.play();
+    return (p && p.then) ? p.catch(function(){}) : null;
+  });
+}
+flipBtn.addEventListener('click', function(){
+  facing = (facing === 'user') ? 'environment' : 'user';
+  loseHands();
+  needSeed = true;                  // the old picture is not this camera
+  startStream().then(startMpCamera).catch(function(){});
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+//  HANDS
+// ═══════════════════════════════════════════════════════════════════════
+var hands = null, mpCamera = null, mpReady = false;
+var handsLm = [], lastHandT = 0, LOST_MS = 260, FRESH_MS = 110;
+var tracked = [{ x:0.5, y:0.5, live:false, still:0, sp:0 }, { x:0.5, y:0.5, live:false, still:0, sp:0 }];
+var fistT = 0, cutArmed = true, cutCool = 0;
+var FIST_NEED = 0.5, CUT_COOL = 0.8;
+
+function initHands(){
+  if (typeof window.Hands !== 'function') return false;
+  try {
+    hands = new window.Hands({ locateFile: function(f){
+      return 'https://cdn.jsdelivr.net/npm/@mediapipe/hands/' + f;
+    }});
+    hands.setOptions({ maxNumHands:2, modelComplexity:0,
+                       minDetectionConfidence:0.6, minTrackingConfidence:0.5 });
+    hands.onResults(onHands);
+    mpReady = true;
+    return true;
+  } catch(e){ return false; }
+}
+function validLm(c){
+  if (!c || c.length < 21) return null;
+  for (var i = 0; i < 21; i++){
+    var p = c[i];
+    if (!p || typeof p.x !== 'number' || typeof p.y !== 'number' ||
+        !isFinite(p.x) || !isFinite(p.y)) return null;
+  }
+  return c;
+}
+function onHands(res){
+  var out = [];
+  if (res && res.multiHandLandmarks && res.multiHandLandmarks.length){
+    for (var i = 0; i < res.multiHandLandmarks.length && out.length < 2; i++){
+      var v = validLm(res.multiHandLandmarks[i]);
+      if (v) out.push(v);
+    }
+  }
+  if (out.length){ handsLm = out; lastHandT = now(); }
+}
+function loseHands(){
+  handsLm = [];
+  fistT = 0; cutArmed = true;
+  for (var i = 0; i < 2; i++){ tracked[i].live = false; tracked[i].still = 0; tracked[i].sp = 0; }
+}
+function startMpCamera(){
+  if (!mpReady || typeof window.Camera !== 'function') return;
+  try {
+    if (mpCamera && mpCamera.stop) mpCamera.stop();
+    mpCamera = new window.Camera(video, {
+      onFrame: function(){
+        if (!hands || state !== 'live') return Promise.resolve();
+        return hands.send({ image: video }).catch(function(){});
+      },
+      width: 640, height: 480
+    });
+    mpCamera.start();
+  } catch(e){ mpReady = false; }
+}
+function dd(a, b){ var dx = (a.x - b.x) * ASP, dy = a.y - b.y; return Math.sqrt(dx * dx + dy * dy); }
+function readHand(lm){
+  var S = dd(lm[0], lm[9]);
+  if (!(S > 0.02)) return null;
+  var MCP = [9, 13, 17], TIP = [12, 16, 20], st = 0, k, j;
+  for (k = 0; k < 3; k++){
+    var b = MCP[k], seg = 0;
+    for (j = 0; j < 3; j++) seg += dd(lm[b + j], lm[b + j + 1]);
+    if (!(seg > 0)) return null;
+    st += dd(lm[TIP[k]], lm[b]) / seg;
+  }
+  st /= 3;
+  var cx = (lm[0].x + lm[9].x) * 0.5, cy = (lm[0].y + lm[9].y) * 0.5;
+  if (!isFinite(cx) || !isFinite(cy)) return null;
+  return { x: mirror ? 1 - cx : cx, y: cy, fist: st < 0.62, S: S };
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  STATE
+// ═══════════════════════════════════════════════════════════════════════
+var state = 'boot';
+var frameMs = 10, frameDt = 16.7, adaptCool = 0, last = now();
+var cutFlash = 0, bleed = 0;
+
+function now(){ return (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now(); }
+
+function setMode(m){
+  if (m === mode || m < 0 || m >= MODES.length) return;
+  mode = m;
+  var bs = modeRow.querySelectorAll('button');
+  for (var i = 0; i < bs.length; i++) bs[i].classList.toggle('on', i === m);
+  hSub.textContent = MODES[m].sub;
+  bleed = 1;
+}
+(function(){
+  var bs = modeRow.querySelectorAll('button');
+  for (var i = 0; i < bs.length; i++){
+    (function(k){ bs[k].addEventListener('click', function(){ setMode(k); }); })(i);
+  }
+})();
+
+function doCut(){
+  if (cutCool > 0 || state !== 'live') return;    // one splice per gesture
+  cutCool = CUT_COOL;
+  needSeed = true;
+  cutFlash = 1;
+  thunk();
+}
+cutBtn.addEventListener('click', doCut);
+
+qualBtn.addEventListener('click', function(){
+  qualIdx = (qualIdx + 1) % QUALS.length;
+  var q = QUALS[qualIdx];
+  qualLbl.textContent = q.en;
+  qualBtn.classList.toggle('on', q.px !== 0);
+  if (q.px){ maxAllowed = q.px; targetPx = q.px; allocBuffers(); }
+  else { maxAllowed = MAX_PX; }
+  adaptCool = 1.5; frameMs = 10; frameDt = 16.7;
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+//  LOOP
+// ═══════════════════════════════════════════════════════════════════════
+function loop(){
+  var t = now();
+  var dt = Math.min(0.05, (t - last) / 1000);
+  last = t;
+
+  if (handsLm.length && t - lastHandT > LOST_MS) loseHands();
+  if (video && video.videoWidth > 0 && video.videoHeight > 0){
+    var a = video.videoWidth / video.videoHeight;
+    if (isFinite(a) && a > 0 && Math.abs(a - ASP) > 0.01){ ASP = a; allocBuffers(); }
+  }
+
+  if (state === 'live'){
+    // resize before rendering, and judge the budget on the REAL frame interval
+    frameDt += (dt * 1000 - frameDt) * 0.10;
+    adaptCool -= dt;
+    if (adaptCool <= 0 && QUALS[qualIdx].px === 0){
+      if ((frameDt > 23 || frameMs > 13) && targetPx > MIN_PX){
+        targetPx = Math.round(targetPx * 0.74);
+        if (targetPx < MIN_PX) targetPx = MIN_PX;
+        maxAllowed = targetPx;
+        allocBuffers(); adaptCool = 1.5; frameMs = 10; frameDt = 16.7;
+      } else if (frameDt < 18.5 && frameMs < 5){
+        if (targetPx < maxAllowed){
+          targetPx = Math.round(targetPx * 1.22);
+          if (targetPx > maxAllowed) targetPx = maxAllowed;
+          allocBuffers(); adaptCool = 1.5; frameMs = 10; frameDt = 16.7;
+        } else if (maxAllowed < MAX_PX){
+          maxAllowed = Math.min(MAX_PX, Math.round(maxAllowed * 1.10));
+          adaptCool = 3.0;
+        }
+      }
+    }
+    var t0 = now();
+    process(dt, t);
+    frameMs += ((now() - t0) - frameMs) * 0.12;
+
+    mFill.style.width = (Math.max(0, Math.min(1, motionEnergy / 3.2)) * 100).toFixed(1) + '%';
+    if (hissGain){
+      var lv = soundOn ? Math.min(0.05, motionEnergy * 0.018) : 0;
+      try { hissGain.gain.value = isFinite(lv) ? lv : 0; } catch(e){}
+    }
+  }
+
+  cutCool = Math.max(0, cutCool - dt);
+  cutFlash = Math.max(0, cutFlash - dt * 4.5);
+  bleed = Math.max(0, bleed - dt * 1.1);
+
+  draw(t);
+  requestAnimationFrame(loop);
+}
+
+function process(dt, t){
+  if (!outImg || IW < 8 || IH < 8) return;
+  if (!video || !video.videoWidth) return;
+  srcCtx.save();
+  if (mirror){ srcCtx.translate(IW, 0); srcCtx.scale(-1, 1); }
+  try { srcCtx.drawImage(video, 0, 0, IW, IH); } catch(e){ srcCtx.restore(); return; }
+  srcCtx.restore();
+  var srcImg;
+  try { srcImg = srcCtx.getImageData(0, 0, IW, IH); } catch(e){ return; }
+  var src = srcImg.data, dst = outImg.data;
+
+  toLuma(src);
+
+  if (needSeed){
+    // start from the live picture: a fresh splice, or the very first frame
+    acc.set(src);
+    dst.set(src);
+    for (var i = 3; i < dst.length; i += 4) dst[i] = 255;
+    lumPrev.set(lumCur);
+    mvx.fill(0); mvy.fill(0);
+    motionEnergy = 0;
+    needSeed = false;
+    outCtx.putImageData(outImg, 0, 0);
+    return;
+  }
+
+  estimateMotion();
+  advect(src, dst);
+
+  // hands: a STILL palm wipes back to the live frame, a moving one does not
+  var reads = [], k;
+  var fresh = handsLm.length > 0 && (t - lastHandT) < FRESH_MS;
+  for (k = 0; k < handsLm.length && k < 2; k++){
+    var r = readHand(handsLm[k]);
+    if (r) reads.push(r);
+  }
+  if (reads.length === 2 && reads[0].x > reads[1].x){ var sw = reads[0]; reads[0] = reads[1]; reads[1] = sw; }
+  for (k = 0; k < 2; k++){
+    var tk = tracked[k];
+    if (k < reads.length){
+      var dx = reads[k].x - tk.x, dy = reads[k].y - tk.y;
+      tk.sp += (Math.sqrt(dx * dx + dy * dy) - tk.sp) * 0.35;
+      tk.x += dx * Math.min(1, dt * 14);
+      tk.y += dy * Math.min(1, dt * 14);
+      tk.live = true;
+      tk.still = tk.sp < 0.006 ? Math.min(1, tk.still + dt * 2.2) : Math.max(0, tk.still - dt * 4);
+      if (tk.still > 0.05){
+        wipe(dst, src, tk.x * IW, tk.y * IH, IW * 0.10, tk.still * 0.42);
+      }
+    } else {
+      tk.live = false; tk.still = 0; tk.sp = 0;
+    }
+  }
+
+  // a held fist splices: the picture snaps back to now
+  if (fresh && reads.length === 1 && reads[0].fist){
+    fistT += dt;
+    if (fistT >= FIST_NEED && cutArmed){ cutArmed = false; doCut(); }
+  } else {
+    fistT = 0;
+    if (!fresh || !reads.length || !reads[0].fist) cutArmed = true;
+  }
+
+  acc.set(dst);                 // native copy — the accumulator IS the output
+  outCtx.putImageData(outImg, 0, 0);
+  var tmp = lumPrev; lumPrev = lumCur; lumCur = tmp;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  DRAW
+// ═══════════════════════════════════════════════════════════════════════
+function draw(t){
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  ctx.fillStyle = '#0b0a10';
+  ctx.fillRect(0, 0, W, H);
+  if (outCv.width > 1 && state === 'live'){
+    try { ctx.drawImage(outCv, 0, 0, W, H); } catch(e){}
+  }
+
+  // iridescent vignette so the smear sits on petrol rather than plain black
+  var g = ctx.createRadialGradient(W * 0.5, H * 0.46, U * 0.26, W * 0.5, H * 0.5, U * 0.98);
+  g.addColorStop(0, 'rgba(11,10,16,0)');
+  g.addColorStop(0.72, 'rgba(11,10,16,.32)');
+  g.addColorStop(1, 'rgba(11,10,16,.82)');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+
+  if (bleed > 0.001){
+    ctx.globalAlpha = bleed * 0.24;
+    var bg = ctx.createLinearGradient(0, 0, W, H);
+    bg.addColorStop(0, '#29d3c2'); bg.addColorStop(0.5, '#b56cf0'); bg.addColorStop(1, '#f0c04a');
+    ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+    ctx.globalAlpha = 1;
+  }
+
+  // the squeegee: a ring wherever a still palm is wiping
+  if (state === 'live'){
+    for (var i = 0; i < 2; i++){
+      var tk = tracked[i];
+      if (!tk.live) continue;
+      var rad = U * 0.10 * (0.85 + tk.still * 0.15);
+      if (!(rad > 0)) continue;
+      ctx.save();
+      ctx.globalAlpha = 0.18 + tk.still * 0.55;
+      ctx.strokeStyle = tk.still > 0.05 ? '#29d3c2' : 'rgba(154,160,176,.7)';
+      ctx.lineWidth = Math.max(1, U * 0.0035);
+      ctx.beginPath(); ctx.arc(tk.x * W, tk.y * H, rad, 0, Math.PI * 2); ctx.stroke();
+      ctx.restore();
+    }
+    if (!tracked[0].live && !tracked[1].live){
+      ctx.globalAlpha = 0.4 + Math.sin(t * 0.0035) * 0.18;
+      ctx.fillStyle = '#9aa0b0';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.font = '300 ' + (U * 0.032).toFixed(1) + 'px "Murecho",sans-serif';
+      ctx.fillText('手のひらを止めると、そこだけ拭き戻ります', W * 0.5, H * 0.5);
+      ctx.globalAlpha = 1;
+    }
+  }
+
+  if (cutFlash > 0.001){
+    ctx.globalAlpha = cutFlash * 0.55;
+    ctx.fillStyle = '#f0c04a';
+    ctx.fillRect(0, 0, W, H);
+    ctx.globalAlpha = 1;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  OVERLAY TUTORIAL — a shape smearing along its own motion
+// ═══════════════════════════════════════════════════════════════════════
+function drawHowto(t){
+  var c = howCtx, w = howto.width, h = howto.height;
+  c.setTransform(1, 0, 0, 1, 0, 0);
+  c.fillStyle = '#0b0a10'; c.fillRect(0, 0, w, h);
+  var cyc = 3600, ph = (t % cyc) / cyc;
+  var travel = 0.5 - Math.cos(Math.min(1, ph / 0.72) * Math.PI) * 0.5;
+  var cx = w * (0.2 + travel * 0.6), cy = h * (0.44 + Math.sin(travel * 3.1) * 0.09);
+  // the trail it has left behind: many faded copies along the path
+  for (var k = 22; k >= 0; k--){
+    var f = k / 22;
+    var pt = travel * (1 - f * 0.55);
+    var px = w * (0.2 + pt * 0.6), py = h * (0.44 + Math.sin(pt * 3.1) * 0.09);
+    var cols = ['41,211,194', '181,108,240', '240,192,74'];
+    c.globalAlpha = (1 - f) * 0.20;
+    c.fillStyle = 'rgb(' + cols[k % 3] + ')';
+    c.beginPath(); c.arc(px, py, h * 0.115 * (1 + f * 0.5), 0, Math.PI * 2); c.fill();
+  }
+  c.globalAlpha = 1;
+  c.fillStyle = '#cfd6e2';
+  c.beginPath(); c.arc(cx, cy, h * 0.10, 0, Math.PI * 2); c.fill();
+  // the squeegee appears in the last stretch and clears a disc
+  if (ph > 0.76){
+    var wipeK = Math.min(1, (ph - 0.76) / 0.14);
+    c.save();
+    c.globalCompositeOperation = 'destination-out';
+    c.beginPath(); c.arc(w * 0.5, h * 0.44, h * 0.24 * wipeK, 0, Math.PI * 2); c.fill();
+    c.restore();
+    c.globalAlpha = 0.75;
+    c.strokeStyle = '#29d3c2'; c.lineWidth = 2;
+    c.beginPath(); c.arc(w * 0.5, h * 0.44, h * 0.24 * wipeK, 0, Math.PI * 2); c.stroke();
+    c.globalAlpha = 1;
+  }
+  c.fillStyle = '#5f6878';
+  c.font = '500 ' + Math.round(h * 0.072) + 'px "Murecho",sans-serif';
+  c.textAlign = 'center'; c.textBaseline = 'middle';
+  c.fillText(ph > 0.76 ? '手のひらを止めて拭く' : '動いた向きに引きずられる', w * 0.5, h * 0.88);
+  c.strokeStyle = 'rgba(41,211,194,.3)'; c.lineWidth = 1;
+  c.strokeRect(0.5, 0.5, w - 1, h - 1);
+}
+function howtoLoop(){
+  if (state === 'boot'){ drawHowto(now()); requestAnimationFrame(howtoLoop); }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  BOOT
+// ═══════════════════════════════════════════════════════════════════════
+goBtn.addEventListener('click', function(){
+  goBtn.disabled = true;
+  errBox.style.display = 'none';
+  initAudio();
+  var already = !!(stream && video && video.srcObject);
+  goBtn.textContent = already ? 'はじめる' : 'カメラを起動中…';
+  var p = already ? Promise.resolve() : startStream();
+  p.then(function(){
+    if (!mpReady) initHands();
+    startMpCamera();
+    state = 'live';
+    needSeed = true;
+    ov.classList.add('hide');
+    goBtn.textContent = 'はじめる';
+  }).catch(function(e){
+    showError(e);
+    goBtn.disabled = false;
+    goBtn.textContent = 'もういちど試す';
+  });
+});
+
+fit();
+requestAnimationFrame(loop);
+requestAnimationFrame(howtoLoop);
+
+// headless harness hooks
+window.__NAGORI__ = {
+  MODES: MODES, setMode: setMode, doCut: doCut,
+  feed: function(list){ onHands({ multiHandLandmarks: list || [] }); },
+  size: function(){ return { IW:IW, IH:IH, BW:BW, BH:BH, targetPx:targetPx }; },
+  setTargetPx: function(v){ targetPx = v; if (v > maxAllowed) maxAllowed = v; allocBuffers(); },
+  outData: function(){ return outImg ? outImg.data : null; },
+  accData: function(){ return acc; },
+  vectors: function(){ return { vx:mvx, vy:mvy }; },
+  seed: function(){ needSeed = true; },
+  needsSeed: function(){ return needSeed; },
+  quality: function(){ return { idx:qualIdx, maxAllowed:maxAllowed }; },
+  state: function(){ return { state:state, mode:mode, energy:motionEnergy,
+                              hands:handsLm.length, fistT:fistT, cutCool:cutCool,
+                              armed:cutArmed, still:[tracked[0].still, tracked[1].still],
+                              live:[tracked[0].live, tracked[1].live] }; }
+};
+</script>
+</body>
+</html>
