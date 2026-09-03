@@ -1,0 +1,860 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>IROKAGE ─ 色のついた影</title>
+<meta name="description" content="赤・緑・青の三灯があなたを照らし、体が遮った影に色がつくエフェクト。赤だけを遮った影はシアンになる。">
+
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  IROKAGE ─ 色影                          ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  PALETTE   闇   yami    #07070a  the black of a stage      (ground)
+            紅   beni    #ff2d3c  gel: primary red          (CH 1)
+            翠   sui     #23e06a  gel: primary green        (CH 2)
+            瑠璃 ruri    #2b6bff  gel: primary blue         (CH 3)
+            生成 kinari  #f2eee6  worklight                 (type, rules)
+            MOOD: a stage before anyone is on it. Additive colour, which
+            nothing else in the gallery uses — every other piece is
+            subtractive (ink, thread, silver, pigment) or single-hue
+            phosphor. Here three saturated lights ADD to white where they
+            all land, and the picture is made of what they fail to reach.
+
+  BACKGROUND  The stage is the screen. The chrome is a lighting desk: three
+            channel strips with gel numbers and live intensity bars, set
+            against black, and nothing else.
+
+  TYPE      Oswald for the Latin — condensed caps, the lettering on a patch
+            panel — with BIZ UDPGothic for the Japanese, which is a utility
+            face made to be read off equipment. Neither is used elsewhere.
+
+  MOTION    Cued. A mode change is a real theatre cue: the rig dips to
+            black over 140ms, the state changes in the dark, and it comes
+            back up over 280ms. Nothing else in the chrome moves at all.
+            The lights themselves are heavy and lag, because lamps hang.
+
+  SIGNATURE 1. THE SHADOWS HAVE COLOUR, AND IT IS THE REAL REASON. Where
+               your body blocks the red lamp only, that patch is still lit
+               by green and blue, so it is CYAN. Block green and it is
+               magenta; block blue, yellow; block all three, black. This is
+               the Goethe/Land coloured-shadow demonstration, done with
+               your own silhouette, and it falls out of the physics rather
+               than being drawn.
+            2. THE OCCLUSION IS EXACT, NOT A BLUR. For each lamp a radial
+               visibility buffer is built: every opaque cell stamps the
+               angular wedge it subtends with its squared distance, and a
+               pixel is lit only if it is nearer than what that bearing
+               already holds. So shadows are true wedges from a point
+               source — they diverge, they cross, and they are correct.
+               No distance transform, no fake softening; the penumbra is
+               three taps across bearing, which is what a lamp of finite
+               width would give, and it widens with distance as it should.
+               Falloff is 1/d, not 1/d², and that is not a fudge: in a PLANE
+               a point source spreads its flux around a circle, and this
+               piece is explicitly a plan view. It is also the only way a
+               lamp standing inside the frame can reach the far side of it.
+            3. THE LAMPS RIDE YOU. Three extremes of your silhouette are
+               found each frame — one per 120° sector around its centroid —
+               and each lamp is hung just beyond one of them. So the rig is
+               carried on your head and your hands, and your own body is
+               what blocks it.
+            4. THE SURFACE IS GREY ON PURPOSE. Albedo is luminance only, so
+               every colour on screen comes from a lamp. Put the camera
+               image's own colour in and the demonstration stops being
+               readable.
+
+  HONESTY   This is 2D: the picture plane is treated as a plan view, and a
+            lamp at (x,y) casts in the plane of the screen. Your silhouette
+            is an infinitely tall wall standing on that plan. There is no
+            depth here and none is claimed. When the segmentation model has
+            not loaded, dark pixels stand in as the occluder — which is a
+            stand-in, not the same thing, and the desk says so.
+  ══════════════════════════════════════════════════════════════════════════
+-->
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=BIZ+UDPGothic:wght@400;700&family=Oswald:wght@300;500&display=swap" rel="stylesheet">
+
+<style>
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  :root{
+    --yami:#07070a; --kinari:#f2eee6;
+    --beni:#ff2d3c; --sui:#23e06a; --ruri:#2b6bff;
+    --rule:rgba(242,238,230,.22);
+  }
+  html,body{height:100%}
+  body{
+    background:var(--yami); color:var(--kinari);
+    font-family:"BIZ UDPGothic","Hiragino Sans",system-ui,sans-serif;
+    overflow:hidden; overscroll-behavior:none;
+  }
+  #stage{position:fixed; inset:0; background:var(--yami)}
+  #cv{position:absolute; inset:0; width:100%; height:100%; display:block;
+      background:var(--yami); touch-action:none}
+  #cv.mir{transform:scaleX(-1)}
+  #vid{position:absolute;width:2px;height:2px;opacity:.001;pointer-events:none;left:0;top:0}
+
+  #top{
+    position:fixed; left:0; right:0; top:0; display:flex;
+    align-items:flex-start; justify-content:space-between; gap:10px;
+    padding:calc(10px + env(safe-area-inset-top)) 12px 0 12px; pointer-events:none; z-index:5;
+  }
+  #brand{pointer-events:auto; padding:2px 0 0 2px}
+  #brand h1{
+    font-family:"Oswald",Impact,sans-serif; font-weight:500; font-size:21px;
+    letter-spacing:.26em; text-transform:uppercase; line-height:1;
+    text-shadow:0 0 18px rgba(0,0,0,.9);
+  }
+  #brand .jp{
+    display:block; margin-top:5px; font-size:10.5px; letter-spacing:.20em;
+    color:rgba(242,238,230,.62); text-shadow:0 0 12px rgba(0,0,0,.9);
+  }
+
+  #ctrl{display:flex; flex-wrap:wrap; justify-content:flex-end; gap:5px; pointer-events:auto; max-width:60vw}
+  .btn{
+    background:rgba(10,10,14,.72); color:var(--kinari);
+    border:1px solid var(--rule); padding:7px 10px 6px; cursor:pointer;
+    font-family:"BIZ UDPGothic",sans-serif; font-size:11.5px; letter-spacing:.08em;
+    user-select:none; white-space:nowrap;
+    -webkit-backdrop-filter:blur(4px); backdrop-filter:blur(4px);
+  }
+  .btn .en{
+    display:block; margin-top:1px; font-family:"Oswald",sans-serif; font-weight:300;
+    font-size:8.5px; letter-spacing:.18em; text-transform:uppercase; color:rgba(242,238,230,.5);
+  }
+  .btn.hot{border-color:var(--kinari)}
+  .btn.off{opacity:.42}
+
+  /* the lighting desk */
+  #desk{
+    position:fixed; left:12px; bottom:calc(12px + env(safe-area-inset-bottom));
+    display:flex; gap:7px; z-index:5; pointer-events:none;
+  }
+  .ch{
+    background:rgba(10,10,14,.72); border:1px solid var(--rule);
+    padding:7px 9px 6px; min-width:74px;
+    -webkit-backdrop-filter:blur(4px); backdrop-filter:blur(4px);
+  }
+  .ch .n{
+    font-family:"Oswald",sans-serif; font-weight:500; font-size:10px;
+    letter-spacing:.18em; text-transform:uppercase; color:rgba(242,238,230,.75);
+  }
+  .ch .g{
+    font-family:"Oswald",sans-serif; font-weight:300; font-size:9px;
+    letter-spacing:.14em; margin-top:2px;
+  }
+  .ch .bar{height:3px; margin-top:6px; background:rgba(242,238,230,.14)}
+  .ch .bar i{display:block; height:100%; width:0%}
+  #ch1 .g,#ch1 .bar i{color:var(--beni); background:var(--beni)}
+  #ch2 .g,#ch2 .bar i{color:var(--sui);  background:var(--sui)}
+  #ch3 .g,#ch3 .bar i{color:var(--ruri); background:var(--ruri)}
+  #ch1 .g,#ch2 .g,#ch3 .g{background:none}
+  #note{
+    position:fixed; right:12px; bottom:calc(12px + env(safe-area-inset-bottom));
+    z-index:5; max-width:44vw; text-align:right; font-size:10.5px; line-height:1.85;
+    color:rgba(242,238,230,.55); text-shadow:0 0 12px rgba(0,0,0,.9);
+  }
+
+  #ovl{
+    position:fixed; inset:0; z-index:20; padding:26px; background:#07070a;
+    display:flex; align-items:center; justify-content:center;
+  }
+  #ovl .card{max-width:440px}
+  #ovl h2{
+    font-family:"Oswald",Impact,sans-serif; font-weight:500; font-size:30px;
+    letter-spacing:.30em; text-transform:uppercase; line-height:1;
+  }
+  #ovl .sub{margin-top:9px; font-size:12px; letter-spacing:.18em; color:rgba(242,238,230,.6)}
+  #ovl .swatch{display:flex; gap:8px; margin:24px 0 20px}
+  #ovl .swatch i{flex:1; height:44px; display:block}
+  #ovl p{margin-top:14px; font-size:13px; line-height:2.05; color:#ded9d0}
+  #ovl p b{font-weight:700}
+  #ovl .c{color:#5ee8e8} #ovl .m{color:#f56ce0} #ovl .y{color:#f2df5a}
+  #start{
+    margin-top:24px; width:100%; padding:13px 0 11px; border:1px solid var(--kinari);
+    font-family:"BIZ UDPGothic",sans-serif; font-size:14px; letter-spacing:.32em;
+    text-indent:.32em; color:#07070a; background:var(--kinari); cursor:pointer;
+  }
+  #start:active{background:var(--beni); border-color:var(--beni); color:#fff}
+  #err{
+    display:none; position:fixed; left:12px; right:12px;
+    top:calc(88px + env(safe-area-inset-top)); z-index:30; padding:13px 15px;
+    font-size:12.5px; line-height:1.85; white-space:pre-line;
+    color:#fff; background:#8c1420; border:1px solid var(--beni);
+  }
+  @media (max-width:430px){
+    #brand h1{font-size:18px}
+    .btn{font-size:10.5px; padding:6px 8px 5px}
+    .ch{min-width:60px; padding:6px 7px 5px}
+    #note{max-width:38vw; font-size:9.5px}
+  }
+</style>
+</head>
+<body>
+
+<div id="stage">
+  <video id="vid" playsinline muted autoplay></video>
+  <canvas id="cv"></canvas>
+</div>
+
+<div id="top">
+  <div id="brand">
+    <h1>Irokage</h1>
+    <span class="jp">色影 ─ 色のついた影</span>
+  </div>
+  <div id="ctrl">
+    <button class="btn" id="modeBtn" type="button">三灯<span class="en">3 lamps</span></button>
+    <button class="btn" id="rigBtn" type="button">吊り直す<span class="en">re-hang</span></button>
+    <button class="btn" id="qualBtn" type="button">オート<span class="en">auto</span></button>
+    <button class="btn" id="soundBtn" type="button">音<span class="en">sound</span></button>
+    <button class="btn" id="flipBtn" type="button">⟲ カメラ<span class="en">flip</span></button>
+  </div>
+</div>
+
+<div id="desk">
+  <div class="ch" id="ch1"><div class="n">CH 1</div><div class="g">R 026</div><div class="bar"><i id="bar1"></i></div></div>
+  <div class="ch" id="ch2"><div class="n">CH 2</div><div class="g">G 736</div><div class="bar"><i id="bar2"></i></div></div>
+  <div class="ch" id="ch3"><div class="n">CH 3</div><div class="g">B 119</div><div class="bar"><i id="bar3"></i></div></div>
+</div>
+<div id="note">遮蔽 ─ 人</div>
+
+<div id="err"></div>
+
+<div id="ovl">
+  <div class="card">
+    <h2>Irokage</h2>
+    <div class="sub">色影 ─ 色のついた影</div>
+    <div class="swatch"><i style="background:#ff2d3c"></i><i style="background:#23e06a"></i><i style="background:#2b6bff"></i></div>
+    <p>赤・緑・青の三灯があなたを照らします。三つとも届くところは<b>白</b>。あなたの体が<b>赤だけ</b>を遮ったところは、緑と青が残るので <b class="c">シアン</b> になります。</p>
+    <p>緑を遮れば <b class="m">マゼンタ</b>、青を遮れば <b class="y">イエロー</b>、三つとも遮って初めて<b>黒</b>。影に色がつくのは絵の具ではなく、そういう物理だからです。</p>
+    <p>三つの灯は、あなたのシルエットの<b>いちばん外側</b>に吊られます。頭と、両手に。だから自分の体で自分の光を遮ることになります。</p>
+    <button id="start" type="button">舞台を明るく</button>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation/selfie_segmentation.js"></script>
+<script>
+(function(){
+'use strict';
+
+var video    = document.getElementById('vid');
+var cv       = document.getElementById('cv');
+var errBox   = document.getElementById('err');
+var ovl      = document.getElementById('ovl');
+var startBtn = document.getElementById('start');
+var modeBtn  = document.getElementById('modeBtn');
+var rigBtn   = document.getElementById('rigBtn');
+var qualBtn  = document.getElementById('qualBtn');
+var soundBtn = document.getElementById('soundBtn');
+var flipBtn  = document.getElementById('flipBtn');
+var noteEl   = document.getElementById('note');
+var BARS = [document.getElementById('bar1'), document.getElementById('bar2'), document.getElementById('bar3')];
+
+var ctx  = cv.getContext('2d', { alpha:false });
+var work = document.createElement('canvas');
+var wctx = work.getContext('2d', { willReadFrequently:true });
+var mcan = document.createElement('canvas');
+var mctx = mcan.getContext('2d', { willReadFrequently:true });
+
+function now(){ return (window.performance && performance.now) ? performance.now() : Date.now(); }
+
+// ═══════════════════════════════════════════════════════════════════════
+//  SIZE / BUFFERS
+// ═══════════════════════════════════════════════════════════════════════
+var IW = 0, IH = 0, OW = 0, OH = 0, OS = 4;      // OS render px per occluder cell
+var BINS = 512, BMASK = 511, TAU = 6.2831853;
+var MIN_PX = 16000, MAX_PX = 84000;
+var targetPx = 46000, maxAllowed = 84000;
+
+var outImg = null, outData = null;
+var liveBuf = null, lum = null, occ = null;
+var depth2 = null;                                // BINS per lamp, 3 lamps
+var ready = false, haveMask = false, lastMaskT = 0;
+
+function alloc(){
+  var n = IW * IH;
+  work.width = IW; work.height = IH;
+  cv.width = IW; cv.height = IH;
+  OW = Math.max(8, Math.ceil(IW / OS)); OH = Math.max(8, Math.ceil(IH / OS));
+  mcan.width = OW; mcan.height = OH;
+  outImg = ctx.createImageData(IW, IH); outData = outImg.data;
+  lum = new Uint8Array(n);
+  occ = new Uint8Array(OW * OH);
+  depth2 = new Float32Array(3 * BINS);
+  for (var p = 3; p < outData.length; p += 4) outData[p] = 255;
+  rehang();
+}
+
+function ensureSize(){
+  var cw = cv.clientWidth  || window.innerWidth  || 360;
+  var ch = cv.clientHeight || window.innerHeight || 640;
+  if (!(cw > 0)) cw = 360;
+  if (!(ch > 0)) ch = 640;
+  var asp = cw / ch;
+  if (!(asp > 0.15 && asp < 7)) asp = 0.6;
+  var ih = Math.round(Math.sqrt(targetPx / asp));
+  var iw = Math.round(ih * asp);
+  if (iw < 72) iw = 72; if (iw > 620) iw = 620;
+  if (ih < 72) ih = 72; if (ih > 620) ih = 620;
+  if (iw === IW && ih === IH) return false;
+  IW = iw; IH = ih; alloc();
+  return true;
+}
+function unit(){ return IW < IH ? IW : IH; }
+
+// ═══════════════════════════════════════════════════════════════════════
+//  THE RIG — three lamps, hung just beyond three extremes of your outline
+// ═══════════════════════════════════════════════════════════════════════
+var LX = new Float64Array(3), LY = new Float64Array(3);
+var GEL = [[1, 0.14, 0.16], [0.16, 1, 0.36], [0.20, 0.42, 1]];
+var LIT = new Float64Array(3);                    // live intensity, for the desk
+var GELF = new Float64Array(9);                   // the gels, flat, for the inner loop
+var nL = 3, orbT = 0, rigPhase = 0;
+
+function rehang(){
+  var u = unit() || 200;
+  rigPhase = Math.random() * TAU;
+  for (var i = 0; i < 3; i++){
+    var a = rigPhase + i * 2.0943951;
+    LX[i] = IW * 0.5 + Math.cos(a) * u * 0.42;
+    LY[i] = IH * 0.5 + Math.sin(a) * u * 0.34;
+  }
+}
+
+// three extremes of the silhouette, one per 120° sector about its centroid
+var TX = new Float64Array(3), TY = new Float64Array(3), haveTargets = false;
+function findExtremes(){
+  var w = OW, h = OH, o = occ, sx = 0, sy = 0, n = 0;
+  for (var y = 0; y < h; y++){
+    var row = y * w;
+    for (var x = 0; x < w; x++) if (o[row + x]){ sx += x; sy += y; n++; }
+  }
+  haveTargets = false;
+  if (n < 12) return false;
+  var cx = sx / n, cy = sy / n;
+  var bd = [-1, -1, -1], bx = [0, 0, 0], by = [0, 0, 0];
+  for (var yy = 0; yy < h; yy++){
+    var r2 = yy * w, dy = yy - cy;
+    for (var xx = 0; xx < w; xx++){
+      if (!o[r2 + xx]) continue;
+      var dx = xx - cx, d2 = dx * dx + dy * dy;
+      // sectors of 120°, centred on up, lower-right and lower-left
+      var a = Math.atan2(dy, dx) + 1.5707963;      // up -> 0
+      a = a - TAU * Math.floor(a / TAU);
+      var s = Math.floor((a + 1.0471976) / 2.0943951) % 3;
+      if (d2 > bd[s]){ bd[s] = d2; bx[s] = xx; by[s] = yy; }
+    }
+  }
+  var u = unit(), margin = u * 0.11;
+  for (var k = 0; k < 3; k++){
+    if (bd[k] < 0){ TX[k] = (cx + 0.5) * OS; TY[k] = (cy + 0.5) * OS; continue; }
+    var ex = (bx[k] + 0.5) * OS, ey = (by[k] + 0.5) * OS;
+    var ccx = (cx + 0.5) * OS, ccy = (cy + 0.5) * OS;
+    var vx = ex - ccx, vy = ey - ccy, len = Math.sqrt(vx * vx + vy * vy);
+    if (len < 1){ vx = Math.cos(k * 2.0944); vy = Math.sin(k * 2.0944); len = 1; }
+    TX[k] = ex + vx / len * margin;
+    TY[k] = ey + vy / len * margin;
+  }
+  haveTargets = true;
+  return true;
+}
+
+var pinI = -1, pinT = 0, pinX = 0, pinY = 0, holdRig = false;
+function updateRig(dt){
+  if (holdRig) return;
+  var u = unit();
+  if (!findExtremes()){
+    // nobody on stage: the rig turns slowly on its own
+    orbT += dt;
+    for (var i = 0; i < 3; i++){
+      var a = rigPhase + orbT * 0.21 + i * 2.0943951;
+      TX[i] = IW * 0.5 + Math.cos(a) * u * 0.42;
+      TY[i] = IH * 0.5 + Math.sin(a) * u * 0.34;
+    }
+  }
+  if (pinT > 0){ pinT -= dt; if (pinI >= 0 && pinI < 3){ TX[pinI] = pinX; TY[pinI] = pinY; } }
+  var k = 1 - Math.exp(-dt / 0.30);                // lamps hang, so they lag
+  for (var j = 0; j < 3; j++){
+    if (!isFinite(LX[j]) || !isFinite(LY[j])){ LX[j] = IW * 0.5; LY[j] = IH * 0.5; }
+    if (!isFinite(TX[j]) || !isFinite(TY[j])){ TX[j] = LX[j]; TY[j] = LY[j]; continue; }
+    var lo = -0.45 * IW, hi = 1.45 * IW;
+    if (TX[j] < lo) TX[j] = lo; else if (TX[j] > hi) TX[j] = hi;
+    var lo2 = -0.45 * IH, hi2 = 1.45 * IH;
+    if (TY[j] < lo2) TY[j] = lo2; else if (TY[j] > hi2) TY[j] = hi2;
+    LX[j] += (TX[j] - LX[j]) * k;
+    LY[j] += (TY[j] - LY[j]) * k;
+    if (!isFinite(LX[j]) || !isFinite(LY[j])){ LX[j] = IW * 0.5; LY[j] = IH * 0.5; }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  OCCLUSION — a radial visibility buffer per lamp. Every opaque cell
+//  stamps the angular wedge it subtends with its squared distance; a pixel
+//  is lit only if it is nearer than what that bearing already holds. That
+//  is exact for a point source, and it is why the wedges diverge and cross
+//  correctly instead of being a blurred distance field.
+// ═══════════════════════════════════════════════════════════════════════
+function buildShadows(){
+  var w = OW, h = OH, o = occ, D = depth2;
+  var half = OS * 0.72;                            // the half-diagonal of a cell
+  for (var L = 0; L < nL; L++){
+    var base = L * BINS, lx = LX[L], ly = LY[L];
+    for (var b = 0; b < BINS; b++) D[base + b] = 1e18;
+    for (var y = 0; y < h; y++){
+      var row = y * w, py = (y + 0.5) * OS - ly;
+      for (var x = 0; x < w; x++){
+        if (!o[row + x]) continue;
+        var px = (x + 0.5) * OS - lx;
+        var d2 = px * px + py * py;
+        if (d2 < 1) d2 = 1;
+        var d = Math.sqrt(d2);
+        var a = Math.atan2(py, px);
+        var c = ((a * (BINS / TAU)) | 0) & BMASK;
+        if (d <= half){                             // the lamp is inside this cell
+          for (var q = 0; q < BINS; q++) if (d2 < D[base + q]) D[base + q] = d2;
+          continue;
+        }
+        var hw = Math.asin(half / d);               // radians subtended
+        var hb = (hw * (BINS / TAU) + 1) | 0;
+        if (hb > 96) hb = 96;
+        for (var k = -hb; k <= hb; k++){
+          var bi = base + ((c + k) & BMASK);
+          if (d2 < D[bi]) D[bi] = d2;
+        }
+      }
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  RENDER
+// ═══════════════════════════════════════════════════════════════════════
+var MODES = [
+  { jp:'三灯', en:'3 lamps', note:'三灯 ─ 赤を遮ればシアン、緑ならマゼンタ、青ならイエロー。' },
+  { jp:'一灯', en:'1 lamp',  note:'一灯 ─ 白い光がひとつ。影は黒く、輪郭だけが立つ。' },
+  { jp:'影',   en:'shadow',  note:'影 ─ 面の明るさを捨て、届いた光そのものだけを見る。' }
+];
+var mode = 0, useAlbedo = true, AMB = 0.10, POW = 1.0, master = 1;
+var cueT = 0, cuePending = -1;
+
+function applyMode(i){
+  mode = ((i % 3) + 3) % 3;
+  modeBtn.innerHTML = MODES[mode].jp + '<span class="en">' + MODES[mode].en + '</span>';
+  if (mode === 0){ nL = 3; useAlbedo = true;  AMB = 0.10; POW = 1.00;
+                   GEL[0] = [1, 0.14, 0.16]; GEL[1] = [0.16, 1, 0.36]; GEL[2] = [0.20, 0.42, 1]; }
+  else if (mode === 1){ nL = 1; useAlbedo = true; AMB = 0.045; POW = 1.55;
+                   GEL[0] = [1, 0.97, 0.92]; }
+  else { nL = 3; useAlbedo = false; AMB = 0.02; POW = 0.80;
+                   GEL[0] = [1, 0.10, 0.12]; GEL[1] = [0.12, 1, 0.30]; GEL[2] = [0.16, 0.36, 1]; }
+  for (var g = 0; g < 3; g++){ GELF[g*3] = GEL[g][0]; GELF[g*3+1] = GEL[g][1]; GELF[g*3+2] = GEL[g][2]; }
+  updateNote();
+}
+function updateNote(){
+  noteEl.textContent = MODES[mode].note + '\n遮蔽 ─ ' + (haveMask ? '人' : '暗いところ（代用）');
+}
+
+function render(){
+  var w = IW, h = IH, o = outData, L = lum, D = depth2, n = nL;
+  var alb = useAlbedo, amb = AMB * master;
+  var pw = POW * master * unit() * 0.22;      // 1/d, not 1/d²: see the sheet
+  var lxa = LX, lya = LY, GF = GELF;
+  var K = BINS / TAU, third = 1 / 3, EPS = 1.06, INVE = 1 / EPS;
+  var s0 = 0, s1 = 0, s2 = 0;                      // how much each lamp lands
+  // a branchless albedo: scale 1/255 with the surface, or a flat 1 without it
+  var aScale = alb ? 0.00392157 : 0, aAdd = alb ? 0 : 1;
+
+  for (var y = 0; y < h; y++){
+    var row = y * w;
+    for (var x = 0; x < w; x++){
+      var i = row + x, p = i << 2;
+      var rr = amb, gg = amb, bb = amb;
+
+      for (var Li = 0, gi = 0, base = 0; Li < n; Li++, gi += 3, base += BINS){
+        var dx = x - lxa[Li], dy = y - lya[Li];
+        var d2 = dx * dx + dy * dy;
+        if (d2 < 9) d2 = 9;
+
+        // atan2 to a bearing, by the standard rational approximation —
+        // |err| < 0.0015 rad, a sixth of a bin, and no library call
+        var ax = dx < 0 ? -dx : dx, ay = dy < 0 ? -dy : dy, q, a;
+        if (ax >= ay){ q = ay / (ax + 1e-9); a = q * (0.7853982 - (q - 1) * (0.2447 + 0.0663 * q)); }
+        else { q = ax / (ay + 1e-9); a = 1.5707963 - q * (0.7853982 - (q - 1) * (0.2447 + 0.0663 * q)); }
+        if (dx < 0) a = 3.1415927 - a;
+        if (dy < 0) a = -a;
+
+        var c = ((a * K) | 0) & BMASK;
+        var lim = d2 * INVE;
+        var f = 0;
+        if (D[base + c] > lim) f += third;
+        if (D[base + ((c + 3) & BMASK)] > lim) f += third;
+        if (D[base + ((c - 3) & BMASK)] > lim) f += third;
+        if (f <= 0) continue;
+
+        var inv = pw / Math.sqrt(d2); if (inv > 2.2) inv = 2.2;
+        var kk = inv * f;
+        rr += GF[gi] * kk; gg += GF[gi + 1] * kk; bb += GF[gi + 2] * kk;
+        if (Li === 0) s0 += kk; else if (Li === 1) s1 += kk; else s2 += kk;
+      }
+
+      // out is a Uint8ClampedArray, so it does the clamping for free
+      var A = (L[i] * aScale + aAdd) * 255;
+      o[p] = rr * A; o[p + 1] = gg * A; o[p + 2] = bb * A; o[p + 3] = 255;
+    }
+  }
+  var nn = w * h;
+  LIT[0] = s0 / nn; LIT[1] = s1 / nn; LIT[2] = s2 / nn;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  AUDIO — one quiet tone per lamp, pitched by how high it hangs
+// ═══════════════════════════════════════════════════════════════════════
+var AC = null, master_g = null, soundOn = true, oscs = [], gains = [], noiseBuf = null;
+function initAudio(){
+  var Ctor = window.AudioContext || window.webkitAudioContext;
+  if (!Ctor) return;
+  if (!AC){
+    try { AC = new Ctor(); } catch(e){ AC = null; return; }
+    var comp = AC.createDynamicsCompressor();
+    try {
+      comp.threshold.value = -20; comp.knee.value = 24;
+      comp.ratio.value = 6; comp.attack.value = 0.005; comp.release.value = 0.3;
+    } catch(e){}
+    master_g = AC.createGain(); master_g.gain.value = 0.5;
+    master_g.connect(comp); comp.connect(AC.destination);
+    var n = Math.max(1, Math.floor(AC.sampleRate * 0.4));
+    noiseBuf = AC.createBuffer(1, n, AC.sampleRate);
+    var d = noiseBuf.getChannelData(0);
+    for (var i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+    for (var k = 0; k < 3; k++){
+      var lp = AC.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 1400;
+      var g = AC.createGain(); g.gain.value = 0;
+      var o = AC.createOscillator(); o.type = k === 1 ? 'triangle' : 'sine';
+      o.frequency.value = 130 + k * 44;
+      o.connect(lp); lp.connect(g); g.connect(master_g);
+      try { o.start(); } catch(e){}
+      oscs.push(o); gains.push(g);
+    }
+  }
+  if (AC.state === 'suspended' && AC.resume) AC.resume();
+}
+function tuneRig(){
+  if (!AC || !oscs.length) return;
+  var t = AC.currentTime;
+  for (var k = 0; k < 3; k++){
+    var live = k < nL;
+    var hy = IH > 0 ? (1 - LY[k] / IH) : 0.5;
+    if (!(hy >= -1 && hy <= 2)) hy = 0.5;
+    var f = 96 * Math.pow(2, 0.55 + hy * 1.15 + k * 0.19);
+    var amp = (soundOn && live) ? 0.012 + 0.05 * Math.min(1, LIT[k] * 2.2) : 0;
+    try {
+      oscs[k].frequency.setTargetAtTime(f, t, 0.22);
+      gains[k].gain.setTargetAtTime(amp, t, 0.18);
+    } catch(e){}
+  }
+}
+function cueSound(){
+  if (!AC || !master_g || !soundOn || !noiseBuf) return;
+  var t = AC.currentTime;
+  var s = AC.createBufferSource(); s.buffer = noiseBuf;
+  s.playbackRate.value = 0.4;
+  var lp = AC.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 700;
+  var g = AC.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.10, t + 0.01);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.2);
+  s.connect(lp); lp.connect(g); g.connect(master_g);
+  try { s.start(t); s.stop(t + 0.24); } catch(e){}
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  CAMERA
+// ═══════════════════════════════════════════════════════════════════════
+var facing = 'user', mirror = true, stream = null;
+function showError(e){
+  var msg = (e && e.message) ? e.message : String(e || 'unknown');
+  errBox.style.display = 'block';
+  errBox.textContent = 'カメラを起動できませんでした：' + msg +
+    '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+}
+function applyMirror(){ if (mirror) cv.classList.add('mir'); else cv.classList.remove('mir'); }
+function startStream(){
+  var md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) return Promise.reject(new Error('getUserMedia is unavailable'));
+  if (stream && stream.getTracks) stream.getTracks().forEach(function(t){ t.stop(); });
+  return md.getUserMedia({
+    video: { facingMode: { ideal: facing }, width: { ideal: 1280 }, height: { ideal: 720 } },
+    audio: false
+  }).then(function(st){
+    stream = st; video.srcObject = st;
+    mirror = (facing === 'user');
+    applyMirror();
+    var p = video.play();
+    return (p && p.then) ? p.catch(function(){}) : null;
+  });
+}
+flipBtn.addEventListener('click', function(){
+  facing = (facing === 'user') ? 'environment' : 'user';
+  startStream().then(startMpCamera).catch(function(){});
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+//  SEGMENTATION — who is standing in the light
+// ═══════════════════════════════════════════════════════════════════════
+var seg = null, mpCamera = null, mpReady = false, running = false;
+var maskImg = null;
+function initSeg(){
+  if (typeof window.SelfieSegmentation !== 'function') return false;
+  try {
+    seg = new window.SelfieSegmentation({ locateFile: function(f){
+      return 'https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation/' + f;
+    }});
+    seg.setOptions({ modelSelection: 1 });
+    seg.onResults(onSeg);
+    mpReady = true;
+    return true;
+  } catch(e){ return false; }
+}
+function onSeg(res){
+  if (!res || !res.segmentationMask || !OW) return;
+  maskImg = res.segmentationMask;
+  lastMaskT = now();
+}
+function startMpCamera(){
+  if (!mpReady || typeof window.Camera !== 'function') return;
+  try {
+    if (mpCamera && mpCamera.stop) mpCamera.stop();
+    mpCamera = new window.Camera(video, {
+      onFrame: function(){
+        if (!seg || !running) return Promise.resolve();
+        return seg.send({ image: video }).catch(function(){});
+      },
+      width: 640, height: 480
+    });
+    mpCamera.start();
+  } catch(e){ mpReady = false; }
+}
+
+var maskFn = null;                                 // test hook
+function buildOcc(){
+  var w = OW, h = OH, o = occ, n = w * h, i;
+  var fresh = maskImg && (now() - lastMaskT) < 700;
+  if (maskFn){
+    for (var y = 0; y < h; y++) for (var x = 0; x < w; x++) o[y * w + x] = maskFn(x, y, w, h) ? 1 : 0;
+    haveMask = true;
+    return;
+  }
+  if (fresh){
+    try {
+      mctx.drawImage(maskImg, 0, 0, w, h);
+      var d = mctx.getImageData(0, 0, w, h).data;
+      for (i = 0; i < n; i++) o[i] = d[i << 2] > 128 ? 1 : 0;
+      haveMask = true;
+      return;
+    } catch(e){}
+  }
+  // the model has not loaded (or failed): dark pixels stand in as occluders.
+  // This is a substitute and the desk says so.
+  haveMask = false;
+  var L = lum;
+  if (!L){ for (i = 0; i < n; i++) o[i] = 0; return; }
+  for (var yy = 0; yy < h; yy++){
+    var py = yy * OS + (OS >> 1); if (py >= IH) py = IH - 1;
+    var prow = py * IW, orow = yy * w;
+    for (var xx = 0; xx < w; xx++){
+      var px = xx * OS + (OS >> 1); if (px >= IW) px = IW - 1;
+      o[orow + xx] = L[prow + px] < 62 ? 1 : 0;
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  UI
+// ═══════════════════════════════════════════════════════════════════════
+var QUALS = [ { jp:'オート', en:'auto', px:0 }, { jp:'高', en:'high', px:84000 }, { jp:'低', en:'low', px:22000 } ];
+var qualIdx = 0;
+
+function cueMode(i){ cuePending = ((i % 3) + 3) % 3; cueT = 0.42; cueSound(); }
+modeBtn.addEventListener('click', function(){ cueMode(mode + 1); });
+rigBtn.addEventListener('click', function(){ rehang(); cueSound(); });
+soundBtn.addEventListener('click', function(){
+  soundOn = !soundOn;
+  soundBtn.classList.toggle('off', !soundOn);
+  tuneRig();
+});
+qualBtn.addEventListener('click', function(){
+  qualIdx = (qualIdx + 1) % QUALS.length;
+  var q = QUALS[qualIdx];
+  qualBtn.innerHTML = q.jp + '<span class="en">' + q.en + '</span>';
+  qualBtn.classList.toggle('hot', q.px !== 0);
+  if (q.px){ targetPx = q.px; maxAllowed = q.px; }
+  else { targetPx = 46000; maxAllowed = MAX_PX; }
+  adaptCool = 2.0;
+});
+
+function ptTo(e){
+  var r = cv.getBoundingClientRect();
+  if (!(r.width > 0 && r.height > 0)) return null;
+  var nx = (e.clientX - r.left) / r.width, ny = (e.clientY - r.top) / r.height;
+  if (mirror) nx = 1 - nx;
+  if (!(nx >= 0 && nx <= 1 && ny >= 0 && ny <= 1)) return null;
+  return { x:nx * IW, y:ny * IH };
+}
+cv.addEventListener('pointerdown', function(e){
+  if (!ready) return;
+  var p = ptTo(e); if (!p) return;
+  var best = -1, bd = 1e18;
+  for (var i = 0; i < nL; i++){
+    var d = (LX[i] - p.x) * (LX[i] - p.x) + (LY[i] - p.y) * (LY[i] - p.y);
+    if (d < bd){ bd = d; best = i; }
+  }
+  pinI = best; pinX = p.x; pinY = p.y; pinT = 0.6;
+});
+cv.addEventListener('pointermove', function(e){
+  if (pinT <= 0) return;
+  var p = ptTo(e); if (!p) return;
+  pinX = p.x; pinY = p.y; pinT = 0.6;
+});
+cv.addEventListener('pointerup',     function(){ pinT = 0.25; });
+cv.addEventListener('pointercancel', function(){ pinT = 0.25; });
+
+startBtn.addEventListener('click', function(){
+  initAudio();
+  ovl.style.display = 'none';
+  running = true;
+  if (!mpReady) initSeg();
+  startStream().then(startMpCamera).catch(showError);
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+//  LOOP
+// ═══════════════════════════════════════════════════════════════════════
+var tPrev = 0, frameMs = 16, frameDt = 16.7, adaptCool = 2.5, statT = 0, deskT = 0;
+
+function grabFrame(){
+  var vw = video.videoWidth || 0, vh = video.videoHeight || 0;
+  if (!(vw > 0 && vh > 0)) return false;
+  var sc = Math.max(IW / vw, IH / vh);
+  if (!(sc > 0) || !isFinite(sc)) return false;
+  var sw = IW / sc, sh = IH / sc;
+  try { wctx.drawImage(video, (vw - sw) * 0.5, (vh - sh) * 0.5, sw, sh, 0, 0, IW, IH); }
+  catch(e){ return false; }
+  liveBuf = wctx.getImageData(0, 0, IW, IH).data;
+  var n = IW * IH, s = liveBuf, L = lum;
+  for (var i = 0, p = 0; i < n; i++, p += 4){
+    L[i] = (s[p] * 77 + s[p + 1] * 151 + s[p + 2] * 28) >> 8;
+  }
+  return true;
+}
+
+function frame(dt){
+  if (!IW) return;
+  if (grabFrame()){ if (!ready) ready = true; }
+  if (!ready) return;
+
+  if (cueT > 0){
+    cueT -= dt;
+    if (cuePending >= 0 && cueT < 0.28){ applyMode(cuePending); cuePending = -1; }
+    master = cueT > 0.28 ? (cueT - 0.28) / 0.14 : 1 - cueT / 0.28;
+    if (master < 0) master = 0; else if (master > 1) master = 1;
+  } else master = 1;
+
+  buildOcc();
+  updateRig(dt);
+  buildShadows();
+  render();
+  ctx.putImageData(outImg, 0, 0);
+}
+
+function loop(ts){
+  requestAnimationFrame(loop);
+  var t = (typeof ts === 'number' && isFinite(ts)) ? ts : now();
+  var realDt = tPrev ? (t - tPrev) : 16.7;
+  var dt = tPrev ? realDt / 1000 : 0.0167;
+  tPrev = t;
+  if (!(dt > 0)) dt = 0.0001;
+  if (dt > 0.08) dt = 0.08;
+  frameDt += (realDt - frameDt) * 0.10;
+  if (adaptCool > 0) adaptCool -= dt;
+
+  ensureSize();
+  var t0 = now();
+  frame(dt);
+  var t1 = now();
+  frameMs += ((t1 - t0) - frameMs) * 0.12;
+
+  if (QUALS[qualIdx].px === 0 && adaptCool <= 0){
+    if (frameDt > 25 || frameMs > 14){
+      if (targetPx > MIN_PX){ targetPx = Math.round(targetPx * 0.80); maxAllowed = targetPx; adaptCool = 2.5; }
+    } else if (frameDt < 18.5 && frameMs < 6){
+      if (targetPx < maxAllowed) targetPx = Math.min(maxAllowed, Math.round(targetPx * 1.12));
+      else if (maxAllowed < MAX_PX) maxAllowed = Math.min(MAX_PX, Math.round(maxAllowed * 1.12));
+      adaptCool = 2.0;
+    }
+  }
+
+  deskT += dt;
+  if (deskT > 0.15){
+    deskT = 0;
+    tuneRig();
+    for (var i = 0; i < 3; i++){
+      var bar = BARS[i];
+      if (!bar) continue;
+      var v = i < nL ? Math.min(100, Math.round(LIT[i] * 190)) : 0;
+      if (!(v >= 0)) v = 0;
+      bar.style.width = v + '%';
+    }
+    updateNote();
+  }
+}
+
+applyMode(0);
+applyMirror();
+ensureSize();
+requestAnimationFrame(loop);
+
+// ═══════════════════════════════════════════════════════════════════════
+//  TEST SURFACE
+// ═══════════════════════════════════════════════════════════════════════
+window.__IROKAGE__ = {
+  size:     function(){ return { IW:IW, IH:IH, OW:OW, OH:OH, OS:OS, BINS:BINS }; },
+  setMode:  function(i){ applyMode(i); },
+  cueMode:  cueMode,
+  getMode:  function(){ return mode; },
+  outData:  function(){ return outData; },
+  lum:      function(){ return lum; },
+  live:     function(){ return liveBuf; },
+  occ:      function(){ return occ; },
+  depth:    function(){ return depth2; },
+  lights:   function(){ var a = []; for (var i = 0; i < 3; i++) a.push({ x:LX[i], y:LY[i] }); return a; },
+  nLamps:   function(){ return nL; },
+  setLight: function(i, x, y){ LX[i] = x; LY[i] = y; TX[i] = x; TY[i] = y; },
+  hold:     function(b){ holdRig = !!b; },
+  setMask:  function(fn){ maskFn = fn; },
+  extremes: function(){ return findExtremes() ? [{x:TX[0],y:TY[0]},{x:TX[1],y:TY[1]},{x:TX[2],y:TY[2]}] : null; },
+  buildOcc: buildOcc,
+  shadows:  buildShadows,
+  render:   render,
+  rehang:   rehang,
+  lit:      function(){ return LIT.slice(0); },
+  master:   function(){ return master; },
+  haveMask: function(){ return haveMask; },
+  // the visibility test itself, so the geometry can be checked in isolation
+  visible:  function(L, x, y){
+    var dx = x - LX[L], dy = y - LY[L], d2 = dx * dx + dy * dy;
+    if (d2 < 9) d2 = 9;
+    var a = Math.atan2(dy, dx);
+    var c = ((a * (BINS / TAU)) | 0) & BMASK;
+    return depth2[L * BINS + c] > d2 * (1 / 1.06);
+  },
+  ready:    function(){ return ready; },
+  go:       function(){ running = true; },
+  setPx:    function(px){ targetPx = px; maxAllowed = px; qualIdx = 1; QUALS[1].px = px; adaptCool = 9e9; }
+};
+
+})();
+</script>
+</body>
+</html>
