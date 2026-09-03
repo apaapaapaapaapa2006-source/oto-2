@@ -1,0 +1,1235 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>HIBI ─ 罅の入った窓</title>
+<meta name="description" content="カメラの一瞬を凍らせた窓が、突くたびに罅割れて砕け落ちるエフェクト。落ちた欠片の穴からだけ、今のあなたが見える。">
+
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  HIBI ─ 罅                               ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  PALETTE   紺青 konjou    #0a1725  prussian ink            (ground, void)
+            氷晶 hyoushou  #dbe9f4  cold glass white        (type, pane)
+            鋼   hagane    #6d8399  dim steel               (rules, sub-type)
+            閃   sen       #ffffff  fracture core           (the cracks)
+            熾   okibi     #ff7a45  a single ember          (active state)
+            MOOD: a lit window in winter, seen from outside, struck once.
+            Everything on screen is cold except two things — the ember on
+            the active control, and whatever is still alive behind the
+            glass. The gallery already owns black-and-phosphor (TOKI),
+            paper (AMITEN), steam (MINAMO), oil-slick (NAGORI), terracotta
+            (SUNA) and bleach (HAKUCHU). Nothing here is a deep saturated
+            blue, so this piece takes it.
+
+  BACKGROUND  None — the window is the whole screen, edge to edge. The
+            chrome sits on plates that each have a CHIPPED CORNER: a
+            notched clip-path with a hairline running off it. Every panel
+            in the piece is a piece of broken glass, including the ones
+            you press.
+
+  TYPE      Fraunces for the Latin — a high-contrast serif whose thin
+            strokes read as frost — with Shippori Mincho B1 for the
+            Japanese. No effect in the collection has used a serif for the
+            Japanese before; KAGEE's mincho is a system stack in a game.
+
+  MOTION    Brittle. Nothing eases and nothing fades in: a mode change is
+            a 90ms white flash and then stillness. Cracks are the only
+            fast motion, and they are fast because glass is. The one slow
+            thing is frost, in 氷, which creeps.
+
+  SIGNATURE 1. THE PANE IS A REAL FRACTURE NETWORK, NOT A TEXTURE. Crack
+               tips carry a direction, curve, branch, and DIE when they
+               run into an existing crack or the frame — the way real
+               fracture terminates. The shards are then the actual closed
+               regions those cracks enclose, found by flood filling the
+               grid, so no two breaks ever give the same pieces.
+            2. THE HOLES SHOW *NOW*. The pane is one frozen instant. Where
+               a shard has fallen out you are looking at the live camera.
+               So you break a photograph of yourself and find yourself
+               moving behind it.
+            3. A SHARD REMEMBERS WHOSE PIECE IT WAS. When a crack splits a
+               shard in two, the halves inherit the parent's state, and
+               only one of them keeps the parent's identity — the other
+               gets a fresh one. That is why, in 鏡, a new crack makes one
+               half jump and leaves the other exactly where it was.
+  ══════════════════════════════════════════════════════════════════════════
+-->
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,600&family=Shippori+Mincho+B1:wght@400;700&display=swap" rel="stylesheet">
+
+<style>
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  :root{
+    --ink:#0a1725; --ink2:#06101b; --glass:#dbe9f4; --steel:#6d8399;
+    --sen:#ffffff; --ember:#ff7a45;
+    --plate:rgba(8,20,34,.74); --edge:rgba(109,131,153,.40);
+  }
+  html,body{height:100%}
+  body{
+    background:var(--ink2); color:var(--glass);
+    font-family:"Shippori Mincho B1","Hiragino Mincho ProN",serif;
+    overflow:hidden; overscroll-behavior:none;
+  }
+  #stage{position:fixed; inset:0; background:var(--ink2)}
+  #cv{
+    position:absolute; inset:0; width:100%; height:100%;
+    display:block; background:var(--ink);
+    touch-action:none;
+  }
+  #cv.mir{transform:scaleX(-1)}
+  #vid{position:absolute;width:2px;height:2px;opacity:.001;pointer-events:none;left:0;top:0}
+
+  /* the white blink of a fresh break */
+  #flash{position:fixed;inset:0;background:#fff;opacity:0;pointer-events:none;mix-blend-mode:screen}
+
+  /* every panel is a piece of glass: one corner is chipped off */
+  .plate{
+    position:relative;
+    background:var(--plate);
+    border:1px solid var(--edge);
+    -webkit-backdrop-filter:blur(7px) saturate(.7);
+    backdrop-filter:blur(7px) saturate(.7);
+    clip-path:polygon(0 0, calc(100% - 11px) 0, 100% 11px, 100% 100%, 0 100%);
+  }
+  .plate::after{
+    content:""; position:absolute; top:0; right:0; width:16px; height:16px;
+    background:linear-gradient(225deg,transparent 46%,rgba(219,233,244,.55) 47%,transparent 49%);
+    pointer-events:none;
+  }
+
+  #top{
+    position:fixed; left:0; right:0; top:0;
+    display:flex; align-items:flex-start; justify-content:space-between;
+    gap:10px; padding:calc(10px + env(safe-area-inset-top)) 12px 0 12px;
+    pointer-events:none;
+  }
+  #brand{padding:9px 14px 8px; pointer-events:auto}
+  #brand h1{
+    font-family:"Fraunces",Georgia,serif; font-weight:600; font-size:19px;
+    letter-spacing:.30em; line-height:1; color:var(--glass); text-indent:.30em;
+  }
+  #brand .jp{
+    display:block; margin-top:5px; font-size:11px; letter-spacing:.24em;
+    color:var(--steel); font-weight:400;
+  }
+
+  #ctrl{display:flex; flex-wrap:wrap; justify-content:flex-end; gap:7px; pointer-events:auto; max-width:63vw}
+  .btn{
+    font-family:"Shippori Mincho B1",serif; font-size:12px; letter-spacing:.10em;
+    color:var(--glass); padding:8px 11px 7px; cursor:pointer;
+    background:var(--plate); border:1px solid var(--edge);
+    clip-path:polygon(0 0, calc(100% - 9px) 0, 100% 9px, 100% 100%, 0 100%);
+    -webkit-backdrop-filter:blur(7px); backdrop-filter:blur(7px);
+    white-space:nowrap; user-select:none;
+  }
+  .btn .en{
+    font-family:"Fraunces",Georgia,serif; font-size:9px; letter-spacing:.20em;
+    color:var(--steel); display:block; margin-top:2px;
+  }
+  .btn:active{background:rgba(255,122,69,.20); border-color:var(--ember)}
+  .btn.hot{border-color:var(--ember); color:#ffd9c8}
+  .btn.hot .en{color:var(--ember)}
+  .btn.off{opacity:.42}
+
+  #bottom{
+    position:fixed; left:0; right:0; bottom:0;
+    display:flex; align-items:flex-end; justify-content:space-between; gap:10px;
+    padding:0 12px calc(10px + env(safe-area-inset-bottom)) 12px;
+    pointer-events:none;
+  }
+  #hint{
+    padding:8px 12px 7px; font-size:11.5px; line-height:1.75; letter-spacing:.06em;
+    color:var(--glass); max-width:62vw;
+  }
+  #hint b{color:var(--ember); font-weight:700}
+  #stat{
+    padding:8px 11px 7px;
+    font-family:"Fraunces",Georgia,serif; font-size:10px; letter-spacing:.14em;
+    color:var(--steel); text-align:right; line-height:1.7; font-variant-numeric:tabular-nums;
+    white-space:pre;
+  }
+
+  #ovl{
+    position:fixed; inset:0; z-index:20;
+    background:radial-gradient(120% 90% at 50% 0%, #12293f 0%, #06101b 62%, #040b13 100%);
+    display:flex; align-items:center; justify-content:center; padding:26px;
+  }
+  #ovl .card{max-width:430px; padding:26px 24px 22px; text-align:left}
+  #ovl h2{
+    font-family:"Fraunces",Georgia,serif; font-weight:600; font-size:34px;
+    letter-spacing:.24em; text-indent:.24em; color:var(--glass); line-height:1;
+  }
+  #ovl .sub{margin-top:9px; font-size:13px; letter-spacing:.20em; color:var(--steel)}
+  #ovl p{margin-top:16px; font-size:13.5px; line-height:2.0; color:#c3d5e3}
+  #ovl p b{color:var(--glass); font-weight:700}
+  #ovl ul{margin-top:13px; list-style:none; font-size:12.5px; line-height:2.0; color:#c3d5e3}
+  #ovl li::before{content:"—"; color:var(--ember); margin-right:9px}
+  #start{
+    margin-top:22px; width:100%; padding:14px 0 12px;
+    font-family:"Shippori Mincho B1",serif; font-size:15px; letter-spacing:.34em;
+    text-indent:.34em; color:#06101b; background:var(--glass);
+    border:none; cursor:pointer;
+    clip-path:polygon(0 0, calc(100% - 13px) 0, 100% 13px, 100% 100%, 0 100%);
+  }
+  #start:active{background:var(--ember)}
+  #err{
+    display:none; position:fixed; left:12px; right:12px;
+    top:calc(78px + env(safe-area-inset-top)); z-index:30;
+    padding:13px 14px; font-size:12.5px; line-height:1.85; white-space:pre-line;
+    color:#ffd9c8; background:rgba(40,12,4,.92); border:1px solid var(--ember);
+    clip-path:polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 0 100%);
+  }
+  @media (max-width:420px){
+    #brand h1{font-size:16px}
+    .btn{font-size:11px;padding:7px 9px 6px}
+    #hint{font-size:11px;max-width:58vw}
+  }
+</style>
+</head>
+<body>
+
+<div id="stage">
+  <video id="vid" playsinline muted autoplay></video>
+  <canvas id="cv"></canvas>
+</div>
+<div id="flash"></div>
+
+<div id="top">
+  <div id="brand" class="plate">
+    <h1>HIBI</h1>
+    <span class="jp">罅の入った窓</span>
+  </div>
+  <div id="ctrl">
+    <button class="btn" id="modeBtn" type="button">硝子<span class="en">GLASS</span></button>
+    <button class="btn" id="freezeBtn" type="button">貼り直す<span class="en">RE-GLAZE</span></button>
+    <button class="btn" id="qualBtn" type="button">オート<span class="en">AUTO</span></button>
+    <button class="btn" id="soundBtn" type="button">音<span class="en">SOUND</span></button>
+    <button class="btn" id="flipBtn" type="button">⟲ カメラ<span class="en">FLIP</span></button>
+  </div>
+</div>
+
+<div id="bottom">
+  <div id="hint" class="plate">指先で<b>突く</b>と割れる。手を<b>握って止める</b>と貼り直し。開いた手で<b>払う</b>と欠片が落ちる。</div>
+  <div id="stat" class="plate">—</div>
+</div>
+
+<div id="err"></div>
+
+<div id="ovl">
+  <div class="card plate">
+    <h2>HIBI</h2>
+    <div class="sub">罅の入った窓</div>
+    <p>カメラの見た<b>一瞬</b>が、窓ガラスとしてそこに凍ります。突けば罅が走り、欠片が落ちる。<b>落ちた穴からだけ、今のあなたが動いて見えます。</b></p>
+    <ul>
+      <li>指先ではじく ── 罅が走る</li>
+      <li>手を握って止める ── 新しい一瞬を貼り直す</li>
+      <li>開いた手で払う ── ゆるんだ欠片を落とす</li>
+      <li>画面をタップしても割れます</li>
+    </ul>
+    <button id="start" type="button">窓を出す</button>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+<script>
+(function(){
+'use strict';
+
+// ═══════════════════════════════════════════════════════════════════════
+//  DOM
+// ═══════════════════════════════════════════════════════════════════════
+var video    = document.getElementById('vid');
+var cv       = document.getElementById('cv');
+var flashEl  = document.getElementById('flash');
+var errBox   = document.getElementById('err');
+var ovl      = document.getElementById('ovl');
+var startBtn = document.getElementById('start');
+var modeBtn  = document.getElementById('modeBtn');
+var freezeBtn= document.getElementById('freezeBtn');
+var qualBtn  = document.getElementById('qualBtn');
+var soundBtn = document.getElementById('soundBtn');
+var flipBtn  = document.getElementById('flipBtn');
+var statEl   = document.getElementById('stat');
+
+var ctx  = cv.getContext('2d', { alpha:false });
+var work = document.createElement('canvas');
+var wctx = work.getContext('2d', { willReadFrequently:true });
+
+function now(){ return (window.performance && performance.now) ? performance.now() : Date.now(); }
+
+// ═══════════════════════════════════════════════════════════════════════
+//  PALETTE — the only warm value in the piece is the ember, and it is
+//  never used inside the image itself.
+// ═══════════════════════════════════════════════════════════════════════
+var VOID_R = 10,  VOID_G = 23,  VOID_B = 37;    // 紺青 — behind a silvered pane
+var CRK_R  = 255, CRK_G  = 255, CRK_B  = 255;   // 閃 — a fracture in glass
+var CRI_R  = 226, CRI_G  = 242, CRI_B  = 255;   // fracture in ice, slightly blue
+var CRM_R  = 232, CRM_G  = 240, CRM_B  = 248;   // fracture in a mirror
+var FRO_R  = 238, FRO_G  = 246, FRO_B  = 252;   // 霜 — frost
+
+// ═══════════════════════════════════════════════════════════════════════
+//  SIZE / BUFFERS
+// ═══════════════════════════════════════════════════════════════════════
+var IW = 0, IH = 0;
+var MIN_PX = 24000, MAX_PX = 120000;
+var targetPx = 84000, maxAllowed = 120000;
+
+var outImg = null, outData = null;
+var liveImg = null, liveBuf = null;
+var paneBuf = null;                 // the frozen instant, already cold-tinted
+var crack = null, halo = null;      // fracture core and its bevel
+var label = null, label2 = null;    // shard id per cell, -1 on a crack
+var stack = null;                   // flood-fill work
+var claimed = null;
+
+var ready = false, needFreeze = true;
+
+function makeShards(cap){
+  return { cap:cap, n:0,
+    a:     new Float32Array(cap),   // 1 = still in the frame, 0 = gone
+    frost: new Float32Array(cap),
+    fall:  new Float32Array(cap),
+    vel:   new Float32Array(cap),
+    st:    new Uint8Array(cap),     // 0 seated, 1 letting go, 2 gone
+    area:  new Int32Array(cap),
+    cx:    new Float32Array(cap),
+    cy:    new Float32Array(cap),
+    bx:    new Int8Array(cap),      // stable per-shard random, -127..127
+    by:    new Int8Array(cap),
+    fl:    new Uint8Array(cap),     // does this shard mirror its source?
+    ox:    new Int16Array(cap),     // bx/by resolved into pixels for this mode
+    oy:    new Int16Array(cap) };
+}
+function growShards(S, need){
+  if (need <= S.cap) return;
+  var cap = S.cap; while (cap < need) cap *= 2;
+  var T = makeShards(cap);
+  T.n = S.n;
+  T.a.set(S.a); T.frost.set(S.frost); T.fall.set(S.fall); T.vel.set(S.vel);
+  T.st.set(S.st); T.area.set(S.area); T.cx.set(S.cx); T.cy.set(S.cy);
+  T.bx.set(S.bx); T.by.set(S.by); T.fl.set(S.fl); T.ox.set(S.ox); T.oy.set(S.oy);
+  for (var k in T) if (k !== 'cap' && k !== 'n') S[k] = T[k];
+  S.cap = cap;
+}
+var SH = makeShards(1024), SH2 = makeShards(1024);
+
+function alloc(){
+  var n = IW * IH;
+  work.width = IW; work.height = IH;
+  cv.width = IW; cv.height = IH;
+  outImg  = ctx.createImageData(IW, IH); outData = outImg.data;
+  paneBuf = new Uint8ClampedArray(n * 4);
+  crack   = new Uint8Array(n);
+  halo    = new Uint8Array(n);
+  label   = new Int32Array(n);
+  label2  = new Int32Array(n);
+  stack   = new Int32Array(n);
+  liveImg = null; liveBuf = null;
+  tips.length = 0; pending.length = 0;
+  SH.n = 0; needFreeze = true;
+  for (var i = 3; i < outData.length; i += 4) outData[i] = 255;
+}
+
+function ensureSize(){
+  var cw = cv.clientWidth  || window.innerWidth  || 360;
+  var ch = cv.clientHeight || window.innerHeight || 640;
+  if (!(cw > 0)) cw = 360;
+  if (!(ch > 0)) ch = 640;
+  var asp = cw / ch;
+  if (!(asp > 0.15 && asp < 7)) asp = 0.6;
+  var ih = Math.round(Math.sqrt(targetPx / asp));
+  var iw = Math.round(ih * asp);
+  if (iw < 72) iw = 72; if (iw > 700) iw = 700;
+  if (ih < 72) ih = 72; if (ih > 700) ih = 700;
+  if (iw === IW && ih === IH) return false;
+  IW = iw; IH = ih; alloc();
+  return true;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  THE PANE — one frozen instant, tinted cold once so the render loop
+//  never pays for it again.
+// ═══════════════════════════════════════════════════════════════════════
+function makePane(){
+  var s = liveBuf, d = paneBuf, n = IW * IH * 4;
+  if (!s || !d) return;
+  for (var i = 0; i < n; i += 4){
+    var r = s[i], g = s[i + 1], b = s[i + 2];
+    var l = (r * 77 + g * 151 + b * 28) >> 8;
+    var nr = r + (l - r) * 0.46, ng = g + (l - g) * 0.46, nb = b + (l - b) * 0.46;
+    d[i]     = nr * 0.84 + 24;
+    d[i + 1] = ng * 0.88 + 33;
+    d[i + 2] = nb * 0.94 + 47;
+    d[i + 3] = 255;
+  }
+}
+
+var flash = 0, regl = 0;
+// quiet: the pane is being rebuilt because the grid changed under us, not
+// because anyone broke anything. An idle window must not flash and clink
+// every time the auto-quality controller finds another 12% of resolution.
+function refreeze(quiet){
+  if (!liveBuf) return;
+  makePane();
+  crack.fill(0); halo.fill(0); label.fill(0);
+  tips.length = 0; pending.length = 0;
+  growShards(SH, 1);
+  SH.n = 1;
+  SH.a[0] = 1; SH.frost[0] = 0; SH.fall[0] = 0; SH.vel[0] = 0; SH.st[0] = 0;
+  SH.area[0] = IW * IH; SH.cx[0] = IW * 0.5; SH.cy[0] = IH * 0.5;
+  SH.bx[0] = 0; SH.by[0] = 0; SH.fl[0] = 0; SH.ox[0] = 0; SH.oy[0] = 0;
+  crackDirty = false; relabelSoon = 0; autoT = 0; regl++;
+  needFreeze = false;
+  if (quiet) return;
+  if (flash < 0.72) flash = 0.72;
+  freezeSound();
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  FRACTURE — tips that carry a direction, curve, branch, and die when
+//  they meet an older crack. That termination rule is the whole reason
+//  the shards come out looking like glass instead of like a spider web.
+// ═══════════════════════════════════════════════════════════════════════
+var tips = [], pending = [];
+var STEP = 3, MAX_TIPS = 240;
+var crackDirty = false, relabelSoon = 0, relabels = 0, strikes = 0;
+
+function addTip(x, y, dx, dy, life, kind, spin){
+  if (tips.length >= MAX_TIPS) return;
+  var m = Math.sqrt(dx * dx + dy * dy);
+  if (!(m > 1e-6) || !isFinite(x) || !isFinite(y)) return;
+  tips.push({ x:x, y:y, dx:dx / m, dy:dy / m, life:life, age:0, kind:kind, spin:spin });
+}
+
+function stampHalo(x, y){
+  var w = IW, h = IH, hl = halo;
+  var j0 = y - 2, j1 = y + 2, i0 = x - 2, i1 = x + 2;
+  if (j0 < 0) j0 = 0; if (j1 > h - 1) j1 = h - 1;
+  if (i0 < 0) i0 = 0; if (i1 > w - 1) i1 = w - 1;
+  for (var j = j0; j <= j1; j++){
+    var dy = j - y, row = j * w;
+    for (var i = i0; i <= i1; i++){
+      var dx = i - x, d = dx * dx + dy * dy;
+      var v = d === 0 ? 255 : (d <= 2 ? 195 : (d <= 4 ? 124 : 58));
+      var k = row + i;
+      if (hl[k] < v) hl[k] = v;
+    }
+  }
+}
+
+function drawSeg(ax, ay, bx, by){
+  var w = IW, h = IH, cr = crack, lb = label;
+  var x0 = ax | 0, y0 = ay | 0, x1 = bx | 0, y1 = by | 0;
+  if (!isFinite(ax) || !isFinite(ay) || !isFinite(bx) || !isFinite(by)) return;
+  var dx = Math.abs(x1 - x0), sx = x0 < x1 ? 1 : -1;
+  var dy = -Math.abs(y1 - y0), sy = y0 < y1 ? 1 : -1;
+  var err = dx + dy, guard = 0;
+  for (;;){
+    if (x0 >= 0 && x0 < w && y0 >= 0 && y0 < h){
+      var ci = y0 * w + x0;
+      cr[ci] = 255;
+      lb[ci] = -1;              // visible this frame, not at the next relabel
+      stampHalo(x0, y0);
+    }
+    if (x0 === x1 && y0 === y1) break;
+    if (++guard > 4096) break;
+    var e2 = err + err;
+    if (e2 >= dy){ err += dy; x0 += sx; }
+    if (e2 <= dx){ err += dx; y0 += sy; }
+  }
+}
+
+function growCracks(){
+  if (!tips.length) return;
+  var w = IW, h = IH, cr = crack;
+  for (var s = 0; s < 2; s++){
+    for (var i = tips.length - 1; i >= 0; i--){
+      var t = tips[i];
+      var turn = (Math.random() - 0.5) * 0.24 + t.spin;
+      var c = Math.cos(turn), sn = Math.sin(turn);
+      var ndx = t.dx * c - t.dy * sn, ndy = t.dx * sn + t.dy * c;
+      t.dx = ndx; t.dy = ndy;
+      var nx = t.x + ndx * STEP, ny = t.y + ndy * STEP;
+
+      // probe beyond where we are about to draw, so a tip never trips on
+      // the line it just laid down itself
+      var dead = false;
+      if (nx < 0 || ny < 0 || nx >= w || ny >= h) dead = true;
+      else if (t.age > 3){
+        var px = (t.x + ndx * STEP * 2) | 0, py = (t.y + ndy * STEP * 2) | 0;
+        if (px >= 0 && py >= 0 && px < w && py < h && cr[py * w + px]) dead = true;
+      }
+
+      drawSeg(t.x, t.y, nx, ny);
+      t.x = nx; t.y = ny; t.age++; t.life--;
+
+      if (dead || t.life <= 0){ tips.splice(i, 1); continue; }
+
+      if (t.kind === 0 && t.age > 4 && tips.length < MAX_TIPS && Math.random() < 0.036){
+        var ba = (Math.random() < 0.5 ? 1 : -1) * (0.48 + Math.random() * 0.52);
+        var bc = Math.cos(ba), bs = Math.sin(ba);
+        addTip(t.x, t.y, t.dx * bc - t.dy * bs, t.dx * bs + t.dy * bc,
+               Math.round(t.life * 0.55), 0, (Math.random() - 0.5) * 0.13);
+      }
+    }
+  }
+  crackDirty = true;
+}
+
+var lastHit = { x:0, y:0, t:0, p:1 };
+
+function strikeAt(gx, gy, power){
+  if (!ready || !SH.n) return false;
+  if (!isFinite(gx) || !isFinite(gy)) return false;
+  power = power || 1;
+  if (!(power > 0.25)) power = 0.25;
+  if (power > 1.7) power = 1.7;
+  if (gx < 1) gx = 1; if (gx > IW - 2) gx = IW - 2;
+  if (gy < 1) gy = 1; if (gy > IH - 2) gy = IH - 2;
+
+  var n = Math.round(5 + power * 6), a0 = Math.random() * 6.2832, k;
+  for (k = 0; k < n; k++){
+    var a = a0 + k * 6.2832 / n + (Math.random() - 0.5) * 0.55;
+    addTip(gx + Math.cos(a) * 2, gy + Math.sin(a) * 2, Math.cos(a), Math.sin(a),
+           Math.round((26 + Math.random() * 48) * power), 0, (Math.random() - 0.5) * 0.11);
+  }
+  var rings = power > 0.85 ? 2 : 1;
+  for (k = 0; k < rings; k++){
+    var rr = (7 + Math.random() * 13) * (1 + k);
+    var ang = Math.random() * 6.2832, dir = Math.random() < 0.5 ? 1 : -1;
+    addTip(gx + Math.cos(ang) * rr, gy + Math.sin(ang) * rr,
+           -Math.sin(ang) * dir, Math.cos(ang) * dir,
+           Math.round(rr * 6.2832 / STEP * 0.72), 1, dir * STEP / rr);
+  }
+
+  crackDirty = true; relabelSoon = 0; strikes++;
+  lastHit.x = gx; lastHit.y = gy; lastHit.t = 1; lastHit.p = power;
+  if (flash < 0.30 + power * 0.24) flash = 0.30 + power * 0.24;
+
+  // Nothing can fall yet — the cracks that will define the loose pieces
+  // have not finished growing. Come back for it.
+  if (mode === 1) thawAt(gx, gy, 16 + 30 * power);
+  else pending.push({ x:gx, y:gy, r:11 + 24 * power, p:power, t:0.42 });
+
+  hitSound(power);
+  return true;
+}
+function strike(nx, ny, power){
+  if (!IW) return false;
+  return strikeAt(nx * IW, ny * IH, power);
+}
+
+// A shard that covers most of the pane is the pane; it must never be
+// released as a single piece or the whole window would vanish at a touch.
+function releaseAt(gx, gy, r, power){
+  var big = IW * IH * 0.42, rr = r * r, out = 0;
+  for (var s = 0; s < SH.n; s++){
+    if (SH.st[s] !== 0 || SH.area[s] > big) continue;
+    var dx = SH.cx[s] - gx, dy = SH.cy[s] - gy;
+    if (dx * dx + dy * dy > rr) continue;
+    SH.st[s] = 1;
+    SH.vel[s] = 26 + Math.random() * 90 * power;
+    out++;
+  }
+  return out;
+}
+function thawAt(gx, gy, r){
+  var rr = r * r, out = 0;
+  for (var s = 0; s < SH.n; s++){
+    var dx = SH.cx[s] - gx, dy = SH.cy[s] - gy;
+    if (dx * dx + dy * dy > rr) continue;
+    SH.frost[s] *= 0.12; out++;
+  }
+  return out;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  SHARDS — the closed regions the cracks enclose, found by flood fill.
+//  A new shard inherits from whichever old shard held its first cell, and
+//  only the FIRST claimant keeps the parent's identity; that is what makes
+//  a split look like one half breaking off rather than both halves moving.
+// ═══════════════════════════════════════════════════════════════════════
+function relabel(){
+  var w = IW, h = IH, n = w * h;
+  var cr = crack, oldL = label, newL = label2, S = SH, T = SH2, st = stack;
+  var hadOld = S.n > 0;
+
+  for (var i = 0; i < n; i++) newL[i] = cr[i] ? -1 : -2;
+
+  if (claimed === null || claimed.length < S.cap) claimed = new Uint8Array(S.cap);
+  else claimed.fill(0);
+
+  var id = 0;
+  for (i = 0; i < n; i++){
+    if (newL[i] !== -2) continue;
+    if (id >= T.cap) growShards(T, id + 1);
+    var seed = i, area = 0, sumx = 0, sumy = 0, sp = 0;
+    newL[i] = id; st[sp++] = i;
+    while (sp > 0){
+      var c = st[--sp];
+      var cy = (c / w) | 0, cx = c - cy * w, nb;
+      area++; sumx += cx; sumy += cy;
+      if (cx > 0)     { nb = c - 1; if (newL[nb] === -2){ newL[nb] = id; st[sp++] = nb; } }
+      if (cx < w - 1) { nb = c + 1; if (newL[nb] === -2){ newL[nb] = id; st[sp++] = nb; } }
+      if (cy > 0)     { nb = c - w; if (newL[nb] === -2){ newL[nb] = id; st[sp++] = nb; } }
+      if (cy < h - 1) { nb = c + w; if (newL[nb] === -2){ newL[nb] = id; st[sp++] = nb; } }
+    }
+    T.area[id] = area;
+    T.cx[id] = sumx / area; T.cy[id] = sumy / area;
+
+    var p = hadOld ? oldL[seed] : -1;
+    if (p >= 0 && p < S.n){
+      T.a[id] = S.a[p]; T.frost[id] = S.frost[p];
+      T.fall[id] = S.fall[p]; T.vel[id] = S.vel[p]; T.st[id] = S.st[p];
+      if (!claimed[p]){
+        claimed[p] = 1;
+        T.bx[id] = S.bx[p]; T.by[id] = S.by[p]; T.fl[id] = S.fl[p];
+      } else {
+        T.bx[id] = (Math.random() * 254 - 127) | 0;
+        T.by[id] = (Math.random() * 254 - 127) | 0;
+        T.fl[id] = Math.random() < 0.5 ? 1 : 0;
+      }
+    } else {
+      T.a[id] = 1; T.frost[id] = 0; T.fall[id] = 0; T.vel[id] = 0; T.st[id] = 0;
+      T.bx[id] = (Math.random() * 254 - 127) | 0;
+      T.by[id] = (Math.random() * 254 - 127) | 0;
+      T.fl[id] = Math.random() < 0.5 ? 1 : 0;
+    }
+    id++;
+  }
+  T.n = id;
+
+  var tl = label; label = label2; label2 = tl;
+  var ts = SH; SH = SH2; SH2 = ts;
+  relabels++;
+  applyOffsets();
+
+  // chips too small to hold themselves in fall out on their own
+  if (mode !== 1){
+    var big = IW * IH * 0.42;
+    for (var s = 0; s < SH.n; s++){
+      if (SH.st[s] === 0 && SH.area[s] < 26 && SH.area[s] < big){
+        SH.st[s] = 1; SH.vel[s] = 18 + Math.random() * 40;
+      }
+    }
+  }
+}
+
+function applyOffsets(){
+  var sc = mode === 2 ? IW * 0.105 : (mode === 1 ? 3.2 : 0);
+  var k = sc / 127;
+  for (var s = 0; s < SH.n; s++){
+    SH.ox[s] = (SH.bx[s] * k) | 0;
+    SH.oy[s] = (SH.by[s] * k) | 0;
+  }
+}
+
+var goneFrac = 0, autoT = 0;
+function updateShards(dt){
+  var n = SH.n, A = SH.a, F = SH.fall, V = SH.vel, ST = SH.st, FR = SH.frost;
+  var s, tot = 0, gone = 0;
+  if (mode === 0){
+    for (s = 0; s < n; s++){
+      if (ST[s] === 1){
+        V[s] += 1500 * dt;
+        F[s] += V[s] * dt;
+        A[s] -= dt / 0.42;
+        if (A[s] <= 0){ A[s] = 0; ST[s] = 2; }
+      }
+    }
+  } else if (mode === 2){
+    for (s = 0; s < n; s++){
+      if (ST[s] === 1){
+        A[s] -= dt / 0.20;
+        if (A[s] <= 0){ A[s] = 0; ST[s] = 2; }
+      }
+    }
+  } else {
+    for (s = 0; s < n; s++){
+      var rate = 0.13 + (SH.bx[s] & 31) * 0.0055;
+      var f = FR[s] + rate * dt;
+      FR[s] = f > 0.93 ? 0.93 : f;
+    }
+  }
+  for (s = 0; s < n; s++){ tot += SH.area[s]; if (A[s] <= 0) gone += SH.area[s]; }
+  goneFrac = tot > 0 ? gone / tot : 0;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  RENDER — one loop per mode. Everything the inner loop touches is a
+//  local; reading a module-level binding a hundred thousand times a frame
+//  is the difference between 9ms and 200ms.
+// ═══════════════════════════════════════════════════════════════════════
+function renderGlass(){
+  var w = IW, h = IH, lab = label, hl = halo, pane = paneBuf, live = liveBuf, o = outData;
+  var A = SH.a, F = SH.fall;
+  for (var y = 0; y < h; y++){
+    var row = y * w;
+    for (var x = 0; x < w; x++){
+      var i = row + x, p = i << 2, L = lab[i], r, g, b;
+      if (L < 0){ r = CRK_R; g = CRK_G; b = CRK_B; }
+      else {
+        var a = A[L];
+        if (a <= 0){ r = live[p]; g = live[p + 1]; b = live[p + 2]; }
+        else {
+          var sy = y - (F[L] | 0);
+          if (sy < 0) sy = 0;
+          var sp = (sy * w + x) << 2;
+          r = pane[sp]; g = pane[sp + 1]; b = pane[sp + 2];
+          if (a < 1){
+            var dk = 0.34 + a * 0.66, ia = 1 - a;
+            r = r * dk * a + live[p] * ia;
+            g = g * dk * a + live[p + 1] * ia;
+            b = b * dk * a + live[p + 2] * ia;
+          }
+        }
+      }
+      var hv = hl[i];
+      if (hv !== 0){
+        var k = hv * 0.0022;
+        r += (255 - r) * k; g += (255 - g) * k; b += (252 - b) * k;
+      }
+      o[p] = r; o[p + 1] = g; o[p + 2] = b; o[p + 3] = 255;
+    }
+  }
+}
+
+function renderIce(){
+  var w = IW, h = IH, lab = label, hl = halo, pane = paneBuf, o = outData;
+  var FR = SH.frost, OX = SH.ox, OY = SH.oy;
+  for (var y = 0; y < h; y++){
+    var row = y * w;
+    for (var x = 0; x < w; x++){
+      var i = row + x, p = i << 2, L = lab[i], r, g, b;
+      if (L < 0){ r = CRI_R; g = CRI_G; b = CRI_B; }
+      else {
+        var sx = x + OX[L], sy = y + OY[L];
+        if (sx < 0) sx = 0; else if (sx >= w) sx = w - 1;
+        if (sy < 0) sy = 0; else if (sy >= h) sy = h - 1;
+        var sp = (sy * w + sx) << 2;
+        r = pane[sp]; g = pane[sp + 1]; b = pane[sp + 2];
+        var f = FR[L];
+        if (f > 0){ r += (FRO_R - r) * f; g += (FRO_G - g) * f; b += (FRO_B - b) * f; }
+      }
+      var hv = hl[i];
+      if (hv !== 0){
+        var k = hv * 0.0026;
+        r += (255 - r) * k; g += (255 - g) * k; b += (255 - b) * k;
+      }
+      o[p] = r; o[p + 1] = g; o[p + 2] = b; o[p + 3] = 255;
+    }
+  }
+}
+
+function renderMirror(){
+  var w = IW, h = IH, lab = label, hl = halo, live = liveBuf, o = outData;
+  var A = SH.a, OX = SH.ox, OY = SH.oy, FL = SH.fl, CX = SH.cx;
+  for (var y = 0; y < h; y++){
+    var row = y * w;
+    for (var x = 0; x < w; x++){
+      var i = row + x, p = i << 2, L = lab[i], r, g, b;
+      if (L < 0){ r = CRM_R; g = CRM_G; b = CRM_B; }
+      else {
+        var a = A[L];
+        if (a <= 0){ r = VOID_R; g = VOID_G; b = VOID_B; }
+        else {
+          var sx = (FL[L] !== 0 ? ((CX[L] + CX[L] - x) | 0) : x) + OX[L];
+          var sy = y + OY[L];
+          if (sx < 0) sx = 0; else if (sx >= w) sx = w - 1;
+          if (sy < 0) sy = 0; else if (sy >= h) sy = h - 1;
+          var sp = (sy * w + sx) << 2;
+          r = live[sp]; g = live[sp + 1]; b = live[sp + 2];
+          if (a < 1){
+            var ia = 1 - a;
+            r = r * a + VOID_R * ia; g = g * a + VOID_G * ia; b = b * a + VOID_B * ia;
+          }
+        }
+      }
+      var hv = hl[i];
+      if (hv !== 0){
+        var k = hv * 0.0028;
+        r += (236 - r) * k; g += (246 - g) * k; b += (255 - b) * k;
+      }
+      o[p] = r; o[p + 1] = g; o[p + 2] = b; o[p + 3] = 255;
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  AUDIO — glass, and nothing else
+// ═══════════════════════════════════════════════════════════════════════
+var AC = null, master = null, noiseBuf = null, soundOn = true;
+function initAudio(){
+  var Ctor = window.AudioContext || window.webkitAudioContext;
+  if (!Ctor) return;
+  if (!AC){
+    try { AC = new Ctor(); } catch(e){ AC = null; return; }
+    var comp = AC.createDynamicsCompressor();
+    try {
+      comp.threshold.value = -16; comp.knee.value = 20;
+      comp.ratio.value = 9; comp.attack.value = 0.003; comp.release.value = 0.2;
+    } catch(e){}
+    master = AC.createGain(); master.gain.value = 0.75;
+    master.connect(comp); comp.connect(AC.destination);
+    var n = Math.max(1, Math.floor(AC.sampleRate * 0.5));
+    noiseBuf = AC.createBuffer(1, n, AC.sampleRate);
+    var d = noiseBuf.getChannelData(0);
+    for (var i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+  }
+  if (AC.state === 'suspended' && AC.resume) AC.resume();
+}
+function hitSound(power){
+  if (!AC || !master || !soundOn || !noiseBuf) return;
+  var t = AC.currentTime;
+  var s = AC.createBufferSource(); s.buffer = noiseBuf;
+  var hp = AC.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 1900;
+  var g = AC.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.26 * power + 0.05, t + 0.004);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.14);
+  s.connect(hp); hp.connect(g); g.connect(master);
+  try { s.start(t); s.stop(t + 0.2); } catch(e){}
+  var base = 1000 + Math.random() * 1000;
+  for (var k = 0; k < 3; k++){
+    var o = AC.createOscillator(); o.type = 'sine';
+    o.frequency.value = base * (1 + k * 1.37) * (0.96 + Math.random() * 0.08);
+    var og = AC.createGain();
+    og.gain.setValueAtTime(0.0001, t);
+    og.gain.exponentialRampToValueAtTime((0.095 - k * 0.025) * power + 0.008, t + 0.006);
+    og.gain.exponentialRampToValueAtTime(0.0001, t + 0.22 + k * 0.07);
+    o.connect(og); og.connect(master);
+    try { o.start(t); o.stop(t + 0.42); } catch(e){}
+  }
+}
+function freezeSound(){
+  if (!AC || !master || !soundOn || !noiseBuf) return;
+  var t = AC.currentTime;
+  var o = AC.createOscillator(); o.type = 'sine';
+  o.frequency.setValueAtTime(210, t);
+  o.frequency.exponentialRampToValueAtTime(68, t + 0.19);
+  var g = AC.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.22, t + 0.005);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.3);
+  o.connect(g); g.connect(master);
+  try { o.start(t); o.stop(t + 0.36); } catch(e){}
+  var s = AC.createBufferSource(); s.buffer = noiseBuf;
+  var bp = AC.createBiquadFilter(); bp.type = 'bandpass';
+  bp.frequency.value = 5400; bp.Q.value = 1.3;
+  var g2 = AC.createGain();
+  g2.gain.setValueAtTime(0.0001, t);
+  g2.gain.exponentialRampToValueAtTime(0.10, t + 0.03);
+  g2.gain.exponentialRampToValueAtTime(0.0001, t + 0.46);
+  s.connect(bp); bp.connect(g2); g2.connect(master);
+  try { s.start(t); s.stop(t + 0.5); } catch(e){}
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  CAMERA
+// ═══════════════════════════════════════════════════════════════════════
+var facing = 'user', mirror = true, stream = null;
+function showError(e){
+  var msg = (e && e.message) ? e.message : String(e || 'unknown');
+  errBox.style.display = 'block';
+  errBox.textContent = 'カメラを起動できませんでした：' + msg +
+    '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+}
+function applyMirror(){
+  if (mirror) cv.classList.add('mir'); else cv.classList.remove('mir');
+}
+function startStream(){
+  var md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) return Promise.reject(new Error('getUserMedia is unavailable'));
+  if (stream && stream.getTracks) stream.getTracks().forEach(function(t){ t.stop(); });
+  return md.getUserMedia({
+    video: { facingMode: { ideal: facing }, width: { ideal: 1280 }, height: { ideal: 720 } },
+    audio: false
+  }).then(function(st){
+    stream = st; video.srcObject = st;
+    mirror = (facing === 'user');
+    applyMirror();
+    var p = video.play();
+    return (p && p.then) ? p.catch(function(){}) : null;
+  });
+}
+flipBtn.addEventListener('click', function(){
+  facing = (facing === 'user') ? 'environment' : 'user';
+  loseHands();
+  needFreeze = true;              // the pane is a picture of the other camera
+  startStream().then(startMpCamera).catch(function(){});
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+//  HANDS
+// ═══════════════════════════════════════════════════════════════════════
+var hands = null, mpCamera = null, mpReady = false, running = false;
+var handsLm = [], lastHandT = 0, LOST_MS = 260, FRESH_MS = 120;
+var H = [newHand(), newHand()];
+function newHand(){
+  return { live:false, x:0.5, y:0.5, tx:0.5, ty:0.5, ptx:0.5, pty:0.5,
+           sp:0, tsp:0, armed:true, cool:0, fistT:0, fistArmed:true };
+}
+function initHands(){
+  if (typeof window.Hands !== 'function') return false;
+  try {
+    hands = new window.Hands({ locateFile: function(f){
+      return 'https://cdn.jsdelivr.net/npm/@mediapipe/hands/' + f;
+    }});
+    hands.setOptions({ maxNumHands:2, modelComplexity:0,
+                       minDetectionConfidence:0.6, minTrackingConfidence:0.5 });
+    hands.onResults(onHands);
+    mpReady = true;
+    return true;
+  } catch(e){ return false; }
+}
+function validLm(c){
+  if (!c || c.length < 21) return null;
+  for (var i = 0; i < 21; i++){
+    var p = c[i];
+    if (!p || typeof p.x !== 'number' || typeof p.y !== 'number' ||
+        !isFinite(p.x) || !isFinite(p.y)) return null;
+  }
+  return c;
+}
+function onHands(res){
+  var out = [];
+  if (res && res.multiHandLandmarks && res.multiHandLandmarks.length){
+    for (var i = 0; i < res.multiHandLandmarks.length && out.length < 2; i++){
+      var v = validLm(res.multiHandLandmarks[i]);
+      if (v) out.push(v);
+    }
+  }
+  if (out.length){ handsLm = out; lastHandT = now(); }
+}
+function loseHands(){
+  handsLm = [];
+  for (var i = 0; i < 2; i++) H[i] = newHand();
+}
+function startMpCamera(){
+  if (!mpReady || typeof window.Camera !== 'function') return;
+  try {
+    if (mpCamera && mpCamera.stop) mpCamera.stop();
+    mpCamera = new window.Camera(video, {
+      onFrame: function(){
+        if (!hands || !running) return Promise.resolve();
+        return hands.send({ image: video }).catch(function(){});
+      },
+      width: 640, height: 480
+    });
+    mpCamera.start();
+  } catch(e){ mpReady = false; }
+}
+
+// crop mapping from the video frame into the grid, refreshed every frame
+var cropSX = 0, cropSY = 0, cropSC = 1, vidW = 0, vidH = 0;
+function lmX(p){ return (p.x * vidW - cropSX) * cropSC; }
+function lmY(p){ return (p.y * vidH - cropSY) * cropSC; }
+
+function seg(lm, a, b){
+  var dx = lmX(lm[a]) - lmX(lm[b]), dy = lmY(lm[a]) - lmY(lm[b]);
+  return Math.sqrt(dx * dx + dy * dy);
+}
+// straightness = chord / bone-path. Length-independent, so a short pinky
+// scores the same as a long middle finger when both are straight.
+function straight(lm, mcp){
+  var path = seg(lm, mcp, mcp + 1) + seg(lm, mcp + 1, mcp + 2) + seg(lm, mcp + 2, mcp + 3);
+  if (!(path > 0.0001)) return 0;
+  return seg(lm, mcp + 3, mcp) / path;
+}
+
+var STRIKE_SP = 1.85, REARM_SP = 0.85, STRIKE_COOL = 0.17;
+var FIST_NEED = 0.58, FIST_HOLD = 0.55, OPEN_NEED = 0.80, SWEEP_SP = 1.15;
+var sweeps = 0;
+
+function readHands(dt){
+  var fresh = handsLm.length && (now() - lastHandT) < FRESH_MS;
+  var i, hd;
+  for (i = 0; i < 2; i++){
+    hd = H[i];
+    if (hd.cool > 0) hd.cool -= dt;
+    var lm = fresh ? handsLm[i] : null;
+    if (!lm){ hd.live = false; hd.sp = 0; hd.tsp = 0; hd.fistT = 0; continue; }
+
+    var px = (lmX(lm[0]) + lmX(lm[9])) * 0.5, py = (lmY(lm[0]) + lmY(lm[9])) * 0.5;
+    var tx = lmX(lm[8]), ty = lmY(lm[8]);
+    if (!isFinite(px) || !isFinite(py) || !isFinite(tx) || !isFinite(ty)){ hd.live = false; continue; }
+
+    if (hd.live && dt > 0){
+      var w = IW || 1;
+      hd.sp  = Math.sqrt((px - hd.x) * (px - hd.x) + (py - hd.y) * (py - hd.y)) / w / dt;
+      hd.tsp = Math.sqrt((tx - hd.tx) * (tx - hd.tx) + (ty - hd.ty) * (ty - hd.ty)) / w / dt;
+    } else { hd.sp = 0; hd.tsp = 0; }
+    hd.ptx = hd.tx; hd.pty = hd.ty;
+    hd.x = px; hd.y = py; hd.tx = tx; hd.ty = ty; hd.live = true;
+
+    var idx  = straight(lm, 5);
+    var rest = (straight(lm, 9) + straight(lm, 13) + straight(lm, 17)) / 3;
+
+    // 突く — the fingertip whips forward. Edge triggered, and it will not
+    // re-arm until the tip has actually slowed down again.
+    if (!hd.armed && hd.tsp < REARM_SP) hd.armed = true;
+    if (hd.armed && hd.cool <= 0 && idx > 0.80 && hd.tsp > STRIKE_SP){
+      var pw = 0.5 + (hd.tsp - STRIKE_SP) * 0.55;
+      if (pw > 1.6) pw = 1.6;
+      strikeAt(hd.tx, hd.ty, pw);
+      hd.armed = false; hd.cool = STRIKE_COOL;
+    }
+
+    // 握って止める — a new pane
+    if (rest < FIST_NEED && idx < 0.78 && hd.sp < 0.35){
+      hd.fistT += dt;
+      if (hd.fistArmed && hd.fistT > FIST_HOLD){ refreeze(); hd.fistArmed = false; hd.fistT = 0; }
+    } else {
+      hd.fistT = 0;
+      if (rest > 0.70) hd.fistArmed = true;
+    }
+
+    // 払う — an open hand sweeping knocks the loose pieces out
+    if (rest > OPEN_NEED && idx > OPEN_NEED && hd.sp > SWEEP_SP){
+      if (mode === 1) thawAt(px, py, IW * 0.11);
+      else sweeps += releaseAt(px, py, IW * 0.11, 0.7);
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  MODES / QUALITY / UI
+// ═══════════════════════════════════════════════════════════════════════
+var MODES = [
+  { jp:'硝子', en:'GLASS',  hint:'指先で<b>突く</b>と割れる。手を<b>握って止める</b>と貼り直し。開いた手で<b>払う</b>と欠片が落ちる。' },
+  { jp:'氷',   en:'ICE',    hint:'割れない厚い氷。放っておくと罅から<b>霜</b>が広がって白く曇る。突いた場所だけ<b>透ける</b>。' },
+  { jp:'鏡',   en:'MIRROR', hint:'銀の鏡。欠片ごとに<b>今</b>のあなたが別々にずれて映る。落ちた欠片の跡は<b>闇</b>。' }
+];
+var mode = 0;
+var QUALS = [ { jp:'オート', en:'AUTO', px:0 }, { jp:'高', en:'HIGH', px:120000 }, { jp:'低', en:'LOW', px:34000 } ];
+var qualIdx = 0;
+
+function setMode(i){
+  mode = ((i % 3) + 3) % 3;
+  modeBtn.innerHTML = MODES[mode].jp + '<span class="en">' + MODES[mode].en + '</span>';
+  document.getElementById('hint').innerHTML = MODES[mode].hint;
+  // 氷 has nothing loose in it: whatever had let go is seated again
+  if (mode === 1){
+    for (var s = 0; s < SH.n; s++){ SH.st[s] = 0; SH.a[s] = 1; SH.fall[s] = 0; SH.vel[s] = 0; }
+  } else {
+    for (var t = 0; t < SH.n; t++) SH.frost[t] = 0;
+  }
+  applyOffsets();
+  if (flash < 0.55) flash = 0.55;
+}
+modeBtn.addEventListener('click', function(){ setMode(mode + 1); });
+freezeBtn.addEventListener('click', function(){ refreeze(); });
+soundBtn.addEventListener('click', function(){
+  soundOn = !soundOn;
+  soundBtn.classList.toggle('off', !soundOn);
+});
+qualBtn.addEventListener('click', function(){
+  qualIdx = (qualIdx + 1) % QUALS.length;
+  var q = QUALS[qualIdx];
+  qualBtn.innerHTML = q.jp + '<span class="en">' + q.en + '</span>';
+  qualBtn.classList.toggle('hot', q.px !== 0);
+  if (q.px){ targetPx = q.px; maxAllowed = q.px; }
+  else { targetPx = 84000; maxAllowed = MAX_PX; }
+  adaptCool = 2.0;
+});
+
+cv.addEventListener('pointerdown', function(e){
+  if (!ready) return;
+  var r = cv.getBoundingClientRect();
+  if (!(r.width > 0 && r.height > 0)) return;
+  var nx = (e.clientX - r.left) / r.width, ny = (e.clientY - r.top) / r.height;
+  if (mirror) nx = 1 - nx;
+  if (nx < 0 || nx > 1 || ny < 0 || ny > 1) return;
+  strike(nx, ny, 1.15);
+});
+
+startBtn.addEventListener('click', function(){
+  initAudio();
+  ovl.style.display = 'none';
+  running = true;
+  if (!mpReady) initHands();
+  startStream().then(startMpCamera).catch(showError);
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+//  LOOP
+// ═══════════════════════════════════════════════════════════════════════
+var tPrev = 0, frameMs = 16, frameDt = 16.7, adaptCool = 2.5, statT = 0, fps = 0;
+
+function grabFrame(){
+  vidW = video.videoWidth || 0; vidH = video.videoHeight || 0;
+  if (!(vidW > 0 && vidH > 0)) return false;
+  var sc = Math.max(IW / vidW, IH / vidH);
+  if (!(sc > 0) || !isFinite(sc)) return false;
+  var sw = IW / sc, sh = IH / sc;
+  cropSX = (vidW - sw) * 0.5; cropSY = (vidH - sh) * 0.5; cropSC = sc;
+  try { wctx.drawImage(video, cropSX, cropSY, sw, sh, 0, 0, IW, IH); } catch(e){ return false; }
+  liveImg = wctx.getImageData(0, 0, IW, IH);
+  liveBuf = liveImg.data;
+  return true;
+}
+
+function adapt(){
+  if (QUALS[qualIdx].px !== 0) return;
+  if (adaptCool > 0) return;
+  if (frameDt > 24 || frameMs > 14){
+    if (targetPx > MIN_PX){
+      targetPx = Math.round(targetPx * 0.82);
+      if (targetPx < MIN_PX) targetPx = MIN_PX;
+      maxAllowed = targetPx; adaptCool = 2.5;
+    }
+  } else if (frameDt < 18.5 && frameMs < 5.5 && tips.length === 0 && SH.n <= 1){
+    // only grow back while the pane is whole — a resize re-glazes, and
+    // taking someone's cracks away to gain resolution is a bad trade
+    if (targetPx < maxAllowed) targetPx = Math.min(maxAllowed, Math.round(targetPx * 1.12));
+    else if (maxAllowed < MAX_PX){ maxAllowed = Math.min(MAX_PX, Math.round(maxAllowed * 1.12)); }
+    adaptCool = 2.0;
+  }
+}
+
+function overlayMarks(){
+  var t = lastHit.t;
+  if (t > 0){
+    var rad = (1 - t) * (14 + 26 * lastHit.p) + 3;
+    ctx.save();
+    ctx.globalAlpha = t * 0.85;
+    ctx.strokeStyle = '#ff7a45';
+    ctx.lineWidth = 1 + t;
+    ctx.beginPath();
+    ctx.arc(lastHit.x, lastHit.y, rad, 0, 6.2832);
+    ctx.stroke();
+    ctx.restore();
+  }
+  for (var i = 0; i < 2; i++){
+    var hd = H[i];
+    if (!hd.live) continue;
+    ctx.save();
+    ctx.globalAlpha = 0.5;
+    ctx.strokeStyle = '#dbe9f4';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(hd.tx, hd.ty, 4, 0, 6.2832);
+    ctx.stroke();
+    ctx.restore();
+  }
+}
+
+function frame(dt){
+  if (!IW) return;
+  if (!grabFrame()){
+    if (!ready) return;
+  } else if (!ready){ ready = true; needFreeze = true; }
+  if (!ready || !liveBuf) return;
+  if (needFreeze || SH.n === 0) refreeze(true);
+
+  readHands(dt);
+  growCracks();
+
+  for (var i = pending.length - 1; i >= 0; i--){
+    var q = pending[i];
+    q.t -= dt;
+    if (q.t <= 0){ releaseAt(q.x, q.y, q.r, q.p); pending.splice(i, 1); }
+  }
+
+  relabelSoon -= dt;
+  if (crackDirty && relabelSoon <= 0){
+    relabel();
+    crackDirty = false;
+    relabelSoon = tips.length ? 0.05 : 0;
+  }
+
+  updateShards(dt);
+
+  if (mode !== 1 && goneFrac > 0.90){
+    autoT += dt;
+    if (autoT > 1.1) refreeze();
+  } else autoT = 0;
+
+  if (mode === 0) renderGlass();
+  else if (mode === 1) renderIce();
+  else renderMirror();
+
+  ctx.putImageData(outImg, 0, 0);
+  overlayMarks();
+
+  lastHit.t -= dt * 2.4; if (lastHit.t < 0) lastHit.t = 0;
+  flash -= dt * 7.5; if (flash < 0) flash = 0;
+  flashEl.style.opacity = String(flash * 0.55);
+}
+
+function loop(ts){
+  requestAnimationFrame(loop);
+  var t = (typeof ts === 'number' && isFinite(ts)) ? ts : now();
+  var dt = tPrev ? (t - tPrev) / 1000 : 0.0167;
+  var realDt = tPrev ? (t - tPrev) : 16.7;
+  tPrev = t;
+  if (!(dt > 0)) dt = 0.0001;
+  if (dt > 0.1) dt = 0.1;
+  frameDt += (realDt - frameDt) * 0.10;
+  if (adaptCool > 0) adaptCool -= dt;
+
+  ensureSize();
+  var t0 = now();
+  frame(dt);
+  var t1 = now();
+  frameMs += ((t1 - t0) - frameMs) * 0.12;
+  adapt();
+
+  fps += (1 / dt - fps) * 0.08;
+  statT += dt;
+  if (statT > 0.25){
+    statT = 0;
+    statEl.textContent =
+      IW + '×' + IH + '  ' + Math.round(fps) + 'FPS\n' +
+      '破片 ' + SH.n + '   欠損 ' + Math.round(goneFrac * 100) + '%   罅 ' + tips.length;
+  }
+}
+
+setMode(0);
+applyMirror();
+ensureSize();
+requestAnimationFrame(loop);
+
+// ═══════════════════════════════════════════════════════════════════════
+//  TEST SURFACE — there is no browser in the build environment, so the
+//  simulation has to be drivable from a headless harness.
+// ═══════════════════════════════════════════════════════════════════════
+window.__HIBI__ = {
+  size:      function(){ return { IW:IW, IH:IH }; },
+  strike:    function(nx, ny, p){ return strike(nx, ny, p); },
+  strikeAt:  function(gx, gy, p){ return strikeAt(gx, gy, p); },
+  refreeze:  refreeze,
+  setMode:   setMode,
+  getMode:   function(){ return mode; },
+  relabel:   function(){ relabel(); crackDirty = false; },
+  labels:    function(){ return label; },
+  cracks:    function(){ return crack; },
+  halo:      function(){ return halo; },
+  pane:      function(){ return paneBuf; },
+  live:      function(){ return liveBuf; },
+  outData:   function(){ return outData; },
+  shards:    function(){ return SH; },
+  tips:      function(){ return tips.length; },
+  pending:   function(){ return pending.length; },
+  goneFrac:  function(){ return goneFrac; },
+  stats:     function(){ return { shards:SH.n, tips:tips.length, relabels:relabels,
+                                  strikes:strikes, sweeps:sweeps, gone:goneFrac,
+                                  regl:regl, px:targetPx }; },
+  release:   releaseAt,
+  thaw:      thawAt,
+  feed:      function(list){ onHands({ multiHandLandmarks: list || [] }); lastHandT = now(); },
+  lose:      loseHands,
+  ready:     function(){ return ready; },
+  go:        function(){ running = true; ready = false; },
+  setPx:     function(px){ targetPx = px; maxAllowed = px; qualIdx = 1; QUALS[1].px = px; adaptCool = 9e9; }
+};
+
+})();
+</script>
+</body>
+</html>
