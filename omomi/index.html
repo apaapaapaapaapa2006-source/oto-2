@@ -1,0 +1,1115 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>OMOMI ─ 光を曲げて遅らせる重み</title>
+<meta name="description" content="手が質量になり、その重さで光が曲がるエフェクト。輪に映るあなたは、重力で遠回りしてきた分だけ過去のあなた。">
+
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  OMOMI ─ 重み                            ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  PALETTE   卵殻 rangaku  #f2e8d5  plate cream, unexposed    (ground)
+            乳白 nyuuhaku #fffaf0  clear glass               (highlights)
+            墨   sumi     #14110d  dense emulsion            (blacks)
+            丹   ni       #c8452b  vermilion                 (annotation)
+            藍鼠 ainezu   #5b6572  cool plate grey           (rules, type)
+            MOOD: an astronomical glass plate. THE WHOLE PIECE IS A
+            NEGATIVE, because that is how this science is actually done —
+            the Twin Quasar was found on a plate where the sky is clear
+            and the stars are black. So your lit face goes dark and the
+            room behind you goes cream. HAKUCHU is the other high-key
+            piece in the gallery and it deliberately has no true black;
+            this one is its complement — warm, and black at the bottom.
+
+  BACKGROUND  The plate is the screen, edge to edge, with four fiducial
+            crosses burnt into the emulsion at the corners. The chrome
+            sits on plate envelopes: cream cards with a hairline rule and
+            a vermilion catalogue number, the paper sleeves plates live in.
+
+  TYPE      Spectral for the Latin — a scholarly text serif, the voice of
+            a paper — with Klee One for the Japanese, which is a pen face:
+            the astronomer's own hand annotating the sleeve. Neither is
+            used anywhere else in the collection.
+
+  MOTION    Heavy. The mass LAGS behind your hand on a second-order
+            follower and overshoots when you stop, because mass does. A
+            heavier fist lags further. Mode changes wipe across the frame
+            in 140ms like a plate sliding into its holder. Nothing snaps.
+
+  SIGNATURE 1. IT IS THE REAL THIN-LENS EQUATION. β = θ − Σ α_i, with the
+               point-mass deflection α = θE²·u/|u|², solved per pixel for
+               up to two masses — one per hand. Close your fist and θE
+               grows, so the ring grows. Bring two masses together and
+               their critical curves merge, which is the thing binary
+               lenses are famous for.
+            2. THE RING SHOWS YOU LATE. Light that goes round the mass
+               takes the long way and sits deeper in the potential well,
+               so it arrives later — the Shapiro delay, which is exactly
+               why the images of a lensed quasar flicker out of sync. The
+               delay is computed per pixel from ½|α|² − ψ(θ) and used to
+               pick a frame out of a ring buffer. Wave at the ring and it
+               waves back a third of a second afterwards.
+            3. NOTHING GLOWS, BECAUSE LENSING DOES NOT DO THAT. It
+               conserves surface brightness — a resolved image gets
+               bigger, not brighter. What is drawn instead is the
+               critical curve itself, the locus where det A = 0, inked
+               onto the plate the way it would be traced in a paper. The
+               Jacobian is evaluated analytically, not sampled.
+            4. THE GRID IS BEHIND THE LENS. The réseau grid is drawn in
+               the SOURCE plane, so it bends with everything else. That is
+               what makes the mapping legible: you can see where space
+               went.
+
+  HONESTY   The black dot at the very centre is where the thin-lens
+            formula claims light bends by more than a radian, which is
+            where it stops being true and light does not come back. It is
+            genuinely that small next to the ring; that is the real answer,
+            not a dramatic one. 虚 is a negative mass — hypothetical, but
+            the same equation with the sign flipped, not a made-up warp.
+            The per-pixel logarithm is a minimax quartic through a
+            float32 round-trip: |err| < 7e-5 over the range r² actually
+            takes, which is worth under 1/500 of one delay level out of 64.
+            A real Math.log twice per pixel costs about 3ms a frame, and
+            buys nothing an eye could find.
+  ══════════════════════════════════════════════════════════════════════════
+-->
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Klee+One:wght@400;600&family=Spectral:ital,wght@0,300;0,600;1,300&display=swap" rel="stylesheet">
+
+<style>
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  :root{
+    --plate:#f2e8d5; --clear:#fffaf0; --sumi:#14110d;
+    --ni:#c8452b; --ainezu:#5b6572;
+    --card:rgba(252,247,236,.90); --rule:rgba(20,17,13,.30);
+  }
+  html,body{height:100%}
+  body{
+    background:#e6dcc7; color:var(--sumi);
+    font-family:"Klee One","Hiragino Sans",system-ui,sans-serif;
+    overflow:hidden; overscroll-behavior:none;
+  }
+  #stage{position:fixed; inset:0; background:var(--plate)}
+  #cv{position:absolute; inset:0; width:100%; height:100%; display:block;
+      background:var(--plate); touch-action:none}
+  #cv.mir{transform:scaleX(-1)}
+  #vid{position:absolute;width:2px;height:2px;opacity:.001;pointer-events:none;left:0;top:0}
+
+  /* a plate sliding into its holder */
+  #wipe{position:fixed; inset:0; pointer-events:none; background:var(--plate); opacity:0}
+
+  /* the chrome lives on plate envelopes */
+  .env{
+    position:relative; background:var(--card);
+    border:1px solid var(--rule);
+    box-shadow:0 1px 0 rgba(20,17,13,.10);
+  }
+  .env::before{
+    content:""; position:absolute; left:7px; right:7px; top:4px;
+    border-top:1px solid rgba(20,17,13,.16);
+  }
+
+  #top{
+    position:fixed; left:0; right:0; top:0; display:flex;
+    align-items:flex-start; justify-content:space-between; gap:10px;
+    padding:calc(10px + env(safe-area-inset-top)) 12px 0 12px; pointer-events:none;
+  }
+  #brand{padding:11px 15px 9px; pointer-events:auto}
+  #brand h1{
+    font-family:"Spectral",Georgia,serif; font-weight:600; font-size:20px;
+    letter-spacing:.22em; text-indent:.22em; line-height:1;
+  }
+  #brand .jp{display:block; margin-top:5px; font-size:11px; letter-spacing:.14em; color:var(--ainezu)}
+  #brand .cat{
+    position:absolute; right:9px; top:7px;
+    font-family:"Spectral",serif; font-size:9px; letter-spacing:.16em; color:var(--ni);
+  }
+
+  #ctrl{display:flex; flex-wrap:wrap; justify-content:flex-end; gap:6px; pointer-events:auto; max-width:62vw}
+  .btn{
+    font-family:"Klee One",sans-serif; font-size:12px; letter-spacing:.06em;
+    color:var(--sumi); padding:8px 11px 6px; cursor:pointer;
+    background:var(--card); border:1px solid var(--rule); user-select:none; white-space:nowrap;
+  }
+  .btn .en{
+    display:block; margin-top:2px; font-family:"Spectral",serif; font-style:italic;
+    font-size:9px; letter-spacing:.10em; color:var(--ainezu);
+  }
+  .btn:active{background:#f6e2d8}
+  .btn.hot{border-color:var(--ni); box-shadow:inset 0 0 0 1px rgba(200,69,43,.35)}
+  .btn.hot .en{color:var(--ni)}
+  .btn.off{opacity:.45}
+
+  #bottom{
+    position:fixed; left:0; right:0; bottom:0; display:flex;
+    align-items:flex-end; justify-content:space-between; gap:10px;
+    padding:0 12px calc(10px + env(safe-area-inset-bottom)) 12px; pointer-events:none;
+  }
+  #hint{padding:9px 13px 7px; font-size:11.5px; line-height:1.8; max-width:60vw}
+  #hint b{color:var(--ni)}
+  #stat{
+    padding:9px 12px 7px; text-align:right; white-space:pre;
+    font-family:"Spectral",Georgia,serif; font-size:10px; letter-spacing:.08em;
+    color:var(--ainezu); line-height:1.8; font-variant-numeric:tabular-nums;
+  }
+
+  #ovl{
+    position:fixed; inset:0; z-index:20; padding:26px;
+    background:radial-gradient(120% 90% at 50% 8%, #fbf5e7 0%, #ece0c8 55%, #ddd0b4 100%);
+    display:flex; align-items:center; justify-content:center;
+  }
+  #ovl .card{max-width:440px; padding:28px 26px 24px}
+  #ovl h2{font-family:"Spectral",Georgia,serif; font-weight:600; font-size:36px; letter-spacing:.18em; text-indent:.18em; line-height:1}
+  #ovl .sub{margin-top:9px; font-size:13px; letter-spacing:.12em; color:var(--ainezu)}
+  #ovl p{margin-top:16px; font-size:13.5px; line-height:2.05}
+  #ovl p b{color:var(--ni)}
+  #ovl ul{margin-top:13px; list-style:none; font-size:12.5px; line-height:2.05}
+  #ovl li::before{content:"・"; color:var(--ni)}
+  #start{
+    margin-top:22px; width:100%; padding:14px 0 12px; border:1px solid var(--sumi);
+    font-family:"Klee One",sans-serif; font-size:15px; letter-spacing:.30em; text-indent:.30em;
+    color:var(--clear); background:var(--sumi); cursor:pointer;
+  }
+  #start:active{background:var(--ni); border-color:var(--ni)}
+  #err{
+    display:none; position:fixed; left:12px; right:12px;
+    top:calc(84px + env(safe-area-inset-top)); z-index:30;
+    padding:13px 14px; font-size:12.5px; line-height:1.85; white-space:pre-line;
+    color:#3a0f07; background:#f7ddd4; border:1px solid var(--ni);
+  }
+  @media (max-width:420px){
+    #brand h1{font-size:17px}
+    .btn{font-size:11px; padding:7px 9px 5px}
+    #hint{font-size:11px; max-width:56vw}
+  }
+</style>
+</head>
+<body>
+
+<div id="stage">
+  <video id="vid" playsinline muted autoplay></video>
+  <canvas id="cv"></canvas>
+</div>
+<div id="wipe"></div>
+
+<div id="top">
+  <div id="brand" class="env">
+    <span class="cat">PL. 0001</span>
+    <h1>OMOMI</h1>
+    <span class="jp">重み ─ 光を曲げて遅らせる</span>
+  </div>
+  <div id="ctrl">
+    <button class="btn" id="modeBtn" type="button">点<span class="en">point</span></button>
+    <button class="btn" id="gridBtn" type="button">格子<span class="en">réseau</span></button>
+    <button class="btn" id="qualBtn" type="button">オート<span class="en">auto</span></button>
+    <button class="btn" id="soundBtn" type="button">音<span class="en">sound</span></button>
+    <button class="btn" id="flipBtn" type="button">⟲ カメラ<span class="en">flip</span></button>
+  </div>
+</div>
+
+<div id="bottom">
+  <div id="hint" class="env">手が<b>重さ</b>になります。握るほど重く、輪が大きくなる。輪に映るあなたは<b>少し前</b>のあなた。</div>
+  <div id="stat" class="env">—</div>
+</div>
+
+<div id="err"></div>
+
+<div id="ovl">
+  <div class="card env">
+    <h2>OMOMI</h2>
+    <div class="sub">重み ─ 光を曲げて遅らせる</div>
+    <p>画面に映る手が<b>質量</b>になります。重力が光を曲げるので、そのまわりの景色は輪に巻きつき、向こう側のものが二重に見えます。</p>
+    <p>そして重力は光を<b>遅らせる</b>。輪を回ってきた光は遠回りした分だけ遅れて届くので、<b>輪に映るあなたは、少し前のあなたです。</b>手を振ると、輪はあとから振り返します。</p>
+    <ul>
+      <li>手を握る ── 重くなる。輪が大きくなる</li>
+      <li>両手を出す ── 二つの質量。輪どうしがつながる</li>
+      <li>画面を押さえる ── 押している間ずっと重くなる</li>
+    </ul>
+    <button id="start" type="button">乾板を出す</button>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+<script>
+(function(){
+'use strict';
+
+// ═══════════════════════════════════════════════════════════════════════
+//  DOM
+// ═══════════════════════════════════════════════════════════════════════
+var video    = document.getElementById('vid');
+var cv       = document.getElementById('cv');
+var wipeEl   = document.getElementById('wipe');
+var errBox   = document.getElementById('err');
+var ovl      = document.getElementById('ovl');
+var startBtn = document.getElementById('start');
+var modeBtn  = document.getElementById('modeBtn');
+var gridBtn  = document.getElementById('gridBtn');
+var qualBtn  = document.getElementById('qualBtn');
+var soundBtn = document.getElementById('soundBtn');
+var flipBtn  = document.getElementById('flipBtn');
+var statEl   = document.getElementById('stat');
+var hintEl   = document.getElementById('hint');
+
+var ctx  = cv.getContext('2d', { alpha:false });
+var work = document.createElement('canvas');
+var wctx = work.getContext('2d', { willReadFrequently:true });
+
+function now(){ return (window.performance && performance.now) ? performance.now() : Date.now(); }
+
+// ═══════════════════════════════════════════════════════════════════════
+//  PLATE — everything below is a density, 0 = unexposed cream, 255 = sumi
+// ═══════════════════════════════════════════════════════════════════════
+var LUT = new Uint8Array(256 * 3);
+(function buildLUT(){
+  for (var d = 0; d < 256; d++){
+    var t = d / 255;
+    var s = Math.pow(t, 1.14);                 // photographic shoulder
+    var w = 0.10 * Math.sin(t * Math.PI);      // a warm bulge through the mids
+    var r = 242 + (20  - 242) * s + w * 12;
+    var g = 232 + (17  - 232) * s + w * 4;
+    var b = 213 + (13  - 213) * s - w * 8;
+    LUT[d * 3]     = r < 0 ? 0 : (r > 255 ? 255 : r);
+    LUT[d * 3 + 1] = g < 0 ? 0 : (g > 255 ? 255 : g);
+    LUT[d * 3 + 2] = b < 0 ? 0 : (b > 255 ? 255 : b);
+  }
+})();
+
+// ═══════════════════════════════════════════════════════════════════════
+//  SIZE / BUFFERS
+// ═══════════════════════════════════════════════════════════════════════
+var IW = 0, IH = 0;
+var MIN_PX = 20000, MAX_PX = 116000;
+var targetPx = 76000, maxAllowed = 116000;
+
+var NH = 28;                       // history frames — luminance only, 1 byte/px
+var JN = 64;                       // quantised delay levels
+var DT_STEP = 0.011;               // seconds per delay level → 0.69s of reach
+
+var outImg = null, outData = null;
+var liveBuf = null;
+var histAll = null;                // NH * n bytes, one plate exposure per slot
+var histTime = new Float64Array(NH);
+var slotBase = new Int32Array(JN);
+var gridM = null, plateM = null;   // réseau mask (source plane), grain + fog
+var wslot = 0, filled = 0;
+var ready = false;
+
+var _f32 = new Float32Array(1), _i32 = new Int32Array(_f32.buffer);
+
+function alloc(){
+  var n = IW * IH;
+  work.width = IW; work.height = IH;
+  cv.width = IW; cv.height = IH;
+  outImg = ctx.createImageData(IW, IH); outData = outImg.data;
+  histAll = new Uint8Array(NH * n);
+  gridM   = new Uint8Array(n);
+  plateM  = new Int16Array(n);
+  wslot = 0; filled = 0;
+  for (var i = 0; i < NH; i++) histTime[i] = 0;
+  for (var j = 0; j < JN; j++) slotBase[j] = 0;
+  buildPlate();
+  for (var k = 3; k < outData.length; k += 4) outData[k] = 255;
+  for (var L = 0; L < 2; L++){ LX[L] = IW * 0.5; LY[L] = IH * 0.5; LVX[L] = 0; LVY[L] = 0; }
+}
+
+// The réseau is drawn in the SOURCE plane, which is why it bends: it is
+// behind the lens, not on the glass in front of it.
+function buildPlate(){
+  var n = IW * IH, step = Math.round(IW / 13);
+  if (step < 8) step = 8;
+  var half = step >> 1;
+  for (var y = 0; y < IH; y++){
+    var ny = ((y + half) % step) === 0;
+    var row = y * IW;
+    for (var x = 0; x < IW; x++){
+      gridM[row + x] = (ny || ((x + half) % step) === 0) ? 44 : 0;
+    }
+  }
+  // plate fog: grain everywhere, and the emulsion thins towards the edges
+  var cx = IW * 0.5, cy = IH * 0.5, rr = 1 / (cx * cx + cy * cy);
+  for (var yy = 0; yy < IH; yy++){
+    var dy = yy - cy, r2 = yy * IW;
+    for (var xx = 0; xx < IW; xx++){
+      var dx = xx - cx, q = (dx * dx + dy * dy) * rr;
+      var fog = -20 * q * q;
+      plateM[r2 + xx] = (Math.random() * 11 - 5) + fog;
+    }
+  }
+}
+
+function ensureSize(){
+  var cw = cv.clientWidth  || window.innerWidth  || 360;
+  var ch = cv.clientHeight || window.innerHeight || 640;
+  if (!(cw > 0)) cw = 360;
+  if (!(ch > 0)) ch = 640;
+  var asp = cw / ch;
+  if (!(asp > 0.15 && asp < 7)) asp = 0.6;
+  var ih = Math.round(Math.sqrt(targetPx / asp));
+  var iw = Math.round(ih * asp);
+  if (iw < 72) iw = 72; if (iw > 640) iw = 640;
+  if (ih < 72) ih = 72; if (ih > 640) ih = 640;
+  if (iw === IW && ih === IH) return false;
+  IW = iw; IH = ih; alloc();
+  return true;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  MASSES — one per hand. θE is the Einstein radius in pixels; k = θE².
+// ═══════════════════════════════════════════════════════════════════════
+var LX = [0, 0], LY = [0, 0], LVX = [0, 0], LVY = [0, 0];
+var LTHE = [40, 40], LMASS = [0.4, 0.4];
+var nLens = 1;
+var FOV = 0.72;                    // radians across the frame — a phone lens
+
+function theMin(){ return IW * 0.045; }
+function theMax(){ return IW * 0.20; }
+
+var driftT = 0, holdLens = false;
+function updateLenses(dt){
+  if (holdLens) return;
+  var i, want = 0, tx, ty, tm;
+  var fresh = handsLm.length && (now() - lastHandT) < FRESH_MS;
+  for (i = 0; i < 2; i++){
+    if (fresh && handsLm[i]){
+      var r = readHand(handsLm[i]);
+      if (r){
+        want++;
+        tx = r.x; ty = r.y; tm = r.mass;
+        step(i, tx, ty, tm, dt);
+        continue;
+      }
+    }
+    if (i === 0 && pointerOn){
+      want++;
+      step(0, pointerX, pointerY, pointerMass, dt);
+      continue;
+    }
+    if (i === 0 && want === 0){
+      // nobody is holding it: the mass drifts on its own so the plate is
+      // never a still picture
+      driftT += dt;
+      want = 1;
+      step(0, IW * (0.5 + 0.24 * Math.sin(driftT * 0.31) * Math.cos(driftT * 0.17)),
+              IH * (0.5 + 0.21 * Math.sin(driftT * 0.23)),
+              0.42 + 0.26 * Math.sin(driftT * 0.13), dt);
+    }
+  }
+  nLens = want < 1 ? 1 : (want > 2 ? 2 : want);
+}
+
+function step(i, tx, ty, tm, dt){
+  if (!isFinite(tx) || !isFinite(ty) || !isFinite(tm)) return;
+  LMASS[i] += (tm - LMASS[i]) * (1 - Math.exp(-dt / 0.10));
+  var m = LMASS[i];
+  LTHE[i] = theMin() + (theMax() - theMin()) * m;
+  // second-order follower: heavier lags further and overshoots when you stop
+  var w0 = 6.2832 / (0.20 + 0.52 * m), z = 0.52;
+  var d = dt > 0.033 ? 0.033 : dt;
+  LVX[i] += (w0 * w0 * (tx - LX[i]) - 2 * z * w0 * LVX[i]) * d;
+  LVY[i] += (w0 * w0 * (ty - LY[i]) - 2 * z * w0 * LVY[i]) * d;
+  LX[i] += LVX[i] * d; LY[i] += LVY[i] * d;
+  if (!isFinite(LX[i]) || !isFinite(LY[i])){ LX[i] = IW * 0.5; LY[i] = IH * 0.5; LVX[i] = 0; LVY[i] = 0; }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  HISTORY — one byte of luminance per pixel per frame. The plate only
+//  ever holds silver density, so colour would be three times the memory
+//  for something the piece throws away.
+// ═══════════════════════════════════════════════════════════════════════
+function pushFrame(t){
+  var n = IW * IH, s = liveBuf, h = histAll, base = wslot * n;
+  for (var i = 0, p = 0; i < n; i++, p += 4){
+    h[base + i] = (s[p] * 77 + s[p + 1] * 151 + s[p + 2] * 28) >> 8;
+  }
+  histTime[wslot] = t;
+  wslot = (wslot + 1) % NH;
+  if (filled < NH) filled++;
+}
+
+// Map each quantised delay level to the newest exposure at least that old.
+// Frame rate varies, so the delay has to be resolved in seconds, not frames.
+function buildSlots(t){
+  var n = IW * IH, p = 0, newest = (wslot - 1 + NH) % NH;
+  for (var j = 0; j < JN; j++){
+    var target = t - j * DT_STEP;
+    while (p < filled - 1){
+      var s = (newest - p + NH * 2) % NH;
+      if (histTime[s] > target) p++; else break;
+    }
+    slotBase[j] = ((newest - p + NH * 2) % NH) * n;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  RENDER — one loop per mass model. Inline everything: through an
+//  interpreter a call per pixel costs more than the physics does.
+//
+//  β = θ − Σ αᵢ                                     (thin lens)
+//  A = I − ∂α/∂θ ,  critical curve at det A = 0     (Jacobian, analytic)
+//  τ = ½|α|² − ψ(θ) ,  ψ = k·ln(r/R)                (Fermat / Shapiro)
+// ═══════════════════════════════════════════════════════════════════════
+var TS = 0.0032;                   // Fermat potential (px²) → delay level
+var showGrid = true;
+
+function renderPoint(){
+  var w = IW, h = IH, o = outData, hall = histAll, gm = gridM, pm = plateM;
+  var lut = LUT, sb = slotBase, f32 = _f32, i32 = _i32;
+  var two = nLens > 1, jmax = JN - 1;
+  var l1x = LX[0], l1y = LY[0], k1 = LTHE[0] * LTHE[0];
+  var l2x = LX[1], l2y = LY[1], k2 = two ? LTHE[1] * LTHE[1] : 0;
+  var radpx = FOV / w;
+  var cap1 = k1 * radpx, cap2 = k2 * radpx;          // |α| > 1 rad: light is kept
+  var cs1 = cap1 * cap1, cs2 = cap2 * cap2;
+  var R = w * 0.62, lnR = Math.log(R);
+  var thmax = two && LTHE[1] > LTHE[0] ? LTHE[1] : LTHE[0];
+  var cw = 5.6 / thmax; if (cw < 0.05) cw = 0.05; else if (cw > 0.5) cw = 0.5;
+  var cwi = 1 / cw, grid = showGrid;
+
+  for (var y = 0; y < h; y++){
+    var row = y * w;
+    for (var x = 0; x < w; x++){
+      var i = row + x, p = i << 2;
+
+      var ux = x - l1x, uy = y - l1y;
+      var uxx = ux * ux, uyy = uy * uy, rsq = uxx + uyy;
+      if (rsq < 1) rsq = 1;
+      var ir = 1 / rsq, inv = k1 * ir;
+      var ax = ux * inv, ay = uy * inv;
+      var q = inv * ir;
+      var wv = q * (uyy - uxx), zv = q * 2 * ux * uy;
+      var a11 = 1 - wv, a22 = 1 + wv, a12 = zv;
+
+      f32[0] = rsq;
+      var bb = i32[0], ee = ((bb >> 23) & 255) - 127;
+      i32[0] = (bb & 0x7FFFFF) | 0x3F800000;
+      var mm = f32[0];
+      var lrs = ee * 0.6931472 +
+        (-1.7417939 + (2.8212026 + (-1.4699568 + (0.44717955 - 0.056570851 * mm) * mm) * mm) * mm);
+      var pot = lnR - 0.5 * lrs; if (pot < 0) pot = 0;
+      var tau = k1 * pot;
+      var hole = rsq < cs1;
+
+      if (two){
+        var vx = x - l2x, vy = y - l2y;
+        var vxx = vx * vx, vyy = vy * vy, ssq = vxx + vyy;
+        if (ssq < 1) ssq = 1;
+        var jr = 1 / ssq, jnv = k2 * jr;
+        ax += vx * jnv; ay += vy * jnv;
+        var q2 = jnv * jr;
+        var wv2 = q2 * (vyy - vxx);
+        a11 -= wv2; a22 += wv2; a12 += q2 * 2 * vx * vy;
+
+        f32[0] = ssq;
+        var b2 = i32[0], e2 = ((b2 >> 23) & 255) - 127;
+        i32[0] = (b2 & 0x7FFFFF) | 0x3F800000;
+        var m2 = f32[0];
+        var lr2 = e2 * 0.6931472 +
+          (-1.7417939 + (2.8212026 + (-1.4699568 + (0.44717955 - 0.056570851 * m2) * m2) * m2) * m2);
+        var p2 = lnR - 0.5 * lr2; if (p2 < 0) p2 = 0;
+        tau += k2 * p2;
+        if (ssq < cs2) hole = true;
+      }
+
+      tau += 0.5 * (ax * ax + ay * ay);
+
+      var sx = x - ax; if (sx < 0) sx = 0; else if (sx > w - 1) sx = w - 1;
+      var sy = y - ay; if (sy < 0) sy = 0; else if (sy > h - 1) sy = h - 1;
+      var si = ((sy | 0) * w + (sx | 0));
+
+      var j = tau * TS | 0; if (j < 0) j = 0; else if (j > jmax) j = jmax;
+
+      var dens = 255 - hall[sb[j] + si];
+      if (grid) dens += gm[si];
+
+      var det = a11 * a22 - a12 * a12;
+      var ad = det < 0 ? -det : det;
+      if (ad < cw) dens += (1 - ad * cwi) * 195;
+      if (hole) dens = 252;
+
+      dens += pm[i];
+      if (dens < 0) dens = 0; else if (dens > 255) dens = 255;
+      var c = (dens | 0) * 3;
+      o[p] = lut[c]; o[p + 1] = lut[c + 1]; o[p + 2] = lut[c + 2]; o[p + 3] = 255;
+    }
+  }
+}
+
+// Singular isothermal sphere: |α| is constant, which is what an actual
+// galaxy halo does. Softer ring, different image pair.
+function renderSIS(){
+  var w = IW, h = IH, o = outData, hall = histAll, gm = gridM, pm = plateM;
+  var lut = LUT, sb = slotBase, f32 = _f32, i32 = _i32;
+  var two = nLens > 1, jmax = JN - 1, sqrt = Math.sqrt;
+  var l1x = LX[0], l1y = LY[0], t1 = LTHE[0];
+  var l2x = LX[1], l2y = LY[1], t2 = two ? LTHE[1] : 0;
+  var R = w * 0.62, lnR = Math.log(R);
+  var thmax = two && t2 > t1 ? t2 : t1;
+  var cw = 5.6 / thmax; if (cw < 0.05) cw = 0.05; else if (cw > 0.5) cw = 0.5;
+  var cwi = 1 / cw, grid = showGrid;
+
+  for (var y = 0; y < h; y++){
+    var row = y * w;
+    for (var x = 0; x < w; x++){
+      var i = row + x, p = i << 2;
+
+      var ux = x - l1x, uy = y - l1y;
+      var uxx = ux * ux, uyy = uy * uy, rsq = uxx + uyy;
+      if (rsq < 1) rsq = 1;
+      var r = sqrt(rsq), r3 = 1 / (rsq * r);
+      var inv = t1 / r;
+      var ax = ux * inv, ay = uy * inv;
+      var a11 = 1 - t1 * uyy * r3, a22 = 1 - t1 * uxx * r3, a12 = t1 * ux * uy * r3;
+      var tau = t1 * (r < R ? (R - r) : 0) * 0.5;
+
+      if (two){
+        var vx = x - l2x, vy = y - l2y;
+        var vxx = vx * vx, vyy = vy * vy, ssq = vxx + vyy;
+        if (ssq < 1) ssq = 1;
+        var s = sqrt(ssq), s3 = 1 / (ssq * s);
+        var jnv = t2 / s;
+        ax += vx * jnv; ay += vy * jnv;
+        a11 -= t2 * vyy * s3; a22 -= t2 * vxx * s3; a12 += t2 * vx * vy * s3;
+        tau += t2 * (s < R ? (R - s) : 0) * 0.5;
+      }
+
+      tau += 0.5 * (ax * ax + ay * ay);
+
+      var sx = x - ax; if (sx < 0) sx = 0; else if (sx > w - 1) sx = w - 1;
+      var sy = y - ay; if (sy < 0) sy = 0; else if (sy > h - 1) sy = h - 1;
+      var si = ((sy | 0) * w + (sx | 0));
+
+      var j = tau * TS | 0; if (j < 0) j = 0; else if (j > jmax) j = jmax;
+
+      var dens = 255 - hall[sb[j] + si];
+      if (grid) dens += gm[si];
+
+      var det = a11 * a22 - a12 * a12;
+      var ad = det < 0 ? -det : det;
+      if (ad < cw) dens += (1 - ad * cwi) * 195;
+
+      dens += pm[i];
+      if (dens < 0) dens = 0; else if (dens > 255) dens = 255;
+      var c = (dens | 0) * 3;
+      o[p] = lut[c]; o[p + 1] = lut[c + 1]; o[p + 2] = lut[c + 2]; o[p + 3] = 255;
+    }
+  }
+}
+
+// The same equation with the sign of the mass flipped. Light is pushed
+// away instead of pulled in, so it opens an empty bubble with a rim and
+// there is no second image.
+function renderNeg(){
+  var w = IW, h = IH, o = outData, hall = histAll, gm = gridM, pm = plateM;
+  var lut = LUT, sb = slotBase, f32 = _f32, i32 = _i32;
+  var two = nLens > 1, jmax = JN - 1;
+  var l1x = LX[0], l1y = LY[0], k1 = -LTHE[0] * LTHE[0];
+  var l2x = LX[1], l2y = LY[1], k2 = two ? -LTHE[1] * LTHE[1] : 0;
+  var R = w * 0.62, lnR = Math.log(R);
+  var thmax = two && LTHE[1] > LTHE[0] ? LTHE[1] : LTHE[0];
+  var cw = 5.6 / thmax; if (cw < 0.05) cw = 0.05; else if (cw > 0.5) cw = 0.5;
+  var cwi = 1 / cw, grid = showGrid;
+
+  for (var y = 0; y < h; y++){
+    var row = y * w;
+    for (var x = 0; x < w; x++){
+      var i = row + x, p = i << 2;
+
+      var ux = x - l1x, uy = y - l1y;
+      var uxx = ux * ux, uyy = uy * uy, rsq = uxx + uyy;
+      if (rsq < 1) rsq = 1;
+      var ir = 1 / rsq, inv = k1 * ir;
+      var ax = ux * inv, ay = uy * inv;
+      var q = inv * ir;
+      var wv = q * (uyy - uxx);
+      var a11 = 1 - wv, a22 = 1 + wv, a12 = q * 2 * ux * uy;
+
+      f32[0] = rsq;
+      var bb = i32[0], ee = ((bb >> 23) & 255) - 127;
+      i32[0] = (bb & 0x7FFFFF) | 0x3F800000;
+      var mm = f32[0];
+      var lrs = ee * 0.6931472 +
+        (-1.7417939 + (2.8212026 + (-1.4699568 + (0.44717955 - 0.056570851 * mm) * mm) * mm) * mm);
+      var pot = lnR - 0.5 * lrs; if (pot < 0) pot = 0;
+      var tau = -k1 * pot;                           // a negative mass arrives EARLY
+
+      if (two){
+        var vx = x - l2x, vy = y - l2y;
+        var vxx = vx * vx, vyy = vy * vy, ssq = vxx + vyy;
+        if (ssq < 1) ssq = 1;
+        var jr = 1 / ssq, jnv = k2 * jr;
+        ax += vx * jnv; ay += vy * jnv;
+        var q2 = jnv * jr, wv2 = q2 * (vyy - vxx);
+        a11 -= wv2; a22 += wv2; a12 += q2 * 2 * vx * vy;
+
+        f32[0] = ssq;
+        var b2 = i32[0], e2 = ((b2 >> 23) & 255) - 127;
+        i32[0] = (b2 & 0x7FFFFF) | 0x3F800000;
+        var m2 = f32[0];
+        var lr2 = e2 * 0.6931472 +
+          (-1.7417939 + (2.8212026 + (-1.4699568 + (0.44717955 - 0.056570851 * m2) * m2) * m2) * m2);
+        var p2 = lnR - 0.5 * lr2; if (p2 < 0) p2 = 0;
+        tau -= k2 * p2;
+      }
+
+      tau += 0.5 * (ax * ax + ay * ay);
+
+      var sx = x - ax; if (sx < 0) sx = 0; else if (sx > w - 1) sx = w - 1;
+      var sy = y - ay; if (sy < 0) sy = 0; else if (sy > h - 1) sy = h - 1;
+      var si = ((sy | 0) * w + (sx | 0));
+
+      var j = tau * TS | 0; if (j < 0) j = 0; else if (j > jmax) j = jmax;
+
+      var dens = 255 - hall[sb[j] + si];
+      if (grid) dens += gm[si];
+
+      var det = a11 * a22 - a12 * a12;
+      var ad = det < 0 ? -det : det;
+      if (ad < cw) dens += (1 - ad * cwi) * 195;
+
+      dens += pm[i];
+      if (dens < 0) dens = 0; else if (dens > 255) dens = 255;
+      var c = (dens | 0) * 3;
+      o[p] = lut[c]; o[p + 1] = lut[c + 1]; o[p + 2] = lut[c + 2]; o[p + 3] = 255;
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  AUDIO — the drone is gravitationally redshifted by the mass you hold
+// ═══════════════════════════════════════════════════════════════════════
+var AC = null, master = null, noiseBuf = null, soundOn = true;
+var oscA = null, oscB = null, lp = null, droneG = null;
+function initAudio(){
+  var Ctor = window.AudioContext || window.webkitAudioContext;
+  if (!Ctor) return;
+  if (!AC){
+    try { AC = new Ctor(); } catch(e){ AC = null; return; }
+    var comp = AC.createDynamicsCompressor();
+    try {
+      comp.threshold.value = -18; comp.knee.value = 22;
+      comp.ratio.value = 8; comp.attack.value = 0.005; comp.release.value = 0.3;
+    } catch(e){}
+    master = AC.createGain(); master.gain.value = 0.7;
+    master.connect(comp); comp.connect(AC.destination);
+
+    var n = Math.max(1, Math.floor(AC.sampleRate * 0.5));
+    noiseBuf = AC.createBuffer(1, n, AC.sampleRate);
+    var d = noiseBuf.getChannelData(0);
+    for (var i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+
+    lp = AC.createBiquadFilter(); lp.type = 'lowpass';
+    lp.frequency.value = 700; lp.Q.value = 0.7;
+    droneG = AC.createGain(); droneG.gain.value = 0.11;
+    lp.connect(droneG); droneG.connect(master);
+    oscA = AC.createOscillator(); oscA.type = 'sine'; oscA.frequency.value = 96;
+    oscB = AC.createOscillator(); oscB.type = 'triangle'; oscB.frequency.value = 144.6;
+    oscA.connect(lp); oscB.connect(lp);
+    try { oscA.start(); oscB.start(); } catch(e){}
+  }
+  if (AC.state === 'suspended' && AC.resume) AC.resume();
+}
+function tuneDrone(){
+  if (!AC || !oscA) return;
+  var t = AC.currentTime;
+  var m = (LMASS[0] + (nLens > 1 ? LMASS[1] : LMASS[0])) * 0.5;
+  if (!(m >= 0)) m = 0;
+  var z = 1 - 0.42 * m;                    // redshift with the potential
+  try {
+    oscA.frequency.setTargetAtTime(96 * z, t, 0.15);
+    oscB.frequency.setTargetAtTime(144.6 * z, t, 0.15);
+    lp.frequency.setTargetAtTime(420 + 900 * (1 - m), t, 0.2);
+    droneG.gain.setTargetAtTime(soundOn ? 0.06 + 0.10 * m : 0, t, 0.12);
+  } catch(e){}
+}
+function plateSlide(){
+  if (!AC || !master || !soundOn || !noiseBuf) return;
+  var t = AC.currentTime;
+  var s = AC.createBufferSource(); s.buffer = noiseBuf;
+  var bp = AC.createBiquadFilter(); bp.type = 'bandpass';
+  bp.frequency.value = 900; bp.Q.value = 0.8;
+  var g = AC.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.16, t + 0.02);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.22);
+  s.connect(bp); bp.connect(g); g.connect(master);
+  try { s.start(t); s.stop(t + 0.3); } catch(e){}
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  CAMERA
+// ═══════════════════════════════════════════════════════════════════════
+var facing = 'user', mirror = true, stream = null;
+function showError(e){
+  var msg = (e && e.message) ? e.message : String(e || 'unknown');
+  errBox.style.display = 'block';
+  errBox.textContent = 'カメラを起動できませんでした：' + msg +
+    '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+}
+function applyMirror(){
+  if (mirror) cv.classList.add('mir'); else cv.classList.remove('mir');
+}
+function startStream(){
+  var md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) return Promise.reject(new Error('getUserMedia is unavailable'));
+  if (stream && stream.getTracks) stream.getTracks().forEach(function(t){ t.stop(); });
+  return md.getUserMedia({
+    video: { facingMode: { ideal: facing }, width: { ideal: 1280 }, height: { ideal: 720 } },
+    audio: false
+  }).then(function(st){
+    stream = st; video.srcObject = st;
+    mirror = (facing === 'user');
+    applyMirror();
+    var p = video.play();
+    return (p && p.then) ? p.catch(function(){}) : null;
+  });
+}
+flipBtn.addEventListener('click', function(){
+  facing = (facing === 'user') ? 'environment' : 'user';
+  loseHands();
+  filled = 0; wslot = 0;              // the history is of the other camera
+  startStream().then(startMpCamera).catch(function(){});
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+//  HANDS
+// ═══════════════════════════════════════════════════════════════════════
+var hands = null, mpCamera = null, mpReady = false, running = false;
+var handsLm = [], lastHandT = 0, FRESH_MS = 220;
+
+function initHands(){
+  if (typeof window.Hands !== 'function') return false;
+  try {
+    hands = new window.Hands({ locateFile: function(f){
+      return 'https://cdn.jsdelivr.net/npm/@mediapipe/hands/' + f;
+    }});
+    hands.setOptions({ maxNumHands:2, modelComplexity:0,
+                       minDetectionConfidence:0.6, minTrackingConfidence:0.5 });
+    hands.onResults(onHands);
+    mpReady = true;
+    return true;
+  } catch(e){ return false; }
+}
+function validLm(c){
+  if (!c || c.length < 21) return null;
+  for (var i = 0; i < 21; i++){
+    var p = c[i];
+    if (!p || typeof p.x !== 'number' || typeof p.y !== 'number' ||
+        !isFinite(p.x) || !isFinite(p.y)) return null;
+  }
+  return c;
+}
+function onHands(res){
+  var out = [];
+  if (res && res.multiHandLandmarks && res.multiHandLandmarks.length){
+    for (var i = 0; i < res.multiHandLandmarks.length && out.length < 2; i++){
+      var v = validLm(res.multiHandLandmarks[i]);
+      if (v) out.push(v);
+    }
+  }
+  if (out.length){ handsLm = out; lastHandT = now(); }
+}
+function loseHands(){ handsLm = []; }
+function startMpCamera(){
+  if (!mpReady || typeof window.Camera !== 'function') return;
+  try {
+    if (mpCamera && mpCamera.stop) mpCamera.stop();
+    mpCamera = new window.Camera(video, {
+      onFrame: function(){
+        if (!hands || !running) return Promise.resolve();
+        return hands.send({ image: video }).catch(function(){});
+      },
+      width: 640, height: 480
+    });
+    mpCamera.start();
+  } catch(e){ mpReady = false; }
+}
+
+var cropSX = 0, cropSY = 0, cropSC = 1, vidW = 0, vidH = 0;
+function lmX(p){ return (p.x * vidW - cropSX) * cropSC; }
+function lmY(p){ return (p.y * vidH - cropSY) * cropSC; }
+function seg(lm, a, b){
+  var dx = lmX(lm[a]) - lmX(lm[b]), dy = lmY(lm[a]) - lmY(lm[b]);
+  return Math.sqrt(dx * dx + dy * dy);
+}
+// straightness = chord / bone-path, so a short pinky scores like a long
+// middle finger when both are straight
+function straight(lm, mcp){
+  var path = seg(lm, mcp, mcp + 1) + seg(lm, mcp + 1, mcp + 2) + seg(lm, mcp + 2, mcp + 3);
+  if (!(path > 0.0001)) return 0;
+  return seg(lm, mcp + 3, mcp) / path;
+}
+function readHand(lm){
+  var x = (lmX(lm[0]) + lmX(lm[9])) * 0.5, y = (lmY(lm[0]) + lmY(lm[9])) * 0.5;
+  if (!isFinite(x) || !isFinite(y)) return null;
+  var st = (straight(lm, 5) + straight(lm, 9) + straight(lm, 13) + straight(lm, 17)) * 0.25;
+  if (!isFinite(st)) return null;
+  // open hand ≈ 0.95 → light ; fist ≈ 0.45 → heavy
+  var m = (0.95 - st) / 0.45;
+  if (m < 0) m = 0; else if (m > 1) m = 1;
+  return { x:x, y:y, mass:0.10 + 0.90 * m };
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  MODES / UI
+// ═══════════════════════════════════════════════════════════════════════
+var MODES = [
+  { jp:'点', en:'point', hint:'手が<b>重さ</b>になります。握るほど重く、輪が大きくなる。輪に映るあなたは<b>少し前</b>のあなた。' },
+  { jp:'面', en:'sphere', hint:'銀河ハローと同じ<b>等温球</b>。曲がり方が距離によらないので、輪はやわらかく広い。' },
+  { jp:'虚', en:'negative', hint:'質量の符号を反転した<b>負の質量</b>。光は押しのけられ、輪のかわりに空洞が開く。' }
+];
+var mode = 0;
+var QUALS = [ { jp:'オート', en:'auto', px:0 }, { jp:'高', en:'high', px:116000 }, { jp:'低', en:'low', px:30000 } ];
+var qualIdx = 0;
+var wipe = 0;
+
+function setMode(i){
+  mode = ((i % 3) + 3) % 3;
+  modeBtn.innerHTML = MODES[mode].jp + '<span class="en">' + MODES[mode].en + '</span>';
+  hintEl.innerHTML = MODES[mode].hint;
+  wipe = 1;
+  plateSlide();
+}
+modeBtn.addEventListener('click', function(){ setMode(mode + 1); });
+gridBtn.addEventListener('click', function(){
+  showGrid = !showGrid;
+  gridBtn.classList.toggle('off', !showGrid);
+});
+soundBtn.addEventListener('click', function(){
+  soundOn = !soundOn;
+  soundBtn.classList.toggle('off', !soundOn);
+  tuneDrone();
+});
+qualBtn.addEventListener('click', function(){
+  qualIdx = (qualIdx + 1) % QUALS.length;
+  var q = QUALS[qualIdx];
+  qualBtn.innerHTML = q.jp + '<span class="en">' + q.en + '</span>';
+  qualBtn.classList.toggle('hot', q.px !== 0);
+  if (q.px){ targetPx = q.px; maxAllowed = q.px; }
+  else { targetPx = 76000; maxAllowed = MAX_PX; }
+  adaptCool = 2.0;
+});
+
+// pointer: press and HOLD to grow the mass, which is the whole interaction
+// on a desktop with no hand in front of the camera
+var pointerOn = false, pointerX = 0, pointerY = 0, pointerMass = 0.25;
+function ptTo(e){
+  var r = cv.getBoundingClientRect();
+  if (!(r.width > 0 && r.height > 0)) return false;
+  var nx = (e.clientX - r.left) / r.width, ny = (e.clientY - r.top) / r.height;
+  if (mirror) nx = 1 - nx;
+  if (!(nx >= -0.2 && nx <= 1.2 && ny >= -0.2 && ny <= 1.2)) return false;
+  pointerX = nx * IW; pointerY = ny * IH;
+  return true;
+}
+cv.addEventListener('pointerdown', function(e){
+  if (!ready) return;
+  if (ptTo(e)){ pointerOn = true; pointerMass = 0.25; }
+});
+cv.addEventListener('pointermove', function(e){ if (pointerOn) ptTo(e); });
+cv.addEventListener('pointerup',     function(){ pointerOn = false; });
+cv.addEventListener('pointercancel', function(){ pointerOn = false; });
+cv.addEventListener('pointerleave',  function(){ pointerOn = false; });
+
+startBtn.addEventListener('click', function(){
+  initAudio();
+  ovl.style.display = 'none';
+  running = true;
+  if (!mpReady) initHands();
+  startStream().then(startMpCamera).catch(showError);
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+//  LOOP
+// ═══════════════════════════════════════════════════════════════════════
+var tPrev = 0, frameMs = 16, frameDt = 16.7, adaptCool = 2.5, statT = 0, fps = 0, tuneT = 0;
+
+function grabFrame(){
+  vidW = video.videoWidth || 0; vidH = video.videoHeight || 0;
+  if (!(vidW > 0 && vidH > 0)) return false;
+  var sc = Math.max(IW / vidW, IH / vidH);
+  if (!(sc > 0) || !isFinite(sc)) return false;
+  var sw = IW / sc, sh = IH / sc;
+  cropSX = (vidW - sw) * 0.5; cropSY = (vidH - sh) * 0.5; cropSC = sc;
+  try { wctx.drawImage(video, cropSX, cropSY, sw, sh, 0, 0, IW, IH); } catch(e){ return false; }
+  var img = wctx.getImageData(0, 0, IW, IH);
+  liveBuf = img.data;
+  return true;
+}
+
+function adapt(){
+  if (QUALS[qualIdx].px !== 0 || adaptCool > 0) return;
+  if (frameDt > 25 || frameMs > 15){
+    if (targetPx > MIN_PX){
+      targetPx = Math.round(targetPx * 0.80);
+      if (targetPx < MIN_PX) targetPx = MIN_PX;
+      maxAllowed = targetPx; adaptCool = 2.5;
+    }
+  } else if (frameDt < 18.5 && frameMs < 7){
+    if (targetPx < maxAllowed) targetPx = Math.min(maxAllowed, Math.round(targetPx * 1.10));
+    else if (maxAllowed < MAX_PX) maxAllowed = Math.min(MAX_PX, Math.round(maxAllowed * 1.10));
+    adaptCool = 2.0;
+  }
+}
+
+function fiducials(){
+  var u = Math.max(6, Math.round(IW * 0.022));
+  ctx.save();
+  ctx.strokeStyle = 'rgba(20,17,13,.55)';
+  ctx.lineWidth = 1;
+  var pts = [[u * 1.6, u * 1.6], [IW - u * 1.6, u * 1.6],
+             [u * 1.6, IH - u * 1.6], [IW - u * 1.6, IH - u * 1.6]];
+  for (var i = 0; i < 4; i++){
+    var px = pts[i][0], py = pts[i][1];
+    ctx.beginPath();
+    ctx.moveTo(px - u, py); ctx.lineTo(px + u, py);
+    ctx.moveTo(px, py - u); ctx.lineTo(px, py + u);
+    ctx.stroke();
+  }
+  // where the masses actually are, in vermilion, the way a plate is marked up
+  ctx.strokeStyle = 'rgba(200,69,43,.75)';
+  for (var L = 0; L < nLens; L++){
+    ctx.beginPath();
+    ctx.arc(LX[L], LY[L], Math.max(2, u * 0.28), 0, 6.2832);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function frame(dt, t){
+  if (!IW) return;
+  if (grabFrame()){ if (!ready) ready = true; }
+  if (!ready || !liveBuf) return;
+
+  pushFrame(t);
+  buildSlots(t);
+  if (pointerOn && pointerMass < 1) pointerMass = Math.min(1, pointerMass + dt * 1.1);
+  updateLenses(dt);
+
+  if (mode === 0) renderPoint();
+  else if (mode === 1) renderSIS();
+  else renderNeg();
+
+  ctx.putImageData(outImg, 0, 0);
+  fiducials();
+
+  wipe -= dt * 7; if (wipe < 0) wipe = 0;
+  wipeEl.style.opacity = String(wipe * 0.85);
+}
+
+function loop(ts){
+  requestAnimationFrame(loop);
+  var t = (typeof ts === 'number' && isFinite(ts)) ? ts : now();
+  var realDt = tPrev ? (t - tPrev) : 16.7;
+  var dt = tPrev ? realDt / 1000 : 0.0167;
+  tPrev = t;
+  if (!(dt > 0)) dt = 0.0001;
+  if (dt > 0.1) dt = 0.1;
+  frameDt += (realDt - frameDt) * 0.10;
+  if (adaptCool > 0) adaptCool -= dt;
+
+  ensureSize();
+  var t0 = now();
+  frame(dt, t * 0.001);
+  var t1 = now();
+  frameMs += ((t1 - t0) - frameMs) * 0.12;
+  adapt();
+
+  tuneT += dt;
+  if (tuneT > 0.08){ tuneT = 0; tuneDrone(); }
+
+  fps += (1 / dt - fps) * 0.08;
+  statT += dt;
+  if (statT > 0.25){
+    statT = 0;
+    var thE = LTHE[0] / (IW || 1);
+    statEl.textContent =
+      IW + '×' + IH + '  ' + Math.round(fps) + ' fps\n' +
+      'θE ' + thE.toFixed(3) + '   M ' + nLens + '   Δt ' +
+      (JN * DT_STEP).toFixed(2) + 's';
+  }
+}
+
+setMode(0);
+applyMirror();
+ensureSize();
+requestAnimationFrame(loop);
+
+// ═══════════════════════════════════════════════════════════════════════
+//  TEST SURFACE — there is no browser here, so the optics has to be
+//  drivable and checkable from a headless harness.
+// ═══════════════════════════════════════════════════════════════════════
+window.__OMOMI__ = {
+  size:     function(){ return { IW:IW, IH:IH }; },
+  setMode:  setMode,
+  getMode:  function(){ return mode; },
+  outData:  function(){ return outData; },
+  live:     function(){ return liveBuf; },
+  hist:     function(){ return histAll; },
+  histInfo: function(){ return { NH:NH, filled:filled, wslot:wslot, JN:JN, step:DT_STEP }; },
+  slots:    function(){ return slotBase; },
+  gridMask: function(){ return gridM; },
+  plate:    function(){ return plateM; },
+  lut:      function(){ return LUT; },
+  lens:     function(i){ return { x:LX[i], y:LY[i], thE:LTHE[i], mass:LMASS[i] }; },
+  nLens:    function(){ return nLens; },
+  setLens:  function(i, x, y, thE){
+    LX[i] = x; LY[i] = y; LVX[i] = 0; LVY[i] = 0;
+    LTHE[i] = thE; LMASS[i] = (thE - theMin()) / (theMax() - theMin());
+  },
+  setN:     function(n){ nLens = n; },
+  hold:     function(b){ holdLens = !!b; },
+  setGrid:  function(b){ showGrid = !!b; },
+  setPx:    function(px){ targetPx = px; maxAllowed = px; qualIdx = 1; QUALS[1].px = px; adaptCool = 9e9; },
+  feed:     function(list){ onHands({ multiHandLandmarks: list || [] }); lastHandT = now(); },
+  lose:     loseHands,
+  ready:    function(){ return ready; },
+  go:       function(){ running = true; },
+  // the physics, exposed so the harness can check it against closed forms
+  deflect:  function(x, y){
+    var ax = 0, ay = 0, i, k;
+    for (i = 0; i < nLens; i++){
+      var ux = x - LX[i], uy = y - LY[i], r2 = ux * ux + uy * uy;
+      if (r2 < 1) r2 = 1;
+      if (mode === 1){ k = LTHE[i] / Math.sqrt(r2); }
+      else { k = (mode === 2 ? -1 : 1) * LTHE[i] * LTHE[i] / r2; }
+      ax += ux * k; ay += uy * k;
+    }
+    return { ax:ax, ay:ay, sx:x - ax, sy:y - ay };
+  },
+  detA:     function(x, y){
+    var a11 = 1, a22 = 1, a12 = 0, i;
+    for (i = 0; i < nLens; i++){
+      var ux = x - LX[i], uy = y - LY[i];
+      var uxx = ux * ux, uyy = uy * uy, r2 = uxx + uyy;
+      if (r2 < 1) r2 = 1;
+      if (mode === 1){
+        var r3 = 1 / (r2 * Math.sqrt(r2)), t = LTHE[i];
+        a11 -= t * uyy * r3; a22 -= t * uxx * r3; a12 += t * ux * uy * r3;
+      } else {
+        var k = (mode === 2 ? -1 : 1) * LTHE[i] * LTHE[i];
+        var q = k / (r2 * r2), w = q * (uyy - uxx);
+        a11 -= w; a22 += w; a12 += q * 2 * ux * uy;
+      }
+    }
+    return a11 * a22 - a12 * a12;
+  },
+  ln:       function(x){
+    _f32[0] = x;
+    var b = _i32[0], e = ((b >> 23) & 255) - 127;
+    _i32[0] = (b & 0x7FFFFF) | 0x3F800000;
+    var m = _f32[0];
+    return e * 0.6931472 +
+      (-1.7417939 + (2.8212026 + (-1.4699568 + (0.44717955 - 0.056570851 * m) * m) * m) * m);
+  }
+};
+
+})();
+</script>
+</body>
+</html>
