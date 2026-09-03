@@ -1,0 +1,868 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>SUNA ─ 砂になる</title>
+<meta name="description" content="体が砂になって崩れていくカメラエフェクト。落ちた砂は本物の粒として積もり、あなたの肩や頭にも溜まる。腕を振ればその山は崩れて散る。砂の色はカメラが見たあなたの色。">
+<meta name="theme-color" content="#b8896a">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Zen+Antique&family=Cutive+Mono&display=swap" rel="stylesheet">
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  SUNA ─ 砂                               ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  PALETTE   素焼 suyaki  #b8896a  unglazed terracotta       (ground)
+            白砂 hakusa  #f2e9d8  pale sand                 (light grains)
+            焦茶 kogecha #3a2418  deep umber                (the body)
+            群青 gunjo   #2e5f8a  a single cool blue        (chrome, type)
+            朱   shu     #c8502e  vermilion                 (active state)
+            MOOD: unglazed clay under a flat noon light. Every other piece
+            in the gallery sits at one end of the value scale — near-black
+            (TOKI, KAGEE, NAGORI) or near-white (AMITEN, MINAMO, HAKUCHU).
+            This one is the MID-TONE piece: matte, dry, nothing glows.
+
+  BACKGROUND  Flat terracotta with a fine clay speckle baked per cell. The
+            camera picture is never shown as a picture — it survives only
+            inside the grains, which take their colour from the pixel they
+            were born on. The pile is your own image, ground up.
+
+  TYPE      Zen Antique for the Japanese and Cutive Mono for the Latin —
+            an excavation label. Neither is used anywhere else here.
+
+  MOTION    Granular. Nothing eases: things fall and come to rest. The
+            chrome changes state instantly and pays for it with a puff of
+            dust. The only slow thing is the pile itself, settling.
+
+  SIGNATURE SAND LANDS ON YOU. Your silhouette is a solid obstacle in the
+            simulation, so grains pile on your shoulders and the top of
+            your head, and slide off the moment you move. Sweeping an arm
+            through a drift scatters it, because the arm is the same
+            obstacle. There is no gesture recognition anywhere in this
+            piece — the body IS the input, through the mask.
+
+  AUDIO     Sand only. A pouring hiss whose level tracks how many grains
+            actually moved this frame, and a soft collapse when a large
+            slide happens. Rate limited. Mutable.
+
+  ENGINEERING  MediaPipe Selfie Segmentation (unused anywhere else in the
+            collection) gives a body mask, resampled to the simulation
+            grid and used as solid cells. The grains are a falling-sand
+            cellular automaton: bottom-up scan, alternating direction each
+            frame to kill the drift bias, with a moved-flag so no grain is
+            stepped twice. Grid cells ARE output pixels, so one pass draws
+            the frame. Typed arrays are allocated once per size, the mask
+            is only re-read when the model actually delivers a new one, and
+            the grid adapts on the real frame interval with a 画質 override.
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<style>
+  *{ margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body{
+    width:100%; height:100%; overflow:hidden; background:#b8896a; color:#3a2418;
+    font-family:'Zen Antique',-apple-system,'Hiragino Mincho ProN',serif;
+    -webkit-user-select:none; user-select:none;
+  }
+  #stage{ position:fixed; inset:0; }
+  canvas#cv{ position:absolute; inset:0; width:100%; height:100%; display:block; }
+  video#vid{ position:absolute; width:2px; height:2px; opacity:0; pointer-events:none; left:-10px; top:-10px; }
+
+  .chrome{ position:absolute; inset:0; pointer-events:none; }
+  .row{ position:absolute; display:flex; align-items:center; gap:.4rem; pointer-events:auto; flex-wrap:wrap; }
+  .tl{ top:calc(env(safe-area-inset-top,0px) + .9rem); left:.9rem; }
+  .tr{ top:calc(env(safe-area-inset-top,0px) + .9rem); right:.9rem; }
+  .bc{
+    bottom:calc(env(safe-area-inset-bottom,0px) + 1rem); left:50%;
+    transform:translateX(-50%); justify-content:center; max-width:calc(100vw - 1.4rem);
+  }
+  /* stamped clay labels — flat, no blur, no glow */
+  .btn{
+    font-family:'Cutive Mono',ui-monospace,monospace; font-size:.7rem;
+    letter-spacing:.08em; color:#f2e9d8; background:#3a2418;
+    border:none; border-radius:0; padding:.42rem .7rem; cursor:pointer;
+    box-shadow:2px 2px 0 rgba(58,36,24,.28);
+  }
+  .btn:hover{ background:#2e5f8a; }
+  .btn.on{ background:#c8502e; }
+  .btn.off{ background:#8b7462; }
+  .btn .jp{ font-family:'Zen Antique',serif; font-size:.72rem; margin-right:.34rem; }
+
+  #label{
+    position:absolute; top:calc(env(safe-area-inset-top,0px) + .9rem); left:50%;
+    transform:translateX(-50%); pointer-events:none; text-align:center;
+  }
+  #lName{ font-size:1rem; letter-spacing:.4em; text-indent:.4em; color:#3a2418; }
+  #lSub{
+    font-family:'Cutive Mono',monospace; font-size:.58rem; letter-spacing:.16em;
+    color:#6b4a34; margin-top:.2rem;
+  }
+  #readout{
+    position:absolute; bottom:calc(env(safe-area-inset-bottom,0px) + .95rem); right:.9rem;
+    pointer-events:none; text-align:right;
+    font-family:'Cutive Mono',monospace; font-size:.66rem; letter-spacing:.06em;
+    line-height:1.5; color:#3a2418;
+  }
+  #readout .k{ color:#7a5a44; }
+  #warn{
+    position:absolute; bottom:calc(env(safe-area-inset-bottom,0px) + .95rem); left:.9rem;
+    pointer-events:none; max-width:46vw;
+    font-family:'Cutive Mono',monospace; font-size:.6rem; line-height:1.6; color:#8a3a20;
+    display:none;
+  }
+  #warn.on{ display:block; }
+
+  /* ── overlay ──────────────────────────────────────────── */
+  #ov{
+    position:absolute; inset:0; z-index:20; display:flex;
+    align-items:center; justify-content:center; padding:1.4rem;
+    background:#b8896a; text-align:center; overflow:auto;
+  }
+  #ov.hide{ display:none; }
+  .sheet{ width:min(94vw,25rem); }
+  .kanji{ font-size:clamp(3rem,16vw,4.6rem); letter-spacing:.3em; text-indent:.3em; color:#3a2418; }
+  .roman{
+    font-family:'Cutive Mono',monospace; font-size:.66rem;
+    letter-spacing:.52em; text-indent:.52em; color:#6b4a34; margin-top:.6rem;
+  }
+  .lede{ font-size:.82rem; line-height:2.05; color:#4d3122; margin-top:1.2rem; }
+  #howto{ display:block; margin:1.2rem auto .4rem; width:min(86vw,19rem); height:auto; border:2px solid #3a2418; }
+  .howcap{ font-family:'Cutive Mono',monospace; font-size:.6rem; letter-spacing:.06em; color:#6b4a34; line-height:1.9; }
+  #go{
+    margin-top:1.5rem; font-family:'Zen Antique',serif;
+    font-size:1rem; letter-spacing:.4em; text-indent:.4em;
+    color:#f2e9d8; background:#3a2418; border:none; border-radius:0;
+    padding:.8rem 2.2rem; cursor:pointer; box-shadow:4px 4px 0 rgba(58,36,24,.3);
+  }
+  #go:hover{ background:#c8502e; }
+  #go:disabled{ opacity:.5; cursor:default; }
+  #err{
+    display:none; margin-top:1.1rem; font-family:'Cutive Mono',monospace;
+    font-size:.7rem; line-height:1.85; color:#7a2414;
+    white-space:pre-line; border:2px solid #7a2414; padding:.7rem .8rem; text-align:left;
+  }
+  .note{ margin-top:1.25rem; font-family:'Cutive Mono',monospace; font-size:.56rem; color:#7a5a44; line-height:1.9; }
+  @media (max-height:580px){
+    #howto{ width:min(58vw,13rem); } .lede{ margin-top:.7rem; line-height:1.8; } #go{ margin-top:.9rem; }
+  }
+</style>
+</head>
+<body>
+<div id="stage">
+  <video id="vid" playsinline muted autoplay></video>
+  <canvas id="cv"></canvas>
+
+  <div class="chrome">
+    <div class="row tl">
+      <button class="btn" id="flipBtn" type="button">⟲<span class="jp"> カメラ</span></button>
+      <button class="btn" id="rakeBtn" type="button"><span class="jp">ならす</span>RAKE</button>
+    </div>
+    <div class="row tr">
+      <button class="btn" id="qualBtn" type="button"><span class="jp">粒</span><span id="qualLbl">AUTO</span></button>
+      <button class="btn" id="soundBtn" type="button">SND</button>
+    </div>
+
+    <div id="label">
+      <div id="lName">砂</div>
+      <div id="lSub">SUNA / CRUMBLE</div>
+    </div>
+
+    <div id="readout">
+      <div><span class="k">GRAINS</span> <span id="rGrains">0</span></div>
+      <div><span class="k">GRID</span> <span id="rGrid">—</span></div>
+    </div>
+    <div id="warn">体の切り抜きを読み込めませんでした。<br>砂は降りますが、体には積もりません。</div>
+
+    <div class="row bc" id="modeRow">
+      <button class="btn on" type="button" data-m="0"><span class="jp">崩れる</span>CRUMBLE</button>
+      <button class="btn" type="button" data-m="1"><span class="jp">降る</span>FALL</button>
+      <button class="btn" type="button" data-m="2"><span class="jp">流れる</span>FLOW</button>
+    </div>
+  </div>
+
+  <div id="ov">
+    <div class="sheet">
+      <div class="kanji">砂</div>
+      <div class="roman">SUNA</div>
+      <p class="lede">体が砂になって、こぼれ落ちていきます。<br>落ちた砂は、あなたの肩にも積もります。</p>
+      <canvas id="howto" width="620" height="300"></canvas>
+      <p class="howcap">腕を振れば積もった砂は崩れて散る。<br>砂の色は、カメラが見たあなたの色です。</p>
+      <button id="go" type="button">はじめる</button>
+      <div id="err"></div>
+      <p class="note">カメラ映像は端末の外に出ません。<br>全身より、上半身が大きく映るほうがよく崩れます。</p>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation/selfie_segmentation.js"></script>
+<script>
+"use strict";
+// ═══════════════════════════════════════════════════════════════════════
+//  DOM
+// ═══════════════════════════════════════════════════════════════════════
+var video    = document.getElementById('vid');
+var cv       = document.getElementById('cv');
+var ctx      = cv.getContext('2d');
+var ov       = document.getElementById('ov');
+var goBtn    = document.getElementById('go');
+var errBox   = document.getElementById('err');
+var flipBtn  = document.getElementById('flipBtn');
+var rakeBtn  = document.getElementById('rakeBtn');
+var qualBtn  = document.getElementById('qualBtn');
+var qualLbl  = document.getElementById('qualLbl');
+var soundBtn = document.getElementById('soundBtn');
+var modeRow  = document.getElementById('modeRow');
+var howto    = document.getElementById('howto');
+var howCtx   = howto.getContext('2d');
+var lName    = document.getElementById('lName');
+var lSub     = document.getElementById('lSub');
+var rGrains  = document.getElementById('rGrains');
+var rGrid    = document.getElementById('rGrid');
+var warnEl   = document.getElementById('warn');
+
+// ═══════════════════════════════════════════════════════════════════════
+//  MODES — one automaton, three materials
+// ═══════════════════════════════════════════════════════════════════════
+var MODES = [
+  { jp:'砂',   sub:'SUNA / CRUMBLE', from:'body', spread:1, rate:0.42 },
+  { jp:'雪',   sub:'YUKI / FALL',    from:'sky',  spread:1, rate:0.30 },
+  { jp:'流れ', sub:'NAGARE / FLOW',  from:'body', spread:5, rate:0.42 }
+];
+var mode = 0;
+
+// ═══════════════════════════════════════════════════════════════════════
+//  PALETTE (as bytes, so the render loop never parses a string)
+// ═══════════════════════════════════════════════════════════════════════
+var GROUND = [184, 137, 106];   // 素焼
+var BODY   = [58, 36, 24];      // 焦茶
+var RIM    = [92, 60, 40];
+var SNOW   = [242, 233, 216];   // 白砂
+
+// ═══════════════════════════════════════════════════════════════════════
+//  GRID / BUFFERS
+// ═══════════════════════════════════════════════════════════════════════
+var W = 1, H = 1, U = 1, DPR = 1;
+var camCv  = document.createElement('canvas'), camCtx  = camCv.getContext('2d');
+var maskCv = document.createElement('canvas'), maskCtx = maskCv.getContext('2d');
+var outCv  = document.createElement('canvas'), outCtx  = outCv.getContext('2d');
+var outImg = null;
+var occ = null, gr = null, gg = null, gb = null, moved = null, speck = null;
+var edge = null, edgeN = 0;   // solid cells with open space beneath: where sand sheds
+var GW = 0, GH = 0, ASP = 4 / 3;
+var targetCells = 52000;
+var MAX_CELLS = 90000, MIN_CELLS = 22000, maxAllowed = 90000;
+var QUALS = [{ en:'AUTO', n:0 }, { en:'FINE', n:90000 }, { en:'COARSE', n:24000 }];
+var qualIdx = 0;
+var grainCount = 0, movedCount = 0, scanFlip = 0;
+
+function allocBuffers(){
+  var w = Math.max(48, Math.round(Math.sqrt(targetCells * ASP)));
+  var h = Math.max(36, Math.round(w / ASP));
+  if (w === GW && h === GH) return;
+  GW = w; GH = h;
+  var n = GW * GH;
+  camCv.width = GW; camCv.height = GH;
+  maskCv.width = GW; maskCv.height = GH;
+  outCv.width = GW; outCv.height = GH;
+  outImg = outCtx.createImageData(GW, GH);
+  var d = outImg.data;
+  for (var i = 3; i < d.length; i += 4) d[i] = 255;   // alpha, written once
+  occ = new Uint8Array(n);
+  gr = new Uint8Array(n); gg = new Uint8Array(n); gb = new Uint8Array(n);
+  moved = new Uint8Array(n);
+  speck = new Uint8Array(n);
+  edge = new Int32Array(n);
+  edgeN = 0;
+  var s = 123456789;
+  for (i = 0; i < n; i++){
+    s ^= s << 13; s ^= s >>> 17; s ^= s << 5; s |= 0;
+    speck[i] = (s >>> 24) & 15;                       // 0..15 clay grain
+  }
+  grainCount = 0;
+  maskDirty = true;
+  if (rGrid) rGrid.textContent = GW + '×' + GH;
+}
+
+function fit(){
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  var w = Math.max(1, window.innerWidth), h = Math.max(1, window.innerHeight);
+  cv.width = Math.round(w * DPR); cv.height = Math.round(h * DPR);
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  W = w; H = h; U = Math.min(w, h);
+  allocBuffers();
+}
+window.addEventListener('resize', fit);
+window.addEventListener('orientationchange', function(){ setTimeout(fit, 240); });
+
+// ═══════════════════════════════════════════════════════════════════════
+//  THE BODY MASK
+// ═══════════════════════════════════════════════════════════════════════
+var seg = null, mpCamera = null, segReady = false, segOk = false;
+var maskDirty = false, haveMask = false;
+
+function initSeg(){
+  var Ctor = window.SelfieSegmentation;
+  if (typeof Ctor !== 'function') return false;
+  try {
+    seg = new Ctor({ locateFile: function(f){
+      return 'https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation/' + f;
+    }});
+    seg.setOptions({ modelSelection: 1 });
+    seg.onResults(onSeg);
+    segReady = true;
+    return true;
+  } catch(e){ segReady = false; return false; }
+}
+function onSeg(res){
+  if (!res || !res.segmentationMask || GW < 4) return;
+  try {
+    maskCtx.save();
+    maskCtx.setTransform(1, 0, 0, 1, 0, 0);
+    maskCtx.clearRect(0, 0, GW, GH);
+    if (mirror){ maskCtx.translate(GW, 0); maskCtx.scale(-1, 1); }
+    maskCtx.drawImage(res.segmentationMask, 0, 0, GW, GH);
+    maskCtx.restore();
+    maskDirty = true; haveMask = true; segOk = true;
+  } catch(e){ /* a frame without a mask is survivable */ }
+}
+function startMpCamera(){
+  if (!segReady || typeof window.Camera !== 'function') return;
+  try {
+    if (mpCamera && mpCamera.stop) mpCamera.stop();
+    mpCamera = new window.Camera(video, {
+      onFrame: function(){
+        if (!seg || state !== 'live') return Promise.resolve();
+        return seg.send({ image: video }).catch(function(){});
+      },
+      width: 640, height: 480
+    });
+    mpCamera.start();
+  } catch(e){ segReady = false; }
+}
+
+// stamp the mask into the grid as solid cells, evicting any grain caught inside
+function applyMask(){
+  var img;
+  try { img = maskCtx.getImageData(0, 0, GW, GH); } catch(e){ return; }
+  var m = img.data, o = occ, n = GW * GH;
+  var w = GW, h = GH;
+  for (var i = 0, mi = 0; i < n; i++, mi += 4){
+    var solid = m[mi] > 128;
+    var cur = o[i];
+    if (solid){
+      if (cur === 1){
+        // the body has moved into a drift: shove the grain out, or lose it
+        var up = i - w;
+        if (up >= 0 && o[up] === 0){ o[up] = 1; gr[up] = gr[i]; gg[up] = gg[i]; gb[up] = gb[i]; }
+        else {
+          var side = (i % w) > 0 && o[i - 1] === 0 ? i - 1
+                   : (i % w) < w - 1 && o[i + 1] === 0 ? i + 1 : -1;
+          if (side >= 0){ o[side] = 1; gr[side] = gr[i]; gg[side] = gg[i]; gb[side] = gb[i]; }
+          else grainCount--;
+        }
+      }
+      o[i] = 2;
+    } else if (cur === 2){
+      o[i] = 0;                       // the body left: the cell opens up
+    }
+  }
+  // Collect the underside of the body ONCE, here. Sampling the whole grid at
+  // random to find these cells is hopeless: the boundary is a thin line, so
+  // the odds of hitting one fall with the body's perimeter-to-area ratio and
+  // almost no sand ever sheds.
+  var e = edge, en = 0;
+  for (var y = 0; y < h - 1; y++){
+    var row = y * w;
+    for (var x = 0; x < w; x++){
+      var j = row + x;
+      if (o[j] === 2 && o[j + w] !== 2) e[en++] = j;
+    }
+  }
+  edgeN = en;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  THE AUTOMATON
+// ═══════════════════════════════════════════════════════════════════════
+function emit(cam){
+  var m = MODES[mode], w = GW, h = GH, o = occ;
+  var tries = Math.round(w * m.rate);
+  var i, x, y, idx, below;
+  if (m.from === 'sky'){
+    for (i = 0; i < tries; i++){
+      x = (Math.random() * w) | 0;
+      if (x >= w) x = w - 1;
+      idx = x;                                  // top row
+      if (o[idx] !== 0) continue;
+      o[idx] = 1; grainCount++;
+      var v = 200 + ((Math.random() * 56) | 0);
+      gr[idx] = (SNOW[0] * v) >> 8; gg[idx] = (SNOW[1] * v) >> 8; gb[idx] = (SNOW[2] * v) >> 8;
+    }
+    return;
+  }
+  // from the body: a grain is born in the empty cell just under a solid one,
+  // drawn from the underside list the mask pass already built
+  if (edgeN <= 0) return;
+  tries = Math.round(edgeN * 0.5);
+  var cap = Math.round(w * 0.6);
+  if (tries > cap) tries = cap;
+  for (i = 0; i < tries; i++){
+    var k = (Math.random() * edgeN) | 0;
+    if (k >= edgeN) k = edgeN - 1;
+    idx = edge[k];
+    below = idx + w;
+    if (below >= w * h || o[below] !== 0) continue;
+    o[below] = 1; grainCount++;
+    var ci = below << 2;
+    gr[below] = cam[ci]; gg[below] = cam[ci + 1]; gb[below] = cam[ci + 2];
+  }
+}
+
+function step(){
+  var o = occ, w = GW, h = GH, mv = moved;
+  var spread = MODES[mode].spread;
+  var n = w * h;
+  mv.fill(0);
+  var count = 0;
+  // bottom-up: a grain only ever moves into rows already handled
+  for (var y = h - 2; y >= 0; y--){
+    var row = y * w;
+    // alternate the horizontal scan each frame or the pile leans one way
+    var x0 = (scanFlip & 1) ? w - 1 : 0, x1 = (scanFlip & 1) ? -1 : w, dxs = (scanFlip & 1) ? -1 : 1;
+    for (var x = x0; x !== x1; x += dxs){
+      var i = row + x;
+      if (o[i] !== 1 || mv[i]) continue;
+      var below = i + w;
+      if (o[below] === 0){
+        o[below] = 1; gr[below] = gr[i]; gg[below] = gg[i]; gb[below] = gb[i];
+        o[i] = 0; mv[below] = 1; count++;
+        continue;
+      }
+      // try the two diagonals, in a random order so piles stay symmetric
+      var first = Math.random() < 0.5 ? -1 : 1;
+      var placed = 0;
+      for (var t = 0; t < 2 && !placed; t++){
+        var d = t === 0 ? first : -first;
+        var nx = x + d;
+        if (nx < 0 || nx >= w) continue;
+        if (o[below + d] !== 0 || o[i + d] !== 0) continue;
+        o[below + d] = 1; gr[below + d] = gr[i]; gg[below + d] = gg[i]; gb[below + d] = gb[i];
+        o[i] = 0; mv[below + d] = 1; count++; placed = 1;
+      }
+      if (placed || spread <= 1) continue;
+      // FLOW: a liquid also creeps sideways along a flat surface
+      var dir = Math.random() < 0.5 ? -1 : 1;
+      for (var s = 1; s <= spread; s++){
+        var sx = x + dir * s;
+        if (sx < 0 || sx >= w) break;
+        var si = row + dir * s + x;
+        if (o[si] !== 0) break;
+        if (o[si + w] === 0){
+          o[si] = 1; gr[si] = gr[i]; gg[si] = gg[i]; gb[si] = gb[i];
+          o[i] = 0; mv[si] = 1; count++; break;
+        }
+      }
+    }
+  }
+  scanFlip++;
+  movedCount = count;
+  // never let the frame silt up completely: the floor drains slowly
+  if (grainCount > n * 0.5){
+    var floor = (h - 1) * w;
+    for (var k = 0; k < w; k += 2){
+      var fi = floor + k;
+      if (o[fi] === 1){ o[fi] = 0; grainCount--; }
+    }
+  }
+}
+
+function rake(){
+  if (!occ) return;
+  var o = occ, n = GW * GH;
+  for (var i = 0; i < n; i++) if (o[i] === 1) o[i] = 0;
+  grainCount = 0;
+  dust = 1;
+  sweep();
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  RENDER — the grid IS the frame
+// ═══════════════════════════════════════════════════════════════════════
+function render(dst){
+  var o = occ, w = GW, h = GH, sp = speck;
+  var g0 = GROUND[0], g1 = GROUND[1], g2 = GROUND[2];
+  var b0 = BODY[0], b1 = BODY[1], b2 = BODY[2];
+  var r0 = RIM[0], r1 = RIM[1], r2 = RIM[2];
+  var n = w * h, di = 0;
+  for (var i = 0; i < n; i++, di += 4){
+    var c = o[i];
+    if (c === 1){
+      dst[di] = gr[i]; dst[di + 1] = gg[i]; dst[di + 2] = gb[i];
+    } else if (c === 2){
+      // a one-cell lighter rim, so the silhouette reads as drawn
+      var x = i % w;
+      var rim = (x > 0 && o[i - 1] !== 2) || (x < w - 1 && o[i + 1] !== 2) ||
+                (i >= w && o[i - w] !== 2) || (i < n - w && o[i + w] !== 2);
+      if (rim){ dst[di] = r0; dst[di + 1] = r1; dst[di + 2] = r2; }
+      else { dst[di] = b0; dst[di + 1] = b1; dst[di + 2] = b2; }
+    } else {
+      var v = sp[i] - 7;
+      dst[di] = g0 + v; dst[di + 1] = g1 + v; dst[di + 2] = g2 + v;
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  AUDIO — sand only
+// ═══════════════════════════════════════════════════════════════════════
+var AC = null, master = null, comp = null, noiseBuf = null, soundOn = true;
+var pourGain = null, lastCollapse = 0;
+function initAudio(){
+  var Ctor = window.AudioContext || window.webkitAudioContext;
+  if (!Ctor) return;
+  if (!AC){
+    try { AC = new Ctor(); } catch(e){ AC = null; return; }
+    comp = AC.createDynamicsCompressor();
+    try {
+      comp.threshold.value = -18; comp.knee.value = 22;
+      comp.ratio.value = 8; comp.attack.value = 0.004; comp.release.value = 0.24;
+    } catch(e){}
+    master = AC.createGain(); master.gain.value = 0.85;
+    master.connect(comp); comp.connect(AC.destination);
+    var n = Math.floor(AC.sampleRate * 0.5);
+    noiseBuf = AC.createBuffer(1, n, AC.sampleRate);
+    var d = noiseBuf.getChannelData(0);
+    for (var i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+    var s = AC.createBufferSource(); s.buffer = noiseBuf; s.loop = true;
+    var bp = AC.createBiquadFilter(); bp.type = 'bandpass';
+    bp.frequency.value = 4600; bp.Q.value = 0.7;
+    pourGain = AC.createGain(); pourGain.gain.value = 0;
+    s.connect(bp); bp.connect(pourGain); pourGain.connect(master);
+    try { s.start(); } catch(e){}
+  }
+  if (AC.state === 'suspended' && AC.resume) AC.resume();
+}
+function collapse(v){
+  if (!AC || !soundOn) return;
+  var t = AC.currentTime;
+  if (t - lastCollapse < 0.28) return;
+  lastCollapse = t;
+  var s = AC.createBufferSource(); s.buffer = noiseBuf;
+  var f = AC.createBiquadFilter(); f.type = 'lowpass';
+  f.frequency.setValueAtTime(1400, t);
+  f.frequency.exponentialRampToValueAtTime(220, t + 0.26);
+  var g = AC.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(Math.max(0.02, 0.20 * v), t + 0.02);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.34);
+  s.connect(f); f.connect(g); g.connect(master);
+  s.start(t); s.stop(t + 0.4);
+}
+function sweep(){
+  if (!AC || !soundOn) return;
+  var t = AC.currentTime;
+  var s = AC.createBufferSource(); s.buffer = noiseBuf;
+  var f = AC.createBiquadFilter(); f.type = 'bandpass'; f.Q.value = 1.2;
+  f.frequency.setValueAtTime(900, t);
+  f.frequency.exponentialRampToValueAtTime(5200, t + 0.3);
+  var g = AC.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.20, t + 0.05);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.36);
+  s.connect(f); f.connect(g); g.connect(master);
+  s.start(t); s.stop(t + 0.42);
+}
+soundBtn.addEventListener('click', function(){
+  soundOn = !soundOn;
+  soundBtn.classList.toggle('off', !soundOn);
+  if (pourGain) try { pourGain.gain.value = 0; } catch(e){}
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+//  CAMERA
+// ═══════════════════════════════════════════════════════════════════════
+var facing = 'user', mirror = true, stream = null;
+function showError(e){
+  var msg = (e && e.message) ? e.message : String(e || 'unknown');
+  errBox.style.display = 'block';
+  errBox.textContent = 'カメラを起動できませんでした：' + msg +
+    '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+}
+function startStream(){
+  var md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) return Promise.reject(new Error('getUserMedia is unavailable'));
+  if (stream && stream.getTracks) stream.getTracks().forEach(function(t){ t.stop(); });
+  return md.getUserMedia({
+    video: { facingMode: { ideal: facing }, width: { ideal: 1280 }, height: { ideal: 720 } },
+    audio: false
+  }).then(function(st){
+    stream = st; video.srcObject = st;
+    mirror = (facing === 'user');
+    var p = video.play();
+    return (p && p.then) ? p.catch(function(){}) : null;
+  });
+}
+flipBtn.addEventListener('click', function(){
+  facing = (facing === 'user') ? 'environment' : 'user';
+  haveMask = false; maskDirty = false;
+  startStream().then(startMpCamera).catch(function(){});
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+//  STATE
+// ═══════════════════════════════════════════════════════════════════════
+var state = 'boot';
+var frameMs = 10, frameDt = 16.7, adaptCool = 0, last = now();
+var dust = 0;
+
+function now(){ return (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now(); }
+
+function setMode(m){
+  if (m === mode || m < 0 || m >= MODES.length) return;
+  mode = m;
+  var bs = modeRow.querySelectorAll('button');
+  for (var i = 0; i < bs.length; i++) bs[i].classList.toggle('on', i === m);
+  lName.textContent = MODES[m].jp;
+  lSub.textContent = MODES[m].sub;
+  dust = 1;
+}
+(function(){
+  var bs = modeRow.querySelectorAll('button');
+  for (var i = 0; i < bs.length; i++){
+    (function(k){ bs[k].addEventListener('click', function(){ setMode(k); }); })(i);
+  }
+})();
+rakeBtn.addEventListener('click', rake);
+qualBtn.addEventListener('click', function(){
+  qualIdx = (qualIdx + 1) % QUALS.length;
+  var q = QUALS[qualIdx];
+  qualLbl.textContent = q.en;
+  qualBtn.classList.toggle('on', q.n !== 0);
+  if (q.n){ maxAllowed = q.n; targetCells = q.n; allocBuffers(); }
+  else { maxAllowed = MAX_CELLS; }
+  adaptCool = 1.5; frameMs = 10; frameDt = 16.7;
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+//  LOOP
+// ═══════════════════════════════════════════════════════════════════════
+function loop(){
+  var t = now();
+  var dt = Math.min(0.05, (t - last) / 1000);
+  last = t;
+
+  if (video && video.videoWidth > 0 && video.videoHeight > 0){
+    var a = video.videoWidth / video.videoHeight;
+    if (isFinite(a) && a > 0 && Math.abs(a - ASP) > 0.01){ ASP = a; allocBuffers(); }
+  }
+
+  if (state === 'live'){
+    // size first, then simulate; judge the budget on the REAL frame interval
+    frameDt += (dt * 1000 - frameDt) * 0.10;
+    adaptCool -= dt;
+    if (adaptCool <= 0 && QUALS[qualIdx].n === 0){
+      if ((frameDt > 23 || frameMs > 13) && targetCells > MIN_CELLS){
+        targetCells = Math.round(targetCells * 0.74);
+        if (targetCells < MIN_CELLS) targetCells = MIN_CELLS;
+        maxAllowed = targetCells;
+        allocBuffers(); adaptCool = 1.5; frameMs = 10; frameDt = 16.7;
+      } else if (frameDt < 18.5 && frameMs < 5){
+        if (targetCells < maxAllowed){
+          targetCells = Math.round(targetCells * 1.22);
+          if (targetCells > maxAllowed) targetCells = maxAllowed;
+          allocBuffers(); adaptCool = 1.5; frameMs = 10; frameDt = 16.7;
+        } else if (maxAllowed < MAX_CELLS){
+          maxAllowed = Math.min(MAX_CELLS, Math.round(maxAllowed * 1.10));
+          adaptCool = 3.0;
+        }
+      }
+    }
+    var t0 = now();
+    process();
+    frameMs += ((now() - t0) - frameMs) * 0.12;
+
+    rGrains.textContent = String(grainCount);
+    warnEl.classList.toggle('on', !segOk && haveMask === false && segSettled);
+    if (pourGain){
+      var lv = soundOn ? Math.min(0.08, (movedCount / Math.max(1, GW)) * 0.02) : 0;
+      try { pourGain.gain.value = isFinite(lv) ? lv : 0; } catch(e){}
+    }
+    if (movedCount > GW * 2.2) collapse(Math.min(1, movedCount / (GW * 6)));
+  }
+
+  dust = Math.max(0, dust - dt * 2.2);
+  draw(t);
+  requestAnimationFrame(loop);
+}
+
+var segSettled = false;
+function process(){
+  if (!outImg || GW < 8 || GH < 8) return;
+  if (!video || !video.videoWidth) return;
+  camCtx.save();
+  camCtx.setTransform(1, 0, 0, 1, 0, 0);
+  if (mirror){ camCtx.translate(GW, 0); camCtx.scale(-1, 1); }
+  try { camCtx.drawImage(video, 0, 0, GW, GH); } catch(e){ camCtx.restore(); return; }
+  camCtx.restore();
+  var camImg;
+  try { camImg = camCtx.getImageData(0, 0, GW, GH); } catch(e){ return; }
+
+  // the mask is only re-read when the model has actually delivered a new one
+  if (maskDirty){ applyMask(); maskDirty = false; }
+
+  emit(camImg.data);
+  step();
+  render(outImg.data);
+  outCtx.putImageData(outImg, 0, 0);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  DRAW
+// ═══════════════════════════════════════════════════════════════════════
+function draw(t){
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  ctx.fillStyle = 'rgb(' + GROUND[0] + ',' + GROUND[1] + ',' + GROUND[2] + ')';
+  ctx.fillRect(0, 0, W, H);
+  if (outCv.width > 1 && state === 'live'){
+    ctx.imageSmoothingEnabled = false;
+    try { ctx.drawImage(outCv, 0, 0, W, H); } catch(e){}
+    ctx.imageSmoothingEnabled = true;
+  }
+
+  if (dust > 0.001){
+    ctx.globalAlpha = dust * 0.3;
+    ctx.fillStyle = 'rgb(' + SNOW[0] + ',' + SNOW[1] + ',' + SNOW[2] + ')';
+    ctx.fillRect(0, 0, W, H);
+    ctx.globalAlpha = 1;
+  }
+
+  if (state === 'live' && !haveMask){
+    ctx.globalAlpha = 0.5 + Math.sin(t * 0.0035) * 0.2;
+    ctx.fillStyle = '#3a2418';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.font = (U * 0.034).toFixed(1) + 'px "Zen Antique",serif';
+    ctx.fillText('カメラの前に立ってください', W * 0.5, H * 0.5);
+    ctx.globalAlpha = 1;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  OVERLAY TUTORIAL — a figure shedding grains onto a growing pile
+// ═══════════════════════════════════════════════════════════════════════
+var howGrains = [];
+function drawHowto(t){
+  var c = howCtx, w = howto.width, h = howto.height;
+  c.setTransform(1, 0, 0, 1, 0, 0);
+  c.fillStyle = 'rgb(' + GROUND[0] + ',' + GROUND[1] + ',' + GROUND[2] + ')';
+  c.fillRect(0, 0, w, h);
+  var sway = Math.sin(t / 900) * w * 0.045;
+  var bx = w * 0.5 + sway, by = h * 0.34, bw = w * 0.10, bh = h * 0.40;
+  // shed a grain from the underside of the figure
+  if (howGrains.length < 260 && Math.random() < 0.75){
+    howGrains.push({
+      x: bx + (Math.random() - 0.5) * bw * 1.6,
+      y: by + bh * 0.5, v: 0.6 + Math.random() * 0.8,
+      s: 200 + ((Math.random() * 55) | 0)
+    });
+  }
+  var floor = h * 0.86;
+  for (var i = howGrains.length - 1; i >= 0; i--){
+    var p = howGrains[i];
+    p.y += p.v; p.v += 0.06;
+    if (p.y > floor - Math.random() * h * 0.08){ p.y = floor - Math.random() * h * 0.08; p.v = 0; }
+    if (p.y > h) { howGrains.splice(i, 1); continue; }
+    c.fillStyle = 'rgb(' + p.s + ',' + Math.round(p.s * 0.9) + ',' + Math.round(p.s * 0.76) + ')';
+    c.fillRect(p.x | 0, p.y | 0, 3, 3);
+  }
+  if (howGrains.length > 240) howGrains.splice(0, 40);
+  // the figure: head + body, flat umber with a rim
+  c.fillStyle = 'rgb(' + BODY[0] + ',' + BODY[1] + ',' + BODY[2] + ')';
+  c.beginPath(); c.arc(bx, by - bh * 0.42, bw * 0.52, 0, Math.PI * 2); c.fill();
+  c.fillRect(bx - bw * 0.5, by - bh * 0.2, bw, bh * 0.7);
+  c.strokeStyle = 'rgb(' + RIM[0] + ',' + RIM[1] + ',' + RIM[2] + ')';
+  c.lineWidth = 2;
+  c.strokeRect(bx - bw * 0.5, by - bh * 0.2, bw, bh * 0.7);
+  c.fillStyle = '#6b4a34';
+  c.font = '13px "Cutive Mono",monospace';
+  c.textAlign = 'center'; c.textBaseline = 'middle';
+  c.fillText('BODY  ->  GRAINS  ->  PILE', w * 0.5, h * 0.95);
+  c.strokeStyle = 'rgb(' + BODY[0] + ',' + BODY[1] + ',' + BODY[2] + ')';
+  c.lineWidth = 2; c.strokeRect(1, 1, w - 2, h - 2);
+}
+function howtoLoop(){
+  if (state === 'boot'){ drawHowto(now()); requestAnimationFrame(howtoLoop); }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  BOOT
+// ═══════════════════════════════════════════════════════════════════════
+goBtn.addEventListener('click', function(){
+  goBtn.disabled = true;
+  errBox.style.display = 'none';
+  initAudio();
+  var already = !!(stream && video && video.srcObject);
+  goBtn.textContent = already ? 'はじめる' : 'カメラを起動中…';
+  var p = already ? Promise.resolve() : startStream();
+  p.then(function(){
+    if (!segReady) initSeg();
+    startMpCamera();
+    state = 'live';
+    ov.classList.add('hide');
+    goBtn.textContent = 'はじめる';
+    // give the model a few seconds before admitting it is not coming
+    setTimeout(function(){ segSettled = true; }, 6000);
+  }).catch(function(e){
+    showError(e);
+    goBtn.disabled = false;
+    goBtn.textContent = 'もういちど試す';
+  });
+});
+
+fit();
+requestAnimationFrame(loop);
+requestAnimationFrame(howtoLoop);
+
+// headless harness hooks
+window.__SUNA__ = {
+  MODES: MODES, setMode: setMode, rake: rake,
+  size: function(){ return { GW:GW, GH:GH, targetCells:targetCells }; },
+  setTargetCells: function(v){ targetCells = v; if (v > maxAllowed) maxAllowed = v; allocBuffers(); },
+  outData: function(){ return outImg ? outImg.data : null; },
+  occ: function(){ return occ; },
+  counts: function(){ return { grains:grainCount, moved:movedCount }; },
+  // paint a body mask directly, so a test can place a solid shape exactly
+  setMask: function(fn){
+    if (!occ) return;
+    var n = GW * GH;
+    for (var y = 0; y < GH; y++) for (var x = 0; x < GW; x++){
+      var i = y * GW + x, want = !!fn(x, y, GW, GH);
+      if (want){ if (occ[i] === 1) grainCount--; occ[i] = 2; }
+      else if (occ[i] === 2) occ[i] = 0;
+    }
+    var e = edge, en = 0;
+    for (var yy = 0; yy < GH - 1; yy++) for (var xx = 0; xx < GW; xx++){
+      var j = yy * GW + xx;
+      if (occ[j] === 2 && occ[j + GW] !== 2) e[en++] = j;
+    }
+    edgeN = en;
+    haveMask = true; segOk = true;
+  },
+  edgeCount: function(){ return edgeN; },
+  step: function(){ step(); },
+  emit: function(cam){ emit(cam); },
+  addGrain: function(x, y, r, g, b){
+    if (!occ) return false;
+    if (x < 0 || y < 0 || x >= GW || y >= GH) return false;
+    var i = y * GW + x;
+    if (occ[i] !== 0) return false;
+    occ[i] = 1; gr[i] = r; gg[i] = g; gb[i] = b; grainCount++;
+    return true;
+  },
+  quality: function(){ return { idx:qualIdx, maxAllowed:maxAllowed }; },
+  state: function(){ return { state:state, mode:mode, grains:grainCount,
+                              moved:movedCount, haveMask:haveMask, segOk:segOk }; }
+};
+</script>
+</body>
+</html>
