@@ -1,0 +1,949 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>KEMURI ─ 煙になる部屋</title>
+<meta name="description" content="カメラに映るものが煙そのものになるエフェクト。本物の流体計算なので煙は渦を巻き、手を動かせばその手の速さがそのまま風になる。じっとしていれば顔が結び、動けばほどける。">
+<meta name="theme-color" content="#0d0a08">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Hina+Mincho&family=Italiana&display=swap" rel="stylesheet">
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  KEMURI ─ 煙                               ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  PALETTE   沈   chin      #0d0a08  a tea room at night      (ground)
+            伽羅 kyara     #6b4a2a  aloeswood                (mid smoke)
+            白檀 byakudan  #e8d7b8  sandalwood ivory         (type, rules)
+            蘇芳 suou      #7d2b34  sappanwood               (chrome accent)
+            灰   hai       #8e857a  ash                      (sub-type)
+            熾   okibi     #ff8a3d  the one coal             (active mode)
+            MOOD: 香道. A dark room, one coal, and everything you can see
+            is smoke. The gallery's four dark pieces are all COLD — TOKI is
+            oscilloscope cyan, HIBI prussian, NAGORI oil-slick teal, and
+            IROKAGE is a black stage with primary gels. None of them is
+            warm. This is the warm one: a near-black with brown in it, and
+            the only saturated thing on screen is a single ember.
+  BACKGROUND  There isn't one, and that is the whole piece. The camera
+            picture is NEVER drawn. What you see is dye suspended in a
+            fluid, and your face exists on screen only for as long as the
+            fluid is still enough to hold it — the instant you move, it
+            curls away into vortices. Under the dye sits a slow vertical
+            gradient and a fine ash grain; over it, one ember at the foot
+            of the screen feeding a thin thread of smoke so the room is
+            never empty.
+  TYPE      Hina Mincho for the Japanese — a hairline 明朝, the thinnest
+            face in the gallery, chosen because everything else here is
+            soft and the type has to be the one hard edge. Italiana for
+            the Latin, wide-tracked. The chrome sits on 香包 plates: ivory
+            hairline rectangles with one folded corner.
+  MOTION    Drifting. Nothing in the interface moves faster than the smoke
+            does. A mode change is not a cut — the whole velocity field
+            takes a swirl impulse and the smoke itself carries you across.
+  SIGNATURE A real fluid. Semi-Lagrangian advection, vorticity
+            confinement, and a Jacobi pressure projection on a ~9000 cell
+            grid, running every frame. The dye is the camera's own colour,
+            injected in proportion to how bright each pixel is, so what
+            becomes smoke is exactly what is LIT. Your hands are not
+            cursors: the palm and all ten fingertips push momentum into
+            the velocity field at the speed you actually moved them, and
+            the fluid keeps that momentum long after the hand has gone.
+  AUDIO     Near-silent and designed. One bed of brown noise for the room,
+            and a band-pass whose centre and Q are driven by the fluid's
+            own total kinetic energy — so violent swirling really is the
+            rush of air it looks like, and stillness is just a room. A
+            single low struck bowl on a mode change. Nothing above −28dB.
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<style>
+  :root{
+    --chin:#0d0a08; --kyara:#6b4a2a; --byaku:#e8d7b8;
+    --suou:#7d2b34; --hai:#8e857a; --okibi:#ff8a3d;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;padding:0;height:100%;overflow:hidden;background:#0d0a08}
+  body{
+    font-family:"Hina Mincho",serif;color:var(--byaku);
+    -webkit-user-select:none;user-select:none;touch-action:none;
+  }
+  #view{position:fixed;inset:0;width:100%;height:100%;display:block}
+  video{display:none}
+  .layer{position:fixed;pointer-events:none}
+
+  /* ── 香包 plates ─────────────────────────────────────────────────── */
+  .wrap{
+    position:relative;padding:11px 16px 12px;
+    border:1px solid rgba(232,215,184,.30);
+    background:rgba(13,10,8,.55);
+    backdrop-filter:blur(2px);-webkit-backdrop-filter:blur(2px);
+  }
+  .wrap::after{               /* the folded corner */
+    content:'';position:absolute;right:-1px;top:-1px;
+    border-left:11px solid transparent;
+    border-top:11px solid rgba(232,215,184,.30);
+  }
+  .cap{
+    font-family:"Italiana",serif;font-size:10px;letter-spacing:.44em;
+    text-transform:uppercase;color:var(--hai);display:block;line-height:1;margin-bottom:8px;
+  }
+
+  #hud{
+    top:0;left:0;right:0;padding:calc(env(safe-area-inset-top,0px) + 16px) 20px 0;
+    display:flex;justify-content:space-between;align-items:flex-start;gap:14px;
+  }
+  #enBar{width:104px;height:3px;background:rgba(232,215,184,.16);overflow:hidden}
+  #enFill{
+    height:100%;width:0%;background:linear-gradient(90deg,#6b4a2a,#ff8a3d);
+    transition:width .5s cubic-bezier(.25,.7,.3,1);
+  }
+  #enN{font-size:10.5px;color:var(--hai);margin-top:8px;letter-spacing:.16em}
+  #modeBox{text-align:right}
+  #modeN{font-size:29px;line-height:1;letter-spacing:.14em;color:var(--byaku)}
+  #modeSub{
+    font-family:"Italiana",serif;font-size:10px;letter-spacing:.34em;
+    color:var(--hai);margin-top:9px;text-transform:uppercase;
+  }
+
+  #ctl{
+    left:0;right:0;bottom:calc(env(safe-area-inset-bottom,0px) + 16px);
+    display:flex;gap:10px;justify-content:center;flex-wrap:wrap;padding:0 12px;
+  }
+  .btn{
+    pointer-events:auto;font-family:"Hina Mincho",serif;font-size:13px;
+    color:var(--byaku);background:rgba(13,10,8,.66);
+    border:1px solid rgba(232,215,184,.28);
+    padding:10px 18px;cursor:pointer;letter-spacing:.14em;
+    transition:border-color .9s ease, color .9s ease, background .9s ease;
+  }
+  .btn:active{border-color:var(--okibi);color:var(--okibi)}
+  .btn small{color:var(--hai);margin-left:6px;font-size:11px}
+  #modeBtn{border-color:rgba(255,138,61,.5)}
+
+  #hint{
+    left:0;right:0;bottom:calc(env(safe-area-inset-bottom,0px) + 66px);
+    text-align:center;font-size:12.5px;color:var(--hai);line-height:2;
+    padding:0 26px;opacity:.9;transition:opacity 1.6s ease;letter-spacing:.06em;
+  }
+  #hint.gone{opacity:0}
+
+  /* ── start sheet ─────────────────────────────────────────────────── */
+  .sheet{
+    position:fixed;inset:0;z-index:20;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;text-align:center;
+    padding:26px 24px calc(env(safe-area-inset-bottom,0px) + 26px);
+    background:radial-gradient(130% 100% at 50% 108%, #22150c 0%, #120d09 42%, #0a0806 100%);
+  }
+  .sheet.gone{display:none}
+  .sheet .en{
+    font-family:"Italiana",serif;font-size:12px;letter-spacing:.56em;
+    color:var(--hai);text-transform:uppercase;margin-bottom:16px;
+  }
+  .sheet h1{
+    font-size:min(17vw,62px);margin:0;letter-spacing:.24em;text-indent:.24em;
+    color:var(--byaku);line-height:1;font-weight:400;
+  }
+  .rule{width:1px;height:44px;background:linear-gradient(var(--okibi),transparent);margin:22px 0 20px}
+  .sub{font-size:13.5px;line-height:2.15;color:#c2b49b;max-width:23em;margin:0}
+  .sub b{color:var(--okibi);font-weight:400}
+  .go{
+    pointer-events:auto;margin-top:28px;font-family:"Hina Mincho",serif;
+    font-size:16px;letter-spacing:.42em;text-indent:.42em;
+    color:var(--byaku);background:transparent;border:1px solid rgba(232,215,184,.45);
+    padding:15px 44px;cursor:pointer;
+    transition:border-color .9s ease, color .9s ease, letter-spacing .9s ease;
+  }
+  .go:active{border-color:var(--okibi);color:var(--okibi);letter-spacing:.54em}
+  .foot{font-size:10.5px;color:var(--hai);margin-top:18px;letter-spacing:.2em}
+
+  /* ── the 3-second diagram ────────────────────────────────────────── */
+  .demo{position:relative;width:200px;height:120px;margin:4px 0 2px}
+  .demo svg{position:absolute;inset:0;width:100%;height:100%}
+  .sm{
+    fill:none;stroke:#c2b49b;stroke-width:1.6;stroke-linecap:round;
+    stroke-dasharray:52 52;
+    animation:rise 3.6s linear infinite;
+  }
+  .sm2{animation-delay:-1.2s;opacity:.62}
+  .sm3{animation-delay:-2.4s;opacity:.42}
+  @keyframes rise{ from{stroke-dashoffset:104} to{stroke-dashoffset:0} }
+  .dpalm{
+    fill:none;stroke:#ff8a3d;stroke-width:1.8;stroke-linecap:round;
+    animation:sweep 3.6s cubic-bezier(.5,0,.5,1) infinite;
+  }
+  @keyframes sweep{
+    0%,12%{transform:translateX(-46px);opacity:0}
+    22%{opacity:1}
+    62%{transform:translateX(48px);opacity:1}
+    78%,100%{transform:translateX(48px);opacity:0}
+  }
+  .gust{
+    fill:none;stroke:#ff8a3d;stroke-width:1.2;opacity:0;
+    animation:gust 3.6s ease-out infinite;
+  }
+  @keyframes gust{
+    0%,26%{opacity:0;transform:translateX(-20px) scaleX(.4)}
+    46%{opacity:.85;transform:translateX(14px) scaleX(1)}
+    72%,100%{opacity:0;transform:translateX(40px) scaleX(1.5)}
+  }
+  @media (prefers-reduced-motion:reduce){ .sm,.dpalm,.gust{animation:none} }
+
+  #err{
+    position:fixed;left:14px;right:14px;bottom:calc(env(safe-area-inset-bottom,0px) + 80px);
+    z-index:40;display:none;white-space:pre-line;background:rgba(13,10,8,.95);color:var(--byaku);
+    padding:14px 16px;font-size:12.5px;line-height:1.85;
+    border:1px solid rgba(232,215,184,.25);border-left:3px solid var(--suou);
+  }
+  @media (max-height:540px){
+    .sheet h1{font-size:38px}
+    .demo{height:86px;width:160px}
+    .rule{height:26px;margin:12px 0}
+    .sub{font-size:12px;line-height:1.95}
+    .go{margin-top:16px;padding:12px 32px}
+  }
+</style>
+</head>
+<body>
+
+<canvas id="view"></canvas>
+<video id="video" playsinline muted autoplay></video>
+
+<div class="layer" id="hud">
+  <div class="wrap">
+    <span class="cap">Flow</span>
+    <div id="enBar"><div id="enFill"></div></div>
+    <div id="enN">動くほど渦になる</div>
+  </div>
+  <div class="wrap" id="modeBox">
+    <span class="cap">Incense</span>
+    <div id="modeN">香</div>
+    <div id="modeSub">Drifting</div>
+  </div>
+</div>
+
+<div class="layer" id="hint">手を払うと、その速さがそのまま風になります</div>
+
+<div class="layer" id="ctl">
+  <button class="btn" id="flipBtn" type="button">⟲ カメラ</button>
+  <button class="btn" id="modeBtn" type="button"><span id="modeChar">香</span><small id="modeLbl">たきもの</small></button>
+  <button class="btn" id="sndBtn" type="button">♪<small id="sndLbl">ON</small></button>
+</div>
+
+<div class="sheet" id="start">
+  <div class="en">Kemuri &middot; smoke</div>
+  <h1>煙</h1>
+
+  <div class="demo" aria-hidden="true">
+    <svg viewBox="0 0 200 120">
+      <path class="sm"  d="M62 116 C 50 96, 76 84, 64 64 C 54 46, 76 34, 66 12"/>
+      <path class="sm sm2" d="M100 116 C 88 96, 114 84, 102 64 C 92 46, 114 34, 104 12"/>
+      <path class="sm sm3" d="M138 116 C 126 96, 152 84, 140 64 C 130 46, 152 34, 142 12"/>
+      <g class="dpalm">
+        <path d="M92 92 q10 7 20 0 q2 -8 -3 -11 q-8 -4 -14 0 q-5 3 -3 11 z"/>
+        <path d="M94 79 l-2 -8 M100 76 l-1 -10 M107 77 l2 -10"/>
+      </g>
+      <g class="gust">
+        <path d="M112 62 q16 -5 30 2 M110 72 q20 -3 34 5 M114 52 q13 -6 25 -1"/>
+      </g>
+    </svg>
+  </div>
+
+  <div class="rule"></div>
+  <p class="sub">
+    カメラに映るものが、そのまま煙になります。<br>
+    明るいところほど濃い煙になり、<b>手を払えばその速さが風</b>になって渦を巻きます。<br>
+    じっとしていれば顔が結び、動けばほどけます。<br>
+    <b>香</b>はたちのぼる煙、<b>渦</b>は荒れる風、<b>墨</b>は水に落ちた墨。
+  </p>
+  <button class="go" id="go" type="button">焚く</button>
+  <div class="foot">カメラを使います</div>
+</div>
+
+<div id="err"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+<script>
+(function(){
+'use strict';
+
+// ═══════════════════════════════════════════════════════════════════════
+//  ELEMENTS
+// ═══════════════════════════════════════════════════════════════════════
+var cv      = document.getElementById('view');
+var ctx     = cv.getContext('2d');
+var video   = document.getElementById('video');
+var enFill  = document.getElementById('enFill');
+var modeN   = document.getElementById('modeN');
+var modeSub = document.getElementById('modeSub');
+var modeChar= document.getElementById('modeChar');
+var modeLbl = document.getElementById('modeLbl');
+var flipBtn = document.getElementById('flipBtn');
+var modeBtn = document.getElementById('modeBtn');
+var sndBtn  = document.getElementById('sndBtn');
+var sndLbl  = document.getElementById('sndLbl');
+var hintEl  = document.getElementById('hint');
+var startSh = document.getElementById('start');
+var goBtn   = document.getElementById('go');
+var errBox  = document.getElementById('err');
+
+// ═══════════════════════════════════════════════════════════════════════
+//  MODES
+// ═══════════════════════════════════════════════════════════════════════
+var MODES = [
+  { name:'香', en:'Drifting', lbl:'たきもの',
+    inj:0.075, gamma:1.60, floor:0.26, buoy:0.055, vort:0.12, dissV:0.995, dissD:0.9880,
+    tint:[1.00, 0.86, 0.66], mono:0.0, force:1.0, ember:1.0 },
+  { name:'渦', en:'Turbulent', lbl:'あらし',
+    inj:0.095, gamma:1.30, floor:0.21, buoy:0.018, vort:0.55, dissV:0.998, dissD:0.9940,
+    tint:[1.00, 0.94, 0.88], mono:0.0, force:1.7, ember:0.5 },
+  { name:'墨', en:'Suspended', lbl:'みずのなか',
+    inj:0.120, gamma:1.10, floor:0.17, buoy:0.000, vort:0.05, dissV:0.986, dissD:0.9975,
+    tint:[0.78, 0.85, 1.00], mono:0.85, force:1.2, ember:0.2 }
+];
+var modeI = 0;
+function M(){ return MODES[modeI]; }
+
+// ═══════════════════════════════════════════════════════════════════════
+//  CANVAS + GRID
+// ═══════════════════════════════════════════════════════════════════════
+var W = 1, H = 1, ar = 1, dpr = 1;
+var GN = 0, GM = 0, NC = 0;
+var u, v, u0, v0, dR, dG, dB, dR0, dG0, dB0, prs, dvg, crl;
+var out = null, outCv = document.createElement('canvas'), octx = outCv.getContext('2d');
+var samp = document.createElement('canvas'), sctx = samp.getContext('2d');
+var grain = document.createElement('canvas'), gctx2 = grain.getContext('2d');
+var grainPat = null, vigGrad = null;
+
+function alloc(){
+  NC = GN * GM;
+  u = new Float32Array(NC);   v = new Float32Array(NC);
+  u0 = new Float32Array(NC);  v0 = new Float32Array(NC);
+  dR = new Float32Array(NC);  dG = new Float32Array(NC);  dB = new Float32Array(NC);
+  dR0 = new Float32Array(NC); dG0 = new Float32Array(NC); dB0 = new Float32Array(NC);
+  prs = new Float32Array(NC); dvg = new Float32Array(NC); crl = new Float32Array(NC);
+  outCv.width = GN; outCv.height = GM;
+  samp.width = GN; samp.height = GM;
+  out = octx.createImageData(GN, GM);          // ONE ImageData, reused every frame
+  var d = out.data;
+  for (var i = 3; i < d.length; i += 4) d[i] = 255;
+}
+function resize(){
+  dpr = Math.min(window.devicePixelRatio || 1, 2);
+  var w = Math.max(1, window.innerWidth), h = Math.max(1, window.innerHeight);
+  cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+  cv.style.width = w + 'px'; cv.style.height = h + 'px';
+  W = cv.width; H = cv.height; ar = W / H;
+
+  // ~9000 cells regardless of shape, so a phone runs the same solver a laptop does
+  var s = Math.sqrt(Math.max(0.2, Math.min(5, ar)));
+  var gn = Math.round(96 * s), gm = Math.round(96 / s);
+  gn = Math.max(40, Math.min(170, gn));
+  gm = Math.max(40, Math.min(170, gm));
+  while (gn * gm > 11000){ gn = Math.max(40, Math.round(gn * 0.94)); gm = Math.max(40, Math.round(gm * 0.94)); }
+  if (gn !== GN || gm !== GM){ GN = gn; GM = gm; alloc(); }
+  makeGrain();
+}
+function makeGrain(){
+  var s = 190;
+  grain.width = s; grain.height = s;
+  var im = gctx2.createImageData(s, s), d = im.data;
+  for (var i = 0; i < d.length; i += 4){
+    var n = (Math.random() * 255) | 0;
+    d[i] = d[i + 1] = d[i + 2] = n; d[i + 3] = 16;
+  }
+  gctx2.putImageData(im, 0, 0);
+  try { grainPat = ctx.createPattern(grain, 'repeat'); } catch(e){ grainPat = null; }
+  vigGrad = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.30,
+                                     W / 2, H / 2, Math.max(W, H) * 0.78);
+  vigGrad.addColorStop(0, 'rgba(0,0,0,0)');
+  vigGrad.addColorStop(1, 'rgba(0,0,0,.55)');
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  THE SOLVER
+// ═══════════════════════════════════════════════════════════════════════
+var VMAX = 9;                  // cells per frame-at-60Hz — the field's hard clamp
+var ITER = 10;
+
+function bilerp(f, x, y){
+  if (x < 0) x = 0; else if (x > GN - 1.001) x = GN - 1.001;
+  if (y < 0) y = 0; else if (y > GM - 1.001) y = GM - 1.001;
+  var i = x | 0, j = y | 0;
+  var fx = x - i, fy = y - j;
+  var k = j * GN + i;
+  var a = f[k], b = f[k + 1], c = f[k + GN], e = f[k + GN + 1];
+  return a + (b - a) * fx + (c - a) * fy + (a - b - c + e) * fx * fy;
+}
+function advect(dst, src, dt){
+  for (var j = 0; j < GM; j++){
+    var row = j * GN;
+    for (var i = 0; i < GN; i++){
+      var k = row + i;
+      dst[k] = bilerp(src, i - u[k] * dt, j - v[k] * dt);
+    }
+  }
+}
+// the three dye channels share one backtrace, one clamp and one set of weights
+function advectDye(dt){
+  var gn = GN, gm = GM, lx = gn - 1.001, ly = gm - 1.001;
+  for (var j = 0; j < gm; j++){
+    var row = j * gn;
+    for (var i = 0; i < gn; i++){
+      var k = row + i;
+      var x = i - u[k] * dt, y = j - v[k] * dt;
+      if (x < 0) x = 0; else if (x > lx) x = lx;
+      if (y < 0) y = 0; else if (y > ly) y = ly;
+      var ii = x | 0, jj = y | 0;
+      var fx = x - ii, fy = y - jj;
+      var k0 = jj * gn + ii, k1 = k0 + 1, k2 = k0 + gn, k3 = k2 + 1;
+      var w0 = (1 - fx) * (1 - fy), w1 = fx * (1 - fy),
+          w2 = (1 - fx) * fy,       w3 = fx * fy;
+      dR[k] = dR0[k0] * w0 + dR0[k1] * w1 + dR0[k2] * w2 + dR0[k3] * w3;
+      dG[k] = dG0[k0] * w0 + dG0[k1] * w1 + dG0[k2] * w2 + dG0[k3] * w3;
+      dB[k] = dB0[k0] * w0 + dB0[k1] * w1 + dB0[k2] * w2 + dB0[k3] * w3;
+    }
+  }
+}
+function edges(){
+  var i, j;
+  for (i = 0; i < GN; i++){
+    u[i] = 0; v[i] = 0;
+    var kb = (GM - 1) * GN + i; u[kb] = 0; v[kb] = 0;
+  }
+  for (j = 0; j < GM; j++){
+    var kl = j * GN; u[kl] = 0; v[kl] = 0;
+    var kr = kl + GN - 1; u[kr] = 0; v[kr] = 0;
+  }
+}
+function vorticity(dtA, eps){
+  if (eps <= 0) return;
+  var i, j, k, abs = Math.abs, sqrt = Math.sqrt;
+  for (j = 1; j < GM - 1; j++){
+    for (i = 1; i < GN - 1; i++){
+      k = j * GN + i;
+      crl[k] = (v[k + 1] - v[k - 1]) * 0.5 - (u[k + GN] - u[k - GN]) * 0.5;
+    }
+  }
+  for (j = 2; j < GM - 2; j++){
+    for (i = 2; i < GN - 2; i++){
+      k = j * GN + i;
+      var dx = (abs(crl[k + 1]) - abs(crl[k - 1])) * 0.5;
+      var dy = (abs(crl[k + GN]) - abs(crl[k - GN])) * 0.5;
+      var len = sqrt(dx * dx + dy * dy) + 1e-5;
+      var c = crl[k];
+      u[k] += eps * (dy / len) * c * dtA;
+      v[k] -= eps * (dx / len) * c * dtA;
+    }
+  }
+}
+function project(){
+  var i, j, k, it;
+  for (j = 1; j < GM - 1; j++){
+    for (i = 1; i < GN - 1; i++){
+      k = j * GN + i;
+      dvg[k] = -0.5 * ((u[k + 1] - u[k - 1]) + (v[k + GN] - v[k - GN]));
+      prs[k] = 0;
+    }
+  }
+  for (it = 0; it < ITER; it++){
+    for (j = 1; j < GM - 1; j++){
+      for (i = 1; i < GN - 1; i++){
+        k = j * GN + i;
+        prs[k] = (dvg[k] + prs[k - 1] + prs[k + 1] + prs[k - GN] + prs[k + GN]) * 0.25;
+      }
+    }
+  }
+  for (j = 1; j < GM - 1; j++){
+    for (i = 1; i < GN - 1; i++){
+      k = j * GN + i;
+      u[k] -= 0.5 * (prs[k + 1] - prs[k - 1]);
+      v[k] -= 0.5 * (prs[k + GN] - prs[k - GN]);
+    }
+  }
+}
+function clampVel(){
+  for (var k = 0; k < NC; k++){
+    var a = u[k], b = v[k];
+    if (!(a === a) || a > 1e6 || a < -1e6) a = 0;
+    if (!(b === b) || b > 1e6 || b < -1e6) b = 0;
+    if (a > VMAX) a = VMAX; else if (a < -VMAX) a = -VMAX;
+    if (b > VMAX) b = VMAX; else if (b < -VMAX) b = -VMAX;
+    u[k] = a; v[k] = b;
+  }
+}
+function splat(cx, cy, fx, fy, rad, dye){
+  if (!isFinite(cx) || !isFinite(cy) || !isFinite(fx) || !isFinite(fy)) return;
+  var i0 = Math.max(1, Math.floor(cx - rad)), i1 = Math.min(GN - 2, Math.ceil(cx + rad));
+  var j0 = Math.max(1, Math.floor(cy - rad)), j1 = Math.min(GM - 2, Math.ceil(cy + rad));
+  var r2 = rad * rad, exp = Math.exp;
+  if (r2 <= 0) return;
+  for (var j = j0; j <= j1; j++){
+    for (var i = i0; i <= i1; i++){
+      var ddx = i - cx, ddy = j - cy, d2 = ddx * ddx + ddy * ddy;
+      if (d2 > r2) continue;
+      var w = exp(-d2 / (r2 * 0.36));
+      var k = j * GN + i;
+      u[k] += fx * w; v[k] += fy * w;
+      if (dye){
+        dR[k] += dye[0] * w; dG[k] += dye[1] * w; dB[k] += dye[2] * w;
+      }
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  CAMERA
+// ═══════════════════════════════════════════════════════════════════════
+var facing = 'user', mirror = true, stream = null;
+function showError(e){
+  var msg = (e && e.message) ? e.message : String(e || 'unknown');
+  errBox.style.display = 'block';
+  errBox.textContent = 'カメラを起動できませんでした：' + msg +
+    '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+}
+function startStream(){
+  var md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) return Promise.reject(new Error('getUserMedia is unavailable'));
+  if (stream && stream.getTracks) stream.getTracks().forEach(function(t){ t.stop(); });
+  return md.getUserMedia({
+    video:{ facingMode:{ ideal:facing }, width:{ ideal:960 }, height:{ ideal:720 } },
+    audio:false
+  }).then(function(st){
+    stream = st; video.srcObject = st; mirror = (facing === 'user');
+    var p = video.play();
+    return (p && p.then) ? p.catch(function(){}) : null;
+  });
+}
+flipBtn.addEventListener('click', function(){
+  facing = (facing === 'user') ? 'environment' : 'user';
+  loseHands();
+  startStream().then(startMpCamera).catch(showError);
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+//  HANDS — momentum sources, not cursors. The piece works without them.
+// ═══════════════════════════════════════════════════════════════════════
+var hands = null, mpCamera = null, mpReady = false;
+var LOST_MS = 300;
+function mkSlot(){
+  return { live:false, t:-1e9, x:.5, y:.5, vx:0, vy:0,
+           pts:[], ptsPrev:null };
+}
+var SLOT = [mkSlot(), mkSlot()];
+var PT_IDS = [0, 4, 8, 12, 16, 20];      // wrist + five tips
+
+function initHands(){
+  if (typeof window.Hands !== 'function') return false;
+  try {
+    hands = new window.Hands({ locateFile:function(f){
+      return 'https://cdn.jsdelivr.net/npm/@mediapipe/hands/' + f;
+    }});
+    hands.setOptions({ maxNumHands:2, modelComplexity:0,
+                       minDetectionConfidence:0.6, minTrackingConfidence:0.5 });
+    hands.onResults(onHands);
+    mpReady = true; return true;
+  } catch(e){ return false; }
+}
+function validLm(c){
+  if (!c || c.length < 21) return null;
+  for (var i = 0; i < 21; i++){
+    var p = c[i];
+    if (!p || typeof p.x !== 'number' || typeof p.y !== 'number' ||
+        !isFinite(p.x) || !isFinite(p.y)) return null;
+  }
+  return c;
+}
+function measure(c){
+  var ids = [0, 5, 9, 13, 17], cx = 0, cy = 0, i;
+  for (i = 0; i < ids.length; i++){ cx += c[ids[i]].x; cy += c[ids[i]].y; }
+  cx /= ids.length; cy /= ids.length;
+  var pts = [];
+  for (i = 0; i < PT_IDS.length; i++){
+    var p = c[PT_IDS[i]];
+    pts.push({ x:(mirror ? 1 - p.x : p.x) * ar, y:p.y });
+  }
+  return { x:(mirror ? 1 - cx : cx) * ar, y:cy, pts:pts };
+}
+function onHands(res){
+  var t = now();
+  var raw = (res && res.multiHandLandmarks) ? res.multiHandLandmarks : [];
+  var ms = [], i;
+  for (i = 0; i < raw.length && ms.length < 2; i++){
+    var c = validLm(raw[i]);
+    if (c) ms.push(measure(c));
+  }
+  if (!ms.length) return;
+  ms.sort(function(a, b){ return a.x - b.x; });
+  if (ms.length >= 2){ put(SLOT[0], ms[0], t); put(SLOT[1], ms[1], t); }
+  else {
+    var m0 = ms[0], best = -1, bd = 1e9;
+    for (i = 0; i < 2; i++){
+      if (!SLOT[i].live || t - SLOT[i].t > LOST_MS) continue;
+      var d = Math.abs(SLOT[i].x - m0.x);
+      if (d < bd){ bd = d; best = i; }
+    }
+    if (best < 0) best = (m0.x < ar * 0.5) ? 0 : 1;
+    put(SLOT[best], m0, t);
+  }
+}
+function put(s, m, t){
+  var dt = (t - s.t) / 1000;
+  if (s.live && dt > 0.004 && dt < 0.2){
+    var nvx = (m.x - s.x) / dt, nvy = (m.y - s.y) / dt;
+    if (!isFinite(nvx)) nvx = 0;
+    if (!isFinite(nvy)) nvy = 0;
+    nvx = Math.max(-8, Math.min(8, nvx));
+    nvy = Math.max(-8, Math.min(8, nvy));
+    s.vx += (nvx - s.vx) * 0.6; s.vy += (nvy - s.vy) * 0.6;
+  } else { s.vx = 0; s.vy = 0; }
+  s.x = m.x; s.y = m.y; s.pts = m.pts; s.t = t; s.live = true;
+}
+function loseHands(){
+  for (var i = 0; i < 2; i++){
+    var s = SLOT[i];
+    // stale velocity must never be blown into the fluid on reacquisition
+    s.live = false; s.t = -1e9; s.vx = 0; s.vy = 0; s.pts = [];
+  }
+}
+function startMpCamera(){
+  if (!mpReady || typeof window.Camera !== 'function') return;
+  try {
+    if (mpCamera && mpCamera.stop) mpCamera.stop();
+    mpCamera = new window.Camera(video, {
+      onFrame:function(){
+        if (!hands || !started) return Promise.resolve();
+        return hands.send({ image:video }).catch(function(){});
+      },
+      width:480, height:360
+    });
+    mpCamera.start();
+  } catch(e){ mpReady = false; }
+}
+function now(){ return performance.now(); }
+
+// ═══════════════════════════════════════════════════════════════════════
+//  AUDIO — the room, and the rush of what you stirred
+// ═══════════════════════════════════════════════════════════════════════
+var ac = null, master = null, comp = null, muted = false;
+var airSrc = null, airBp = null, airGain = null, noiseBuf = null, audioReady = false;
+
+function initAudio(){
+  if (ac) return;
+  var AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) return;
+  try { ac = new AC(); } catch(e){ ac = null; return; }
+  comp = ac.createDynamicsCompressor();
+  try {
+    comp.threshold.value = -24; comp.knee.value = 20;
+    comp.ratio.value = 4; comp.attack.value = .02; comp.release.value = .40;
+  } catch(e){}
+  master = ac.createGain(); master.gain.value = muted ? 0 : 0.55;
+  master.connect(comp); comp.connect(ac.destination);
+
+  var n = Math.floor(ac.sampleRate * 2);
+  noiseBuf = ac.createBuffer(1, n, ac.sampleRate);
+  var d = noiseBuf.getChannelData(0), lastv = 0;
+  for (var i = 0; i < n; i++){                    // brown noise: the room
+    lastv = (lastv + (Math.random() * 2 - 1) * 0.06) * 0.985;
+    d[i] = Math.max(-1, Math.min(1, lastv * 3.2));
+  }
+  airSrc = ac.createBufferSource(); airSrc.buffer = noiseBuf; airSrc.loop = true;
+  airBp = ac.createBiquadFilter(); airBp.type = 'bandpass';
+  airBp.frequency.value = 320; airBp.Q.value = 0.6;
+  airGain = ac.createGain(); airGain.gain.value = 0.05;
+  airSrc.connect(airBp); airBp.connect(airGain); airGain.connect(master);
+  try { airSrc.start(0); } catch(e){}
+  audioReady = true;
+}
+function pushAudio(energy){
+  if (!audioReady || !ac) return;
+  var t = ac.currentTime;
+  var e = Math.max(0, Math.min(1, energy));
+  airBp.frequency.setTargetAtTime(300 + 2200 * e * e, t, 0.35);
+  airBp.Q.setTargetAtTime(0.6 + 2.2 * e, t, 0.35);
+  airGain.gain.setTargetAtTime(Math.max(0.0001, 0.035 + 0.16 * e), t, 0.30);
+}
+function bowl(){
+  if (!audioReady || !ac || muted) return;
+  var t = ac.currentTime, i;
+  var parts = [1, 2.74, 5.41];
+  for (i = 0; i < parts.length; i++){
+    var o = ac.createOscillator(); o.type = 'sine';
+    o.frequency.setValueAtTime(96 * parts[i], t);
+    var g = ac.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.14 / (i + 1.4), t + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 2.4 - i * 0.55);
+    o.connect(g); g.connect(master);
+    o.start(t); o.stop(t + 2.6);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  STEP
+// ═══════════════════════════════════════════════════════════════════════
+var started = false, energy = 0, emberPhase = 0, hasMoved = false, lastPush = 0;
+
+function sampleVideo(){
+  if (!video || !video.videoWidth || !video.videoHeight) return null;
+  try {
+    var vw = video.videoWidth, vh = video.videoHeight;
+    var sc = Math.max(GN / vw, GM / vh);
+    var dw = vw * sc, dh = vh * sc;
+    sctx.save();
+    if (mirror){ sctx.translate(GN, 0); sctx.scale(-1, 1); }
+    sctx.drawImage(video, (GN - dw) / 2, (GM - dh) / 2, dw, dh);
+    sctx.restore();
+    return sctx.getImageData(0, 0, GN, GM).data;
+  } catch(e){ return null; }
+}
+
+function step(dt){
+  if (dt > 0.05) dt = 0.05;
+  if (!(dt > 0)) dt = 0.016;
+  var m = M(), i, j, k, t = now();
+  var dtA = dt * 60;                       // the step in frames-at-60Hz
+
+  // 1 ── hands push real momentum in
+  for (i = 0; i < 2; i++){
+    var s = SLOT[i];
+    if (s.live && t - s.t > LOST_MS){ s.live = false; s.vx = 0; s.vy = 0; s.pts = []; }
+    if (!s.live) continue;
+    var sp = Math.hypot(s.vx, s.vy);
+    if (sp > 0.06) hasMoved = true;
+    // a hand moving at 1 screen-height/s is GM cells/s, i.e. GM/60 cells/frame
+    var gain = (GM / 60) * 0.95 * m.force * dtA;
+    for (j = 0; j < s.pts.length; j++){
+      var p = s.pts[j];
+      var wgt = (j === 0) ? 1.0 : 0.55;
+      splat(p.x / ar * GN, p.y * GM,
+            s.vx * gain * wgt, s.vy * gain * wgt,
+            (j === 0 ? 0.085 : 0.05) * GM, null);
+    }
+  }
+
+  // 2 ── the ember at the foot of the screen
+  emberPhase += dt * 2.1;
+  var ee = m.ember * (0.65 + 0.35 * Math.sin(emberPhase) * Math.sin(emberPhase * 0.37));
+  if (ee > 0.01){
+    splat(GN * (0.5 + 0.02 * Math.sin(emberPhase * 0.6)), GM * 0.955,
+          Math.sin(emberPhase * 1.7) * 0.5 * dtA, -3.1 * ee * dtA, 0.035 * GM,
+          [0.013 * ee * dtA, 0.007 * ee * dtA, 0.0026 * ee * dtA]);
+  }
+
+  // 3 ── buoyancy: hot dye rises
+  if (m.buoy > 0){
+    for (k = 0; k < NC; k++){
+      var lum = dR[k] * 0.30 + dG[k] * 0.59 + dB[k] * 0.11;
+      v[k] -= m.buoy * lum * dtA;
+    }
+  }
+
+  vorticity(dtA, m.vort);
+  clampVel();
+  edges();
+
+  // 4 ── advect velocity through itself
+  u0.set(u); v0.set(v);
+  advect(u, u0, dtA);
+  advect(v, v0, dtA);
+  edges();
+  project();
+  edges();
+  var dv = Math.pow(m.dissV, dtA);
+  for (k = 0; k < NC; k++){ u[k] *= dv; v[k] *= dv; }
+  clampVel();
+
+  // 5 ── carry the dye with it
+  dR0.set(dR); dG0.set(dG); dB0.set(dB);
+  advectDye(dtA);
+
+  // 6 ── inject: what is LIT becomes smoke
+  var src = sampleVideo();
+  if (src){
+    var inj = m.inj, gm2 = m.gamma, tr = m.tint[0], tg = m.tint[1], tb = m.tint[2];
+    var mono = m.mono, fl = m.floor, isc = 1 / (1 - fl), pow = Math.pow;
+    for (k = 0; k < NC; k++){
+      var o = k << 2;
+      var r = src[o] * 0.00392157, g = src[o + 1] * 0.00392157, b = src[o + 2] * 0.00392157;
+      var L = r * 0.299 + g * 0.587 + b * 0.114;
+      if (L <= fl) continue;                 // an unlit room stays unlit
+      var Ls = (L - fl) * isc;
+      var a = inj * pow(Ls, gm2);
+      var rr = r + (L - r) * mono, gg = g + (L - g) * mono, bb = b + (L - b) * mono;
+      dR[k] += (rr * tr - dR[k]) * a;
+      dG[k] += (gg * tg - dG[k]) * a;
+      dB[k] += (bb * tb - dB[k]) * a;
+    }
+  }
+
+  // 7 ── dissipate
+  var dd = Math.pow(m.dissD, dtA);
+  var sum = 0;                             // energy of the FAST part of the field only
+  for (k = 0; k < NC; k++){
+    var a2 = dR[k] * dd, b2 = dG[k] * dd, c2 = dB[k] * dd;
+    dR[k] = (a2 === a2 && a2 > 0) ? (a2 > 4 ? 4 : a2) : 0;
+    dG[k] = (b2 === b2 && b2 > 0) ? (b2 > 4 ? 4 : b2) : 0;
+    dB[k] = (c2 === c2 && c2 > 0) ? (c2 > 4 ? 4 : c2) : 0;
+    var q = u[k] * u[k] + v[k] * v[k];
+    if (q > 4) sum += q;                   // below 2 cells/frame is just the plume drifting
+  }
+
+  // 8 ── the fluid's own kinetic energy drives the HUD and the air
+  var eRaw = Math.sqrt(sum / Math.max(1, NC)) / 1.5;
+  if (!isFinite(eRaw)) eRaw = 0;
+  energy += (Math.max(0, Math.min(1, eRaw)) - energy) * Math.min(1, dt * 4.5);
+  enFill.style.width = Math.round(energy * 100) + '%';
+  if (t - lastPush > 90){ lastPush = t; pushAudio(energy); }
+  if (hasMoved) hintEl.classList.add('gone');
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  DRAW — the dye and the ground are composited in one pixel pass
+// ═══════════════════════════════════════════════════════════════════════
+function draw(){
+  if (!out) return;
+  var d = out.data, k, j, i;
+  for (j = 0; j < GM; j++){
+    var f = j / (GM - 1 || 1);
+    // the ground: a slow warm gradient, darkest at the top
+    var bgR = 10 + 20 * f * f, bgG = 8 + 13 * f * f, bgB = 7 + 8 * f * f;
+    var row = j * GN;
+    for (i = 0; i < GN; i++){
+      k = row + i;
+      var o = k << 2;
+      var r = bgR + dR[k] * 255, g = bgG + dG[k] * 255, b = bgB + dB[k] * 255;
+      d[o]     = r > 255 ? 255 : (r < 0 ? 0 : r);
+      d[o + 1] = g > 255 ? 255 : (g < 0 ? 0 : g);
+      d[o + 2] = b > 255 ? 255 : (b < 0 ? 0 : b);
+      d[o + 3] = 255;
+    }
+  }
+  octx.putImageData(out, 0, 0);
+
+  ctx.save();
+  ctx.imageSmoothingEnabled = true;
+  ctx.drawImage(outCv, 0, 0, W, H);
+  ctx.restore();
+
+  // ash grain — one pattern fill, not a tiling loop
+  if (grainPat){
+    ctx.save();
+    ctx.globalAlpha = 0.5;
+    ctx.fillStyle = grainPat;
+    ctx.fillRect(0, 0, W, H);
+    ctx.restore();
+  }
+
+  // the ember itself
+  var ex = W * 0.5, ey = H * 0.962, er = Math.max(3, H * 0.007);
+  var eg = ctx.createRadialGradient(ex, ey, 0, ex, ey, er * 7);
+  var hot = 0.55 + 0.45 * Math.abs(Math.sin(emberPhase * 0.9));
+  eg.addColorStop(0,   'rgba(255,190,120,' + (0.85 * hot * M().ember).toFixed(3) + ')');
+  eg.addColorStop(.28, 'rgba(255,138,61,' + (0.42 * hot * M().ember).toFixed(3) + ')');
+  eg.addColorStop(1,   'rgba(255,138,61,0)');
+  ctx.fillStyle = eg;
+  ctx.beginPath(); ctx.arc(ex, ey, er * 7, 0, 6.2832); ctx.fill();
+
+  // the hands, so you can always tell the camera sees you
+  for (var s2 = 0; s2 < 2; s2++){
+    var s = SLOT[s2];
+    if (!s.live || !s.pts || !s.pts.length) continue;
+    var sp = Math.min(1, Math.hypot(s.vx, s.vy) / 2.2);
+    ctx.save();
+    ctx.strokeStyle = 'rgba(232,215,184,' + (0.16 + 0.44 * sp).toFixed(3) + ')';
+    ctx.lineWidth = Math.max(1, dpr * (0.8 + sp));
+    var px0 = s.pts[0].x / ar * W, py0 = s.pts[0].y * H;
+    for (var q = 1; q < s.pts.length; q++){
+      var qx = s.pts[q].x / ar * W, qy = s.pts[q].y * H;
+      if (!isFinite(qx) || !isFinite(qy)) continue;
+      ctx.beginPath(); ctx.moveTo(px0, py0); ctx.lineTo(qx, qy); ctx.stroke();
+      ctx.beginPath(); ctx.arc(qx, qy, Math.max(1.5, dpr * 2.2), 0, 6.2832);
+      ctx.fillStyle = 'rgba(255,138,61,' + (0.25 + 0.6 * sp).toFixed(3) + ')';
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  // vignette
+  if (vigGrad){ ctx.fillStyle = vigGrad; ctx.fillRect(0, 0, W, H); }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  LOOP
+// ═══════════════════════════════════════════════════════════════════════
+var last = 0;
+function loop(){
+  var t = now();
+  var dt = last ? Math.min(0.05, (t - last) / 1000) : 0.016;
+  last = t;
+  try { step(dt); draw(); } catch(e){ /* one bad frame must not end the piece */ }
+  requestAnimationFrame(loop);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  UI
+// ═══════════════════════════════════════════════════════════════════════
+function applyMode(){
+  var m = M();
+  modeN.textContent = m.name; modeSub.textContent = m.en;
+  modeChar.textContent = m.name;
+  modeLbl.textContent = m.lbl;
+  // the smoke itself carries the change: one swirl through the whole field
+  var cx = GN * 0.5, cy = GM * 0.55, R = Math.min(GN, GM) * 0.42;
+  for (var j = 1; j < GM - 1; j++){
+    for (var i = 1; i < GN - 1; i++){
+      var dx = i - cx, dy = j - cy, r = Math.sqrt(dx * dx + dy * dy) + 1e-4;
+      if (r > R) continue;
+      var w = (1 - r / R) * 3;
+      var k = j * GN + i;
+      u[k] += (-dy / r) * w; v[k] += (dx / r) * w;
+    }
+  }
+  clampVel();
+  bowl();
+}
+goBtn.addEventListener('click', function(){
+  goBtn.textContent = 'よみこみ中';
+  initAudio();
+  if (ac && ac.state === 'suspended') ac.resume();
+  startStream().then(function(){
+    // the fluid is the piece; hand tracking only adds wind, so a failure here
+    // is not fatal and must not stop anything
+    if (initHands()) startMpCamera();
+    goBtn.textContent = '焚く';
+    started = true;
+    startSh.classList.add('gone');
+  }).catch(function(e){ goBtn.textContent = '焚く'; showError(e); });
+});
+modeBtn.addEventListener('click', function(){
+  modeI = (modeI + 1) % MODES.length;
+  applyMode();
+});
+sndBtn.addEventListener('click', function(){
+  muted = !muted; sndLbl.textContent = muted ? 'OFF' : 'ON';
+  if (master && ac) master.gain.setTargetAtTime(muted ? 0 : 0.55, ac.currentTime, 0.3);
+});
+window.addEventListener('resize', resize);
+window.addEventListener('orientationchange', function(){ setTimeout(resize, 250); });
+
+resize();
+requestAnimationFrame(loop);
+
+// a headless harness runs the solver without a camera
+window.__KEMURI__ = {
+  feed:function(list){ onHands({ multiHandLandmarks:list }); },
+  step:function(dt){ step(dt); draw(); },
+  start:function(){ started = true; },
+  mode:function(){ modeBtn.click(); },
+  get:function(){
+    return { GN:GN, GM:GM, NC:NC, u:u, v:v, dR:dR, dG:dG, dB:dB,
+             out:out, energy:energy, modeI:modeI, slots:SLOT, audioReady:audioReady };
+  },
+  consts:{ VMAX:VMAX, ITER:ITER, LOST_MS:LOST_MS }
+};
+})();
+</script>
+</body>
+</html>
