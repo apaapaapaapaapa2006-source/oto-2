@@ -1,0 +1,1101 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>OTEDAMA ─ 畳の上のお手玉</title>
+<meta name="description" content="開いた手のひらでお手玉を受け、手を上へ跳ね上げて投げるゲーム。受けるたびに連鎖が伸び、玉は二つから五つまで増える。落とし三つで終わり。">
+<meta name="theme-color" content="#b9b073">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Shippori+Mincho+B1:wght@500;700&family=Cormorant+Garamond:ital,wght@0,500;0,600;1,500&display=swap" rel="stylesheet">
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  OTEDAMA ─ お手玉                          ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  PALETTE   藺草 igusa   #b9b073  sunlit rush            (the mat)
+            青藺 aoi     #8d9a5c  fresh green rush       (weave, shadow)
+            紺   kon     #23304e  brocade border cloth   (chrome, hands)
+            朱   shu     #d4462e  vermilion              (bags, active)
+            生成 kinari  #f4eddd  unbleached             (type on the kon)
+            墨   sumi    #2b2620  the stitch             (hairlines)
+            MOOD: an afternoon room with the shōji slid open. The gallery
+            runs black (TOKI, NAGORI, HIBI, IROKAGE), paper (AMITEN,
+            HAKUCHU, UTSURO, OMOMI), water (MINAMO), clay (SUNA) and wool
+            (NUIME). NOTHING in it is GREEN and nothing in it is DOMESTIC.
+            This piece takes both: a woven yellow-green floor under flat
+            daylight, matte all the way through. Nothing glows here — the
+            brightest thing on screen is a strip of sun on the rush.
+  BACKGROUND  A real tatami mat, woven per line: rush running horizontally
+            in 3px courses with a slow beat across them, vertical stitch
+            every ~26px, and a 縁 (dark brocade border) down the left and
+            right edges with its two hairlines. The camera picture is never
+            shown as a picture — it is multiplied into the mat at low
+            alpha, desaturated and lifted, so you appear as the shadow you
+            cast on the floor and the weave runs straight across your face.
+  TYPE      Shippori Mincho B1 for the Japanese — a 明朝 with real brush
+            entry strokes, the face of a 和綴じ book, used nowhere else in
+            the gallery. Cormorant Garamond, letter-spaced small, for the
+            Latin. Quiet, printed, no machine voice anywhere.
+  MOTION    Weighted. Everything obeys the same gravity the bags do:
+            panels drop in and settle with one small overshoot, the score
+            snaps like a 数取器 tally counter, nothing fades without also
+            moving. No linear tweens.
+  SIGNATURE The bags are real 俵型 お手玉 — two cloth panels, a seam of
+            visible cross stitches, a corner ear at each end — and they
+            SQUASH along the palm on the catch, then STRETCH along their
+            own velocity in flight. Every catch presses a ring into the
+            weave that spreads and fades over a second, and puffs a little
+            ochre dust of 小豆 through the seam.
+  AUDIO     小豆と布. Filtered-noise percussion, no oscillator pads
+            anywhere. Catch = a band-passed noise burst (beans shifting
+            inside cloth) under a 70ms wooden thud whose pitch climbs a
+            都節 pentatonic as the chain grows. Throw = the same noise with
+            the band sweeping up, quieter. Drop = a dull 90Hz thud with the
+            band shut down. Chain milestones and the end of the round are
+            拍子木 — two hard resonant wood clacks. Everything through one
+            compressor.
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<style>
+  :root{
+    --igusa:#b9b073; --aoi:#8d9a5c; --kon:#23304e; --shu:#d4462e;
+    --kinari:#f4eddd; --sumi:#2b2620;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
+  html,body{margin:0;padding:0;height:100%;overflow:hidden;background:#a79f66}
+  body{
+    font-family:"Shippori Mincho B1",serif; color:var(--sumi);
+    -webkit-user-select:none;user-select:none;touch-action:none;
+  }
+  #view{position:fixed;inset:0;width:100%;height:100%;display:block}
+  video{display:none}
+
+  .layer{position:fixed;pointer-events:none}
+
+  /* ── HUD ─────────────────────────────────────────────────────────── */
+  #hud{
+    top:0;left:0;right:0;display:flex;justify-content:space-between;
+    align-items:flex-start;padding:calc(env(safe-area-inset-top,0px) + 14px) 18px 0;
+    gap:10px;
+  }
+  .plate{
+    background:var(--kon); color:var(--kinari);
+    padding:9px 15px 10px; border-radius:2px;
+    box-shadow:0 3px 0 rgba(35,48,78,.28), 0 10px 18px rgba(43,38,32,.16);
+    position:relative;
+  }
+  .plate::after{
+    content:'';position:absolute;inset:3px;border:1px solid rgba(244,237,221,.22);
+    border-radius:1px;pointer-events:none;
+  }
+  .lbl{
+    font-family:"Cormorant Garamond",serif;font-size:10px;letter-spacing:.28em;
+    text-transform:uppercase;opacity:.62;display:block;line-height:1;margin-bottom:5px;
+  }
+  #timeV{font-size:30px;line-height:.9;font-weight:700;font-variant-numeric:tabular-nums}
+  #timeV small{font-size:12px;opacity:.6;margin-left:2px;font-weight:500}
+  #scoreV{font-size:30px;line-height:.9;font-weight:700;font-variant-numeric:tabular-nums;
+          display:inline-block;transform-origin:100% 100%}
+  #hudR{text-align:right}
+  #chainWrap{
+    margin-top:7px;font-size:13px;color:var(--kinari);opacity:0;
+    transform:translateY(-4px);transition:opacity .18s, transform .22s cubic-bezier(.2,1.5,.4,1);
+  }
+  #chainWrap.on{opacity:1;transform:none}
+  #chainV{font-weight:700;font-size:17px}
+  #mult{color:#ffb9a6}
+
+  #dropRow{display:flex;gap:7px;margin-top:9px;justify-content:flex-start}
+  .dp{
+    width:13px;height:13px;border-radius:50%;
+    border:1.5px solid rgba(244,237,221,.5);
+    transition:background .2s, transform .3s cubic-bezier(.2,1.6,.4,1), border-color .2s;
+  }
+  .dp.lost{background:var(--shu);border-color:var(--shu);transform:scale(1.18)}
+
+  /* ── controls ────────────────────────────────────────────────────── */
+  #ctl{
+    left:0;right:0;bottom:calc(env(safe-area-inset-bottom,0px) + 14px);
+    display:flex;gap:9px;justify-content:center;pointer-events:none;flex-wrap:wrap;padding:0 12px;
+  }
+  .btn{
+    pointer-events:auto;font-family:"Shippori Mincho B1",serif;font-size:12.5px;
+    color:var(--kinari);background:rgba(35,48,78,.9);border:0;
+    padding:9px 15px;border-radius:2px;cursor:pointer;letter-spacing:.06em;
+    box-shadow:0 3px 0 rgba(35,48,78,.35);
+    transition:transform .16s cubic-bezier(.2,1.6,.4,1), box-shadow .16s;
+  }
+  .btn:active{transform:translateY(3px);box-shadow:0 0 0 rgba(35,48,78,.35)}
+  .btn small{opacity:.62;margin-left:5px;font-size:10.5px}
+
+  #hint{
+    left:0;right:0;bottom:calc(env(safe-area-inset-bottom,0px) + 62px);
+    text-align:center;font-size:12.5px;color:var(--kon);opacity:.72;
+    line-height:1.75;padding:0 26px;text-shadow:0 1px 0 rgba(255,255,255,.35);
+    transition:opacity .5s;
+  }
+  #hint.gone{opacity:0}
+
+  /* ── sheets ──────────────────────────────────────────────────────── */
+  .sheet{
+    position:fixed;inset:0;z-index:20;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;gap:2px;text-align:center;
+    padding:26px 24px calc(env(safe-area-inset-bottom,0px) + 26px);
+    background:
+      linear-gradient(rgba(185,176,115,.93),rgba(185,176,115,.93));
+    backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px);
+  }
+  .sheet.gone{display:none}
+  .sheet .en{
+    font-family:"Cormorant Garamond",serif;font-style:italic;
+    font-size:12px;letter-spacing:.42em;color:var(--kon);opacity:.65;
+    text-transform:uppercase;margin-bottom:12px;
+  }
+  .sheet h1{
+    font-size:min(15vw,54px);margin:0;font-weight:700;letter-spacing:.16em;
+    color:var(--kon);line-height:1;text-indent:.16em;
+  }
+  .rule{
+    width:64px;height:2px;background:var(--shu);margin:20px 0 18px;opacity:.9;
+  }
+  .sub{
+    font-size:13.5px;line-height:2;color:var(--sumi);opacity:.86;max-width:22em;margin:0;
+  }
+  .sub b{color:var(--shu);font-weight:700}
+  .go{
+    pointer-events:auto;margin-top:26px;font-family:"Shippori Mincho B1",serif;
+    font-size:16px;font-weight:700;letter-spacing:.3em;text-indent:.3em;
+    color:var(--kinari);background:var(--kon);border:0;
+    padding:15px 42px;border-radius:2px;cursor:pointer;
+    box-shadow:0 5px 0 #16203a, 0 14px 22px rgba(43,38,32,.22);
+    transition:transform .16s cubic-bezier(.2,1.6,.4,1), box-shadow .16s;
+  }
+  .go:active{transform:translateY(5px);box-shadow:0 0 0 #16203a}
+  .foot{font-size:10.5px;opacity:.5;margin-top:16px;letter-spacing:.1em}
+
+  /* ── the 3-second diagram ────────────────────────────────────────── */
+  .demo{position:relative;width:190px;height:126px;margin:6px 0 2px}
+  .demo svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
+  .dmPalm{animation:dmPalm 2.8s cubic-bezier(.3,0,.4,1) infinite;transform-origin:50% 100%}
+  .dmBagX{position:absolute;left:50%;top:74%;width:0;height:0;animation:dmX 2.8s linear infinite}
+  .dmBag{
+    position:absolute;left:-13px;top:-13px;width:26px;height:26px;border-radius:9px;
+    background:var(--shu);box-shadow:inset 0 -4px 0 rgba(0,0,0,.16);
+    animation:dmY 2.8s infinite;
+  }
+  .dmArrow{
+    position:absolute;left:50%;top:6px;transform:translateX(-50%);
+    font-size:11px;letter-spacing:.22em;color:var(--kon);opacity:0;
+    animation:dmArrow 2.8s infinite;
+  }
+  @keyframes dmX{
+    0%,26%{transform:translateX(-38px)}
+    46%{transform:translateX(-38px)}
+    100%{transform:translateX(40px)}
+  }
+  @keyframes dmY{
+    0%   {transform:translateY(-92px) scale(1,1)}
+    26%  {transform:translateY(0) scale(1,1)}
+    32%  {transform:translateY(2px) scale(1.28,.66)}
+    40%  {transform:translateY(0) scale(1,1)}
+    46%  {transform:translateY(0) scale(.9,1.14)}
+    72%  {transform:translateY(-74px) scale(.92,1.1)}
+    100% {transform:translateY(-4px) scale(1,1)}
+  }
+  @keyframes dmPalm{
+    0%,24%{transform:translateY(4px)}
+    32%   {transform:translateY(11px)}
+    44%   {transform:translateY(-16px)}
+    58%   {transform:translateY(4px)}
+    100%  {transform:translateY(4px)}
+  }
+  @keyframes dmArrow{
+    0%,38%{opacity:0;transform:translate(-50%,10px)}
+    50%{opacity:.9;transform:translate(-50%,0)}
+    74%{opacity:.9}
+    86%,100%{opacity:0}
+  }
+  @media (prefers-reduced-motion:reduce){
+    .dmBagX,.dmBag,.dmPalm,.dmArrow{animation:none}
+    .dmBag{transform:translateY(0)}
+  }
+
+  /* ── result ──────────────────────────────────────────────────────── */
+  #bigScore{
+    font-size:min(24vw,96px);font-weight:700;color:var(--kon);line-height:.94;
+    font-variant-numeric:tabular-nums;
+  }
+  #bigScore span{font-size:.3em;margin-left:.16em;opacity:.6}
+  #tally{
+    display:flex;gap:22px;justify-content:center;margin-top:6px;flex-wrap:wrap;
+    font-size:12.5px;color:var(--sumi);opacity:.82;
+  }
+  #tally b{display:block;font-size:21px;color:var(--kon);font-weight:700;margin-top:3px;
+           font-variant-numeric:tabular-nums}
+  #stamp{
+    margin-top:20px;font-size:19px;font-weight:700;letter-spacing:.3em;text-indent:.3em;
+    color:var(--shu);border:2px solid var(--shu);border-radius:3px;padding:9px 18px;
+    transform:rotate(-3.5deg);
+  }
+
+  #err{
+    position:fixed;left:14px;right:14px;bottom:calc(env(safe-area-inset-bottom,0px) + 76px);
+    z-index:40;display:none;white-space:pre-line;background:var(--kon);color:var(--kinari);
+    padding:13px 15px;border-radius:2px;font-size:12.5px;line-height:1.75;
+    border-left:4px solid var(--shu);
+  }
+
+  @media (max-height:520px){
+    .sheet h1{font-size:34px}
+    .demo{height:96px;width:160px}
+    .sub{font-size:12px;line-height:1.8}
+    .go{margin-top:16px;padding:12px 32px}
+  }
+</style>
+</head>
+<body>
+
+<canvas id="view"></canvas>
+<video id="video" playsinline muted autoplay></video>
+
+<div class="layer" id="hud">
+  <div>
+    <div class="plate">
+      <span class="lbl">Time</span>
+      <div id="timeV">60<small>秒</small></div>
+      <div id="dropRow"></div>
+    </div>
+  </div>
+  <div id="hudR">
+    <div class="plate">
+      <span class="lbl">Score</span>
+      <div><span id="scoreV">0</span></div>
+      <div id="chainWrap"><span id="chainV">0</span> 連鎖 <span id="mult">×1</span></div>
+    </div>
+  </div>
+</div>
+
+<div class="layer" id="hint">手を<b>開いて</b>お手玉を受け、<b>手ごと上へ跳ね上げて</b>投げる</div>
+
+<div class="layer" id="ctl">
+  <button class="btn" id="flipBtn" type="button">⟲ カメラ</button>
+  <button class="btn" id="sndBtn" type="button">♪<small id="sndLbl">ON</small></button>
+  <button class="btn" id="againBtn" type="button">はじめから</button>
+</div>
+
+<div class="sheet" id="start">
+  <div class="en">Otedama &middot; beanbags</div>
+  <h1>お手玉</h1>
+
+  <div class="demo">
+    <svg viewBox="0 0 190 126" aria-hidden="true">
+      <g class="dmPalm">
+        <path d="M60 104 q35 20 70 0 q4 -22 -10 -30 q-25 -12 -50 0 q-14 8 -10 30 z"
+              fill="none" stroke="#23304e" stroke-width="2.4" stroke-linejoin="round"/>
+        <path d="M64 80 l-6 -20 M80 73 l-3 -25 M99 72 l3 -25 M116 79 l7 -21"
+              fill="none" stroke="#23304e" stroke-width="2.4" stroke-linecap="round" opacity=".78"/>
+      </g>
+    </svg>
+    <span class="dmArrow">上へ跳ねる</span>
+    <span class="dmBagX"><span class="dmBag"></span></span>
+  </div>
+
+  <div class="rule"></div>
+  <p class="sub">
+    落ちてくるお手玉を<b>開いた手のひら</b>で受けます。<br>
+    受けたら<b>手ごと上へ素早く跳ね上げる</b>と、その勢いのまま飛んでいきます。<br>
+    受けるほど連鎖が伸び、玉は二つから五つまで増えます。落とし三つで終わり。
+  </p>
+  <button class="go" id="go" type="button">はじめる</button>
+  <div class="foot">カメラと音を使います ・ 60秒</div>
+</div>
+
+<div class="sheet gone" id="result">
+  <div class="en">Result</div>
+  <div id="bigScore">0<span>点</span></div>
+  <div class="rule"></div>
+  <div id="tally"></div>
+  <div id="stamp">またどうぞ</div>
+  <button class="go" id="retry" type="button">もう一度</button>
+</div>
+
+<div id="err"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+<script>
+(function(){
+'use strict';
+
+// ═══════════════════════════════════════════════════════════════════════
+//  ELEMENTS
+// ═══════════════════════════════════════════════════════════════════════
+var cv      = document.getElementById('view');
+var ctx     = cv.getContext('2d');
+var video   = document.getElementById('video');
+var timeV   = document.getElementById('timeV');
+var scoreV  = document.getElementById('scoreV');
+var chainV  = document.getElementById('chainV');
+var multV   = document.getElementById('mult');
+var chainW  = document.getElementById('chainWrap');
+var dropRow = document.getElementById('dropRow');
+var hintEl  = document.getElementById('hint');
+var flipBtn = document.getElementById('flipBtn');
+var sndBtn  = document.getElementById('sndBtn');
+var sndLbl  = document.getElementById('sndLbl');
+var againBtn= document.getElementById('againBtn');
+var startSh = document.getElementById('start');
+var goBtn   = document.getElementById('go');
+var resSh   = document.getElementById('result');
+var bigScore= document.getElementById('bigScore');
+var tallyEl = document.getElementById('tally');
+var stampEl = document.getElementById('stamp');
+var retryBtn= document.getElementById('retry');
+var errBox  = document.getElementById('err');
+
+// ═══════════════════════════════════════════════════════════════════════
+//  TUNING  — every one of these was set against the headless harness
+// ═══════════════════════════════════════════════════════════════════════
+var ROUND_S    = 60;
+var G          = 1.30;   // screen-heights / s²
+var DRAG       = 0.055;
+var BAG_R      = 0.045;  // screen-heights
+var FLOOR      = 1.06;
+var THROW_VY   = 0.85;   // upward palm speed that releases  (jitter is ~0.12)
+var THROW_GAIN = 0.86;
+var VY_MIN     = 0.58, VY_MAX = 1.70;
+var VX_MAX     = 1.05;
+var CATCH_K    = 0.95;   // × palm span — so a hand held closer really does catch wider
+var CATCH_MIN  = 0.062, CATCH_MAX = 0.132;
+var CATCH_CD   = 260;    // ms after a release before that hand may catch again
+var LOST_MS    = 320;
+var MAX_BAGS   = 5;
+var ADD_AT     = [10, 22, 36];
+var RESPAWN_MS = 780;
+
+// ═══════════════════════════════════════════════════════════════════════
+//  CANVAS
+// ═══════════════════════════════════════════════════════════════════════
+var W = 1, H = 1, ar = 1, dpr = 1;
+var mat = document.createElement('canvas');       // pre-woven tatami
+var mctx = mat.getContext('2d');
+var ghost = document.createElement('canvas');     // small desaturated video
+var gctx = ghost.getContext('2d');
+ghost.width = 240; ghost.height = 180;
+var canFilter = (typeof gctx.filter === 'string');
+
+function resize(){
+  dpr = Math.min(window.devicePixelRatio || 1, 2);
+  var w = Math.max(1, window.innerWidth), h = Math.max(1, window.innerHeight);
+  cv.width  = Math.round(w * dpr);
+  cv.height = Math.round(h * dpr);
+  cv.style.width = w + 'px'; cv.style.height = h + 'px';
+  W = cv.width; H = cv.height; ar = W / H;
+  weave();
+}
+
+// X is stored in screen-heights too, so a circle is a circle.
+// field x ∈ [0, ar], y ∈ [0, 1].
+function px(x){ return x * H; }
+function py(y){ return y * H; }
+
+// ── the mat ───────────────────────────────────────────────────────────
+function weave(){
+  mat.width = W; mat.height = H;
+  var g = mctx.createLinearGradient(0, 0, W * .6, H);
+  g.addColorStop(0,   '#c8bf80');
+  g.addColorStop(.42, '#b9b073');
+  g.addColorStop(1,   '#9ea55f');
+  mctx.fillStyle = g; mctx.fillRect(0, 0, W, H);
+
+  // rush courses
+  var step = Math.max(2, Math.round(3 * dpr));
+  mctx.lineWidth = Math.max(1, dpr);
+  for (var y = 0; y < H; y += step){
+    var b = 0.5 + 0.5 * Math.sin(y * 0.07);
+    mctx.strokeStyle = 'rgba(96,104,54,' + (0.07 + 0.075 * b).toFixed(3) + ')';
+    mctx.beginPath(); mctx.moveTo(0, y + .5); mctx.lineTo(W, y + .5); mctx.stroke();
+    mctx.strokeStyle = 'rgba(232,226,178,' + (0.05 + 0.05 * (1 - b)).toFixed(3) + ')';
+    mctx.beginPath(); mctx.moveTo(0, y + 1.5); mctx.lineTo(W, y + 1.5); mctx.stroke();
+  }
+  // vertical stitch
+  var vs = Math.max(16, Math.round(26 * dpr));
+  mctx.strokeStyle = 'rgba(88,96,50,.10)';
+  mctx.lineWidth = Math.max(1, dpr);
+  for (var x = vs * .5; x < W; x += vs){
+    mctx.beginPath(); mctx.moveTo(x, 0); mctx.lineTo(x, H); mctx.stroke();
+  }
+  // 縁 — brocade border down both edges
+  var bw = Math.max(14, Math.min(W * .055, 46 * dpr));
+  var i;
+  for (i = 0; i < 2; i++){
+    var x0 = i ? W - bw : 0;
+    mctx.fillStyle = '#23304e'; mctx.fillRect(x0, 0, bw, H);
+    mctx.fillStyle = 'rgba(244,237,221,.16)';
+    mctx.fillRect(i ? x0 + bw * .18 : x0 + bw * .74, 0, Math.max(1, dpr), H);
+    mctx.fillStyle = 'rgba(244,237,221,.09)';
+    mctx.fillRect(i ? x0 + bw * .30 : x0 + bw * .62, 0, Math.max(1, dpr), H);
+    mctx.fillStyle = 'rgba(43,38,32,.20)';
+    mctx.fillRect(i ? x0 : x0 + bw - Math.max(1, dpr), 0, Math.max(1, dpr), H);
+  }
+  // a strip of sun
+  var s = mctx.createLinearGradient(W * .1, 0, W * .75, H * .8);
+  s.addColorStop(0,  'rgba(255,250,214,.22)');
+  s.addColorStop(.5, 'rgba(255,250,214,0)');
+  s.addColorStop(1,  'rgba(60,60,30,.10)');
+  mctx.fillStyle = s; mctx.fillRect(0, 0, W, H);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  AUDIO — 小豆と布
+// ═══════════════════════════════════════════════════════════════════════
+var ac = null, master = null, comp = null, noiseBuf = null, muted = false;
+var MIYAKO = [0, 1, 5, 7, 8];        // 都節音階
+
+function initAudio(){
+  if (ac) return;
+  var AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) return;
+  try { ac = new AC(); } catch(e){ ac = null; return; }
+  comp = ac.createDynamicsCompressor();
+  try {
+    comp.threshold.value = -16; comp.knee.value = 26;
+    comp.ratio.value = 6; comp.attack.value = .003; comp.release.value = .22;
+  } catch(e){}
+  master = ac.createGain(); master.gain.value = muted ? 0 : 0.9;
+  master.connect(comp); comp.connect(ac.destination);
+
+  var n = Math.floor(ac.sampleRate * 1.2);
+  noiseBuf = ac.createBuffer(1, n, ac.sampleRate);
+  var d = noiseBuf.getChannelData(0);
+  for (var i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+}
+function safe(v, f){ return (typeof v === 'number' && isFinite(v)) ? v : f; }
+function noise(t, dur, f0, f1, q, vol, type){
+  if (!ac || !noiseBuf || muted) return;
+  var s = ac.createBufferSource(); s.buffer = noiseBuf;
+  s.loop = true; s.playbackRate.value = 1;
+  var bp = ac.createBiquadFilter(); bp.type = type || 'bandpass';
+  bp.frequency.setValueAtTime(safe(f0, 1000), t);
+  if (f1 && f1 !== f0) bp.frequency.exponentialRampToValueAtTime(safe(f1, 1000), t + dur);
+  bp.Q.value = safe(q, 1);
+  var g = ac.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(Math.max(0.0002, safe(vol, .2)), t + 0.004);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  s.connect(bp); bp.connect(g); g.connect(master);
+  s.start(t); s.stop(t + dur + 0.02);
+}
+function wood(t, freq, dur, vol){
+  if (!ac || muted) return;
+  var o = ac.createOscillator(); o.type = 'sine';
+  o.frequency.setValueAtTime(safe(freq, 200) * 1.9, t);
+  o.frequency.exponentialRampToValueAtTime(safe(freq, 200), t + 0.026);
+  var g = ac.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(Math.max(0.0002, safe(vol, .22)), t + 0.004);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  o.connect(g); g.connect(master); o.start(t); o.stop(t + dur + 0.02);
+}
+function sCatch(step){
+  if (!ac) return;
+  var t = ac.currentTime;
+  noise(t, 0.17, 2600, 1500, 1.1, 0.26);                    // beans in cloth
+  var k = MIYAKO[((step % 5) + 5) % 5] + 12 * Math.floor(Math.min(9, Math.max(0, step)) / 5);
+  wood(t, 165 * Math.pow(2, k / 12), 0.11, 0.20);
+}
+function sThrow(power){
+  if (!ac) return;
+  var t = ac.currentTime, p = Math.max(0, Math.min(1, safe(power, .5)));
+  noise(t, 0.14, 700, 1400 + 2400 * p, 0.85, 0.10 + 0.10 * p);
+}
+function sDrop(){
+  if (!ac) return;
+  var t = ac.currentTime;
+  wood(t, 92, 0.30, 0.30);
+  noise(t, 0.20, 320, 180, 0.7, 0.16, 'lowpass');
+}
+function clack(t, vol){ noise(t, 0.055, 2400, 2400, 15, safe(vol, .3)); }
+function sChain(){ if (!ac) return; var t = ac.currentTime; clack(t, .30); clack(t + 0.085, .24); }
+function sEnd(){
+  if (!ac) return; var t = ac.currentTime;
+  clack(t, .30); clack(t + 0.26, .30); clack(t + 0.44, .32);
+  clack(t + 0.56, .34); clack(t + 0.63, .36); clack(t + 0.68, .40);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  CAMERA
+// ═══════════════════════════════════════════════════════════════════════
+var facing = 'user', mirror = true, stream = null;
+function showError(e){
+  var msg = (e && e.message) ? e.message : String(e || 'unknown');
+  errBox.style.display = 'block';
+  errBox.textContent = 'カメラを起動できませんでした：' + msg +
+    '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+}
+function startStream(){
+  var md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) return Promise.reject(new Error('getUserMedia is unavailable'));
+  if (stream && stream.getTracks) stream.getTracks().forEach(function(t){ t.stop(); });
+  return md.getUserMedia({
+    video:{ facingMode:{ ideal:facing }, width:{ ideal:960 }, height:{ ideal:720 } },
+    audio:false
+  }).then(function(st){
+    stream = st; video.srcObject = st; mirror = (facing === 'user');
+    var p = video.play();
+    return (p && p.then) ? p.catch(function(){}) : null;
+  });
+}
+flipBtn.addEventListener('click', function(){
+  facing = (facing === 'user') ? 'environment' : 'user';
+  loseAllHands();
+  startStream().then(startMpCamera).catch(showError);
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+//  HANDS — two slots, ordered left-to-right on screen
+// ═══════════════════════════════════════════════════════════════════════
+var hands = null, mpCamera = null, mpReady = false;
+
+function mkSlot(){
+  return { live:false, x:.5, y:.5, vx:0, vy:0, span:.11, open:false, ext:0,
+           t:-1e9, hold:null, cd:0, flash:0, tips:null };
+}
+var SLOT = [mkSlot(), mkSlot()];
+var TIPS = [8, 12, 16, 20], PIPS = [6, 10, 14, 18];
+
+function initHands(){
+  if (typeof window.Hands !== 'function') return false;
+  try {
+    hands = new window.Hands({ locateFile:function(f){
+      return 'https://cdn.jsdelivr.net/npm/@mediapipe/hands/' + f;
+    }});
+    hands.setOptions({ maxNumHands:2, modelComplexity:0,
+                       minDetectionConfidence:0.6, minTrackingConfidence:0.5 });
+    hands.onResults(onHands);
+    mpReady = true; return true;
+  } catch(e){ return false; }
+}
+function validLm(c){
+  if (!c || c.length < 21) return null;
+  for (var i = 0; i < 21; i++){
+    var p = c[i];
+    if (!p || typeof p.x !== 'number' || typeof p.y !== 'number' ||
+        !isFinite(p.x) || !isFinite(p.y)) return null;
+  }
+  return c;
+}
+function measure(c){
+  var ids = [0, 5, 9, 13, 17], cx = 0, cy = 0, i;
+  for (i = 0; i < ids.length; i++){ cx += c[ids[i]].x; cy += c[ids[i]].y; }
+  cx /= ids.length; cy /= ids.length;
+  var span = Math.hypot(c[5].x - c[17].x, c[5].y - c[17].y);
+  if (!isFinite(span) || span <= 0.004) return null;
+  var wr = c[0], ext = 0;
+  for (i = 0; i < TIPS.length; i++){
+    var dt = Math.hypot(c[TIPS[i]].x - wr.x, c[TIPS[i]].y - wr.y);
+    var dp = Math.hypot(c[PIPS[i]].x - wr.x, c[PIPS[i]].y - wr.y);
+    if (dt > dp * 1.06) ext++;
+  }
+  var sx = mirror ? (1 - cx) : cx;
+  var tips = [];
+  for (i = 0; i < 5; i++){
+    var tp = c[[4, 8, 12, 16, 20][i]];
+    tips.push({ x:(mirror ? 1 - tp.x : tp.x) * ar, y:tp.y });
+  }
+  return { x: sx * ar, y: cy, span: span * (mirror ? 1 : 1), ext: ext, open: ext >= 3, tips: tips };
+}
+function applyTo(s, m, t){
+  var dt = (t - s.t) / 1000;
+  if (s.live && dt > 0.004 && dt < 0.2){
+    var nvx = (m.x - s.x) / dt, nvy = (m.y - s.y) / dt;
+    if (!isFinite(nvx)) nvx = 0;
+    if (!isFinite(nvy)) nvy = 0;
+    nvx = Math.max(-6, Math.min(6, nvx));
+    nvy = Math.max(-6, Math.min(6, nvy));
+    s.vx += (nvx - s.vx) * 0.55;
+    s.vy += (nvy - s.vy) * 0.55;
+  } else { s.vx = 0; s.vy = 0; }
+  s.x = m.x; s.y = m.y; s.span = m.span; s.ext = m.ext; s.open = m.open;
+  s.tips = m.tips; s.t = t; s.live = true;
+}
+function onHands(res){
+  var t = now();
+  var raw = (res && res.multiHandLandmarks) ? res.multiHandLandmarks : [];
+  var ms = [], i;
+  for (i = 0; i < raw.length && ms.length < 2; i++){
+    var c = validLm(raw[i]);
+    if (c){ var m = measure(c); if (m) ms.push(m); }
+  }
+  if (!ms.length) return;
+  ms.sort(function(a, b){ return a.x - b.x; });
+  if (ms.length >= 2){
+    applyTo(SLOT[0], ms[0], t);
+    applyTo(SLOT[1], ms[1], t);
+  } else {
+    // one hand: give it to whichever slot it is nearer, preferring a live one
+    var m0 = ms[0], best = -1, bd = 1e9;
+    for (i = 0; i < 2; i++){
+      if (!SLOT[i].live || t - SLOT[i].t > LOST_MS) continue;
+      var d = Math.abs(SLOT[i].x - m0.x);
+      if (d < bd){ bd = d; best = i; }
+    }
+    if (best < 0) best = (m0.x < ar * 0.5) ? 0 : 1;
+    applyTo(SLOT[best], m0, t);
+  }
+}
+function dropSlot(s, gentle){
+  // tracking lost — never let stale velocity fire a throw on reacquisition
+  if (s.hold){
+    s.hold.held = -1;
+    s.hold.vx = 0;
+    s.hold.vy = gentle ? -0.55 : 0;
+    s.hold = null;
+  }
+  s.live = false; s.vx = 0; s.vy = 0; s.t = -1e9; s.tips = null; s.open = false;
+}
+function loseAllHands(){ dropSlot(SLOT[0], true); dropSlot(SLOT[1], true); }
+function startMpCamera(){
+  if (!mpReady || typeof window.Camera !== 'function') return;
+  try {
+    if (mpCamera && mpCamera.stop) mpCamera.stop();
+    mpCamera = new window.Camera(video, {
+      onFrame:function(){
+        if (!hands || state === 'boot') return Promise.resolve();
+        return hands.send({ image:video }).catch(function(){});
+      },
+      width:480, height:360
+    });
+    mpCamera.start();
+  } catch(e){ mpReady = false; }
+}
+function now(){ return performance.now(); }
+
+// ═══════════════════════════════════════════════════════════════════════
+//  GAME STATE
+// ═══════════════════════════════════════════════════════════════════════
+var state = 'boot';          // boot | play | over
+var bags = [], rings = [], dust = [], pops = [];
+var score = 0, chain = 0, bestChain = 0, catches = 0, throws = 0, drops = 0;
+var tEnd = 0, want = 2, shownScore = 0, scorePulse = 0;
+var CLOTH = ['#d4462e', '#23304e', '#c98a2b', '#7b3f6e', '#3f7a5c'];
+
+function mkBag(x, y, vx, vy, k){
+  return { x:x, y:y, vx:vx, vy:vy, r:BAG_R, held:-1, rot:(Math.random() - .5) * 1.2,
+           rv:(Math.random() - .5) * 3, sq:0, k:k % CLOTH.length, dead:false, respawn:0 };
+}
+function spawnTop(k){
+  var x = (0.24 + Math.random() * 0.52) * ar;
+  return mkBag(x, -0.10, (Math.random() - .5) * 0.25, 0.18, k);
+}
+
+function startGame(){
+  state = 'play';
+  bags.length = 0; rings.length = 0; dust.length = 0; pops.length = 0;
+  score = 0; chain = 0; bestChain = 0; catches = 0; throws = 0; drops = 0;
+  shownScore = 0; scorePulse = 0; want = 2;
+  tEnd = now() + ROUND_S * 1000;
+  bags.push(mkBag(ar * 0.36, 0.42, 0.10, -0.30, 0));
+  bags.push(mkBag(ar * 0.64, 0.30, -0.10, -0.10, 1));
+  SLOT[0].hold = null; SLOT[1].hold = null;
+  SLOT[0].cd = 0; SLOT[1].cd = 0;
+  startSh.classList.add('gone'); resSh.classList.add('gone');
+  hintEl.classList.remove('gone');
+  paintDrops(); syncHud();
+}
+
+function endRound(){
+  if (state !== 'play') return;      // idempotent
+  state = 'over';
+  for (var i = 0; i < 2; i++){ if (SLOT[i].hold){ SLOT[i].hold.held = -1; SLOT[i].hold = null; } }
+  sEnd();
+  bigScore.innerHTML = score + '<span>点</span>';
+  tallyEl.innerHTML =
+    '<div>受けた<b>' + catches + '</b></div>' +
+    '<div>投げた<b>' + throws + '</b></div>' +
+    '<div>最長連鎖<b>' + bestChain + '</b></div>' +
+    '<div>落とし<b>' + drops + '</b></div>';
+  stampEl.textContent =
+    score >= 700 ? '名人' : score >= 420 ? 'お手のもの' :
+    score >= 200 ? 'なかなか' : 'またどうぞ';
+  resSh.classList.remove('gone');
+}
+
+function paintDrops(){
+  var h = '';
+  for (var i = 0; i < 3; i++) h += '<span class="dp' + (i < drops ? ' lost' : '') + '"></span>';
+  dropRow.innerHTML = h;
+}
+function syncHud(){
+  var m = mult();
+  chainV.textContent = chain;
+  multV.textContent = '×' + m;
+  if (chain >= 2) chainW.classList.add('on'); else chainW.classList.remove('on');
+}
+function mult(){ return Math.min(5, 1 + Math.floor(chain / 5)); }
+
+// ═══════════════════════════════════════════════════════════════════════
+//  SIMULATION
+// ═══════════════════════════════════════════════════════════════════════
+function catchR(s){
+  return Math.max(CATCH_MIN, Math.min(CATCH_MAX, s.span * CATCH_K));
+}
+
+function step(dt){
+  var t = now(), i, s, b;
+
+  // hands that went away
+  for (i = 0; i < 2; i++){
+    s = SLOT[i];
+    if (s.live && t - s.t > LOST_MS) dropSlot(s, true);
+    if (s.flash > 0) s.flash = Math.max(0, s.flash - dt * 3.4);
+  }
+  if (state !== 'play') return;
+
+  // release — an upward flick, or the hand closing
+  for (i = 0; i < 2; i++){
+    s = SLOT[i];
+    if (!s.hold || !s.live) continue;
+    var flick = (s.vy < -THROW_VY);
+    var shut  = (s.ext <= 1);
+    if (flick || shut){
+      b = s.hold;
+      b.held = -1;
+      var vy = flick ? s.vy * THROW_GAIN : -VY_MIN;
+      var vx = flick ? s.vx * THROW_GAIN : s.vx * 0.4;
+      if (!isFinite(vy)) vy = -VY_MIN;
+      if (!isFinite(vx)) vx = 0;
+      b.vy = Math.max(-VY_MAX, Math.min(-VY_MIN, vy));
+      b.vx = Math.max(-VX_MAX, Math.min(VX_MAX, vx));
+      b.rv = b.vx * 4 + (Math.random() - .5);
+      b.sq = -0.30;                            // stretch out of the hand
+      s.hold = null; s.cd = t + CATCH_CD;
+      throws++;
+      sThrow((-b.vy - VY_MIN) / (VY_MAX - VY_MIN));
+      pops.push({ x:b.x, y:b.y, r:0.02, a:.55, g:1 });
+    }
+  }
+
+  // catch
+  for (i = 0; i < 2; i++){
+    s = SLOT[i];
+    if (!s.live || s.hold || !s.open || t < s.cd) continue;
+    var R = catchR(s), bd = 1e9, pick = null;
+    for (var j = 0; j < bags.length; j++){
+      b = bags[j];
+      if (b.dead || b.held >= 0 || b.respawn > 0) continue;
+      var d = Math.hypot(b.x - s.x, b.y - s.y);
+      if (d < R + b.r && d < bd){ bd = d; pick = b; }
+    }
+    if (pick){
+      pick.held = i; s.hold = pick;
+      pick.vx = 0; pick.vy = 0; pick.sq = 0.42; pick.rv *= 0.2;
+      catches++; chain++;
+      if (chain > bestChain) bestChain = chain;
+      score += 10 * mult();
+      scorePulse = 1;
+      s.flash = 1;
+      rings.push({ x:s.x, y:s.y, r:R * 0.55, a:.5 });
+      for (var d2 = 0; d2 < 7; d2++){
+        dust.push({ x:pick.x, y:pick.y, vx:(Math.random() - .5) * .45,
+                    vy:-Math.random() * .38, a:1, r:(.004 + Math.random() * .005) });
+      }
+      sCatch(chain - 1);
+      if (chain > 0 && chain % 5 === 0) sChain();
+      // more bags as the chain of catches grows
+      for (var k = 0; k < ADD_AT.length; k++){
+        if (catches === ADD_AT[k] && want < MAX_BAGS){
+          want++; bags.push(spawnTop(bags.length));
+        }
+      }
+      syncHud();
+    }
+  }
+
+  // bags
+  var sub = 2, h = dt / sub;
+  for (var q = 0; q < sub; q++){
+    for (i = 0; i < bags.length; i++){
+      b = bags[i];
+      if (b.dead) continue;
+      if (b.respawn > 0){ b.respawn -= h * 1000; continue; }
+      if (b.held >= 0){
+        s = SLOT[b.held];
+        if (s && s.live){
+          b.x = s.x; b.y = s.y - b.r * 0.42;
+          b.vx = 0; b.vy = 0;
+        }
+        continue;
+      }
+      b.vy += G * h;
+      b.vx -= b.vx * DRAG * h * 10;
+      b.x += b.vx * h; b.y += b.vy * h;
+      b.rot += b.rv * h;
+      if (b.x < b.r){ b.x = b.r; b.vx = Math.abs(b.vx) * .58; b.rv *= -.6; }
+      if (b.x > ar - b.r){ b.x = ar - b.r; b.vx = -Math.abs(b.vx) * .58; b.rv *= -.6; }
+      if (b.y > FLOOR){
+        drops++; chain = 0; syncHud(); paintDrops();
+        sDrop();
+        rings.push({ x:b.x, y:Math.min(0.97, b.y), r:0.03, a:.38 });
+        b.respawn = RESPAWN_MS;
+        b.x = (0.24 + Math.random() * 0.52) * ar; b.y = -0.10;
+        b.vx = (Math.random() - .5) * 0.25; b.vy = 0.18;
+        if (drops >= 3){ endRound(); return; }
+      }
+    }
+  }
+  for (i = 0; i < bags.length; i++){
+    b = bags[i];
+    b.sq += (0 - b.sq) * Math.min(1, dt * 9);
+  }
+
+  // decorations
+  for (i = rings.length - 1; i >= 0; i--){
+    var rg = rings[i];
+    rg.r += dt * 0.22; rg.a -= dt * 0.85;
+    if (rg.a <= 0) rings.splice(i, 1);
+  }
+  for (i = pops.length - 1; i >= 0; i--){
+    var pp = pops[i];
+    pp.r += dt * 0.5; pp.a -= dt * 2.1;
+    if (pp.a <= 0) pops.splice(i, 1);
+  }
+  for (i = dust.length - 1; i >= 0; i--){
+    var du = dust[i];
+    du.vy += 0.9 * dt; du.x += du.vx * dt; du.y += du.vy * dt; du.a -= dt * 1.25;
+    if (du.a <= 0) dust.splice(i, 1);
+  }
+
+  // clock
+  var left = Math.max(0, (tEnd - t) / 1000);
+  timeV.innerHTML = Math.ceil(left) + '<small>秒</small>';
+  if (left <= 0) endRound();
+  if (catches >= 1) hintEl.classList.add('gone');
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  DRAW
+// ═══════════════════════════════════════════════════════════════════════
+function drawGhost(){
+  if (!video || !video.videoWidth) return;
+  try {
+    gctx.save();
+    gctx.clearRect(0, 0, ghost.width, ghost.height);
+    if (canFilter) gctx.filter = 'grayscale(1) brightness(1.32) contrast(.55)';
+    if (mirror){ gctx.translate(ghost.width, 0); gctx.scale(-1, 1); }
+    gctx.drawImage(video, 0, 0, ghost.width, ghost.height);
+    gctx.restore();
+  } catch(e){ return; }
+  ctx.save();
+  ctx.globalCompositeOperation = 'multiply';
+  ctx.globalAlpha = 0.34;
+  var vw = video.videoWidth, vh = video.videoHeight;
+  var sc = Math.max(W / vw, H / vh);
+  var dw = vw * sc, dh = vh * sc;
+  ctx.drawImage(ghost, (W - dw) / 2, (H - dh) / 2, dw, dh);
+  ctx.restore();
+}
+
+function drawBag(b){
+  var x = px(b.x), y = py(b.y), r = px(b.r);
+  var sq = b.sq;
+  var sx = 1 + sq * 0.55, sy = 1 - sq * 0.5;
+  if (!isFinite(x) || !isFinite(y) || !isFinite(r) || r <= 0) return;
+  ctx.save();
+  ctx.translate(x, y);
+
+  // shadow pressed onto the mat, offset by how high the bag is
+  ctx.save();
+  ctx.globalAlpha = 0.13;
+  ctx.fillStyle = '#3d3a1c';
+  ctx.beginPath();
+  ctx.ellipse(0, py(Math.max(0.03, (FLOOR - b.y))) * 0.14 + r * 1.5,
+              r * 1.05, r * 0.32, 0, 0, 6.2832);
+  ctx.fill();
+  ctx.restore();
+
+  ctx.rotate(b.rot);
+  ctx.scale(sx, sy);
+  var col = CLOTH[b.k];
+
+  // 俵型 — two panels meeting at a seam, with an ear at each end
+  ctx.fillStyle = col;
+  ctx.beginPath();
+  ctx.moveTo(-r, 0);
+  ctx.quadraticCurveTo(-r * .96, -r * .92, 0, -r * .86);
+  ctx.quadraticCurveTo(r * .96, -r * .92, r, 0);
+  ctx.quadraticCurveTo(r * .96, r * .92, 0, r * .86);
+  ctx.quadraticCurveTo(-r * .96, r * .92, -r, 0);
+  ctx.closePath();
+  ctx.fill();
+
+  // lower panel shade
+  ctx.save();
+  ctx.clip();
+  ctx.fillStyle = 'rgba(0,0,0,.17)';
+  ctx.fillRect(-r, r * .02, r * 2, r);
+  var lg = ctx.createLinearGradient(0, -r, 0, r);
+  lg.addColorStop(0, 'rgba(255,255,255,.20)');
+  lg.addColorStop(.55, 'rgba(255,255,255,0)');
+  ctx.fillStyle = lg; ctx.fillRect(-r, -r, r * 2, r * 2);
+  ctx.restore();
+
+  // the seam and its cross stitches
+  ctx.strokeStyle = 'rgba(244,237,221,.62)';
+  ctx.lineWidth = Math.max(1, r * .07);
+  ctx.beginPath(); ctx.moveTo(-r * .92, 0); ctx.lineTo(r * .92, 0); ctx.stroke();
+  ctx.lineWidth = Math.max(1, r * .06);
+  ctx.strokeStyle = 'rgba(244,237,221,.5)';
+  for (var i = -3; i <= 3; i++){
+    var sxp = i * r * .26;
+    ctx.beginPath();
+    ctx.moveTo(sxp - r * .07, -r * .11); ctx.lineTo(sxp + r * .07, r * .11);
+    ctx.moveTo(sxp + r * .07, -r * .11); ctx.lineTo(sxp - r * .07, r * .11);
+    ctx.stroke();
+  }
+  // ears
+  ctx.fillStyle = col;
+  ctx.globalAlpha = .85;
+  ctx.beginPath(); ctx.ellipse(-r * .98, 0, r * .17, r * .30, 0, 0, 6.2832); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(r * .98, 0, r * .17, r * .30, 0, 0, 6.2832); ctx.fill();
+  ctx.restore();
+}
+
+function drawHand(s){
+  if (!s.live) return;
+  var x = px(s.x), y = py(s.y), R = px(catchR(s));
+  if (!isFinite(x) || !isFinite(y) || !isFinite(R) || R <= 0) return;
+  ctx.save();
+  var open = s.open;
+  ctx.lineWidth = Math.max(1.5, R * (open ? .10 : .16));
+  ctx.strokeStyle = s.hold ? 'rgba(212,70,46,.92)' : 'rgba(35,48,78,' + (open ? .78 : .42) + ')';
+  ctx.beginPath();
+  ctx.arc(x, y, open ? R : R * 0.52, 0, 6.2832);
+  ctx.stroke();
+  if (s.flash > 0){
+    ctx.globalAlpha = s.flash * .8;
+    ctx.lineWidth = Math.max(2, R * .16);
+    ctx.strokeStyle = '#f4eddd';
+    ctx.beginPath(); ctx.arc(x, y, R * (1 + (1 - s.flash) * .5), 0, 6.2832); ctx.stroke();
+    ctx.globalAlpha = 1;
+  }
+  if (s.tips && s.tips.length === 5){
+    ctx.fillStyle = 'rgba(35,48,78,' + (open ? .62 : .3) + ')';
+    for (var i = 0; i < 5; i++){
+      var tx = px(s.tips[i].x), ty = py(s.tips[i].y);
+      if (!isFinite(tx) || !isFinite(ty)) continue;
+      ctx.beginPath(); ctx.arc(tx, ty, Math.max(1.5, R * .11), 0, 6.2832); ctx.fill();
+    }
+  }
+  ctx.restore();
+}
+
+function draw(){
+  ctx.clearRect(0, 0, W, H);
+  ctx.drawImage(mat, 0, 0);
+  drawGhost();
+
+  // pressed rings in the weave
+  var i;
+  ctx.save();
+  ctx.globalCompositeOperation = 'multiply';
+  for (i = 0; i < rings.length; i++){
+    var rg = rings[i];
+    ctx.strokeStyle = 'rgba(96,104,54,' + Math.max(0, rg.a).toFixed(3) + ')';
+    ctx.lineWidth = Math.max(1, px(0.006));
+    ctx.beginPath();
+    ctx.ellipse(px(rg.x), py(rg.y), px(rg.r), px(rg.r) * 0.34, 0, 0, 6.2832);
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  for (i = 0; i < bags.length; i++){ if (!bags[i].dead && bags[i].respawn <= 0) drawBag(bags[i]); }
+  drawHand(SLOT[0]); drawHand(SLOT[1]);
+
+  ctx.save();
+  for (i = 0; i < dust.length; i++){
+    var du = dust[i];
+    ctx.globalAlpha = Math.max(0, du.a) * .7;
+    ctx.fillStyle = '#8a6a3a';
+    ctx.beginPath(); ctx.arc(px(du.x), py(du.y), px(du.r), 0, 6.2832); ctx.fill();
+  }
+  for (i = 0; i < pops.length; i++){
+    var pp = pops[i];
+    ctx.globalAlpha = Math.max(0, pp.a);
+    ctx.strokeStyle = '#f4eddd';
+    ctx.lineWidth = Math.max(1, px(0.004));
+    ctx.beginPath(); ctx.arc(px(pp.x), py(pp.y), px(pp.r), 0, 6.2832); ctx.stroke();
+  }
+  ctx.restore();
+
+  // the score climbs like a tally counter rather than jumping
+  if (shownScore !== score){
+    var d = score - shownScore;
+    shownScore += (Math.abs(d) < 2) ? d : d * 0.34;
+    if (Math.abs(score - shownScore) < 0.6) shownScore = score;
+    scoreV.textContent = Math.round(shownScore);
+  }
+  if (scorePulse > 0){
+    scorePulse = Math.max(0, scorePulse - 0.075);
+    var k = 1 + scorePulse * 0.20;
+    scoreV.style.transform = 'scale(' + k.toFixed(3) + ')';
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  LOOP
+// ═══════════════════════════════════════════════════════════════════════
+var last = 0;
+function loop(){
+  var t = now();
+  var dt = last ? Math.min(0.05, (t - last) / 1000) : 0.016;
+  last = t;
+  try { step(dt); draw(); } catch(e){ /* never let one frame kill the piece */ }
+  requestAnimationFrame(loop);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  UI
+// ═══════════════════════════════════════════════════════════════════════
+goBtn.addEventListener('click', function(){
+  goBtn.textContent = 'よみこみ中';
+  initAudio();
+  if (ac && ac.state === 'suspended') ac.resume();
+  startStream().then(function(){
+    if (initHands()) startMpCamera();
+    else {
+      errBox.style.display = 'block';
+      errBox.textContent = '手の検出を読み込めませんでした。\n通信環境を確認して、ページを再読み込みしてください。';
+    }
+    goBtn.textContent = 'はじめる';
+    startGame();
+  }).catch(function(e){ goBtn.textContent = 'はじめる'; showError(e); });
+});
+retryBtn.addEventListener('click', startGame);
+againBtn.addEventListener('click', function(){ if (state !== 'boot') startGame(); });
+sndBtn.addEventListener('click', function(){
+  muted = !muted; sndLbl.textContent = muted ? 'OFF' : 'ON';
+  if (master && ac) master.gain.setTargetAtTime(muted ? 0 : 0.9, ac.currentTime, 0.15);
+});
+window.addEventListener('resize', resize);
+window.addEventListener('orientationchange', function(){ setTimeout(resize, 250); });
+
+resize(); paintDrops(); syncHud();
+requestAnimationFrame(loop);
+
+// a headless harness plays this without a camera
+window.__OTEDAMA__ = {
+  feed:function(list){ onHands({ multiHandLandmarks:list }); },
+  begin:startGame,
+  step:function(dt){ step(dt); draw(); },
+  get:function(){
+    return { state:state, score:score, chain:chain, catches:catches, throws:throws,
+             drops:drops, bags:bags, slots:SLOT, want:want };
+  },
+  consts:{ THROW_VY:THROW_VY, CATCH_K:CATCH_K, LOST_MS:LOST_MS, G:G }
+};
+})();
+</script>
+</body>
+</html>
