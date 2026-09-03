@@ -1,0 +1,1046 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>NUIME ─ 布の上に縫われていく</title>
+<meta name="description" content="カメラに映るものが、布の上に一針ずつ刺繍されていくエフェクト。指先が針になり、糸の向きは絵の形そのものに沿う。">
+
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  NUIME ─ 縫い目                          ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  PALETTE   臙脂 enji     #4a1c22  madder wool          (the cloth)
+            黒橡 kurotsu  #2a1418  the shadowed weave   (cloth valleys)
+            生成 kinari   #ece0cc  unbleached cotton    (type, chrome)
+            金茶 kincha   #c8963c  dull gold thread     (accents, active)
+            + 32 skeins of floss, which are the only colours the picture
+              may be made of.
+            MOOD: a workbasket. Every other effect in this gallery is cold
+            or clinical — phosphor, print, water, glass, sand, an
+            observatory plate. This one is WOOL: a deep madder ground, warm
+            to the point of being dim, with saturated thread lying on top
+            of it. Nothing in the collection is red-dominant, and nothing
+            else is soft.
+
+  BACKGROUND  The cloth is the screen. Its weave is built per pixel — warp
+            over weft, with slub and a little fibre noise — and it is
+            stretched, so there is a gentle hoop shading towards the edges.
+            You never see a video frame. You see cloth, and thread.
+
+  TYPE      Zen Kurenaido for the Japanese — a light, faintly hand-drawn
+            face, the writing on a pattern envelope — with Newsreader
+            italic for the Latin labels. Neither is used anywhere else.
+
+  MOTION    Patient. Stitches arrive one at a time and stay; nothing eases,
+            nothing fades, nothing animates in the chrome. The only
+            continuous movement in the piece is the working thread trailing
+            behind the needle, because that is the only thing in a real
+            workbasket that moves.
+
+  SIGNATURE 1. THE STITCH DIRECTION IS THE PICTURE'S OWN STRUCTURE. Around
+               every stitch the structure tensor is accumulated over a 7×7
+               window — the smoothed outer product of the image gradient —
+               and the stitch is laid along its MINOR eigenvector, which is
+               the isophote. So thread follows the form of a face the way a
+               needleworker lays it, rather than filling a grid. Where the
+               image has no structure to offer (coherence below a quarter)
+               the direction blends into a slow standing flow, so the empty
+               ground still reads as something laid by hand.
+            2. YOU ONLY HAVE THE THREADS YOU HAVE. Every colour is snapped
+               to the nearest of 32 skeins under a redmean metric, because
+               an embroiderer picks out of a box. Nothing on this cloth is
+               a colour that is not in the box.
+            3. THE PICTURE IS MADE, NOT SHOWN. No frame is ever drawn from
+               the camera. The cloth accumulates and keeps what it is
+               given, so if you sit still it finishes your portrait, and if
+               you move it chases you — coverage only decays where what is
+               there now disagrees with what was stitched, which means a
+               still scene converges and a moving one is worked over.
+            4. YOUR FINGERTIP IS THE NEEDLE, with the working thread
+               trailing to the last stitch. Make a fist and you unpick.
+
+  ENGINEERING  Nothing here is a per-pixel filter, which is why it can run
+            at device resolution and the thread can be sharp. The camera is
+            sampled onto a small pattern grid; the only full pass per frame
+            is one luminance conversion of that grid and a decay sweep over
+            a coarse coverage lattice. Everything else is a few dozen short
+            strokes onto a persistent cloth canvas. Unpicking is a clipped
+            redraw of the linen, so no list of stitches is kept at all.
+  ══════════════════════════════════════════════════════════════════════════
+-->
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@1,6..72,300;0,6..72,500&family=Zen+Kurenaido&display=swap" rel="stylesheet">
+
+<style>
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  :root{
+    --enji:#4a1c22; --kurotsu:#2a1418; --kinari:#ece0cc; --kincha:#c8963c;
+    --card:rgba(42,20,24,.80); --rule:rgba(236,224,204,.28);
+  }
+  html,body{height:100%}
+  body{
+    background:var(--kurotsu); color:var(--kinari);
+    font-family:"Zen Kurenaido","Hiragino Sans",system-ui,sans-serif;
+    overflow:hidden; overscroll-behavior:none;
+  }
+  #stage{position:fixed; inset:0; background:var(--kurotsu)}
+  #cv{position:absolute; inset:0; width:100%; height:100%; display:block;
+      background:var(--enji); touch-action:none}
+  #cv.mir{transform:scaleX(-1)}
+  #vid{position:absolute;width:2px;height:2px;opacity:.001;pointer-events:none;left:0;top:0}
+
+  /* chrome sits on scraps of the same cloth, bound with a thread edge */
+  .scrap{
+    position:relative; background:var(--card);
+    border:1px solid var(--rule);
+    -webkit-backdrop-filter:blur(4px); backdrop-filter:blur(4px);
+    box-shadow:0 2px 10px rgba(20,8,10,.35);
+  }
+  .scrap::after{
+    content:""; position:absolute; inset:3px; pointer-events:none;
+    border:1px dashed rgba(236,224,204,.22);
+  }
+
+  #top{
+    position:fixed; left:0; right:0; top:0; display:flex;
+    align-items:flex-start; justify-content:space-between; gap:10px;
+    padding:calc(10px + env(safe-area-inset-top)) 12px 0 12px; pointer-events:none;
+  }
+  #brand{padding:11px 15px 9px; pointer-events:auto}
+  #brand h1{
+    font-family:"Newsreader",Georgia,serif; font-style:italic; font-weight:500;
+    font-size:22px; letter-spacing:.14em; line-height:1; color:var(--kinari);
+  }
+  #brand .jp{display:block; margin-top:5px; font-size:11px; letter-spacing:.16em; color:rgba(236,224,204,.62)}
+
+  #ctrl{display:flex; flex-wrap:wrap; justify-content:flex-end; gap:6px; pointer-events:auto; max-width:62vw}
+  .btn{
+    font-family:"Zen Kurenaido",sans-serif; font-size:12px; letter-spacing:.08em;
+    color:var(--kinari); padding:8px 11px 6px; cursor:pointer;
+    background:var(--card); border:1px solid var(--rule); user-select:none; white-space:nowrap;
+  }
+  .btn .en{
+    display:block; margin-top:2px; font-family:"Newsreader",Georgia,serif; font-style:italic;
+    font-size:9.5px; letter-spacing:.08em; color:rgba(236,224,204,.55);
+  }
+  .btn:active{background:rgba(200,150,60,.28)}
+  .btn.hot{border-color:var(--kincha); color:#f5dcae}
+  .btn.hot .en{color:var(--kincha)}
+  .btn.off{opacity:.45}
+
+  #bottom{
+    position:fixed; left:0; right:0; bottom:0; display:flex;
+    align-items:flex-end; justify-content:space-between; gap:10px;
+    padding:0 12px calc(10px + env(safe-area-inset-bottom)) 12px; pointer-events:none;
+  }
+  #hint{padding:9px 13px 7px; font-size:11.5px; line-height:1.85; max-width:60vw}
+  #hint b{color:var(--kincha)}
+  #stat{
+    padding:9px 12px 7px; text-align:right; white-space:pre;
+    font-family:"Newsreader",Georgia,serif; font-style:italic; font-size:10.5px;
+    color:rgba(236,224,204,.55); line-height:1.75;
+  }
+
+  #ovl{
+    position:fixed; inset:0; z-index:20; padding:26px;
+    background:radial-gradient(120% 90% at 50% 10%, #66272e 0%, #3b161c 58%, #231014 100%);
+    display:flex; align-items:center; justify-content:center;
+  }
+  #ovl .card{max-width:430px; padding:28px 26px 24px}
+  #ovl h2{
+    font-family:"Newsreader",Georgia,serif; font-style:italic; font-weight:500;
+    font-size:38px; letter-spacing:.10em; line-height:1;
+  }
+  #ovl .sub{margin-top:9px; font-size:13px; letter-spacing:.14em; color:rgba(236,224,204,.62)}
+  #ovl p{margin-top:16px; font-size:13.5px; line-height:2.05}
+  #ovl p b{color:var(--kincha)}
+  #ovl ul{margin-top:13px; list-style:none; font-size:12.5px; line-height:2.05}
+  #ovl li::before{content:"—"; color:var(--kincha); margin-right:8px}
+  #start{
+    margin-top:22px; width:100%; padding:14px 0 12px; border:1px solid var(--kinari);
+    font-family:"Zen Kurenaido",sans-serif; font-size:15px; letter-spacing:.30em; text-indent:.30em;
+    color:#2a1418; background:var(--kinari); cursor:pointer;
+  }
+  #start:active{background:var(--kincha); border-color:var(--kincha)}
+  #err{
+    display:none; position:fixed; left:12px; right:12px;
+    top:calc(84px + env(safe-area-inset-top)); z-index:30;
+    padding:13px 14px; font-size:12.5px; line-height:1.85; white-space:pre-line;
+    color:#ffe6c9; background:#5a2118; border:1px solid var(--kincha);
+  }
+  @media (max-width:420px){
+    #brand h1{font-size:19px}
+    .btn{font-size:11px; padding:7px 9px 5px}
+    #hint{font-size:11px; max-width:56vw}
+  }
+</style>
+</head>
+<body>
+
+<div id="stage">
+  <video id="vid" playsinline muted autoplay></video>
+  <canvas id="cv"></canvas>
+</div>
+
+<div id="top">
+  <div id="brand" class="scrap">
+    <h1>Nuime</h1>
+    <span class="jp">縫い目 ─ 布の上に</span>
+  </div>
+  <div id="ctrl">
+    <button class="btn" id="modeBtn" type="button">平<span class="en">long &amp; short</span></button>
+    <button class="btn" id="clearBtn" type="button">解く<span class="en">unpick all</span></button>
+    <button class="btn" id="qualBtn" type="button">オート<span class="en">auto</span></button>
+    <button class="btn" id="soundBtn" type="button">音<span class="en">sound</span></button>
+    <button class="btn" id="flipBtn" type="button">⟲ カメラ<span class="en">flip</span></button>
+  </div>
+</div>
+
+<div id="bottom">
+  <div id="hint" class="scrap">指先が<b>針</b>です。近づけたところから縫われていく。手を<b>握る</b>とそこだけ解けます。</div>
+  <div id="stat" class="scrap">—</div>
+</div>
+
+<div id="err"></div>
+
+<div id="ovl">
+  <div class="card scrap">
+    <h2>Nuime</h2>
+    <div class="sub">縫い目 ─ 布の上に</div>
+    <p>カメラに映るものが、<b>布の上に一針ずつ刺繍されていきます。</b>映像はどこにも出ません。出てくるのは布と糸だけ。</p>
+    <p>糸の向きは絵の<b>形そのもの</b>に沿います。顔なら顔のかたちに沿って寝る。色は<b>32色の糸</b>の中からいちばん近いものが選ばれます。箱にない色は使えません。</p>
+    <ul>
+      <li>指先を近づける ── そこが縫われる</li>
+      <li>手を握る ── そこだけ解ける</li>
+      <li>じっとしている ── 肖像が仕上がっていく</li>
+    </ul>
+    <button id="start" type="button">針をとる</button>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+<script>
+(function(){
+'use strict';
+
+var video    = document.getElementById('vid');
+var cv       = document.getElementById('cv');
+var errBox   = document.getElementById('err');
+var ovl      = document.getElementById('ovl');
+var startBtn = document.getElementById('start');
+var modeBtn  = document.getElementById('modeBtn');
+var clearBtn = document.getElementById('clearBtn');
+var qualBtn  = document.getElementById('qualBtn');
+var soundBtn = document.getElementById('soundBtn');
+var flipBtn  = document.getElementById('flipBtn');
+var statEl   = document.getElementById('stat');
+var hintEl   = document.getElementById('hint');
+
+var ctx   = cv.getContext('2d', { alpha:false });
+var linen = document.createElement('canvas'), lctx = linen.getContext('2d');
+var cloth = document.createElement('canvas'), cctx = cloth.getContext('2d');
+var work  = document.createElement('canvas'), wctx = work.getContext('2d', { willReadFrequently:true });
+
+function now(){ return (window.performance && performance.now) ? performance.now() : Date.now(); }
+
+// ═══════════════════════════════════════════════════════════════════════
+//  THE BOX OF SKEINS — 32 threads, and the picture may use no others
+// ═══════════════════════════════════════════════════════════════════════
+var FLOSS = [
+  [244,239,228],[232,220,198],[217,195,160],[201,168,128],
+  [183,138, 95],[156,107, 69],[125, 79, 51],[ 92, 56, 38],
+  [ 58, 36, 26],[ 30, 21, 18],[255,255,255],[201,206,211],
+  [143,151,158],[ 92,100,107],[ 51, 58, 64],[232,180,160],
+  [217,136,120],[194, 90, 78],[150, 49, 58],[107, 31, 42],
+  [229,196,107],[200,150, 60],[143,106, 36],[168,192,122],
+  [110,148, 85],[ 63,107, 64],[ 39, 77, 51],[159,192,212],
+  [ 95,143,176],[ 58, 98,128],[ 38, 64, 92],[183,154,196]
+];
+var P_BASE = [], P_DARK = [], P_LIGHT = [];
+(function buildFloss(){
+  function cs(r, g, b){
+    r = r < 0 ? 0 : (r > 255 ? 255 : r | 0);
+    g = g < 0 ? 0 : (g > 255 ? 255 : g | 0);
+    b = b < 0 ? 0 : (b > 255 ? 255 : b | 0);
+    return 'rgb(' + r + ',' + g + ',' + b + ')';
+  }
+  for (var i = 0; i < FLOSS.length; i++){
+    var c = FLOSS[i];
+    P_BASE[i]  = cs(c[0], c[1], c[2]);
+    P_DARK[i]  = cs(c[0] * 0.42, c[1] * 0.40, c[2] * 0.44);
+    P_LIGHT[i] = cs(c[0] + (255 - c[0]) * 0.46, c[1] + (255 - c[1]) * 0.44, c[2] + (255 - c[2]) * 0.40);
+  }
+})();
+// redmean: cheap, and closer to how an eye picks a skein than plain RGB
+function nearestFloss(r, g, b){
+  var best = 0, bd = 1e18;
+  for (var i = 0; i < 32; i++){
+    var c = FLOSS[i];
+    var rm = (r + c[0]) * 0.5;
+    var dr = r - c[0], dg = g - c[1], db = b - c[2];
+    var d = (2 + rm / 256) * dr * dr + 4 * dg * dg + (2 + (255 - rm) / 256) * db * db;
+    if (d < bd){ bd = d; best = i; }
+  }
+  return best;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  SIZES — the pattern grid is small, the cloth is as sharp as the device
+// ═══════════════════════════════════════════════════════════════════════
+var PW = 0, PH = 0;                 // pattern (camera) grid
+var CW = 0, CH = 0;                 // cloth, in device pixels
+var CELL = 10, GW = 0, GH = 0;      // coverage lattice, cloth pixels per cell
+var patPx = 34000, clothPx = 1150000, maxCloth = 1600000;
+
+var liveBuf = null, lum = null;
+var cov = null, stLum = null;
+var p2c = 1, c2pX = 1, c2pY = 1;
+var ready = false;
+
+function alloc(){
+  work.width = PW; work.height = PH;
+  cv.width = CW; cv.height = CH;
+  linen.width = CW; linen.height = CH;
+  cloth.width = CW; cloth.height = CH;
+  lum = new Uint8Array(PW * PH);
+  GW = Math.ceil(CW / CELL); GH = Math.ceil(CH / CELL);
+  cov = new Float32Array(GW * GH);
+  stLum = new Uint8Array(GW * GH);
+  c2pX = PW / CW; c2pY = PH / CH;
+  p2c = CW / PW;
+  weaveLinen();
+  clearCloth();
+  needle.x = CW * 0.5; needle.y = CH * 0.5;
+  lastX = needle.x; lastY = needle.y;
+}
+
+function ensureSize(){
+  var cw = cv.clientWidth  || window.innerWidth  || 360;
+  var ch = cv.clientHeight || window.innerHeight || 640;
+  if (!(cw > 0)) cw = 360;
+  if (!(ch > 0)) ch = 640;
+  var asp = cw / ch;
+  if (!(asp > 0.15 && asp < 7)) asp = 0.6;
+
+  var ph = Math.round(Math.sqrt(patPx / asp)), pw = Math.round(ph * asp);
+  if (pw < 48) pw = 48; if (pw > 400) pw = 400;
+  if (ph < 48) ph = 48; if (ph > 400) ph = 400;
+
+  var dpr = window.devicePixelRatio || 1;
+  if (!(dpr > 0.5 && dpr < 4)) dpr = 1;
+  var want = Math.min(clothPx, cw * ch * dpr * dpr);
+  var chh = Math.round(Math.sqrt(want / asp)), cww = Math.round(chh * asp);
+  if (cww < 160) cww = 160; if (chh < 160) chh = 160;
+
+  if (pw === PW && ph === PH && cww === CW && chh === CH) return false;
+
+  // A resize must not throw the work away. The quality controller resizes on
+  // its own, and an embroidery someone has been sitting still for is not ours
+  // to unpick — so carry the cloth across, rescaled, with its coverage.
+  var keep = null, oCW = CW, oCH = CH, oCov = cov, oSt = stLum;
+  var oGW = GW, oGH = GH, oN = stitches, oNX = needle.x, oNY = needle.y;
+  if (CW > 0 && CH > 0 && stitches > 0){
+    keep = document.createElement('canvas');
+    keep.width = CW; keep.height = CH;
+    keep.getContext('2d').drawImage(cloth, 0, 0);
+  }
+
+  PW = pw; PH = ph; CW = cww; CH = chh;
+  alloc();
+
+  if (keep){
+    cctx.drawImage(keep, 0, 0, oCW, oCH, 0, 0, CW, CH);
+    var fx = oGW / GW, fy = oGH / GH;
+    for (var gy = 0; gy < GH; gy++){
+      var oy = (gy * fy) | 0; if (oy >= oGH) oy = oGH - 1;
+      var orow = oy * oGW, grow = gy * GW;
+      for (var gx = 0; gx < GW; gx++){
+        var ox = (gx * fx) | 0; if (ox >= oGW) ox = oGW - 1;
+        cov[grow + gx] = oCov[orow + ox];
+        stLum[grow + gx] = oSt[orow + ox];
+      }
+    }
+    stitches = oN;
+    needle.x = oNX * CW / oCW; needle.y = oNY * CH / oCH;
+    lastX = needle.x; lastY = needle.y;
+  }
+  return true;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  THE CLOTH — woven once per size, per pixel, so the ground has a weave
+//  to catch the thread rather than being a flat fill
+// ═══════════════════════════════════════════════════════════════════════
+function weaveLinen(){
+  var img = lctx.createImageData(CW, CH), d = img.data;
+  var R = 74, G = 28, B = 34;                   // 臙脂
+  var thread = Math.max(2, Math.round(CW / 300));
+  var period = thread * 2;
+  for (var y = 0; y < CH; y++){
+    var wy = ((y / thread) | 0) & 1;
+    var row = y * CW;
+    for (var x = 0; x < CW; x++){
+      var wx = ((x / thread) | 0) & 1;
+      // warp over weft: whichever is on top catches the light
+      var over = wx !== wy;
+      var u = over ? ((x % period) / period) : ((y % period) / period);
+      var round = 1 - 4 * (u - 0.5) * (u - 0.5);        // the round of a yarn
+      var k = (over ? 1.14 : 0.80) + round * 0.16;
+      var slub = (Math.random() * 0.13 - 0.065);        // fibre, not a pattern
+      k += slub;
+      var p = (row + x) << 2;
+      d[p]     = R * k;
+      d[p + 1] = G * k;
+      d[p + 2] = B * k;
+      d[p + 3] = 255;
+    }
+  }
+  lctx.putImageData(img, 0, 0);
+}
+
+var stitches = 0;
+function clearCloth(){
+  cctx.globalAlpha = 1;
+  cctx.drawImage(linen, 0, 0);
+  if (cov) cov.fill(0);
+  if (stLum) stLum.fill(0);
+  stitches = 0;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  DIRECTION — the structure tensor of the picture, right where the
+//  needle is about to go in. Its minor eigenvector is the isophote, and
+//  that is the line a needleworker would lay the thread along.
+// ═══════════════════════════════════════════════════════════════════════
+var flowT = 0;
+function flowAngle(x, y){
+  return 0.95 * Math.sin(x * 0.0055 + flowT * 0.11) +
+         0.75 * Math.cos(y * 0.0049 - flowT * 0.08);
+}
+// returns the stitch angle; also leaves the coherence in tensorCoh
+var tensorCoh = 0;
+function stitchAngle(px, py, cx, cy){
+  var w = PW, h = PH, L = lum;
+  var x0 = px < 4 ? 4 : (px > w - 5 ? w - 5 : px);
+  var y0 = py < 4 ? 4 : (py > h - 5 ? h - 5 : py);
+  var Jxx = 0, Jyy = 0, Jxy = 0;
+  for (var j = -3; j <= 3; j++){
+    var r = (y0 + j) * w + x0;
+    for (var i = -3; i <= 3; i++){
+      var k = r + i;
+      var gx = L[k + 1] - L[k - 1];
+      var gy = L[k + w] - L[k - w];
+      Jxx += gx * gx; Jyy += gy * gy; Jxy += gx * gy;
+    }
+  }
+  var tr = Jxx + Jyy;
+  var dsc = Math.sqrt((Jxx - Jyy) * (Jxx - Jyy) + 4 * Jxy * Jxy);
+  tensorCoh = tr > 1 ? dsc / tr : 0;
+  // major eigenvector points along the gradient; the isophote is normal to it
+  var grad = 0.5 * Math.atan2(2 * Jxy, Jxx - Jyy);
+  var iso = grad + 1.5707963;
+  var fl = flowAngle(cx, cy);
+  var t = tensorCoh * 3.2; if (t > 1) t = 1;
+  // orientations blend on the doubled angle, or opposite directions cancel
+  var a2 = 2 * iso, f2 = 2 * fl;
+  var mx = Math.cos(a2) * t + Math.cos(f2) * (1 - t);
+  var my = Math.sin(a2) * t + Math.sin(f2) * (1 - t);
+  return 0.5 * Math.atan2(my, mx);
+}
+
+function patchColour(px, py){
+  var w = PW, h = PH, s = liveBuf;
+  var x0 = px < 1 ? 1 : (px > w - 2 ? w - 2 : px);
+  var y0 = py < 1 ? 1 : (py > h - 2 ? h - 2 : py);
+  var r = 0, g = 0, b = 0;
+  for (var j = -1; j <= 1; j++){
+    var row = (y0 + j) * w + x0;
+    for (var i = -1; i <= 1; i++){
+      var p = (row + i) << 2;
+      r += s[p]; g += s[p + 1]; b += s[p + 2];
+    }
+  }
+  return nearestFloss(r / 9, g / 9, b / 9);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  THE NEEDLE AND THE STITCHES
+// ═══════════════════════════════════════════════════════════════════════
+var needle = { x:0, y:0, live:false, wanderT:0 };
+var lastX = 0, lastY = 0;
+var LOG = [], LOGN = 64;
+
+function pushLog(s){ LOG.push(s); if (LOG.length > LOGN) LOG.shift(); }
+
+function threadWidth(){ return Math.max(1.6, CW / 340); }
+function stitchLen(){ return Math.max(7, (CW < CH ? CW : CH) * 0.031); }
+
+function drawThread(x0, y0, x1, y1, bx, by, pi, w){
+  var cx = (x0 + x1) * 0.5 + bx, cy = (y0 + y1) * 0.5 + by;
+  cctx.lineCap = 'round';
+  cctx.strokeStyle = P_DARK[pi]; cctx.lineWidth = w * 1.5;
+  cctx.beginPath(); cctx.moveTo(x0 + 0.7, y0 + 0.9);
+  cctx.quadraticCurveTo(cx + 0.7, cy + 0.9, x1 + 0.7, y1 + 0.9); cctx.stroke();
+  cctx.strokeStyle = P_BASE[pi]; cctx.lineWidth = w;
+  cctx.beginPath(); cctx.moveTo(x0, y0);
+  cctx.quadraticCurveTo(cx, cy, x1, y1); cctx.stroke();
+  cctx.globalAlpha = 0.55;
+  cctx.strokeStyle = P_LIGHT[pi]; cctx.lineWidth = w * 0.34;
+  cctx.beginPath(); cctx.moveTo(x0 - 0.4, y0 - 0.5);
+  cctx.quadraticCurveTo(cx - 0.4, cy - 0.5, x1 - 0.4, y1 - 0.5); cctx.stroke();
+  cctx.globalAlpha = 1;
+}
+
+// the pattern pixel a coverage cell stands over — decay() and stamp() must
+// agree on this exactly, or a still scene can never settle
+function cellPat(gx, gy){
+  var px = ((gx + 0.5) * CELL * c2pX) | 0, py = ((gy + 0.5) * CELL * c2pY) | 0;
+  if (px < 0) px = 0; else if (px >= PW) px = PW - 1;
+  if (py < 0) py = 0; else if (py >= PH) py = PH - 1;
+  return py * PW + px;
+}
+function stamp(x, y, ang, len, amt){
+  var n = Math.round(len / CELL) + 1; if (n < 2) n = 2;
+  var dx = Math.cos(ang) * len, dy = Math.sin(ang) * len;
+  for (var k = 0; k < n; k++){
+    var t = k / (n - 1) - 0.5;
+    var gx = ((x + dx * t) / CELL) | 0, gy = ((y + dy * t) / CELL) | 0;
+    if (gx < 0 || gy < 0 || gx >= GW || gy >= GH) continue;
+    var i = gy * GW + gx;
+    var v = cov[i] + amt;
+    cov[i] = v > 255 ? 255 : v;
+    stLum[i] = lum[cellPat(gx, gy)];
+  }
+}
+
+// stochastic best-of-k: the emptiest of a few candidates, pulled towards
+// wherever the needle is
+function pickSpot(){
+  var bx = 0, by = 0, bs = -1;
+  var pull = needle.live ? 0.78 : 0.30;
+  var R = (CW < CH ? CW : CH) * 0.20;
+  for (var k = 0; k < 4; k++){
+    var x, y;
+    if (Math.random() < pull){
+      var a = Math.random() * 6.2832, rr = Math.sqrt(Math.random()) * R;
+      x = needle.x + Math.cos(a) * rr; y = needle.y + Math.sin(a) * rr;
+      if (!(x >= 0 && x < CW && y >= 0 && y < CH)){ x = Math.random() * CW; y = Math.random() * CH; }
+    } else { x = Math.random() * CW; y = Math.random() * CH; }
+    var gi = (((y / CELL) | 0) * GW + ((x / CELL) | 0));
+    var s = 255 - cov[gi];
+    if (s > bs){ bs = s; bx = x; by = y; }
+  }
+  return bs <= 6 ? null : { x:bx, y:by };
+}
+
+function oneStitch(){
+  var sp = pickSpot();
+  if (!sp) return false;
+  var px = (sp.x * c2pX) | 0, py = (sp.y * c2pY) | 0;
+  if (px < 0) px = 0; else if (px >= PW) px = PW - 1;
+  if (py < 0) py = 0; else if (py >= PH) py = PH - 1;
+  var l = lum[py * PW + px];
+  var pi = patchColour(px, py);
+  var w = threadWidth();
+
+  if (mode === 1){
+    // 十字 — counted cross stitch, one X to a square, on the count
+    var C = Math.max(6, Math.round(stitchLen() * 0.62));
+    var gx = ((sp.x / C) | 0) * C + C * 0.5, gy = ((sp.y / C) | 0) * C + C * 0.5;
+    var h = C * 0.40;
+    drawThread(gx - h, gy - h, gx + h, gy + h, 0, 0, pi, w);
+    drawThread(gx + h, gy - h, gx - h, gy + h, 0, 0, pi, w);
+    stamp(gx, gy, 0, C, 210);
+    stamp(gx, gy, 1.5707963, C, 210);
+    pushLog({ x:gx, y:gy, ang:0.7854, len:C, pi:pi, mode:1 });
+    stitches++;
+    return true;
+  }
+
+  var ang = stitchAngle(px, py, sp.x, sp.y);
+  var coh = tensorCoh;
+
+  if (mode === 2){
+    // 輪郭 — backstitch, and only where there is an edge to follow
+    if (coh < 0.22 || l === undefined) return false;
+    var gm = Math.abs(lum[py * PW + Math.min(PW - 1, px + 1)] - lum[py * PW + Math.max(0, px - 1)]) +
+             Math.abs(lum[Math.min(PH - 1, py + 1) * PW + px] - lum[Math.max(0, py - 1) * PW + px]);
+    if (gm < 26) return false;
+    var len2 = stitchLen() * 0.72;
+    var hx2 = Math.cos(ang) * len2 * 0.5, hy2 = Math.sin(ang) * len2 * 0.5;
+    var dpi = pi;
+    drawThread(sp.x - hx2, sp.y - hy2, sp.x + hx2, sp.y + hy2, 0, 0, dpi, w * 0.85);
+    stamp(sp.x, sp.y, ang, len2, 150);
+    pushLog({ x:sp.x, y:sp.y, ang:ang, len:len2, pi:dpi, mode:2, coh:coh });
+    stitches++;
+    return true;
+  }
+
+  // 平 — long and short, laid along the form
+  var len = stitchLen() * (0.72 + Math.random() * 0.66);
+  var hx = Math.cos(ang) * len * 0.5, hy = Math.sin(ang) * len * 0.5;
+  var bow = (Math.random() - 0.5) * len * 0.13;
+  drawThread(sp.x - hx, sp.y - hy, sp.x + hx, sp.y + hy,
+             -Math.sin(ang) * bow, Math.cos(ang) * bow, pi, w);
+  stamp(sp.x, sp.y, ang, len, 118);
+  pushLog({ x:sp.x, y:sp.y, ang:ang, len:len, pi:pi, mode:0, coh:coh });
+  lastX = sp.x + hx; lastY = sp.y + hy;
+  stitches++;
+  return true;
+}
+
+// unpicking is a clipped redraw of the bare cloth — which is why no list
+// of stitches has to be kept anywhere
+function unpick(x, y, r){
+  if (!(r > 0) || !isFinite(x) || !isFinite(y)) return 0;
+  cctx.save();
+  cctx.beginPath(); cctx.arc(x, y, r, 0, 6.2832); cctx.clip();
+  cctx.drawImage(linen, 0, 0);
+  cctx.restore();
+  var g0 = Math.max(0, ((x - r) / CELL) | 0), g1 = Math.min(GW - 1, ((x + r) / CELL) | 0);
+  var h0 = Math.max(0, ((y - r) / CELL) | 0), h1 = Math.min(GH - 1, ((y + r) / CELL) | 0);
+  var rr = r * r, n = 0;
+  for (var gy = h0; gy <= h1; gy++){
+    for (var gx = g0; gx <= g1; gx++){
+      var dx = (gx + 0.5) * CELL - x, dy = (gy + 0.5) * CELL - y;
+      if (dx * dx + dy * dy > rr) continue;
+      var i = gy * GW + gx;
+      if (cov[i]){ cov[i] = 0; n++; }
+    }
+  }
+  return n;
+}
+
+// Coverage only rots where the cloth disagrees with what is in front of the
+// camera now. A still sitter gets finished; a moving one gets worked over.
+var coveredFrac = 0, covT = 0;
+function decay(dt){
+  var base = 4 * dt, k = 0.34 * dt;
+  var c = cov, s = stLum, L = lum;
+  for (var gy = 0; gy < GH; gy++){
+    var grow = gy * GW;
+    for (var gx = 0; gx < GW; gx++){
+      var i = grow + gx;
+      var v = c[i];
+      if (v === 0) continue;
+      var d = L[cellPat(gx, gy)] - s[i]; if (d < 0) d = -d;
+      var loss = base + d * k;
+      v -= loss;
+      c[i] = v > 0 ? v : 0;
+    }
+  }
+}
+
+function measureCover(){
+  var n = GW * GH, c = cov, t = 0;
+  for (var i = 0; i < n; i++) t += c[i];
+  coveredFrac = n > 0 ? t / (n * 255) : 0;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  AUDIO — a needle through cloth, and not one per stitch
+// ═══════════════════════════════════════════════════════════════════════
+var AC = null, master = null, noiseBuf = null, soundOn = true, tickCool = 0;
+function initAudio(){
+  var Ctor = window.AudioContext || window.webkitAudioContext;
+  if (!Ctor) return;
+  if (!AC){
+    try { AC = new Ctor(); } catch(e){ AC = null; return; }
+    var comp = AC.createDynamicsCompressor();
+    try {
+      comp.threshold.value = -20; comp.knee.value = 24;
+      comp.ratio.value = 6; comp.attack.value = 0.004; comp.release.value = 0.25;
+    } catch(e){}
+    master = AC.createGain(); master.gain.value = 0.6;
+    master.connect(comp); comp.connect(AC.destination);
+    var n = Math.max(1, Math.floor(AC.sampleRate * 0.4));
+    noiseBuf = AC.createBuffer(1, n, AC.sampleRate);
+    var d = noiseBuf.getChannelData(0);
+    for (var i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+  }
+  if (AC.state === 'suspended' && AC.resume) AC.resume();
+}
+function tick(strength){
+  if (!AC || !master || !soundOn || !noiseBuf) return;
+  var t = AC.currentTime;
+  var s = AC.createBufferSource(); s.buffer = noiseBuf;
+  s.playbackRate.value = 0.7 + Math.random() * 0.8;
+  var bp = AC.createBiquadFilter(); bp.type = 'bandpass';
+  bp.frequency.value = 1500 + Math.random() * 2600; bp.Q.value = 1.4;
+  var g = AC.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.03 + 0.05 * strength, t + 0.003);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.045);
+  s.connect(bp); bp.connect(g); g.connect(master);
+  try { s.start(t); s.stop(t + 0.08); } catch(e){}
+}
+function pullSound(){
+  if (!AC || !master || !soundOn || !noiseBuf) return;
+  var t = AC.currentTime;
+  var s = AC.createBufferSource(); s.buffer = noiseBuf;
+  s.playbackRate.value = 0.35;
+  var lp = AC.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 1300;
+  var g = AC.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.10, t + 0.02);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.26);
+  s.connect(lp); lp.connect(g); g.connect(master);
+  try { s.start(t); s.stop(t + 0.3); } catch(e){}
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  CAMERA
+// ═══════════════════════════════════════════════════════════════════════
+var facing = 'user', mirror = true, stream = null;
+function showError(e){
+  var msg = (e && e.message) ? e.message : String(e || 'unknown');
+  errBox.style.display = 'block';
+  errBox.textContent = 'カメラを起動できませんでした：' + msg +
+    '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+}
+function applyMirror(){ if (mirror) cv.classList.add('mir'); else cv.classList.remove('mir'); }
+function startStream(){
+  var md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) return Promise.reject(new Error('getUserMedia is unavailable'));
+  if (stream && stream.getTracks) stream.getTracks().forEach(function(t){ t.stop(); });
+  return md.getUserMedia({
+    video: { facingMode: { ideal: facing }, width: { ideal: 1280 }, height: { ideal: 720 } },
+    audio: false
+  }).then(function(st){
+    stream = st; video.srcObject = st;
+    mirror = (facing === 'user');
+    applyMirror();
+    var p = video.play();
+    return (p && p.then) ? p.catch(function(){}) : null;
+  });
+}
+flipBtn.addEventListener('click', function(){
+  facing = (facing === 'user') ? 'environment' : 'user';
+  loseHands();
+  startStream().then(startMpCamera).catch(function(){});
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+//  HANDS
+// ═══════════════════════════════════════════════════════════════════════
+var hands = null, mpCamera = null, mpReady = false, running = false;
+var handsLm = [], lastHandT = 0, FRESH_MS = 200;
+var fistT = 0;
+
+function initHands(){
+  if (typeof window.Hands !== 'function') return false;
+  try {
+    hands = new window.Hands({ locateFile: function(f){
+      return 'https://cdn.jsdelivr.net/npm/@mediapipe/hands/' + f;
+    }});
+    hands.setOptions({ maxNumHands:1, modelComplexity:0,
+                       minDetectionConfidence:0.6, minTrackingConfidence:0.5 });
+    hands.onResults(onHands);
+    mpReady = true;
+    return true;
+  } catch(e){ return false; }
+}
+function validLm(c){
+  if (!c || c.length < 21) return null;
+  for (var i = 0; i < 21; i++){
+    var p = c[i];
+    if (!p || typeof p.x !== 'number' || typeof p.y !== 'number' ||
+        !isFinite(p.x) || !isFinite(p.y)) return null;
+  }
+  return c;
+}
+function onHands(res){
+  var out = null;
+  if (res && res.multiHandLandmarks && res.multiHandLandmarks.length){
+    out = validLm(res.multiHandLandmarks[0]);
+  }
+  if (out){ handsLm = [out]; lastHandT = now(); }
+}
+function loseHands(){ handsLm = []; fistT = 0; needle.live = false; }
+function startMpCamera(){
+  if (!mpReady || typeof window.Camera !== 'function') return;
+  try {
+    if (mpCamera && mpCamera.stop) mpCamera.stop();
+    mpCamera = new window.Camera(video, {
+      onFrame: function(){
+        if (!hands || !running) return Promise.resolve();
+        return hands.send({ image: video }).catch(function(){});
+      },
+      width: 640, height: 480
+    });
+    mpCamera.start();
+  } catch(e){ mpReady = false; }
+}
+
+var cropSX = 0, cropSY = 0, cropSC = 1, vidW = 0, vidH = 0;
+function lmX(p){ return (p.x * vidW - cropSX) * cropSC; }     // pattern px
+function lmY(p){ return (p.y * vidH - cropSY) * cropSC; }
+function seg(lm, a, b){
+  var dx = lmX(lm[a]) - lmX(lm[b]), dy = lmY(lm[a]) - lmY(lm[b]);
+  return Math.sqrt(dx * dx + dy * dy);
+}
+function straight(lm, mcp){
+  var path = seg(lm, mcp, mcp + 1) + seg(lm, mcp + 1, mcp + 2) + seg(lm, mcp + 2, mcp + 3);
+  if (!(path > 0.0001)) return 0;
+  return seg(lm, mcp + 3, mcp) / path;
+}
+
+var UNPICK_HOLD = 0.22, manualT = 0;
+function takeNeedle(x, y, hold){
+  if (!isFinite(x) || !isFinite(y)) return false;
+  needle.x = x; needle.y = y; needle.live = true;
+  manualT = hold;
+  return true;
+}
+function updateNeedle(dt){
+  var fresh = handsLm.length && (now() - lastHandT) < FRESH_MS;
+  if (fresh){
+    var lm = handsLm[0];
+    var tx = lmX(lm[8]) * p2c, ty = lmY(lm[8]) * p2c;
+    var pxm = (lmX(lm[0]) + lmX(lm[9])) * 0.5 * p2c, pym = (lmY(lm[0]) + lmY(lm[9])) * 0.5 * p2c;
+    var st = (straight(lm, 5) + straight(lm, 9) + straight(lm, 13) + straight(lm, 17)) * 0.25;
+    if (isFinite(tx) && isFinite(ty) && isFinite(st)){
+      needle.live = true;
+      needle.x += (tx - needle.x) * (1 - Math.exp(-dt / 0.055));
+      needle.y += (ty - needle.y) * (1 - Math.exp(-dt / 0.055));
+      if (st < 0.58){
+        fistT += dt;
+        if (fistT > UNPICK_HOLD && isFinite(pxm) && isFinite(pym)){
+          var got = unpick(pxm, pym, (CW < CH ? CW : CH) * 0.15);
+          if (got > 0 && unpickCool <= 0){ pullSound(); unpickCool = 0.28; }
+        }
+      } else fistT = 0;
+      return;
+    }
+  }
+  fistT = 0;
+  if (pointerOn || manualT > 0){       // a finger on the glass is still a hand
+    if (!pointerOn) manualT -= dt;
+    needle.live = true;
+    return;
+  }
+  needle.live = false;
+  // nobody is holding it, so the needle wanders and the work goes on
+  needle.wanderT += dt;
+  var t = needle.wanderT;
+  var wx = CW * (0.5 + 0.32 * Math.sin(t * 0.27) * Math.cos(t * 0.13));
+  var wy = CH * (0.5 + 0.30 * Math.sin(t * 0.19 + 1.1));
+  needle.x += (wx - needle.x) * (1 - Math.exp(-dt / 0.5));
+  needle.y += (wy - needle.y) * (1 - Math.exp(-dt / 0.5));
+}
+var unpickCool = 0;
+
+// ═══════════════════════════════════════════════════════════════════════
+//  MODES / UI
+// ═══════════════════════════════════════════════════════════════════════
+var MODES = [
+  { jp:'平', en:'long &amp; short', hint:'指先が<b>針</b>です。近づけたところから縫われていく。手を<b>握る</b>とそこだけ解けます。' },
+  { jp:'十字', en:'cross stitch', hint:'升目に一つずつ<b>×</b>を刺していきます。図案は目の数で決まるので、粗いほど大胆になる。' },
+  { jp:'輪郭', en:'backstitch', hint:'<b>輪郭だけ</b>を返し縫いで追います。かたちのあるところにしか糸は落ちません。' }
+];
+var mode = 0;
+var QUALS = [ { jp:'オート', en:'auto', px:0 }, { jp:'細かい', en:'fine', px:1600000 }, { jp:'粗い', en:'coarse', px:420000 } ];
+var qualIdx = 0;
+
+function setMode(i){
+  mode = ((i % 3) + 3) % 3;
+  modeBtn.innerHTML = MODES[mode].jp + '<span class="en">' + MODES[mode].en + '</span>';
+  hintEl.innerHTML = MODES[mode].hint;
+  clearCloth();
+  pullSound();
+}
+modeBtn.addEventListener('click', function(){ setMode(mode + 1); });
+clearBtn.addEventListener('click', function(){ clearCloth(); pullSound(); });
+soundBtn.addEventListener('click', function(){
+  soundOn = !soundOn;
+  soundBtn.classList.toggle('off', !soundOn);
+});
+qualBtn.addEventListener('click', function(){
+  qualIdx = (qualIdx + 1) % QUALS.length;
+  var q = QUALS[qualIdx];
+  qualBtn.innerHTML = q.jp + '<span class="en">' + q.en + '</span>';
+  qualBtn.classList.toggle('hot', q.px !== 0);
+  clothPx = q.px ? q.px : 1150000;
+  adaptCool = 2.0;
+});
+
+var pointerOn = false;
+function ptTo(e){
+  var r = cv.getBoundingClientRect();
+  if (!(r.width > 0 && r.height > 0)) return false;
+  var nx = (e.clientX - r.left) / r.width, ny = (e.clientY - r.top) / r.height;
+  if (mirror) nx = 1 - nx;
+  if (!(nx >= 0 && nx <= 1 && ny >= 0 && ny <= 1)) return false;
+  return takeNeedle(nx * CW, ny * CH, 0.25);
+}
+cv.addEventListener('pointerdown', function(e){ if (ready && ptTo(e)) pointerOn = true; });
+cv.addEventListener('pointermove', function(e){ if (pointerOn) ptTo(e); });
+cv.addEventListener('pointerup',     function(){ pointerOn = false; });
+cv.addEventListener('pointercancel', function(){ pointerOn = false; });
+
+startBtn.addEventListener('click', function(){
+  initAudio();
+  ovl.style.display = 'none';
+  running = true;
+  if (!mpReady) initHands();
+  startStream().then(startMpCamera).catch(showError);
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+//  LOOP
+// ═══════════════════════════════════════════════════════════════════════
+var tPrev = 0, frameMs = 16, frameDt = 16.7, adaptCool = 2.5, statT = 0, fps = 0, laid = 0;
+
+function grabFrame(){
+  vidW = video.videoWidth || 0; vidH = video.videoHeight || 0;
+  if (!(vidW > 0 && vidH > 0)) return false;
+  var sc = Math.max(PW / vidW, PH / vidH);
+  if (!(sc > 0) || !isFinite(sc)) return false;
+  var sw = PW / sc, sh = PH / sc;
+  cropSX = (vidW - sw) * 0.5; cropSY = (vidH - sh) * 0.5; cropSC = sc;
+  try { wctx.drawImage(video, cropSX, cropSY, sw, sh, 0, 0, PW, PH); } catch(e){ return false; }
+  liveBuf = wctx.getImageData(0, 0, PW, PH).data;
+  var n = PW * PH, s = liveBuf, L = lum;
+  for (var i = 0, p = 0; i < n; i++, p += 4){
+    L[i] = (s[p] * 77 + s[p + 1] * 151 + s[p + 2] * 28) >> 8;
+  }
+  return true;
+}
+
+function hoop(){
+  var g = ctx.createRadialGradient(CW * 0.5, CH * 0.44, (CW < CH ? CW : CH) * 0.28,
+                                   CW * 0.5, CH * 0.5, (CW > CH ? CW : CH) * 0.72);
+  g.addColorStop(0, 'rgba(0,0,0,0)');
+  g.addColorStop(1, 'rgba(22,8,11,0.55)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, CW, CH);
+}
+
+function needleMark(){
+  if (!needle.live) return;
+  var u = (CW < CH ? CW : CH);
+  // the working thread, from the last stitch to the needle
+  ctx.strokeStyle = 'rgba(236,224,204,.55)';
+  ctx.lineWidth = Math.max(1, u / 460);
+  ctx.beginPath(); ctx.moveTo(lastX, lastY); ctx.lineTo(needle.x, needle.y); ctx.stroke();
+  // the needle itself
+  var a = -0.9, L = u * 0.048;
+  ctx.strokeStyle = 'rgba(240,236,226,.92)';
+  ctx.lineWidth = Math.max(1.2, u / 330);
+  ctx.beginPath();
+  ctx.moveTo(needle.x, needle.y);
+  ctx.lineTo(needle.x + Math.cos(a) * L, needle.y + Math.sin(a) * L);
+  ctx.stroke();
+  ctx.fillStyle = 'rgba(200,150,60,.9)';
+  ctx.beginPath(); ctx.arc(needle.x, needle.y, Math.max(1.2, u / 300), 0, 6.2832); ctx.fill();
+}
+
+function frame(dt){
+  if (!CW) return;
+  if (grabFrame()){ if (!ready) ready = true; }
+  if (!ready || !liveBuf) return;
+
+  flowT += dt;
+  if (unpickCool > 0) unpickCool -= dt;
+  updateNeedle(dt);
+  decay(dt);
+
+  covT += dt;
+  if (covT > 0.3){ covT = 0; measureCover(); }
+
+  // an empty cloth fills fast, a finished one is only maintained
+  var hunger = 1 - coveredFrac; if (hunger < 0) hunger = 0;
+  var want = 4 + 74 * hunger * Math.sqrt(hunger);
+  var budget = Math.round(want * (dt * 60));
+  if (budget > 140) budget = 140;
+  laid = 0;
+  for (var i = 0; i < budget; i++) if (oneStitch()) laid++;
+
+  if (laid > 0){
+    tickCool -= dt;
+    if (tickCool <= 0){ tick(Math.min(1, laid / 30)); tickCool = 0.055 + Math.random() * 0.09; }
+  }
+
+  ctx.drawImage(cloth, 0, 0);
+  hoop();
+  needleMark();
+}
+
+function loop(ts){
+  requestAnimationFrame(loop);
+  var t = (typeof ts === 'number' && isFinite(ts)) ? ts : now();
+  var realDt = tPrev ? (t - tPrev) : 16.7;
+  var dt = tPrev ? realDt / 1000 : 0.0167;
+  tPrev = t;
+  if (!(dt > 0)) dt = 0.0001;
+  if (dt > 0.1) dt = 0.1;
+  frameDt += (realDt - frameDt) * 0.10;
+  if (adaptCool > 0) adaptCool -= dt;
+
+  ensureSize();
+  var t0 = now();
+  frame(dt);
+  var t1 = now();
+  frameMs += ((t1 - t0) - frameMs) * 0.12;
+
+  if (QUALS[qualIdx].px === 0 && adaptCool <= 0){
+    if (frameDt > 25 || frameMs > 13){
+      if (clothPx > 260000){ clothPx = Math.round(clothPx * 0.72); adaptCool = 3.0; }
+    } else if (frameDt < 18.5 && frameMs < 6 && clothPx < maxCloth){
+      clothPx = Math.min(maxCloth, Math.round(clothPx * 1.15)); adaptCool = 3.0;
+    }
+  }
+
+  fps += (1 / dt - fps) * 0.08;
+  statT += dt;
+  if (statT > 0.25){
+    statT = 0;
+    statEl.textContent =
+      CW + '×' + CH + '  ' + Math.round(fps) + ' fps\n' +
+      '針 ' + stitches + '   埋 ' + Math.round(coveredFrac * 100) + '%';
+  }
+}
+
+setMode(0);
+applyMirror();
+ensureSize();
+requestAnimationFrame(loop);
+
+// ═══════════════════════════════════════════════════════════════════════
+//  TEST SURFACE
+// ═══════════════════════════════════════════════════════════════════════
+window.__NUIME__ = {
+  size:     function(){ return { PW:PW, PH:PH, CW:CW, CH:CH, GW:GW, GH:GH, CELL:CELL }; },
+  setMode:  setMode,
+  getMode:  function(){ return mode; },
+  live:     function(){ return liveBuf; },
+  lum:      function(){ return lum; },
+  cov:      function(){ return cov; },
+  stLum:    function(){ return stLum; },
+  covered:  function(){ measureCover(); return coveredFrac; },
+  stitches: function(){ return stitches; },
+  log:      function(){ return LOG; },
+  clearLog: function(){ LOG.length = 0; },
+  clear:    clearCloth,
+  unpick:   unpick,
+  needle:   function(){ return { x:needle.x, y:needle.y, live:needle.live }; },
+  setNeedle:function(x, y, live){ if (live) return takeNeedle(x, y, 9e9); manualT = 0; needle.live = false; return true; },
+  floss:    function(){ return FLOSS; },
+  nearest:  nearestFloss,
+  angleAt:  function(px, py, cx, cy){ var a = stitchAngle(px, py, cx, cy); return { ang:a, coh:tensorCoh }; },
+  ready:    function(){ return ready; },
+  go:       function(){ running = true; },
+  feed:     function(list){ onHands({ multiHandLandmarks: list || [] }); lastHandT = now(); },
+  lose:     loseHands,
+  setPx:    function(px){ clothPx = px; qualIdx = 1; QUALS[1].px = px; adaptCool = 9e9; },
+  ctxCalls: function(){ return { cloth:cctx.calls, main:ctx.calls }; }
+};
+
+})();
+</script>
+</body>
+</html>
