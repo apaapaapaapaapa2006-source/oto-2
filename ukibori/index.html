@@ -1,0 +1,760 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>UKIBORI ─ 光で彫る浮彫</title>
+<meta name="description" content="カメラの色をすべて捨て、明るさの勾配から面の向きだけを起こして石の浮彫にするエフェクト。光はあなたの手の中にあり、手を動かすと影が振れて彫りが現れる。石膏・銅・漆の三つの材。">
+<meta name="theme-color" content="#d8d3c6">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Zen+Old+Mincho:wght@400;600&family=Marcellus&display=swap" rel="stylesheet">
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  UKIBORI ─ 浮彫                            ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  PALETTE   胡粉 gofun    #f0ece2  the lit face of the plaster
+            白土 hakudo   #cfc7b6  the half tone
+            鈍   nibi     #6e685d  the shadow side
+            焦茶 kogecha  #2b251d  the deepest cut, and the wall behind
+            丹   ni       #b5462f  one vermilion, on the caption card only
+            MOOD: a museum wall with a single raking light on it. There is
+            no colour in this piece at all — the camera's colours are
+            thrown away in the first line of the filter and never used
+            again. Everything you see is one material lit from one angle.
+            UTSURO is the gallery's other plaster piece and it is the exact
+            complement: it has NO shading anywhere, which is precisely why
+            the eye refuses to read a sphere and reads a hole. Here shading
+            is the ONLY thing on screen, which is why the eye reads carved
+            stone out of a flat video frame.
+  BACKGROUND  The carving fills the frame; there is nothing behind it. The
+            chrome sits on museum caption cards — cream rectangles with a
+            hairline rule and a vermilion accession number — and a plinth
+            line runs along the foot of the screen.
+  TYPE      Zen Old Mincho for the Japanese: an old-style 明朝 with heavy
+            vertical stress, the face cut into a monument rather than set
+            on paper. Marcellus for the Latin — Roman inscriptional caps,
+            the lettering of a museum label. Neither is used elsewhere.
+  MOTION    None to speak of, and that is deliberate. A sculpture does not
+            move; the LIGHT moves. The only animation in the piece is the
+            light travelling and the shadows swinging behind it, plus a
+            700ms cross-dissolve of the material when you change it.
+  SIGNATURE The light is in your hand. Luminance is read as HEIGHT, the
+            field is blurred twice to kill sensor noise, a surface normal
+            is taken from its gradient, and the picture is rebuilt from
+            Lambert diffuse plus a Blinn-Phong specular against a real
+            point light positioned at your palm with distance falloff. So
+            you are not looking at your face — you are looking at a
+            carving of the light that happens to be in your room. Open
+            your hand and the light goes soft and broad; close it to a
+            fist and it hardens to a point, and every chisel mark in the
+            surface snaps into relief.
+  AUDIO     Almost nothing, on purpose: a stone room. One bed of very
+            quiet low-passed noise, and a single struck-stone tick when
+            the material changes. Nothing else — a carving is silent.
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<style>
+  :root{
+    --gofun:#f0ece2; --hakudo:#cfc7b6; --nibi:#6e685d;
+    --kogecha:#2b251d; --ni:#b5462f;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;padding:0;height:100%;overflow:hidden;background:#2b251d}
+  body{
+    font-family:"Zen Old Mincho",serif;color:var(--kogecha);
+    -webkit-user-select:none;user-select:none;touch-action:none;
+  }
+  #view{position:fixed;inset:0;width:100%;height:100%;display:block}
+  video{display:none}
+  .layer{position:fixed;pointer-events:none}
+
+  /* ── museum caption cards ────────────────────────────────────────── */
+  .card{
+    position:relative;background:rgba(240,236,226,.93);
+    color:var(--kogecha);padding:11px 16px 12px;
+    border:1px solid rgba(43,37,29,.22);
+    box-shadow:0 2px 0 rgba(43,37,29,.10), 0 12px 26px rgba(43,37,29,.20);
+  }
+  .card::before{           /* the accession rule */
+    content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--ni);
+  }
+  .cap{
+    font-family:"Marcellus",serif;font-size:9.5px;letter-spacing:.40em;
+    text-transform:uppercase;color:var(--nibi);display:block;line-height:1;margin-bottom:8px;
+  }
+  #hud{
+    top:0;left:0;right:0;padding:calc(env(safe-area-inset-top,0px) + 16px) 20px 0;
+    display:flex;justify-content:space-between;align-items:flex-start;gap:14px;
+  }
+  #hardBar{width:110px;height:3px;background:rgba(43,37,29,.18)}
+  #hardFill{
+    height:100%;width:0%;background:var(--kogecha);
+    transition:width .45s cubic-bezier(.25,.7,.3,1);
+  }
+  #hardN{font-size:10.5px;color:var(--nibi);margin-top:8px;letter-spacing:.14em}
+  #matBox{text-align:right}
+  #matBox::before{left:auto;right:0}
+  #matN{font-size:27px;line-height:1;letter-spacing:.16em}
+  #matSub{
+    font-family:"Marcellus",serif;font-size:10px;letter-spacing:.30em;
+    color:var(--nibi);margin-top:9px;text-transform:uppercase;
+  }
+
+  #ctl{
+    left:0;right:0;bottom:calc(env(safe-area-inset-bottom,0px) + 16px);
+    display:flex;gap:10px;justify-content:center;flex-wrap:wrap;padding:0 12px;
+  }
+  .btn{
+    pointer-events:auto;font-family:"Zen Old Mincho",serif;font-size:13px;
+    color:var(--kogecha);background:rgba(240,236,226,.90);
+    border:1px solid rgba(43,37,29,.28);
+    padding:10px 18px;cursor:pointer;letter-spacing:.14em;
+    transition:background .7s ease, color .7s ease, border-color .7s ease;
+  }
+  .btn:active{background:var(--kogecha);color:var(--gofun)}
+  .btn small{color:var(--nibi);margin-left:6px;font-size:11px}
+  #matBtn{border-color:rgba(181,70,47,.6)}
+
+  #hint{
+    left:0;right:0;bottom:calc(env(safe-area-inset-bottom,0px) + 66px);
+    text-align:center;font-size:12.5px;color:var(--gofun);line-height:2;
+    padding:0 26px;opacity:.92;transition:opacity 1.4s ease;letter-spacing:.06em;
+    text-shadow:0 1px 6px rgba(43,37,29,.7);
+  }
+  #hint.gone{opacity:0}
+
+  /* ── start sheet ─────────────────────────────────────────────────── */
+  .sheet{
+    position:fixed;inset:0;z-index:20;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;text-align:center;
+    padding:26px 24px calc(env(safe-area-inset-bottom,0px) + 26px);
+    background:
+      radial-gradient(115% 85% at 28% 12%, #efe9dd 0%, #ded7c8 46%, #b8b1a1 100%);
+  }
+  .sheet.gone{display:none}
+  .sheet .en{
+    font-family:"Marcellus",serif;font-size:12px;letter-spacing:.52em;
+    color:var(--nibi);text-transform:uppercase;margin-bottom:15px;
+  }
+  .sheet h1{
+    font-size:min(16vw,58px);margin:0;letter-spacing:.22em;text-indent:.22em;
+    color:var(--kogecha);line-height:1;font-weight:600;
+  }
+  .rule{width:58px;height:2px;background:var(--ni);margin:22px 0 20px}
+  .sub{font-size:13.5px;line-height:2.1;color:#463d31;max-width:23em;margin:0}
+  .sub b{color:var(--ni);font-weight:600}
+  .go{
+    pointer-events:auto;margin-top:28px;font-family:"Zen Old Mincho",serif;
+    font-size:16px;font-weight:600;letter-spacing:.38em;text-indent:.38em;
+    color:var(--gofun);background:var(--kogecha);border:0;
+    padding:15px 44px;cursor:pointer;
+    box-shadow:0 4px 0 #17130e, 0 14px 22px rgba(43,37,29,.24);
+    transition:transform .2s ease, box-shadow .2s ease;
+  }
+  .go:active{transform:translateY(4px);box-shadow:0 0 0 #17130e}
+  .foot{font-size:10.5px;color:var(--nibi);margin-top:17px;letter-spacing:.18em}
+
+  /* ── the 3-second diagram: one bump, one light, shadows that swing ─ */
+  .demo{position:relative;width:196px;height:104px;margin:4px 0 2px}
+  .demo svg{position:absolute;inset:0;width:100%;height:100%}
+  .dlamp{animation:dlamp 4s ease-in-out infinite}
+  .dshL{animation:dshL 4s ease-in-out infinite}
+  .dshR{animation:dshR 4s ease-in-out infinite}
+  @keyframes dlamp{
+    0%,100%{transform:translateX(-52px)}
+    50%{transform:translateX(52px)}
+  }
+  @keyframes dshL{ 0%,100%{opacity:0} 50%{opacity:.85} }
+  @keyframes dshR{ 0%,100%{opacity:.85} 50%{opacity:0} }
+  @media (prefers-reduced-motion:reduce){
+    .dlamp,.dshL,.dshR{animation:none}
+    .dshR{opacity:.85}
+  }
+
+  #err{
+    position:fixed;left:14px;right:14px;bottom:calc(env(safe-area-inset-bottom,0px) + 80px);
+    z-index:40;display:none;white-space:pre-line;background:rgba(240,236,226,.96);
+    color:var(--kogecha);padding:14px 16px;font-size:12.5px;line-height:1.85;
+    border:1px solid rgba(43,37,29,.25);border-left:4px solid var(--ni);
+  }
+  @media (max-height:540px){
+    .sheet h1{font-size:36px}
+    .demo{height:76px;width:158px}
+    .rule{margin:12px 0}
+    .sub{font-size:12px;line-height:1.9}
+    .go{margin-top:16px;padding:12px 32px}
+  }
+</style>
+</head>
+<body>
+
+<canvas id="view"></canvas>
+<video id="video" playsinline muted autoplay></video>
+
+<div class="layer" id="hud">
+  <div class="card">
+    <span class="cap">Light</span>
+    <div id="hardBar"><div id="hardFill"></div></div>
+    <div id="hardN">手を握るほど硬い光</div>
+  </div>
+  <div class="card" id="matBox">
+    <span class="cap">Material</span>
+    <div id="matN">石膏</div>
+    <div id="matSub">Plaster</div>
+  </div>
+</div>
+
+<div class="layer" id="hint">手のひらが光です。動かすと影が振れて彫りが出ます</div>
+
+<div class="layer" id="ctl">
+  <button class="btn" id="flipBtn" type="button">⟲ カメラ</button>
+  <button class="btn" id="matBtn" type="button"><span id="matChar">石膏</span><small id="matLbl">せっこう</small></button>
+  <button class="btn" id="sndBtn" type="button">♪<small id="sndLbl">ON</small></button>
+</div>
+
+<div class="sheet" id="start">
+  <div class="en">Ukibori &middot; relief</div>
+  <h1>浮彫</h1>
+
+  <div class="demo" aria-hidden="true">
+    <svg viewBox="0 0 196 104">
+      <path class="dshR" d="M98 78 q26 -4 40 4 q-20 8 -40 6 z" fill="#6e685d" opacity=".85"/>
+      <path class="dshL" d="M98 78 q-26 -4 -40 4 q20 8 40 6 z" fill="#6e685d" opacity="0"/>
+      <path d="M58 82 q40 -46 80 0 z" fill="#e2dccd" stroke="#2b251d" stroke-width="1.6"/>
+      <line x1="24" y1="88" x2="172" y2="88" stroke="#2b251d" stroke-width="1.4" opacity=".5"/>
+      <g class="dlamp">
+        <circle cx="98" cy="24" r="7" fill="#f0ece2" stroke="#2b251d" stroke-width="1.6"/>
+        <path d="M98 34 l-14 20 M98 34 l14 20 M98 34 l0 22"
+              stroke="#b5462f" stroke-width="1.3" opacity=".8" fill="none"/>
+      </g>
+    </svg>
+  </div>
+
+  <div class="rule"></div>
+  <p class="sub">
+    カメラの色は全部捨てます。残すのは<b>明るさの傾き</b>だけ。<br>
+    それを面の向きに変えて石を彫るので、映るのはあなたではなく<b>光のかたち</b>です。<br>
+    <b>手のひらが光</b>になります。動かせば影が振れ、<b>手を握れば</b>光が硬く尖ります。<br>
+    材は石膏・銅・漆の三つ。
+  </p>
+  <button class="go" id="go" type="button">彫る</button>
+  <div class="foot">カメラを使います</div>
+</div>
+
+<div id="err"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+<script>
+(function(){
+'use strict';
+
+// ═══════════════════════════════════════════════════════════════════════
+//  ELEMENTS
+// ═══════════════════════════════════════════════════════════════════════
+var cv       = document.getElementById('view');
+var ctx      = cv.getContext('2d');
+var video    = document.getElementById('video');
+var hardFill = document.getElementById('hardFill');
+var matN     = document.getElementById('matN');
+var matSub   = document.getElementById('matSub');
+var matChar  = document.getElementById('matChar');
+var matLbl   = document.getElementById('matLbl');
+var flipBtn  = document.getElementById('flipBtn');
+var matBtn   = document.getElementById('matBtn');
+var sndBtn   = document.getElementById('sndBtn');
+var sndLbl   = document.getElementById('sndLbl');
+var hintEl   = document.getElementById('hint');
+var startSh  = document.getElementById('start');
+var goBtn    = document.getElementById('go');
+var errBox   = document.getElementById('err');
+
+// ═══════════════════════════════════════════════════════════════════════
+//  MATERIALS
+// ═══════════════════════════════════════════════════════════════════════
+var MATS = [
+  { name:'石膏', en:'Plaster', lbl:'せっこう',
+    alb:[224, 219, 207], spc:[255, 250, 238], sp:0.20, shin:14,
+    amb:0.26, depth:1.00, rim:0.10 },
+  { name:'銅',   en:'Bronze',  lbl:'どう',
+    alb:[168, 100,  54], spc:[255, 214, 158], sp:0.92, shin:44,
+    amb:0.14, depth:1.20, rim:0.20 },
+  { name:'漆',   en:'Lacquer', lbl:'うるし',
+    alb:[ 30,  25,  22], spc:[255, 242, 228], sp:1.20, shin:96,
+    amb:0.085, depth:1.35, rim:0.28 }
+];
+var matI = 0, blend = 1;              // blend = cross-dissolve progress
+var matFrom = 0;
+function MAT(){ return MATS[matI]; }
+
+// ═══════════════════════════════════════════════════════════════════════
+//  CANVAS + FIELD
+// ═══════════════════════════════════════════════════════════════════════
+var W = 1, H = 1, ar = 1, dpr = 1;
+var GW = 0, GH = 0, NP = 0;
+var hgt = null, tmp = null, chisel = null;
+var out = null;
+var outCv = document.createElement('canvas'), octx = outCv.getContext('2d');
+var samp  = document.createElement('canvas'), sctx = samp.getContext('2d');
+var TARGET = 30000;                   // pixels of relief, upscaled smoothly
+
+function alloc(){
+  NP = GW * GH;
+  hgt = new Float32Array(NP);
+  tmp = new Float32Array(NP);
+  chisel = new Float32Array(NP);
+  // a fixed tooth in the surface, so it reads as cut stone rather than plastic
+  for (var j = 0; j < GH; j++){
+    for (var i = 0; i < GW; i++){
+      var s = Math.sin(i * 0.9 + j * 0.31) * Math.sin(j * 1.13 - i * 0.17);
+      var g = Math.sin((i * 12.9898 + j * 78.233) * 0.5);
+      chisel[j * GW + i] = s * 0.5 + (g - Math.floor(g) - 0.5) * 0.5;
+    }
+  }
+  outCv.width = GW; outCv.height = GH;
+  samp.width = GW; samp.height = GH;
+  out = octx.createImageData(GW, GH);      // ONE ImageData, reused every frame
+  var d = out.data;
+  for (var k = 3; k < d.length; k += 4) d[k] = 255;
+}
+function resize(){
+  dpr = Math.min(window.devicePixelRatio || 1, 2);
+  var w = Math.max(1, window.innerWidth), h = Math.max(1, window.innerHeight);
+  cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+  cv.style.width = w + 'px'; cv.style.height = h + 'px';
+  W = cv.width; H = cv.height; ar = W / H;
+
+  var s = Math.sqrt(Math.max(0.2, Math.min(5, ar)));
+  var gw = Math.round(Math.sqrt(TARGET) * s), gh = Math.round(Math.sqrt(TARGET) / s);
+  gw = Math.max(60, Math.min(400, gw));
+  gh = Math.max(60, Math.min(400, gh));
+  while (gw * gh > TARGET * 1.35){ gw = Math.max(60, Math.round(gw * .94)); gh = Math.max(60, Math.round(gh * .94)); }
+  if (gw !== GW || gh !== GH){ GW = gw; GH = gh; alloc(); }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  CAMERA
+// ═══════════════════════════════════════════════════════════════════════
+var facing = 'user', mirror = true, stream = null;
+function showError(e){
+  var msg = (e && e.message) ? e.message : String(e || 'unknown');
+  errBox.style.display = 'block';
+  errBox.textContent = 'カメラを起動できませんでした：' + msg +
+    '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+}
+function startStream(){
+  var md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) return Promise.reject(new Error('getUserMedia is unavailable'));
+  if (stream && stream.getTracks) stream.getTracks().forEach(function(t){ t.stop(); });
+  return md.getUserMedia({
+    video:{ facingMode:{ ideal:facing }, width:{ ideal:960 }, height:{ ideal:720 } },
+    audio:false
+  }).then(function(st){
+    stream = st; video.srcObject = st; mirror = (facing === 'user');
+    var p = video.play();
+    return (p && p.then) ? p.catch(function(){}) : null;
+  });
+}
+flipBtn.addEventListener('click', function(){
+  facing = (facing === 'user') ? 'environment' : 'user';
+  loseHands();
+  startStream().then(startMpCamera).catch(showError);
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+//  HANDS — the palm is the lamp. The piece works without one.
+// ═══════════════════════════════════════════════════════════════════════
+var hands = null, mpCamera = null, mpReady = false;
+var LOST_MS = 320;
+var slot = { live:false, t:-1e9, x:.5, y:.4, open:true, ext:4 };
+var TIPS = [8, 12, 16, 20], PIPS = [6, 10, 14, 18];
+
+function initHands(){
+  if (typeof window.Hands !== 'function') return false;
+  try {
+    hands = new window.Hands({ locateFile:function(f){
+      return 'https://cdn.jsdelivr.net/npm/@mediapipe/hands/' + f;
+    }});
+    hands.setOptions({ maxNumHands:1, modelComplexity:0,
+                       minDetectionConfidence:0.6, minTrackingConfidence:0.5 });
+    hands.onResults(onHands);
+    mpReady = true; return true;
+  } catch(e){ return false; }
+}
+function validLm(c){
+  if (!c || c.length < 21) return null;
+  for (var i = 0; i < 21; i++){
+    var p = c[i];
+    if (!p || typeof p.x !== 'number' || typeof p.y !== 'number' ||
+        !isFinite(p.x) || !isFinite(p.y)) return null;
+  }
+  return c;
+}
+function onHands(res){
+  var raw = (res && res.multiHandLandmarks) ? res.multiHandLandmarks : [];
+  var c = raw.length ? validLm(raw[0]) : null;
+  if (!c) return;
+  var ids = [0, 5, 9, 13, 17], cx = 0, cy = 0, i;
+  for (i = 0; i < ids.length; i++){ cx += c[ids[i]].x; cy += c[ids[i]].y; }
+  cx /= ids.length; cy /= ids.length;
+  var wr = c[0], ext = 0;
+  for (i = 0; i < 4; i++){
+    var dt = Math.hypot(c[TIPS[i]].x - wr.x, c[TIPS[i]].y - wr.y);
+    var dp = Math.hypot(c[PIPS[i]].x - wr.x, c[PIPS[i]].y - wr.y);
+    if (dt > dp * 1.06) ext++;
+  }
+  if (!isFinite(cx) || !isFinite(cy)) return;
+  slot.x = mirror ? (1 - cx) : cx;
+  slot.y = cy;
+  slot.ext = ext; slot.open = ext >= 3;
+  slot.t = now(); slot.live = true;
+}
+function loseHands(){
+  slot.live = false; slot.t = -1e9; slot.ext = 4; slot.open = true;
+}
+function startMpCamera(){
+  if (!mpReady || typeof window.Camera !== 'function') return;
+  try {
+    if (mpCamera && mpCamera.stop) mpCamera.stop();
+    mpCamera = new window.Camera(video, {
+      onFrame:function(){
+        if (!hands || !started) return Promise.resolve();
+        return hands.send({ image:video }).catch(function(){});
+      },
+      width:480, height:360
+    });
+    mpCamera.start();
+  } catch(e){ mpReady = false; }
+}
+function now(){ return performance.now(); }
+
+// ═══════════════════════════════════════════════════════════════════════
+//  AUDIO — a stone room, and almost nothing else
+// ═══════════════════════════════════════════════════════════════════════
+var ac = null, master = null, comp = null, muted = false;
+var roomGain = null, noiseBuf = null, audioReady = false;
+
+function initAudio(){
+  if (ac) return;
+  var AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) return;
+  try { ac = new AC(); } catch(e){ ac = null; return; }
+  comp = ac.createDynamicsCompressor();
+  try {
+    comp.threshold.value = -26; comp.knee.value = 18;
+    comp.ratio.value = 4; comp.attack.value = .02; comp.release.value = .5;
+  } catch(e){}
+  master = ac.createGain(); master.gain.value = muted ? 0 : 0.5;
+  master.connect(comp); comp.connect(ac.destination);
+
+  var n = Math.floor(ac.sampleRate * 2);
+  noiseBuf = ac.createBuffer(1, n, ac.sampleRate);
+  var d = noiseBuf.getChannelData(0), lv = 0;
+  for (var i = 0; i < n; i++){
+    lv = (lv + (Math.random() * 2 - 1) * 0.05) * 0.99;
+    d[i] = Math.max(-1, Math.min(1, lv * 3));
+  }
+  var src = ac.createBufferSource(); src.buffer = noiseBuf; src.loop = true;
+  var lp = ac.createBiquadFilter(); lp.type = 'lowpass';
+  lp.frequency.value = 420; lp.Q.value = 0.5;
+  roomGain = ac.createGain(); roomGain.gain.value = 0.035;
+  src.connect(lp); lp.connect(roomGain); roomGain.connect(master);
+  try { src.start(0); } catch(e){}
+  audioReady = true;
+}
+function tapStone(){
+  if (!audioReady || !ac || muted || !noiseBuf) return;
+  var t = ac.currentTime;
+  var s = ac.createBufferSource(); s.buffer = noiseBuf; s.loop = true;
+  var bp = ac.createBiquadFilter(); bp.type = 'bandpass';
+  bp.frequency.setValueAtTime(1500, t); bp.Q.value = 9;
+  var g = ac.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.30, t + 0.003);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.22);
+  s.connect(bp); bp.connect(g); g.connect(master);
+  s.start(t); s.stop(t + 0.26);
+  var o = ac.createOscillator(); o.type = 'sine';
+  o.frequency.setValueAtTime(196, t);
+  var g2 = ac.createGain();
+  g2.gain.setValueAtTime(0.0001, t);
+  g2.gain.exponentialRampToValueAtTime(0.10, t + 0.004);
+  g2.gain.exponentialRampToValueAtTime(0.0001, t + 0.55);
+  o.connect(g2); g2.connect(master); o.start(t); o.stop(t + 0.6);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  THE FILTER
+// ═══════════════════════════════════════════════════════════════════════
+var started = false, orbit = 0, hard = 0, lx = 0.5, ly = 0.28, moved = false;
+
+function sampleVideo(){
+  if (!video || !video.videoWidth || !video.videoHeight) return null;
+  try {
+    var vw = video.videoWidth, vh = video.videoHeight;
+    var sc = Math.max(GW / vw, GH / vh);
+    var dw = vw * sc, dh = vh * sc;
+    sctx.save();
+    if (mirror){ sctx.translate(GW, 0); sctx.scale(-1, 1); }
+    sctx.drawImage(video, (GW - dw) / 2, (GH - dh) / 2, dw, dh);
+    sctx.restore();
+    return sctx.getImageData(0, 0, GW, GH).data;
+  } catch(e){ return null; }
+}
+
+// the camera's colour dies here and is never used again
+function buildHeight(src){
+  var k, i, j;
+  if (src){
+    for (k = 0; k < NP; k++){
+      var o = k << 2;
+      hgt[k] = (src[o] * 0.299 + src[o + 1] * 0.587 + src[o + 2] * 0.114) * 0.00392157;
+    }
+  } else {
+    for (k = 0; k < NP; k++) hgt[k] = 0.5;
+  }
+  // two separable 1-2-1 passes: sensor noise must not become chisel marks
+  var p;
+  for (p = 0; p < 2; p++){
+    for (j = 0; j < GH; j++){
+      var row = j * GW;
+      for (i = 0; i < GW; i++){
+        var a = hgt[row + (i > 0 ? i - 1 : i)];
+        var b = hgt[row + i];
+        var c = hgt[row + (i < GW - 1 ? i + 1 : i)];
+        tmp[row + i] = (a + b + b + c) * 0.25;
+      }
+    }
+    for (j = 0; j < GH; j++){
+      var r0 = (j > 0 ? j - 1 : j) * GW, r1 = j * GW;
+      var r2 = (j < GH - 1 ? j + 1 : j) * GW;
+      for (i = 0; i < GW; i++){
+        hgt[r1 + i] = (tmp[r0 + i] + tmp[r1 + i] + tmp[r1 + i] + tmp[r2 + i]) * 0.25;
+      }
+    }
+  }
+}
+
+function lerp(a, b, t){ return a + (b - a) * t; }
+
+function shade(){
+  var d = out.data;
+  var A = MATS[matFrom], B = MATS[matI], t = blend;
+  var albR = lerp(A.alb[0], B.alb[0], t), albG = lerp(A.alb[1], B.alb[1], t),
+      albB = lerp(A.alb[2], B.alb[2], t);
+  var spcR = lerp(A.spc[0], B.spc[0], t), spcG = lerp(A.spc[1], B.spc[1], t),
+      spcB = lerp(A.spc[2], B.spc[2], t);
+  var sp   = lerp(A.sp, B.sp, t);
+  var shin = lerp(A.shin, B.shin, t);
+  var amb  = lerp(A.amb, B.amb, t);
+  var dep  = lerp(A.depth, B.depth, t);
+  var rim  = lerp(A.rim, B.rim, t);
+
+  // a fist is a hard point source; an open hand is broad and soft
+  var shinE = shin * (0.55 + 0.95 * hard);
+  var ambE  = amb * (1.25 - 0.45 * hard);
+  var chiselAmt = 0.010 + 0.026 * hard;
+
+  // the lamp, in grid space, held above the surface
+  var LX = lx * GW, LY = ly * GH, LZ = GH * (0.62 - 0.34 * hard);
+  var fall = GH * (1.25 - 0.45 * hard);
+  var fall2 = fall * fall;
+  var depth = dep * GH * 0.055;
+
+  var pow = Math.pow, sqrt = Math.sqrt;
+  var i, j;
+  for (j = 0; j < GH; j++){
+    var row = j * GW;
+    var jm = (j > 0 ? row - GW : row), jp = (j < GH - 1 ? row + GW : row);
+    for (i = 0; i < GW; i++){
+      var k = row + i;
+      var im = row + (i > 0 ? i - 1 : i), ip = row + (i < GW - 1 ? i + 1 : i);
+
+      var h = hgt[k] + chisel[k] * chiselAmt;
+      // surface normal from the height gradient
+      var nx = (hgt[im] - hgt[ip]) * depth;
+      var ny = (hgt[jm + i] - hgt[jp + i]) * depth;
+      var inl = 1 / sqrt(nx * nx + ny * ny + 1);
+      nx *= inl; ny *= inl;
+      var nz = inl;
+
+      // a real point light, with falloff
+      var vx = LX - i, vy = LY - j, vz = LZ - h * depth;
+      var d2 = vx * vx + vy * vy + vz * vz;
+      if (d2 < 1e-8) d2 = 1e-8;
+      var ivl = 1 / sqrt(d2);
+      var ldx = vx * ivl, ldy = vy * ivl, ldz = vz * ivl;
+
+      var dif = nx * ldx + ny * ldy + nz * ldz;
+      if (dif < 0) dif = 0;
+      var att = fall2 / (fall2 + d2);
+      dif *= att;
+
+      // Blinn-Phong, but only where a highlight can actually exist: below
+      // this the term is < 1e-3 even for plaster, so the sqrt and the pow
+      // are skipped on the great majority of the frame
+      var s = 0;
+      var hx = ldx, hy = ldy, hz = ldz + 1;
+      var hq = hx * hx + hy * hy + hz * hz;
+      var ndhRaw = nx * hx + ny * hy + nz * hz;
+      if (ndhRaw > 0 && ndhRaw * ndhRaw > 0.30 * hq){
+        var ndh = ndhRaw / sqrt(hq);
+        if (ndh > 1) ndh = 1;
+        s = sp * pow(ndh, shinE) * att;
+      }
+
+      // a cut catches light on its lip: darken where the surface turns away hard
+      var slope = 1 - nz;
+      var e = 1 - rim * slope * 2.2;
+      if (e < 0) e = 0;
+
+      var lum = ambE + dif;
+      var r = albR * lum * e + spcR * s;
+      var g = albG * lum * e + spcG * s;
+      var b = albB * lum * e + spcB * s;
+
+      var o = k << 2;
+      d[o]     = r > 255 ? 255 : (r < 0 ? 0 : r);
+      d[o + 1] = g > 255 ? 255 : (g < 0 ? 0 : g);
+      d[o + 2] = b > 255 ? 255 : (b < 0 ? 0 : b);
+      d[o + 3] = 255;
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  STEP + DRAW
+// ═══════════════════════════════════════════════════════════════════════
+function step(dt){
+  if (!(dt > 0)) dt = 0.016;
+  if (dt > 0.05) dt = 0.05;
+  var t = now();
+
+  if (slot.live && t - slot.t > LOST_MS) loseHands();
+
+  // the lamp: your palm, or a slow orbit when the camera cannot see one
+  var tx, ty;
+  if (slot.live){
+    tx = slot.x; ty = slot.y;
+    moved = true;
+  } else {
+    orbit += dt * 0.42;
+    tx = 0.5 + Math.cos(orbit) * 0.36;
+    ty = 0.34 + Math.sin(orbit * 0.8) * 0.20;
+  }
+  if (!isFinite(tx)) tx = 0.5;
+  if (!isFinite(ty)) ty = 0.3;
+  var f = Math.min(1, dt * (slot.live ? 9 : 2.4));
+  lx += (tx - lx) * f;
+  ly += (ty - ly) * f;
+
+  var hTarget = slot.live ? (1 - Math.min(1, slot.ext / 3)) : 0.25;
+  hard += (hTarget - hard) * Math.min(1, dt * 3.2);
+  if (!isFinite(hard)) hard = 0.25;
+
+  if (blend < 1){
+    blend = Math.min(1, blend + dt / 0.7);
+  }
+
+  buildHeight(sampleVideo());
+  shade();
+
+  hardFill.style.width = Math.round(Math.max(0, Math.min(1, hard)) * 100) + '%';
+  if (moved) hintEl.classList.add('gone');
+}
+
+function draw(){
+  if (!out) return;
+  octx.putImageData(out, 0, 0);
+  ctx.save();
+  ctx.imageSmoothingEnabled = true;
+  ctx.drawImage(outCv, 0, 0, W, H);
+  ctx.restore();
+
+  // the lamp itself, so you can always see where the light you hold is
+  var px = lx * W, py = ly * H;
+  if (isFinite(px) && isFinite(py)){
+    var r = Math.max(6, H * 0.020) * (1.25 - 0.35 * hard);
+    var g = ctx.createRadialGradient(px, py, 0, px, py, r * 4);
+    g.addColorStop(0,   'rgba(255,252,244,' + (0.55 + 0.35 * hard).toFixed(3) + ')');
+    g.addColorStop(.30, 'rgba(255,246,226,' + (0.18 + 0.16 * hard).toFixed(3) + ')');
+    g.addColorStop(1,   'rgba(255,246,226,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(px, py, r * 4, 0, 6.2832); ctx.fill();
+    ctx.fillStyle = 'rgba(255,253,247,' + (0.5 + 0.4 * hard).toFixed(3) + ')';
+    ctx.beginPath(); ctx.arc(px, py, r * 0.42, 0, 6.2832); ctx.fill();
+  }
+
+  // the plinth line at the foot of the wall
+  ctx.save();
+  ctx.strokeStyle = 'rgba(43,37,29,.45)';
+  ctx.lineWidth = Math.max(1, dpr);
+  var yy = H - Math.max(26, H * 0.055);
+  ctx.beginPath(); ctx.moveTo(0, yy); ctx.lineTo(W, yy); ctx.stroke();
+  ctx.restore();
+}
+
+var last = 0;
+function loop(){
+  var t = now();
+  var dt = last ? Math.min(0.05, (t - last) / 1000) : 0.016;
+  last = t;
+  try { step(dt); draw(); } catch(e){ /* one bad frame must not end the piece */ }
+  requestAnimationFrame(loop);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  UI
+// ═══════════════════════════════════════════════════════════════════════
+function applyMat(){
+  var m = MAT();
+  matN.textContent = m.name; matSub.textContent = m.en;
+  matChar.textContent = m.name; matLbl.textContent = m.lbl;
+  tapStone();
+}
+goBtn.addEventListener('click', function(){
+  goBtn.textContent = 'よみこみ中';
+  initAudio();
+  if (ac && ac.state === 'suspended') ac.resume();
+  startStream().then(function(){
+    // the relief is the piece; the hand only carries the lamp, so a
+    // tracking failure is not fatal — the light simply orbits on its own
+    if (initHands()) startMpCamera();
+    goBtn.textContent = '彫る';
+    started = true;
+    startSh.classList.add('gone');
+  }).catch(function(e){ goBtn.textContent = '彫る'; showError(e); });
+});
+matBtn.addEventListener('click', function(){
+  matFrom = matI;
+  matI = (matI + 1) % MATS.length;
+  blend = 0;
+  applyMat();
+});
+sndBtn.addEventListener('click', function(){
+  muted = !muted; sndLbl.textContent = muted ? 'OFF' : 'ON';
+  if (master && ac) master.gain.setTargetAtTime(muted ? 0 : 0.5, ac.currentTime, 0.3);
+});
+window.addEventListener('resize', resize);
+window.addEventListener('orientationchange', function(){ setTimeout(resize, 250); });
+
+resize();
+requestAnimationFrame(loop);
+
+// a headless harness runs the filter without a camera
+window.__UKIBORI__ = {
+  feed:function(list){ onHands({ multiHandLandmarks:list }); },
+  step:function(dt){ step(dt); draw(); },
+  start:function(){ started = true; },
+  mat:function(){ matBtn.click(); },
+  get:function(){
+    return { GW:GW, GH:GH, NP:NP, hgt:hgt, out:out, lx:lx, ly:ly, hard:hard,
+             matI:matI, blend:blend, slot:slot, audioReady:audioReady };
+  },
+  consts:{ LOST_MS:LOST_MS, TARGET:TARGET }
+};
+})();
+</script>
+</body>
+</html>
