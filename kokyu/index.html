@@ -1,0 +1,824 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>KOKYU ─ 擦って鳴らす弦</title>
+<meta name="description" content="右手が弓、左手が棹になる擦弦楽器。弓は動かしている間しか鳴らず、止めれば音は消える。左手を上げるほど弦の振動する長さが実際に短くなり、その長さの比がそのまま音程になる。三つの調子。">
+<meta name="theme-color" content="#12233d">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Zen+Antique&family=Cormorant+Garamond:ital,wght@0,300;1,300&display=swap" rel="stylesheet">
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  KOKYU ─ 擦って鳴らす弦                      ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  PALETTE   藍   ai        #12233d  the dyed cloth the whole night sits on
+            縹   hanada    #3d7cae  the strings at rest
+            白練 shironeri #f2efe6  the string under the bow, and all type
+            銀朱 ginshu    #d4603a  the finger stopping the string
+            鈍   nibi      #6d7a8c  the frame, the rules, the quiet labels
+            MOOD: an indigo-dyed cloth at night with one instrument on it.
+            This is the only dark piece made tonight, and it is dark because
+            a bowed string is a night sound — everything else tonight is
+            paper-bright so that this one can be the room with the lamp off.
+  BACKGROUND  A vertical indigo dye gradient, deepest at the top where the
+            bridge is, with a real woven crosshatch laid over it at very low
+            contrast — the weave of the cloth, drawn, not a vignette. The
+            camera is dyed into that cloth at 22%: you are behind the fabric.
+  TYPE      Zen Antique for the Japanese — a warm, slightly worn 明朝 with
+            old-catalogue proportions. Cormorant Garamond Light Italic for
+            the Latin and the numerals, which gives the readouts the look of
+            a hand-written instrument label rather than a display.
+  MOTION    Slow and floaty. Every parameter in the piece is reached through
+            an exponential approach, never a jump: pitch glides, the bow
+            fades in and out, labels cross-dissolve over 400ms. The only
+            fast thing on screen is the string itself, which vibrates.
+  SIGNATURE The string really is a standing wave, and the vibrating part of
+            it is only the length between the bridge and your finger. Raise
+            your left hand and you watch that length physically shorten —
+            and the pitch you hear is 12·log2(L0/L) of that same shortening,
+            not a curve mapped onto your hand height. The instrument on the
+            screen and the instrument in the speakers are the same object.
+  AUDIO     A bowed string, not a plucked one: Helmholtz sawtooth motion
+            plus friction noise, driven through a lowpass whose cutoff IS
+            the bow speed, into a three-peak body resonance and a small
+            algorithmic room. Nothing is triggered. Bow gain is a continuous
+            function of how fast your hand is actually travelling, so the
+            note exists only while you are doing physical work — stop, and
+            it dies away like a real one. The two strings you are not on
+            hum sympathetically underneath.
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;overflow:hidden;background:#12233d;
+    -webkit-text-size-adjust:100%;-webkit-tap-highlight-color:transparent}
+  body{font-family:'Zen Antique',serif;color:#f2efe6;
+    touch-action:none;user-select:none;-webkit-user-select:none}
+  #view{position:fixed;inset:0;width:100%;height:100%;display:block}
+  #video{position:fixed;width:2px;height:2px;opacity:.001;pointer-events:none;left:0;top:0}
+
+  .hud{position:fixed;left:0;right:0;top:0;z-index:5;pointer-events:none;
+    padding:calc(env(safe-area-inset-top,0px) + 15px) 17px 0;
+    display:flex;justify-content:space-between;align-items:flex-start}
+  .ttl{font-size:16px;letter-spacing:.3em;line-height:1.4}
+  .sub{font-family:'Cormorant Garamond',serif;font-style:italic;font-size:12px;
+    letter-spacing:.24em;color:#6d7a8c;margin-top:5px}
+  .btns{display:flex;flex-direction:column;gap:8px;align-items:flex-end;pointer-events:auto}
+  button{font-family:'Zen Antique',serif;font-size:12.5px;letter-spacing:.14em;
+    color:#f2efe6;background:rgba(18,35,61,.72);border:1px solid #3d5570;
+    border-radius:1px;padding:8px 13px;cursor:pointer;line-height:1;
+    transition:background .4s cubic-bezier(.2,.7,.3,1),border-color .4s}
+  button:active{background:#3d7cae;border-color:#3d7cae}
+  .val{font-family:'Cormorant Garamond',serif;font-style:italic;margin-left:7px;color:#9db6cc}
+
+  .plate{position:fixed;left:0;right:0;z-index:5;pointer-events:none;text-align:center;
+    bottom:calc(env(safe-area-inset-bottom,0px) + 20px)}
+  .note{font-family:'Cormorant Garamond',serif;font-style:italic;font-size:40px;
+    line-height:1;letter-spacing:.04em;min-height:40px;
+    transition:opacity .4s cubic-bezier(.2,.7,.3,1)}
+  .note.q{opacity:.22}
+  .hz{font-family:'Cormorant Garamond',serif;font-style:italic;font-size:13px;
+    letter-spacing:.2em;color:#6d7a8c;margin-top:5px;min-height:16px}
+  .tip{font-size:12.5px;letter-spacing:.18em;color:#9db6cc;margin-top:9px;min-height:17px;
+    transition:opacity .5s}
+
+  .sheet{position:fixed;inset:0;z-index:20;background:#12233d;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    text-align:center;padding:26px}
+  .sheet.gone{display:none}
+  .sheet h1{font-size:clamp(40px,14vw,74px);letter-spacing:.2em;line-height:1.25;
+    text-indent:.2em}
+  .sheet .en{font-family:'Cormorant Garamond',serif;font-style:italic;font-size:14px;
+    letter-spacing:.4em;color:#6d7a8c;margin-top:12px;text-indent:.4em}
+  .hr{width:1px;height:40px;background:#3d5570;margin:22px 0}
+  .lead{font-size:14px;line-height:2.15;color:#c6d2de;max-width:24em;letter-spacing:.05em}
+  .go{margin-top:26px;font-size:16px;letter-spacing:.4em;padding:14px 30px;text-indent:.4em;
+    background:#f2efe6;color:#12233d;border-color:#f2efe6}
+  .go:active{background:#d4603a;border-color:#d4603a;color:#f2efe6}
+  .foot{margin-top:15px;font-family:'Cormorant Garamond',serif;font-style:italic;
+    font-size:12px;letter-spacing:.24em;color:#4d6076}
+
+  /* the 3-second diagram: left hand slides, right hand saws */
+  .dia{width:200px;height:96px;position:relative;margin-top:4px}
+  .dia .str{position:absolute;left:96px;top:2px;bottom:2px;width:1px;background:#3d7cae}
+  .dia .fg{position:absolute;left:88px;width:17px;height:17px;border-radius:50%;
+    background:#d4603a;top:14px;animation:kkFg 4s cubic-bezier(.4,0,.3,1) infinite}
+  .dia .bw{position:absolute;top:52px;left:56px;width:82px;height:2px;background:#f2efe6;
+    animation:kkBw 1.15s cubic-bezier(.45,0,.55,1) infinite alternate}
+  .dia .lb{position:absolute;font-family:'Cormorant Garamond',serif;font-style:italic;
+    font-size:10px;letter-spacing:.16em;color:#6d7a8c}
+  .dia .lb.a{left:0;top:12px}.dia .lb.b{right:0;top:66px}
+  @keyframes kkFg{0%,100%{top:56px}50%{top:10px}}
+  @keyframes kkBw{0%{transform:translateX(-26px)}100%{transform:translateX(26px)}}
+
+  #err{position:fixed;left:16px;right:16px;bottom:16px;z-index:40;display:none;
+    white-space:pre-wrap;background:#f2efe6;color:#12233d;padding:14px 16px;
+    font-size:12.5px;line-height:1.8;border-radius:1px}
+  @media (max-height:520px){ .lead{display:none} .sheet h1{font-size:40px} .note{font-size:30px} }
+</style>
+</head>
+<body>
+
+<canvas id="view"></canvas>
+<video id="video" playsinline muted autoplay></video>
+
+<div class="hud">
+  <div>
+    <div class="ttl">胡弓</div>
+    <div class="sub" id="tuneSub">KOKYU — HIRAJOSHI</div>
+  </div>
+  <div class="btns">
+    <button id="tuneBtn" type="button">調子<span class="val" id="tuneLbl">平</span></button>
+    <button id="flipBtn" type="button">⟲ カメラ</button>
+    <button id="sndBtn" type="button">音<span class="val" id="sndLbl">ON</span></button>
+  </div>
+</div>
+
+<div class="plate">
+  <div class="note q" id="noteEl">—</div>
+  <div class="hz" id="hzEl"></div>
+  <div class="tip" id="tipEl">両手をカメラに</div>
+</div>
+
+<div class="sheet" id="start">
+  <h1>胡弓</h1>
+  <div class="en">KOKYU — A BOWED STRING</div>
+  <div class="hr"></div>
+  <div class="dia">
+    <div class="str"></div><div class="fg"></div><div class="bw"></div>
+    <div class="lb a">STOP</div><div class="lb b">BOW</div>
+  </div>
+  <p class="lead">
+    右手を横に動かし続けている間だけ弦が鳴る。<br>
+    止めれば音は消える。速いほど強く、明るい。<br>
+    左手を上げるほど弦の振動する長さが短くなり、<br>
+    その長さの比がそのまま音程になる。
+  </p>
+  <button class="go" id="go" type="button">擦る</button>
+  <div class="foot">CAMERA REQUIRED</div>
+</div>
+
+<div id="err"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+<script>
+(function(){
+'use strict';
+
+var cv      = document.getElementById('view');
+var ctx     = cv.getContext('2d');
+var video   = document.getElementById('video');
+var noteEl  = document.getElementById('noteEl');
+var hzEl    = document.getElementById('hzEl');
+var tipEl   = document.getElementById('tipEl');
+var tuneBtn = document.getElementById('tuneBtn');
+var tuneLbl = document.getElementById('tuneLbl');
+var tuneSub = document.getElementById('tuneSub');
+var flipBtn = document.getElementById('flipBtn');
+var sndBtn  = document.getElementById('sndBtn');
+var sndLbl  = document.getElementById('sndLbl');
+var startSh = document.getElementById('start');
+var goBtn   = document.getElementById('go');
+var errBox  = document.getElementById('err');
+
+var AI = '#12233d', HANADA = '#3d7cae', SHIRO = '#f2efe6',
+    GINSHU = '#d4603a', NIBI = '#6d7a8c';
+
+function now(){ return performance.now(); }
+function clamp(v,a,b){ return v<a?a:(v>b?b:v); }
+function ap(cur, tgt, rate, dt){ return cur + (tgt - cur) * (1 - Math.exp(-rate * dt)); }
+
+// ═══════════════════════════════════════════════════════════════════════
+//  TUNINGS — three, and every one of them is a real scale
+// ═══════════════════════════════════════════════════════════════════════
+var TUNINGS = [
+  { name:'平',  jp:'平調子', en:'HIRAJOSHI',
+    open:[146.83, 220.00, 293.66],           // D3 A3 D4
+    scale:[0,2,5,7,9,12,14,17,19] },         // 律 — no half steps anywhere
+  { name:'雲',  jp:'雲井調子', en:'KUMOI',
+    open:[130.81, 196.00, 261.63],           // C3 G3 C4
+    scale:[0,1,5,7,8,12,13,17,19] },         // 都節 — the dark one
+  { name:'民',  jp:'民謡調子', en:'MINYO',
+    open:[164.81, 246.94, 329.63],           // E3 B3 E4
+    scale:[0,3,5,7,10,12,15,17,19] }
+];
+var tuneI = 0;
+function TUNE(){ return TUNINGS[tuneI]; }
+var NAMES = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+function noteName(f){
+  if (!isFinite(f) || f <= 0) return '—';
+  var n = Math.round(12 * Math.log(f / 440) / Math.LN2) + 69;
+  return NAMES[((n % 12) + 12) % 12] + (Math.floor(n / 12) - 1);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  CANVAS
+// ═══════════════════════════════════════════════════════════════════════
+var W = 1, H = 1, dpr = 1, S = 1;
+var BRIDGE = 0.075, NUT = 0.93;               // the string, in screen fractions
+var SX = [0.28, 0.50, 0.72];                  // where the three strings hang
+var weave = null;
+
+function makeWeave(){
+  var n = document.createElement('canvas'); n.width = 24; n.height = 24;
+  var c = n.getContext('2d');
+  c.strokeStyle = 'rgba(255,255,255,0.028)'; c.lineWidth = 1;
+  for (var i = 0; i < 24; i += 4){
+    c.beginPath(); c.moveTo(i, 0); c.lineTo(i, 24); c.stroke();
+    c.beginPath(); c.moveTo(0, i); c.lineTo(24, i); c.stroke();
+  }
+  try { weave = ctx.createPattern(n, 'repeat'); } catch(e){ weave = null; }
+}
+function resize(){
+  dpr = Math.min(window.devicePixelRatio || 1, 2);
+  var w = Math.max(1, window.innerWidth), h = Math.max(1, window.innerHeight);
+  cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+  cv.style.width = w + 'px'; cv.style.height = h + 'px';
+  W = cv.width; H = cv.height; S = Math.min(W, H) / 720;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  CAMERA
+// ═══════════════════════════════════════════════════════════════════════
+var facing = 'user', mirror = true, stream = null, started = false;
+function showError(e){
+  var msg = (e && e.message) ? e.message : String(e || 'unknown');
+  errBox.style.display = 'block';
+  errBox.textContent = 'カメラを起動できませんでした：' + msg +
+    '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+}
+function startStream(){
+  var md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) return Promise.reject(new Error('getUserMedia is unavailable'));
+  if (stream && stream.getTracks) stream.getTracks().forEach(function(t){ t.stop(); });
+  return md.getUserMedia({
+    video:{ facingMode:{ ideal:facing }, width:{ ideal:960 }, height:{ ideal:720 } },
+    audio:false
+  }).then(function(st){
+    stream = st; video.srcObject = st; mirror = (facing === 'user');
+    var p = video.play();
+    return (p && p.then) ? p.catch(function(){}) : null;
+  });
+}
+flipBtn.addEventListener('click', function(){
+  facing = (facing === 'user') ? 'environment' : 'user';
+  loseHands();
+  startStream().then(startMpCamera).catch(showError);
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+//  HANDS — two of them: one stops the string, one draws the bow
+// ═══════════════════════════════════════════════════════════════════════
+var hands = null, mpCamera = null, mpReady = false;
+var LOST_MS = 300;
+function mkHand(){ return { live:false, t:-1e9, x:.5, y:.5, px:.5, py:.5,
+                            vx:0, vy:0, sp:0, open:true, ext:4 }; }
+var raw = [mkHand(), mkHand()];
+var bow = mkHand(), fing = mkHand();
+var bowIsSecond = true, swapT = 0;
+var TIPS = [8,12,16,20], PIPS = [6,10,14,18];
+
+function initHands(){
+  if (typeof window.Hands !== 'function') return false;
+  try {
+    hands = new window.Hands({ locateFile:function(f){
+      return 'https://cdn.jsdelivr.net/npm/@mediapipe/hands/' + f;
+    }});
+    hands.setOptions({ maxNumHands:2, modelComplexity:0,
+                       minDetectionConfidence:0.6, minTrackingConfidence:0.5 });
+    hands.onResults(onHands);
+    mpReady = true; return true;
+  } catch(e){ return false; }
+}
+function validLm(c){
+  if (!c || c.length < 21) return null;
+  for (var i = 0; i < 21; i++){
+    var p = c[i];
+    if (!p || typeof p.x !== 'number' || typeof p.y !== 'number' ||
+        !isFinite(p.x) || !isFinite(p.y)) return null;
+  }
+  return c;
+}
+function readHand(c, slot, t){
+  var ids = [0,5,9,13,17], cx = 0, cy = 0, i;
+  for (i = 0; i < ids.length; i++){
+    if (!c[ids[i]]) return false;
+    cx += c[ids[i]].x; cy += c[ids[i]].y;
+  }
+  cx /= ids.length; cy /= ids.length;
+  if (!isFinite(cx) || !isFinite(cy)) return false;
+  var x = mirror ? (1 - cx) : cx, y = cy;
+  var wr = c[0], ext = 0;
+  for (i = 0; i < 4; i++){
+    var a = c[TIPS[i]], b = c[PIPS[i]];
+    if (!a || !b) continue;
+    if (Math.hypot(a.x - wr.x, a.y - wr.y) > Math.hypot(b.x - wr.x, b.y - wr.y) * 1.06) ext++;
+  }
+  var dt = (slot.live && slot.t > -1e8) ? (t - slot.t) / 1000 : 0;
+  if (dt > 0.004 && dt < 0.35){
+    // one exponential smoother on the raw velocity: MediaPipe jitter is
+    // white, the bow is not, and the deadzone below eats what is left
+    var nvx = (x - slot.x) / dt, nvy = (y - slot.y) / dt;
+    slot.vx = slot.vx + (nvx - slot.vx) * 0.45;
+    slot.vy = slot.vy + (nvy - slot.vy) * 0.45;
+  } else if (!slot.live){ slot.vx = 0; slot.vy = 0; }
+  slot.x = x; slot.y = y;
+  slot.sp = Math.hypot(slot.vx, slot.vy);
+  slot.ext = ext; slot.open = ext >= 3;
+  slot.t = t; slot.live = true;
+  return true;
+}
+function onHands(res){
+  var list = (res && res.multiHandLandmarks) ? res.multiHandLandmarks : [];
+  var t = now(), got = 0, i;
+  for (i = 0; i < list.length && got < 2; i++){
+    var c = validLm(list[i]);
+    if (!c) continue;
+    if (readHand(c, raw[got], t)) got++;
+  }
+  for (i = got; i < 2; i++) raw[i].live = false;
+  assign(t);
+}
+// The bow is whichever hand is further right, but the assignment is sticky:
+// two hands passing each other must not make the instrument swap ends.
+function assign(t){
+  var a = raw[0], b = raw[1];
+  if (a.live && b.live){
+    var wantSecond = b.x > a.x;
+    if (wantSecond !== bowIsSecond){
+      var gap = Math.abs(b.x - a.x);
+      if (gap > 0.07){ if (!swapT) swapT = t; else if (t - swapT > 180){ bowIsSecond = wantSecond; swapT = 0; } }
+      else swapT = 0;
+    } else swapT = 0;
+    bow  = bowIsSecond ? b : a;
+    fing = bowIsSecond ? a : b;
+  } else if (a.live || b.live){
+    var only = a.live ? a : b;
+    bow = only; fing = mkHand();       // one hand bows an open string
+  } else {
+    bow = mkHand(); fing = mkHand();
+  }
+}
+function loseHands(){
+  raw[0] = mkHand(); raw[1] = mkHand();
+  bow = mkHand(); fing = mkHand();
+  swapT = 0;
+  exc = 0; excS = 0; lastDir = 0;    // a lost bow must not leave the note on
+}
+function startMpCamera(){
+  if (!mpReady || typeof window.Camera !== 'function') return;
+  try {
+    if (mpCamera && mpCamera.stop) mpCamera.stop();
+    mpCamera = new window.Camera(video, {
+      onFrame:function(){
+        if (!hands || !started) return Promise.resolve();
+        return hands.send({ image:video }).catch(function(){});
+      },
+      width:480, height:360
+    });
+    mpCamera.start();
+  } catch(e){ mpReady = false; }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  AUDIO — a bowed string, three of them, always running
+// ═══════════════════════════════════════════════════════════════════════
+var ac = null, master = null, comp = null, noiseBuf = null, muted = false;
+var voices = [], wetIn = null, audioReady = false;
+
+function initAudio(){
+  if (ac) return;
+  var AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) return;
+  try { ac = new AC(); } catch(e){ ac = null; return; }
+  comp = ac.createDynamicsCompressor();
+  comp.threshold.value = -18; comp.knee.value = 24;
+  comp.ratio.value = 7; comp.attack.value = 0.006; comp.release.value = 0.25;
+  master = ac.createGain(); master.gain.value = muted ? 0 : 0.62;
+  master.connect(comp); comp.connect(ac.destination);
+
+  var n = Math.floor(ac.sampleRate * 2);
+  noiseBuf = ac.createBuffer(1, n, ac.sampleRate);
+  var d = noiseBuf.getChannelData(0);
+  for (var i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+
+  // a small room, built from four delays, so the bow has somewhere to sit
+  wetIn = ac.createGain(); wetIn.gain.value = 1;
+  var wetOut = ac.createGain(); wetOut.gain.value = 0.34;
+  var times = [0.0297, 0.0411, 0.0577, 0.0721];
+  for (i = 0; i < times.length; i++){
+    var dl = ac.createDelay(0.5); dl.delayTime.value = times[i];
+    var fb = ac.createGain(); fb.gain.value = 0.62;
+    var lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 2600;
+    wetIn.connect(dl); dl.connect(lp); lp.connect(fb); fb.connect(dl);
+    dl.connect(wetOut);
+  }
+  wetOut.connect(master);
+
+  for (i = 0; i < 3; i++) voices.push(makeVoice(i));
+  audioReady = true;
+  retune();
+}
+function makeVoice(i){
+  var v = {};
+  v.saw = ac.createOscillator(); v.saw.type = 'sawtooth';
+  v.sub = ac.createOscillator(); v.sub.type = 'sine';
+  v.sawG = ac.createGain(); v.sawG.gain.value = 0.24;
+  v.subG = ac.createGain(); v.subG.gain.value = 0.13;
+  v.noise = ac.createBufferSource(); v.noise.buffer = noiseBuf; v.noise.loop = true;
+  v.noise.playbackRate.value = 0.9 + i * 0.07;
+  v.nbp = ac.createBiquadFilter(); v.nbp.type = 'bandpass';
+  v.nbp.frequency.value = 2600; v.nbp.Q.value = 0.8;
+  v.nG = ac.createGain(); v.nG.gain.value = 0.0001;
+  // the bow: cutoff IS bow speed. This one link does most of the expression.
+  v.lp = ac.createBiquadFilter(); v.lp.type = 'lowpass';
+  v.lp.frequency.value = 400; v.lp.Q.value = 0.9;
+  // the body of the instrument: three fixed peaks, a small wooden box
+  v.b1 = ac.createBiquadFilter(); v.b1.type = 'peaking';
+  v.b1.frequency.value = 300; v.b1.Q.value = 1.1; v.b1.gain.value = 7;
+  v.b2 = ac.createBiquadFilter(); v.b2.type = 'peaking';
+  v.b2.frequency.value = 860; v.b2.Q.value = 1.6; v.b2.gain.value = 5;
+  v.b3 = ac.createBiquadFilter(); v.b3.type = 'peaking';
+  v.b3.frequency.value = 2450; v.b3.Q.value = 2.2; v.b3.gain.value = 4;
+  v.g = ac.createGain(); v.g.gain.value = 0.0001;
+  v.vib = ac.createOscillator(); v.vib.type = 'sine'; v.vib.frequency.value = 5.4 + i * 0.3;
+  v.vibG = ac.createGain(); v.vibG.gain.value = 0;
+  v.vib.connect(v.vibG); v.vibG.connect(v.saw.detune); v.vibG.connect(v.sub.detune);
+  v.saw.connect(v.sawG); v.sawG.connect(v.lp);
+  v.sub.connect(v.subG); v.subG.connect(v.lp);
+  v.noise.connect(v.nbp); v.nbp.connect(v.nG); v.nG.connect(v.lp);
+  v.lp.connect(v.b1); v.b1.connect(v.b2); v.b2.connect(v.b3);
+  v.b3.connect(v.g); v.g.connect(master); v.g.connect(wetIn);
+  v.saw.start(); v.sub.start(); v.noise.start(); v.vib.start();
+  return v;
+}
+function retune(){
+  if (!audioReady) return;
+  var t = ac.currentTime, T = TUNE();
+  for (var i = 0; i < 3; i++){
+    var f = T.open[i];
+    voices[i].saw.frequency.setTargetAtTime(f, t, 0.06);
+    voices[i].sub.frequency.setTargetAtTime(f, t, 0.06);
+  }
+}
+// the bow leaving and re-entering the string: a short scratch of rosin
+function sfxBowChange(amt){
+  if (!ac || muted || !audioReady) return;
+  var t = ac.currentTime, a = clamp(amt, 0, 1);
+  var s = ac.createBufferSource(); s.buffer = noiseBuf; s.loop = true;
+  var bp = ac.createBiquadFilter(); bp.type = 'bandpass';
+  bp.frequency.value = 1700 + Math.random() * 1400; bp.Q.value = 1.4;
+  var gn = ac.createGain();
+  gn.gain.setValueAtTime(0.0001, t);
+  gn.gain.exponentialRampToValueAtTime(0.05 + 0.10 * a, t + 0.008);
+  gn.gain.exponentialRampToValueAtTime(0.0001, t + 0.10);
+  s.connect(bp); bp.connect(gn); gn.connect(master); gn.connect(wetIn);
+  s.start(t); s.stop(t + 0.13);
+}
+// the left hand closing on the string: the note is stopped dead
+function sfxDamp(){
+  if (!ac || muted || !audioReady) return;
+  var t = ac.currentTime;
+  var s = ac.createBufferSource(); s.buffer = noiseBuf; s.loop = true;
+  var lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 420;
+  var gn = ac.createGain();
+  gn.gain.setValueAtTime(0.0001, t);
+  gn.gain.exponentialRampToValueAtTime(0.13, t + 0.005);
+  gn.gain.exponentialRampToValueAtTime(0.0001, t + 0.13);
+  s.connect(lp); lp.connect(gn); gn.connect(master);
+  s.start(t); s.stop(t + 0.16);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  PLAYING
+//  Bow gain is a continuous function of hand speed with a hard deadzone.
+//  MediaPipe's resting jitter reaches ~0.35 frames/sec of apparent speed;
+//  DEAD sits well above it, so a still hand is silent, not humming.
+// ═══════════════════════════════════════════════════════════════════════
+// Measured in the harness, not guessed: a hand held still with ±0.055 of
+// MediaPipe wobble peaks at 0.57 frames/sec of apparent speed, so DEAD sits
+// just above that and a still hand is silent. Real strokes measure 0.86
+// (gentle), 1.5 (ordinary) and 2.4 (fast), so FULL sits at 1.9 — an
+// ordinary stroke should already be a strong tone, not a whisper.
+var DEAD = 0.62, FULL = 1.90;
+var exc = 0, excS = 0, lastDir = 0, dirT = 0;
+var semi = 0, semiS = 0, freq = 220, stringI = 1, dampT = 0, wasDamped = false;
+var phase = 0, contactY = 0.5;
+
+function stringFor(x){
+  var best = 0, bd = 9;
+  for (var i = 0; i < 3; i++){
+    var d = Math.abs(x - SX[i]);
+    if (d < bd){ bd = d; best = i; }
+  }
+  return best;
+}
+// The pitch is the physics of the drawn string, not a curve: the vibrating
+// length runs from the bridge to the finger, and 12·log2(L0/L) is the note.
+function semisFor(fy){
+  var L0 = NUT - BRIDGE;
+  var L = clamp(fy, BRIDGE + L0 * 0.31, NUT) - BRIDGE;
+  if (!(L > 0)) return 0;
+  return clamp(12 * Math.log(L0 / L) / Math.LN2, 0, 19);
+}
+function snap(s){
+  var sc = TUNE().scale, best = sc[0], bd = 99;
+  for (var i = 0; i < sc.length; i++){
+    var d = Math.abs(s - sc[i]);
+    if (d < bd){ bd = d; best = sc[i]; }
+  }
+  return s + (best - s) * 0.78;      // gravity toward the scale, not a grid
+}
+function play(dt){
+  var t = now();
+  if (bow.live && t - bow.t > LOST_MS) loseHands();
+
+  var damped = fing.live && !fing.open && fing.ext <= 1;
+  if (damped && !wasDamped) sfxDamp();
+  wasDamped = damped;
+
+  // ── the bow ──
+  var sp = bow.live ? bow.sp : 0;
+  if (!isFinite(sp)) sp = 0;
+  var e = clamp((sp - DEAD) / (FULL - DEAD), 0, 1);
+  e = Math.pow(e, 0.8);
+  if (damped) e = 0;
+  exc = e;
+  excS = ap(excS, e, e > excS ? 26 : 9, dt);   // fast on, slow off
+  if (!isFinite(excS)) excS = 0;
+
+  if (bow.live){
+    var d = bow.vx > 0.5 ? 1 : (bow.vx < -0.5 ? -1 : 0);
+    if (d !== 0 && lastDir !== 0 && d !== lastDir && t - dirT > 110 && excS > 0.10){
+      sfxBowChange(excS); dirT = t;
+    }
+    if (d !== 0) lastDir = d;
+    stringI = stringFor(bow.x);
+    contactY = clamp(bow.y, 0.05, 0.97);
+  }
+
+  // ── the stopping hand ──
+  var target = fing.live ? snap(semisFor(fing.y)) : 0;
+  semi = target;
+  semiS = ap(semiS, target, 22, dt);
+  if (!isFinite(semiS)) semiS = 0;
+  freq = TUNE().open[stringI] * Math.pow(2, semiS / 12);
+  if (!isFinite(freq) || freq <= 0) freq = TUNE().open[stringI];
+
+  phase += dt * (7.5 + excS * 9);
+
+  if (audioReady){
+    var at = ac.currentTime, i;
+    for (i = 0; i < 3; i++){
+      var v = voices[i];
+      var isOn = (i === stringI);
+      // the strings you are not on hum along underneath
+      var g = isOn ? excS * 0.46 : excS * 0.055;
+      var f = isOn ? freq : TUNE().open[i];
+      v.saw.frequency.setTargetAtTime(f, at, isOn ? 0.035 : 0.15);
+      v.sub.frequency.setTargetAtTime(f, at, isOn ? 0.035 : 0.15);
+      v.lp.frequency.setTargetAtTime(
+        clamp(300 + f * 1.1 + excS * 3800 * (isOn ? 1 : 0.35), 120, 12000), at, 0.05);
+      v.nG.gain.setTargetAtTime(
+        Math.max(0.00001, isOn ? excS * excS * 0.085 : 0.00001), at, 0.05);
+      v.vibG.gain.setTargetAtTime(
+        isOn && fing.live && fing.open ? 6 + excS * 16 : 0.001, at, 0.18);
+      v.g.gain.setTargetAtTime(Math.max(0.00001, g), at, g > 0.02 ? 0.035 : 0.10);
+    }
+  }
+  stepDust(dt);
+  updatePlate();
+}
+
+// ── rosin dust off the contact point ─────────────────────────────────
+var dust = [];
+function stepDust(dt){
+  if (excS > 0.16 && dust.length < 90 && Math.random() < excS * 0.85){
+    dust.push({ x: SX[stringI] * W + (Math.random() - .5) * 10 * S,
+                y: contactY * H + (Math.random() - .5) * 14 * S,
+                vx: (Math.random() - .5) * 90 * S + (lastDir * excS * 130 * S),
+                vy: (20 + Math.random() * 70) * S,
+                r: (0.7 + Math.random() * 1.9) * S,
+                life: 0.6 + Math.random() * 1.1, age: 0 });
+  }
+  for (var i = dust.length - 1; i >= 0; i--){
+    var p = dust[i]; p.age += dt;
+    if (p.age >= p.life){ dust.splice(i, 1); continue; }
+    p.vy += 130 * S * dt; p.vx *= 0.97;
+    p.x += p.vx * dt; p.y += p.vy * dt;
+  }
+}
+var lastNote = '';
+function updatePlate(){
+  var live = bow.live || fing.live;
+  var n = (excS > 0.05) ? noteName(freq) : '—';
+  if (n !== lastNote){ lastNote = n; noteEl.textContent = n; }
+  noteEl.className = 'note' + (excS > 0.05 ? '' : ' q');
+  hzEl.textContent = (excS > 0.05) ? (Math.round(freq * 10) / 10) + ' Hz' : '';
+  var tip;
+  if (!live) tip = '両手をカメラに';
+  else if (!fing.live) tip = '左手で棹を押さえる';
+  else if (!bow.live) tip = '右手で弓を引く';
+  else if (wasDamped) tip = '消音';
+  else if (excS < 0.05) tip = '右手を横に動かし続ける';
+  else tip = '';
+  tipEl.textContent = tip;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  DRAW
+// ═══════════════════════════════════════════════════════════════════════
+function ground(){
+  var gr = ctx.createLinearGradient(0, 0, 0, H);
+  gr.addColorStop(0, '#0b1626');
+  gr.addColorStop(0.55, AI);
+  gr.addColorStop(1, '#1b3050');
+  ctx.fillStyle = gr; ctx.fillRect(0, 0, W, H);
+  if (video && video.videoWidth){
+    ctx.save();
+    ctx.globalAlpha = 0.22; ctx.globalCompositeOperation = 'lighter';
+    var vw = video.videoWidth, vh = video.videoHeight;
+    var s = Math.max(W / vw, H / vh), dw = vw * s, dh = vh * s;
+    if (mirror){ ctx.translate(W, 0); ctx.scale(-1, 1); }
+    ctx.drawImage(video, (W - dw) * .5, (H - dh) * .5, dw, dh);
+    ctx.restore();
+    ctx.fillStyle = 'rgba(18,35,61,0.55)'; ctx.fillRect(0, 0, W, H);
+  }
+  if (weave){ ctx.fillStyle = weave; ctx.fillRect(0, 0, W, H); }
+  // bridge and nut
+  ctx.strokeStyle = 'rgba(109,122,140,0.55)'; ctx.lineWidth = 1.2 * dpr;
+  ctx.beginPath(); ctx.moveTo(W * .12, H * BRIDGE); ctx.lineTo(W * .88, H * BRIDGE); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(W * .12, H * NUT); ctx.lineTo(W * .88, H * NUT); ctx.stroke();
+}
+// SIGNATURE — the string is an actual standing wave, and only the part
+// between the bridge and your finger is allowed to move.
+function strings(){
+  var fy = fing.live ? clamp(fing.y, BRIDGE + (NUT - BRIDGE) * 0.31, NUT) : NUT;
+  for (var i = 0; i < 3; i++){
+    var x = SX[i] * W;
+    var on = (i === stringI);
+    var amp = (on ? excS : excS * 0.16) * 26 * S;
+    var y0 = H * BRIDGE, y1 = H * (on ? fy : NUT);
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = on ? SHIRO : HANADA;
+    ctx.globalAlpha = on ? 0.95 : 0.5;
+    ctx.lineWidth = (on ? 2.1 : 1.4) * dpr;
+    // vibrating span
+    ctx.beginPath();
+    var N = 40, k;
+    for (k = 0; k <= N; k++){
+      var s = k / N, yy = y0 + s * (y1 - y0);
+      var d = amp * (Math.sin(Math.PI * s) * Math.sin(phase * 6.283) +
+                     0.42 * Math.sin(2 * Math.PI * s) * Math.sin(phase * 12.7 + 1.1) +
+                     0.19 * Math.sin(3 * Math.PI * s) * Math.sin(phase * 19.1 + 2.3));
+      if (k === 0) ctx.moveTo(x + d, yy); else ctx.lineTo(x + d, yy);
+    }
+    ctx.stroke();
+    // the stopped remainder, dead
+    if (y1 < H * NUT - 1){
+      ctx.globalAlpha = 0.20; ctx.lineWidth = 1.2 * dpr;
+      ctx.beginPath(); ctx.moveTo(x, y1); ctx.lineTo(x, H * NUT); ctx.stroke();
+    }
+    ctx.restore();
+  }
+}
+function fingerMark(){
+  if (!fing.live) return;
+  var fy = clamp(fing.y, BRIDGE + (NUT - BRIDGE) * 0.31, NUT);
+  var x = SX[stringI] * W, y = fy * H;
+  var r = (10 + (fing.open ? 4 : 0)) * S * dpr * 0.6;
+  ctx.save();
+  ctx.globalAlpha = wasDamped ? 0.45 : 0.95;
+  ctx.fillStyle = GINSHU;
+  ctx.beginPath(); ctx.arc(x, y, r, 0, 6.2832); ctx.fill();
+  if (fing.open){
+    ctx.globalAlpha = 0.30; ctx.strokeStyle = GINSHU; ctx.lineWidth = 1.4 * dpr;
+    ctx.beginPath(); ctx.arc(x, y, r + 7 * S * dpr, 0, 6.2832); ctx.stroke();
+  }
+  // where the hand actually is, so you can see the camera has it
+  ctx.globalAlpha = 0.28; ctx.strokeStyle = GINSHU; ctx.lineWidth = 1 * dpr;
+  ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(fing.x * W, fing.y * H); ctx.stroke();
+  ctx.beginPath(); ctx.arc(fing.x * W, fing.y * H, 5 * S * dpr, 0, 6.2832); ctx.stroke();
+  ctx.restore();
+}
+function bowStick(){
+  if (!bow.live) return;
+  var y = contactY * H, cx = bow.x * W;
+  var L = Math.min(W * 0.42, 300 * S * dpr);
+  var tilt = clamp(bow.vy * 0.05, -0.22, 0.22);
+  ctx.save();
+  ctx.translate(cx, y); ctx.rotate(tilt);
+  ctx.globalAlpha = 0.30 + 0.55 * clamp(excS * 2, 0, 1);
+  ctx.strokeStyle = SHIRO; ctx.lineWidth = 2.4 * dpr; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(-L * .5, 0); ctx.lineTo(L * .5, 0); ctx.stroke();
+  ctx.globalAlpha *= 0.5; ctx.lineWidth = 6 * dpr;
+  ctx.beginPath(); ctx.moveTo(-L * .5, 3 * dpr); ctx.lineTo(L * .5, 3 * dpr); ctx.stroke();
+  ctx.restore();
+  // contact glow
+  var gx = SX[stringI] * W;
+  if (excS > 0.02){
+    var rg = ctx.createRadialGradient(gx, y, 0, gx, y, 46 * S * dpr * (0.5 + excS));
+    rg.addColorStop(0, 'rgba(242,239,230,' + (0.42 * excS).toFixed(3) + ')');
+    rg.addColorStop(1, 'rgba(242,239,230,0)');
+    ctx.fillStyle = rg;
+    ctx.beginPath(); ctx.arc(gx, y, 46 * S * dpr * (0.5 + excS), 0, 6.2832); ctx.fill();
+  }
+}
+function drawDust(){
+  ctx.save();
+  for (var i = 0; i < dust.length; i++){
+    var p = dust[i], a = 1 - p.age / p.life;
+    ctx.globalAlpha = a * a * 0.7;
+    ctx.fillStyle = SHIRO;
+    ctx.beginPath(); ctx.arc(p.x, p.y, p.r * dpr, 0, 6.2832); ctx.fill();
+  }
+  ctx.restore();
+}
+function labels(){
+  ctx.save();
+  ctx.globalAlpha = 0.55; ctx.fillStyle = NIBI;
+  ctx.font = 'italic ' + (11 * dpr) + 'px "Cormorant Garamond",serif';
+  ctx.textAlign = 'center';
+  var T = TUNE();
+  for (var i = 0; i < 3; i++){
+    ctx.globalAlpha = (i === stringI) ? 0.9 : 0.4;
+    ctx.fillStyle = (i === stringI) ? SHIRO : NIBI;
+    ctx.fillText(noteName(T.open[i]), SX[i] * W, H * NUT + 20 * dpr);
+  }
+  ctx.restore();
+}
+function draw(){
+  ground(); strings(); bowStick(); fingerMark(); drawDust(); labels();
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  LOOP
+// ═══════════════════════════════════════════════════════════════════════
+var last = 0;
+function loop(){
+  var t = now();
+  var dt = last ? Math.min(0.05, (t - last) / 1000) : 0.016;
+  last = t;
+  try { if (started) play(dt); draw(); } catch(e){ /* keep the bow on the string */ }
+  requestAnimationFrame(loop);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  UI
+// ═══════════════════════════════════════════════════════════════════════
+function applyTune(){
+  var T = TUNE();
+  tuneLbl.textContent = T.name;
+  tuneSub.textContent = 'KOKYU — ' + T.en;
+  retune();
+}
+goBtn.addEventListener('click', function(){
+  goBtn.textContent = 'よみこみ中';
+  initAudio();
+  if (ac && ac.state === 'suspended') ac.resume();
+  startStream().then(function(){
+    if (!initHands()) showError(new Error('手の認識を読み込めませんでした'));
+    else startMpCamera();
+    goBtn.textContent = '擦る';
+    started = true;
+    startSh.classList.add('gone');
+  }).catch(function(e){ goBtn.textContent = '擦る'; showError(e); });
+});
+tuneBtn.addEventListener('click', function(){
+  tuneI = (tuneI + 1) % TUNINGS.length; applyTune();
+});
+sndBtn.addEventListener('click', function(){
+  muted = !muted; sndLbl.textContent = muted ? 'OFF' : 'ON';
+  if (master && ac) master.gain.setTargetAtTime(muted ? 0 : 0.62, ac.currentTime, 0.2);
+});
+window.addEventListener('resize', resize);
+window.addEventListener('orientationchange', function(){ setTimeout(resize, 250); });
+
+resize(); makeWeave(); applyTune();
+requestAnimationFrame(loop);
+
+// a headless harness bows the thing without a camera
+window.__KOKYU__ = {
+  feed:function(list){ onHands({ multiHandLandmarks:list }); },
+  lose:loseHands,
+  step:function(dt){ if (started) play(dt); draw(); },
+  start:function(){ started = true; },
+  tune:function(){ tuneBtn.click(); },
+  get:function(){
+    return { exc:exc, excS:excS, semi:semi, semiS:semiS, freq:freq,
+             stringI:stringI, damped:wasDamped, dust:dust.length,
+             bow:{live:bow.live, x:bow.x, y:bow.y, sp:bow.sp},
+             fing:{live:fing.live, x:fing.x, y:fing.y, open:fing.open},
+             bowIsSecond:bowIsSecond, audioReady:audioReady,
+             gains: audioReady ? voices.map(function(v){ return v.g.gain.value; }) : [] };
+  },
+  consts:{ DEAD:DEAD, FULL:FULL, LOST_MS:LOST_MS, BRIDGE:BRIDGE, NUT:NUT, SX:SX }
+};
+})();
+</script>
+</body>
+</html>
