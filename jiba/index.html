@@ -1,0 +1,740 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>JIBA ─ 砂鉄でうつす磁場</title>
+<meta name="description" content="カメラに映るものが一面の砂鉄になって紙の上に落ちる。暗いところほど密に積もり、一粒ずつが両手の作る磁場の向きに首を振ってそろう。手を近づけると二極のあいだに砂鉄の橋がかかる。双極・単極・渦の三つ。">
+<meta name="theme-color" content="#f4f2ed">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Kiwi+Maru:wght@400;500&family=IBM+Plex+Mono:wght@300;400&display=swap" rel="stylesheet">
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  JIBA ─ 砂鉄でうつす磁場                     ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  PALETTE   白紙 hakushi  #f4f2ed  the demonstration card, lit flat
+            砂鉄 satetsu  #24262b  the filings where the field grips hardest
+            鋼   hagane   #55606d  filings out in the weak field
+            淡鋼 awahagane#98a2ad  the far edges, almost fallen off
+            錆   sabi     #9c5b32  the two poles, and only the two poles
+            MOOD: a physics classroom demonstration card, photographed flat
+            under even light. No glow anywhere, no gradients on the ground,
+            nothing lit from behind. The only colour in the whole piece is
+            the rust on the magnet — everything else is iron on paper.
+  BACKGROUND  Flat paper white with a printed 5mm graph rule at 3% contrast
+            and a printed caption block in the corner, like the card the
+            demonstration is always done on. The camera image is NEVER
+            drawn: the filings are the only representation of you there is.
+  TYPE      Kiwi Maru for the Japanese — a soft, slightly rounded textbook
+            face, the lettering of a school science handout. IBM Plex Mono
+            Light for every number and axis label, which is the instrument
+            speaking rather than the textbook.
+  MOTION    Mechanical and snappy. Filings do not ease into place, they
+            SWING: each one turns toward the field with angular inertia and
+            slightly overshoots, so moving a hand sends a visible wave of
+            heads turning across the paper. UI changes are stepped, not
+            tweened — one frame of white flash and the new state is there.
+  SIGNATURE Bring your two hands together and the field between the poles
+            gets strong enough that the filings stand up into a bridge —
+            a dense dark arch that spans the gap and follows your hands.
+            It is the thing everyone does with two real magnets.
+  AUDIO     Almost nothing, on purpose. A 55Hz magnetic hum whose level is
+            the total field strength, and a thin band of noise that only
+            speaks while filings are actually turning — so the paper hisses
+            when you move and goes silent when you hold still.
+  PERFORMANCE  One reused sample canvas at grid resolution, one persistent
+            Float32Array per quantity, a fixed per-cell dither threshold
+            generated once (which is why the grain does not crawl between
+            frames), and the whole field drawn as three batched paths —
+            three stroke() calls for several thousand filings.
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;overflow:hidden;background:#f4f2ed;
+    -webkit-text-size-adjust:100%;-webkit-tap-highlight-color:transparent}
+  body{font-family:'Kiwi Maru',serif;color:#24262b;
+    touch-action:none;user-select:none;-webkit-user-select:none}
+  #view{position:fixed;inset:0;width:100%;height:100%;display:block}
+  #video{position:fixed;width:2px;height:2px;opacity:.001;pointer-events:none;left:0;top:0}
+
+  .hud{position:fixed;left:0;right:0;top:0;z-index:5;pointer-events:none;
+    padding:calc(env(safe-area-inset-top,0px) + 14px) 16px 0;
+    display:flex;justify-content:space-between;align-items:flex-start}
+  .ttl{font-size:15px;letter-spacing:.2em;line-height:1.35}
+  .sub{font-family:'IBM Plex Mono',monospace;font-weight:300;font-size:10px;
+    letter-spacing:.2em;color:#98a2ad;margin-top:4px}
+  .btns{display:flex;flex-direction:column;gap:7px;align-items:flex-end;pointer-events:auto}
+  button{font-family:'Kiwi Maru',serif;font-size:12.5px;letter-spacing:.1em;
+    color:#24262b;background:rgba(244,242,237,.9);border:1px solid #24262b;
+    border-radius:2px;padding:8px 12px;cursor:pointer;line-height:1}
+  button:active{background:#24262b;color:#f4f2ed}
+  .val{font-family:'IBM Plex Mono',monospace;font-weight:400;margin-left:7px;color:#9c5b32}
+
+  .card{position:fixed;left:16px;z-index:5;pointer-events:none;
+    bottom:calc(env(safe-area-inset-bottom,0px) + 16px);
+    font-family:'IBM Plex Mono',monospace;font-weight:300;font-size:10.5px;
+    letter-spacing:.12em;color:#98a2ad;line-height:1.9}
+  .card b{color:#55606d;font-weight:400}
+  .card .rule{width:34px;height:1px;background:#c9cdd3;margin:7px 0}
+  .hint{position:fixed;right:16px;z-index:5;pointer-events:none;text-align:right;
+    bottom:calc(env(safe-area-inset-bottom,0px) + 16px);
+    font-size:12px;letter-spacing:.12em;color:#55606d;min-height:19px}
+
+  .sheet{position:fixed;inset:0;z-index:20;background:#f4f2ed;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    text-align:center;padding:26px}
+  .sheet.gone{display:none}
+  .sheet h1{font-size:clamp(38px,13vw,68px);letter-spacing:.16em;line-height:1.25;
+    text-indent:.16em;font-weight:500}
+  .sheet .en{font-family:'IBM Plex Mono',monospace;font-weight:300;font-size:11px;
+    letter-spacing:.34em;color:#98a2ad;margin-top:11px;text-indent:.34em}
+  .hr{width:56px;height:1px;background:#c9cdd3;margin:20px 0}
+  .lead{font-size:13.5px;line-height:2.1;color:#55606d;max-width:24em;letter-spacing:.03em}
+  .go{margin-top:24px;font-size:16px;letter-spacing:.36em;padding:13px 28px;text-indent:.36em;
+    background:#24262b;color:#f4f2ed}
+  .go:active{background:#9c5b32;border-color:#9c5b32}
+  .foot{margin-top:14px;font-family:'IBM Plex Mono',monospace;font-weight:300;
+    font-size:10px;letter-spacing:.22em;color:#b3bac2}
+
+  /* the 3-second diagram: two poles, and filings turning between them */
+  .dia{width:190px;height:88px;position:relative;margin-top:2px}
+  .dia .pole{position:absolute;top:34px;width:19px;height:19px;border-radius:50%;
+    background:#9c5b32}
+  .dia .pole.l{left:14px;animation:jbL 3s cubic-bezier(.35,0,.3,1) infinite}
+  .dia .pole.r{right:14px;animation:jbR 3s cubic-bezier(.35,0,.3,1) infinite}
+  .dia i{position:absolute;top:42px;width:13px;height:2px;background:#55606d;
+    transform-origin:center;animation:jbF 3s cubic-bezier(.35,0,.3,1) infinite}
+  .dia i:nth-child(3){left:44px;animation-delay:.05s}
+  .dia i:nth-child(4){left:64px;top:28px;animation-delay:.1s}
+  .dia i:nth-child(5){left:86px;animation-delay:.15s}
+  .dia i:nth-child(6){left:64px;top:56px;animation-delay:.1s}
+  .dia i:nth-child(7){left:108px;animation-delay:.2s}
+  @keyframes jbL{0%,100%{transform:translateX(0)}50%{transform:translateX(38px)}}
+  @keyframes jbR{0%,100%{transform:translateX(0)}50%{transform:translateX(-38px)}}
+  @keyframes jbF{0%,100%{transform:rotate(-38deg) scaleX(.7)}50%{transform:rotate(0deg) scaleX(1.15)}}
+
+  #err{position:fixed;left:16px;right:16px;bottom:16px;z-index:40;display:none;
+    white-space:pre-wrap;background:#24262b;color:#f4f2ed;padding:14px 16px;
+    font-size:12.5px;line-height:1.8;border-radius:2px}
+  @media (max-height:520px){ .lead{display:none} .sheet h1{font-size:38px} .card{display:none} }
+</style>
+</head>
+<body>
+
+<canvas id="view"></canvas>
+<video id="video" playsinline muted autoplay></video>
+
+<div class="hud">
+  <div>
+    <div class="ttl">砂鉄</div>
+    <div class="sub" id="modeSub">JIBA / DIPOLE</div>
+  </div>
+  <div class="btns">
+    <button id="modeBtn" type="button">磁場<span class="val" id="modeLbl">双極</span></button>
+    <button id="grainBtn" type="button">粒<span class="val" id="grainLbl">並</span></button>
+    <button id="flipBtn" type="button">⟲ カメラ</button>
+    <button id="sndBtn" type="button">音<span class="val" id="sndLbl">ON</span></button>
+  </div>
+</div>
+
+<div class="card">
+  <div>IRON FILINGS ON PAPER</div>
+  <div class="rule"></div>
+  <div>GRID <b id="statGrid">—</b></div>
+  <div>FILINGS <b id="statN">—</b></div>
+  <div>|B| <b id="statB">—</b></div>
+</div>
+<div class="hint" id="hintEl">手をカメラに</div>
+
+<div class="sheet" id="start">
+  <h1>砂鉄</h1>
+  <div class="en">JIBA — A FIELD, DRAWN IN IRON</div>
+  <div class="hr"></div>
+  <div class="dia">
+    <div class="pole l"></div><div class="pole r"></div>
+    <i></i><i></i><i></i><i></i><i></i>
+  </div>
+  <p class="lead">
+    カメラに映るものが砂鉄になって紙に積もる。<br>
+    暗いところほど密に、一粒ずつが磁場の向きに首を振る。<br>
+    両手が二つの極。近づければあいだに橋がかかる。
+  </p>
+  <button class="go" id="go" type="button">まく</button>
+  <div class="foot">CAMERA REQUIRED</div>
+</div>
+
+<div id="err"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+<script>
+(function(){
+'use strict';
+
+var cv       = document.getElementById('view');
+var ctx      = cv.getContext('2d');
+var video    = document.getElementById('video');
+var modeBtn  = document.getElementById('modeBtn');
+var modeLbl  = document.getElementById('modeLbl');
+var modeSub  = document.getElementById('modeSub');
+var grainBtn = document.getElementById('grainBtn');
+var grainLbl = document.getElementById('grainLbl');
+var flipBtn  = document.getElementById('flipBtn');
+var sndBtn   = document.getElementById('sndBtn');
+var sndLbl   = document.getElementById('sndLbl');
+var statGrid = document.getElementById('statGrid');
+var statN    = document.getElementById('statN');
+var statB    = document.getElementById('statB');
+var hintEl   = document.getElementById('hintEl');
+var startSh  = document.getElementById('start');
+var goBtn    = document.getElementById('go');
+var errBox   = document.getElementById('err');
+
+var PAPER = '#f4f2ed', SATETSU = '#24262b', HAGANE = '#55606d',
+    AWA = '#98a2ad', SABI = '#9c5b32';
+
+function now(){ return performance.now(); }
+function clamp(v,a,b){ return v<a?a:(v>b?b:v); }
+
+var MODES = [
+  { n:'双極', en:'DIPOLE',      hint:'両手が N と S。近づけると橋がかかる' },
+  { n:'単極', en:'MONOPOLE',    hint:'片手から放射状に。手のまわりが密になる' },
+  { n:'渦',   en:'CURL',        hint:'手のまわりを砂鉄が回りこむ' }
+];
+var GRAINS = [
+  // `min` is the floor on cell size in CSS px. It is the real-time
+  // guarantee: however small the target grain, a cell never gets finer
+  // than this, so the per-frame cost has a hard ceiling on a phone.
+  { n:'細', cells:19000, len:0.80, min:4.0 },
+  { n:'並', cells:12000, len:1.00, min:5.5 },
+  { n:'粗', cells:6200,  len:1.35, min:8.0 }
+];
+var modeI = 0, grainI = 1;
+
+// ═══════════════════════════════════════════════════════════════════════
+//  GRID — every array here is allocated once per size, never per frame
+// ═══════════════════════════════════════════════════════════════════════
+var W = 1, H = 1, dpr = 1, S = 1;
+var GW = 0, GH = 0, NP = 0, CELL = 1;
+var dark = null, ang = null, avel = null, thr = null, jit = null;
+// three segment buffers, one per shade, sized for the worst case and
+// never reallocated: a frame writes into them and resets a counter
+var segA = null, segB = null, segC = null, nA = 0, nB = 0, nC = 0;
+var samp = document.createElement('canvas'), sctx = samp.getContext('2d');
+
+function alloc(){
+  NP = GW * GH;
+  dark = new Float32Array(NP);
+  ang  = new Float32Array(NP);
+  avel = new Float32Array(NP);
+  thr  = new Float32Array(NP);
+  jit  = new Float32Array(NP);
+  for (var i = 0; i < NP; i++){
+    // a fixed dither threshold per cell, made once: this is why the grain
+    // sits still between frames instead of boiling
+    thr[i] = Math.random();
+    jit[i] = (Math.random() - 0.5);
+    ang[i] = Math.random() * Math.PI;
+  }
+  segA = new Float32Array(NP * 4);
+  segB = new Float32Array(NP * 4);
+  segC = new Float32Array(NP * 4);
+  samp.width = GW; samp.height = GH;
+  if (statGrid) statGrid.textContent = GW + '×' + GH;
+}
+function layout(){
+  var target = GRAINS[grainI].cells;
+  var ar = W / H;
+  var gw = Math.round(Math.sqrt(target * ar));
+  var gh = Math.round(Math.sqrt(target / ar));
+  gw = Math.max(24, gw); gh = Math.max(24, gh);
+  // never let a cell get smaller than the grain's floor: that is the
+  // real-time guarantee, and it is what keeps a mid-range phone at 30fps
+  var minPx = GRAINS[grainI].min * dpr;
+  if (W / gw < minPx) gw = Math.max(24, Math.floor(W / minPx));
+  if (H / gh < minPx) gh = Math.max(24, Math.floor(H / minPx));
+  if (gw !== GW || gh !== GH){ GW = gw; GH = gh; alloc(); }
+  CELL = Math.max(1, W / GW);
+}
+function resize(){
+  dpr = Math.min(window.devicePixelRatio || 1, 2);
+  var w = Math.max(1, window.innerWidth), h = Math.max(1, window.innerHeight);
+  cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+  cv.style.width = w + 'px'; cv.style.height = h + 'px';
+  W = cv.width; H = cv.height; S = Math.min(W, H) / 720;
+  layout();
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  CAMERA
+// ═══════════════════════════════════════════════════════════════════════
+var facing = 'user', mirror = true, stream = null, started = false;
+function showError(e){
+  var msg = (e && e.message) ? e.message : String(e || 'unknown');
+  errBox.style.display = 'block';
+  errBox.textContent = 'カメラを起動できませんでした：' + msg +
+    '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+}
+function startStream(){
+  var md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) return Promise.reject(new Error('getUserMedia is unavailable'));
+  if (stream && stream.getTracks) stream.getTracks().forEach(function(t){ t.stop(); });
+  return md.getUserMedia({
+    video:{ facingMode:{ ideal:facing }, width:{ ideal:960 }, height:{ ideal:720 } },
+    audio:false
+  }).then(function(st){
+    stream = st; video.srcObject = st; mirror = (facing === 'user');
+    var p = video.play();
+    return (p && p.then) ? p.catch(function(){}) : null;
+  });
+}
+flipBtn.addEventListener('click', function(){
+  facing = (facing === 'user') ? 'environment' : 'user';
+  losePoles();
+  startStream().then(startMpCamera).catch(showError);
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+//  HANDS — two poles. The piece is complete without either of them.
+// ═══════════════════════════════════════════════════════════════════════
+var hands = null, mpCamera = null, mpReady = false;
+var LOST_MS = 320;
+function mkPole(){ return { live:false, t:-1e9, x:.5, y:.5, q:0, open:true, span:.14 }; }
+var poles = [mkPole(), mkPole()];
+var TIPS = [8,12,16,20], PIPS = [6,10,14,18];
+
+function initHands(){
+  if (typeof window.Hands !== 'function') return false;
+  try {
+    hands = new window.Hands({ locateFile:function(f){
+      return 'https://cdn.jsdelivr.net/npm/@mediapipe/hands/' + f;
+    }});
+    hands.setOptions({ maxNumHands:2, modelComplexity:0,
+                       minDetectionConfidence:0.6, minTrackingConfidence:0.5 });
+    hands.onResults(onHands);
+    mpReady = true; return true;
+  } catch(e){ return false; }
+}
+function validLm(c){
+  if (!c || c.length < 21) return null;
+  for (var i = 0; i < 21; i++){
+    var p = c[i];
+    if (!p || typeof p.x !== 'number' || typeof p.y !== 'number' ||
+        !isFinite(p.x) || !isFinite(p.y)) return null;
+  }
+  return c;
+}
+function readPole(c, p, t){
+  var ids = [0,5,9,13,17], cx = 0, cy = 0, i;
+  for (i = 0; i < ids.length; i++){
+    if (!c[ids[i]]) return false;
+    cx += c[ids[i]].x; cy += c[ids[i]].y;
+  }
+  cx /= ids.length; cy /= ids.length;
+  if (!isFinite(cx) || !isFinite(cy)) return false;
+  var wr = c[0], ext = 0;
+  for (i = 0; i < 4; i++){
+    var a = c[TIPS[i]], b = c[PIPS[i]];
+    if (!a || !b) continue;
+    if (Math.hypot(a.x - wr.x, a.y - wr.y) > Math.hypot(b.x - wr.x, b.y - wr.y) * 1.06) ext++;
+  }
+  var i5 = c[5], i17 = c[17];
+  var sp = Math.hypot(i5.x - i17.x, i5.y - i17.y);
+  p.x = mirror ? (1 - cx) : cx; p.y = cy;
+  p.open = ext >= 3;
+  p.span = (isFinite(sp) && sp > 0.01) ? sp : 0.14;
+  p.t = t; p.live = true;
+  return true;
+}
+function onHands(res){
+  var list = (res && res.multiHandLandmarks) ? res.multiHandLandmarks : [];
+  var t = now(), got = 0, i;
+  for (i = 0; i < list.length && got < 2; i++){
+    var c = validLm(list[i]);
+    if (!c) continue;
+    if (readPole(c, poles[got], t)) got++;
+  }
+  for (i = got; i < 2; i++) poles[i].live = false;
+  // left pole is always N, right is always S, so the field does not
+  // turn itself inside out when MediaPipe reorders its two hands
+  if (poles[0].live && poles[1].live && poles[1].x < poles[0].x){
+    var tmp = poles[0]; poles[0] = poles[1]; poles[1] = tmp;
+  }
+}
+function losePoles(){
+  poles[0] = mkPole(); poles[1] = mkPole();
+  bridge = 0;
+}
+function startMpCamera(){
+  if (!mpReady || typeof window.Camera !== 'function') return;
+  try {
+    if (mpCamera && mpCamera.stop) mpCamera.stop();
+    mpCamera = new window.Camera(video, {
+      onFrame:function(){
+        if (!hands || !started) return Promise.resolve();
+        return hands.send({ image:video }).catch(function(){});
+      },
+      width:480, height:360
+    });
+    mpCamera.start();
+  } catch(e){ mpReady = false; }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  AUDIO — a hum and a hiss, and nothing else
+// ═══════════════════════════════════════════════════════════════════════
+var ac = null, master = null, comp = null, muted = false, audioReady = false;
+var humG = null, hissG = null, humF = null;
+
+function initAudio(){
+  if (ac) return;
+  var AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) return;
+  try { ac = new AC(); } catch(e){ ac = null; return; }
+  comp = ac.createDynamicsCompressor();
+  comp.threshold.value = -20; comp.knee.value = 20;
+  comp.ratio.value = 6; comp.attack.value = 0.01; comp.release.value = 0.3;
+  master = ac.createGain(); master.gain.value = muted ? 0 : 0.5;
+  master.connect(comp); comp.connect(ac.destination);
+
+  // the hum: mains-frequency iron, two oscillators a hair apart so it beats
+  humG = ac.createGain(); humG.gain.value = 0.0001;
+  humF = ac.createBiquadFilter(); humF.type = 'lowpass';
+  humF.frequency.value = 320; humF.Q.value = 0.7;
+  var a = ac.createOscillator(); a.type = 'sine'; a.frequency.value = 55;
+  var b = ac.createOscillator(); b.type = 'triangle'; b.frequency.value = 110.4;
+  var bg = ac.createGain(); bg.gain.value = 0.28;
+  a.connect(humF); b.connect(bg); bg.connect(humF);
+  humF.connect(humG); humG.connect(master);
+  a.start(); b.start();
+
+  // the hiss: only speaks while filings are actually turning
+  var n = Math.floor(ac.sampleRate * 2);
+  var buf = ac.createBuffer(1, n, ac.sampleRate);
+  var d = buf.getChannelData(0);
+  for (var i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+  var src = ac.createBufferSource(); src.buffer = buf; src.loop = true;
+  var bp = ac.createBiquadFilter(); bp.type = 'bandpass';
+  bp.frequency.value = 5200; bp.Q.value = 0.6;
+  hissG = ac.createGain(); hissG.gain.value = 0.0001;
+  src.connect(bp); bp.connect(hissG); hissG.connect(master);
+  src.start();
+  audioReady = true;
+}
+function sfxClick(){
+  if (!ac || muted || !audioReady) return;
+  var t = ac.currentTime;
+  var o = ac.createOscillator(), g = ac.createGain();
+  o.type = 'square'; o.frequency.setValueAtTime(1400, t);
+  o.frequency.exponentialRampToValueAtTime(420, t + 0.03);
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.12, t + 0.003);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.07);
+  o.connect(g); g.connect(master); o.start(t); o.stop(t + 0.09);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  FIELD
+//  Two point poles plus a weak uniform field, so the paper always has
+//  structure on it even with nobody in front of the camera.
+// ═══════════════════════════════════════════════════════════════════════
+var bridge = 0, meanTurn = 0, fieldSum = 0, drawn = 0;
+var BASE_X = 0.0, BASE_Y = 0.22;
+var fx = 0, fy = 0;                       // scratch: last field evaluated
+
+function fieldAt(x, y){
+  var ax = BASE_X, ay = BASE_Y, i;
+  var m = MODES[modeI].en;
+  for (i = 0; i < 2; i++){
+    var p = poles[i];
+    if (p.q <= 0.001) continue;
+    if (m === 'MONOPOLE' && i !== 0 && poles[0].q > 0.001) continue;
+    var dx = x - p.x, dy = y - p.y;
+    var r2 = dx * dx + dy * dy;
+    if (r2 < 1e-5) r2 = 1e-5;
+    var r = Math.sqrt(r2);
+    var k = p.q * 0.055 / r2;             // |E| falls off as 1/r
+    if (m === 'CURL'){ ax += -dy * k; ay += dx * k; }
+    else {
+      var sgn = (m === 'MONOPOLE') ? 1 : (i === 0 ? 1 : -1);
+      ax += sgn * dx * k; ay += sgn * dy * k;   // k already carries 1/r^2
+    }
+  }
+  // the bridge: between two close poles the field is forced along the axis
+  if (bridge > 0.001 && poles[0].q > 0.001 && poles[1].q > 0.001){
+    var bx = poles[1].x - poles[0].x, by = poles[1].y - poles[0].y;
+    var bl = Math.hypot(bx, by);
+    if (bl > 1e-4){
+      bx /= bl; by /= bl;
+      var vx = x - poles[0].x, vy = y - poles[0].y;
+      var tproj = clamp(vx * bx + vy * by, 0, bl);
+      var px = poles[0].x + bx * tproj, py = poles[0].y + by * tproj;
+      var dd = Math.hypot(x - px, y - py);
+      var w = Math.exp(-(dd * dd) / 0.0022) * bridge * 1.9;
+      ax += bx * w; ay += by * w;
+    }
+  }
+  fx = ax; fy = ay;
+  return Math.sqrt(ax * ax + ay * ay);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  SAMPLE — the camera, once per frame, at grid resolution
+// ═══════════════════════════════════════════════════════════════════════
+function sample(){
+  if (!video || !video.videoWidth || !video.videoHeight || GW < 2) return false;
+  var vw = video.videoWidth, vh = video.videoHeight;
+  var sa = vw / vh, da = GW / GH, sx = 0, sy = 0, sw = vw, sh = vh;
+  if (sa > da){ sw = vh * da; sx = (vw - sw) * 0.5; }
+  else { sh = vw / da; sy = (vh - sh) * 0.5; }
+  sctx.save();
+  if (mirror){ sctx.translate(GW, 0); sctx.scale(-1, 1); }
+  sctx.drawImage(video, sx, sy, sw, sh, 0, 0, GW, GH);
+  sctx.restore();
+  var im;
+  try { im = sctx.getImageData(0, 0, GW, GH); } catch(e){ return false; }
+  if (!im || !im.data || im.data.length < NP * 4) return false;
+  var d = im.data;
+  for (var i = 0, j = 0; i < NP; i++, j += 4){
+    // Rec.601 luma, then a gamma so mid-tones still put iron on the paper
+    var l = (d[j] * 0.299 + d[j+1] * 0.587 + d[j+2] * 0.114) / 255;
+    var k = 1 - l;
+    dark[i] = k * k * (3 - 2 * k);          // smoothstep, no branch
+  }
+  return true;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  STEP + DRAW
+// ═══════════════════════════════════════════════════════════════════════
+var pathA = null, pathB = null, pathC = null;
+function step(dt){
+  var t = now(), i;
+  for (i = 0; i < 2; i++){
+    var p = poles[i];
+    if (p.live && t - p.t > LOST_MS) p.live = false;
+    var want = p.live ? (p.open ? 1 : 0.42) : 0;    // a closed hand is a weak pole
+    p.q += (want - p.q) * (1 - Math.exp(-7 * dt));
+    if (!isFinite(p.q)) p.q = 0;
+  }
+  var wantBridge = 0;
+  if (MODES[modeI].en === 'DIPOLE' && poles[0].q > 0.5 && poles[1].q > 0.5){
+    var d = Math.hypot(poles[1].x - poles[0].x, poles[1].y - poles[0].y);
+    wantBridge = clamp((0.42 - d) / 0.30, 0, 1);
+  }
+  bridge += (wantBridge - bridge) * (1 - Math.exp(-6 * dt));
+  if (!isFinite(bridge)) bridge = 0;
+
+  if (audioReady){
+    var at = ac.currentTime;
+    var lvl = clamp(fieldSum, 0, 1);
+    humG.gain.setTargetAtTime(Math.max(0.00001, 0.020 + lvl * 0.075 + bridge * 0.075), at, 0.15);
+    humF.frequency.setTargetAtTime(clamp(200 + lvl * 500 + bridge * 700, 80, 4000), at, 0.2);
+    hissG.gain.setTargetAtTime(Math.max(0.00001, clamp(meanTurn * 0.9, 0, 1) * 0.030), at, 0.08);
+  }
+  var m = MODES[modeI];
+  hintEl.textContent = (poles[0].live || poles[1].live) ? m.hint : '手をカメラに';
+}
+
+function draw(dt){
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.fillStyle = PAPER; ctx.fillRect(0, 0, W, H);
+  // the printed 5mm rule the demonstration is always done on
+  var g = 26 * dpr, x, y;
+  ctx.strokeStyle = 'rgba(36,38,43,0.045)'; ctx.lineWidth = 1;
+  ctx.beginPath();
+  for (x = g; x < W; x += g){ ctx.moveTo(x, 0); ctx.lineTo(x, H); }
+  for (y = g; y < H; y += g){ ctx.moveTo(0, y); ctx.lineTo(W, y); }
+  ctx.stroke();
+
+  if (!dark || NP < 4) return;
+
+  var L = GRAINS[grainI].len * CELL * 1.35;
+  var turnSum = 0, fSum = 0, count = 0;
+  var rate = 1 - Math.exp(-11 * Math.max(0.001, dt));
+  var i, gx, gy;
+
+  // three batched paths, one per shade — three stroke() calls in total
+  nA = 0; nB = 0; nC = 0;
+
+  for (gy = 0; gy < GH; gy++){
+    var cy = (gy + 0.5) * (H / GH);
+    for (gx = 0; gx < GW; gx++){
+      i = gy * GW + gx;
+      var dk = dark[i];
+      if (dk <= thr[i] * 0.92) {          // no filing landed on this cell
+        continue;
+      }
+      var cx = (gx + 0.5) * (W / GW);
+      var mag = fieldAt(cx / W, cy / H);
+      var target = Math.atan2(fy, fx);
+      // filings have no head: only the line matters, so work modulo π
+      var cur = ang[i];
+      var diff = target - cur;
+      diff = diff - Math.PI * Math.round(diff / Math.PI);
+      // angular inertia — they swing into line and slightly overshoot
+      avel[i] = avel[i] * 0.72 + diff * rate * 2.4;
+      if (!isFinite(avel[i])) avel[i] = 0;
+      cur += avel[i];
+      if (!isFinite(cur)) cur = 0;
+      ang[i] = cur;
+      turnSum += Math.abs(avel[i]); fSum += mag; count++;
+
+      var str = clamp(mag / 0.85, 0, 1);
+      var ln = L * (0.42 + 0.58 * dk) * (0.55 + 0.45 * str);
+      var hx = Math.cos(cur) * ln * 0.5, hy2 = Math.sin(cur) * ln * 0.5;
+      var jx = jit[i] * CELL * 0.30, jy = jit[NP - 1 - i] * CELL * 0.30;
+      var px = cx + jx, py = cy + jy;
+      if (str > 0.55){
+        segA[nA] = px - hx; segA[nA+1] = py - hy2;
+        segA[nA+2] = px + hx; segA[nA+3] = py + hy2; nA += 4;
+      } else if (str > 0.22){
+        segB[nB] = px - hx; segB[nB+1] = py - hy2;
+        segB[nB+2] = px + hx; segB[nB+3] = py + hy2; nB += 4;
+      } else {
+        segC[nC] = px - hx; segC[nC+1] = py - hy2;
+        segC[nC+2] = px + hx; segC[nC+3] = py + hy2; nC += 4;
+      }
+    }
+  }
+  drawn = count;
+  meanTurn = count ? turnSum / count : 0;
+  fieldSum = count ? clamp(fSum / count / 0.9, 0, 1) : 0;
+
+  ctx.lineCap = 'round';
+  strokeBatch(segA, nA, SATETSU, Math.max(1, CELL * 0.17));
+  strokeBatch(segB, nB, HAGANE,  Math.max(1, CELL * 0.14));
+  strokeBatch(segC, nC, AWA,     Math.max(1, CELL * 0.12));
+  drawPoles();
+
+  if (statN) statN.textContent = String(count);
+  if (statB) statB.textContent = fieldSum.toFixed(2);
+}
+function strokeBatch(buf, n, col, w){
+  if (!buf || n < 4) return;
+  ctx.strokeStyle = col; ctx.lineWidth = w;
+  ctx.beginPath();
+  for (var k = 0; k < n; k += 4){
+    ctx.moveTo(buf[k], buf[k+1]);
+    ctx.lineTo(buf[k+2], buf[k+3]);
+  }
+  ctx.stroke();
+}
+function drawPoles(){
+  var mono = MODES[modeI].en === 'MONOPOLE', curl = MODES[modeI].en === 'CURL';
+  for (var i = 0; i < 2; i++){
+    var p = poles[i];
+    if (p.q <= 0.02) continue;
+    if (mono && i === 1 && poles[0].q > 0.001) continue;
+    var x = p.x * W, y = p.y * H;
+    var r = clamp(p.span, 0.05, 0.4) * H * 0.34 * (0.6 + 0.4 * p.q);
+    ctx.save();
+    ctx.globalAlpha = clamp(p.q, 0, 1);
+    ctx.fillStyle = SABI;
+    ctx.beginPath(); ctx.arc(x, y, Math.max(2, r * 0.30), 0, 6.2832); ctx.fill();
+    ctx.globalAlpha = clamp(p.q * 0.4, 0, 1);
+    ctx.strokeStyle = SABI; ctx.lineWidth = 1.4 * dpr;
+    ctx.beginPath(); ctx.arc(x, y, Math.max(3, r), 0, 6.2832); ctx.stroke();
+    ctx.globalAlpha = clamp(p.q, 0, 1);
+    ctx.fillStyle = PAPER;
+    ctx.font = '400 ' + Math.max(9, r * 0.34) + 'px "IBM Plex Mono",monospace';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(curl ? '↻' : (mono ? 'N' : (i === 0 ? 'N' : 'S')), x, y);
+    ctx.restore();
+  }
+  if (bridge > 0.02 && poles[0].q > 0.5 && poles[1].q > 0.5){
+    ctx.save();
+    ctx.globalAlpha = clamp(bridge * 0.35, 0, 1);
+    ctx.strokeStyle = SABI; ctx.lineWidth = 1.2 * dpr;
+    ctx.setLineDash([4 * dpr, 6 * dpr]);
+    ctx.beginPath();
+    ctx.moveTo(poles[0].x * W, poles[0].y * H);
+    ctx.lineTo(poles[1].x * W, poles[1].y * H);
+    ctx.stroke();
+    ctx.restore();
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  LOOP
+// ═══════════════════════════════════════════════════════════════════════
+var last = 0, sampAcc = 0;
+function loop(){
+  var t = now();
+  var dt = last ? Math.min(0.05, (t - last) / 1000) : 0.016;
+  last = t;
+  try {
+    if (started){
+      sampAcc += dt;
+      if (sampAcc >= 0.033){ sampAcc = 0; sample(); }   // camera at ~30Hz
+      step(dt);
+    }
+    draw(dt);
+  } catch(e){ /* one bad frame must not empty the paper */ }
+  requestAnimationFrame(loop);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  UI
+// ═══════════════════════════════════════════════════════════════════════
+function applyMode(){
+  modeLbl.textContent = MODES[modeI].n;
+  modeSub.textContent = 'JIBA / ' + MODES[modeI].en;
+  sfxClick();
+}
+function applyGrain(){
+  grainLbl.textContent = GRAINS[grainI].n;
+  layout(); sfxClick();
+}
+goBtn.addEventListener('click', function(){
+  goBtn.textContent = 'よみこみ中';
+  initAudio();
+  if (ac && ac.state === 'suspended') ac.resume();
+  startStream().then(function(){
+    // the filings are the piece; the hands only bend them, so a tracking
+    // failure leaves a working effect rather than a broken one
+    if (initHands()) startMpCamera();
+    goBtn.textContent = 'まく';
+    started = true;
+    startSh.classList.add('gone');
+  }).catch(function(e){ goBtn.textContent = 'まく'; showError(e); });
+});
+modeBtn.addEventListener('click', function(){ modeI = (modeI + 1) % MODES.length; applyMode(); });
+grainBtn.addEventListener('click', function(){ grainI = (grainI + 1) % GRAINS.length; applyGrain(); });
+sndBtn.addEventListener('click', function(){
+  muted = !muted; sndLbl.textContent = muted ? 'OFF' : 'ON';
+  if (master && ac) master.gain.setTargetAtTime(muted ? 0 : 0.5, ac.currentTime, 0.2);
+});
+window.addEventListener('resize', resize);
+window.addEventListener('orientationchange', function(){ setTimeout(resize, 250); });
+
+resize();
+modeLbl.textContent = MODES[modeI].n;
+modeSub.textContent = 'JIBA / ' + MODES[modeI].en;
+grainLbl.textContent = GRAINS[grainI].n;
+requestAnimationFrame(loop);
+
+// a headless harness scatters the filings without a camera
+window.__JIBA__ = {
+  feed:function(list){ onHands({ multiHandLandmarks:list }); },
+  lose:losePoles,
+  start:function(){ started = true; },
+  step:function(dt){ if (started){ sample(); step(dt); } draw(dt); },
+  mode:function(){ modeBtn.click(); },
+  grain:function(){ grainBtn.click(); },
+  get:function(){
+    return { GW:GW, GH:GH, NP:NP, CELL:CELL, drawn:drawn, bridge:bridge,
+             fieldSum:fieldSum, meanTurn:meanTurn, modeI:modeI, grainI:grainI,
+             dark:dark, ang:ang, avel:avel, thr:thr,
+             poles:poles.map(function(p){ return {live:p.live,q:p.q,x:p.x,y:p.y}; }),
+             audioReady:audioReady };
+  },
+  field:function(x,y){ var m = fieldAt(x,y); return { mag:m, fx:fx, fy:fy }; },
+  consts:{ LOST_MS:LOST_MS, MODES:MODES.length, GRAINS:GRAINS.length }
+};
+})();
+</script>
+</body>
+</html>
