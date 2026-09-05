@@ -1,0 +1,1162 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>TSUZUMI ─ 握って締める鼓</title>
+<meta name="description" content="打つ手と締める手でひとつになる小鼓。皮の真ん中を打てばポン、端を打てばチ。もう一方の手を握るほど調べ緒が締まって音が上がる。鳴っている振動の形がそのまま皮の上に見える。">
+<meta name="theme-color" content="#14100e">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@400;600;800&family=Bodoni+Moda:ital,opsz,wght@0,6..96,400;1,6..96,400&display=swap" rel="stylesheet">
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  TSUZUMI ─ 握って締める鼓                      ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  PALETTE   漆黒 shikkoku #14100e  the lacquer, and the whole room
+            洗朱 araishu  #c1502e  the 調べ緒 — the cords, and every impact
+            金   kin      #c9a227  the ground of the 鏡板, and the rim
+            練色 neriiro  #ede4d0  the skin of the drum, and all type
+            老竹 oitake   #6b7a5e  the pine, the labels, everything quiet
+            MOOD: a 能舞台 after dark with one lamp on it. This is the only
+            dark piece of the three made tonight, and it is dark on purpose:
+            the other two are broad daylight, and a 小鼓 is not a daylight
+            sound. The gold is aged and dull, never bright — it is leaf on
+            an old panel, not metal.
+  BACKGROUND  The 鏡板: the painted pine panel that stands behind every noh
+            stage. Drawn once into an offscreen canvas with a seeded RNG —
+            an aged gold ground, a trunk rising from the lower left, four
+            clusters of needles built from a few hundred short ink strokes,
+            and the cedar boards of the stage floor running away in
+            perspective along the bottom. No vignette anywhere.
+  TYPE      One family, Shippori Mincho, at three weights and very wide
+            tracking, so the Japanese carries the whole typographic voice.
+            Bodoni Moda Italic for the Latin and the note names only — a
+            high-contrast face whose thick/thin matches a 明朝's stroke.
+  MOTION    Slow, weighted, ceremonial. Every continuous parameter is an
+            exponential approach; nothing on screen snaps except the strike
+            itself, which is meant to be the one violent event. 間 is real
+            here: the piece is quite happy to sit still.
+  SIGNATURE The drumhead shows the sound. A circular membrane's modes are
+            Bessel functions, and a strike at radius r excites mode (m,n)
+            in proportion to J_m(z_mn * r) — so hitting the centre wakes
+            only the ring-shaped m=0 modes and gives you ポン, while hitting
+            near the rim wakes the high m modes and gives you チ. The SAME
+            numbers drive the resonator bank and the standing waves drawn
+            on the skin, so what you hear is literally what you see moving.
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<style>
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;padding:0;height:100%;overflow:hidden;background:#14100e}
+  body{
+    font-family:'Shippori Mincho','Hiragino Mincho ProN',serif;
+    color:#ede4d0;-webkit-user-select:none;user-select:none;touch-action:none;
+  }
+  #view{position:fixed;inset:0;width:100%;height:100%;display:block}
+  #video{position:fixed;width:2px;height:2px;opacity:0;pointer-events:none;left:-10px;top:-10px}
+
+  .hud{position:fixed;inset:0;pointer-events:none;display:flex;flex-direction:column;
+       padding:calc(12px + env(safe-area-inset-top)) 14px 14px}
+  .row{display:flex;align-items:flex-start;gap:14px}
+  .note{
+    font-family:'Bodoni Moda',serif;font-style:italic;
+    font-size:clamp(34px,9vw,58px);line-height:.9;color:#ede4d0;
+    text-shadow:0 2px 18px rgba(0,0,0,.8);
+  }
+  .note .cents{font-size:.32em;font-style:normal;color:#6b7a5e;letter-spacing:.2em;
+               display:block;margin-top:5px}
+  .stroke{
+    font-size:clamp(22px,6vw,34px);font-weight:800;letter-spacing:.3em;
+    color:#c1502e;opacity:0;transition:opacity .5s ease;margin-top:4px;
+  }
+  .stroke.on{opacity:1;transition:opacity .05s}
+  .sp{flex:1}
+  .btns{display:flex;flex-direction:column;gap:7px;align-items:flex-end;pointer-events:auto}
+  button.tb{
+    font-family:'Shippori Mincho',serif;font-size:12px;color:#ede4d0;
+    background:rgba(20,16,14,.66);border:1px solid rgba(201,162,39,.42);
+    border-radius:1px;padding:7px 11px;cursor:pointer;letter-spacing:.16em;
+    transition:background .3s ease,border-color .3s ease;
+  }
+  button.tb:active{background:rgba(193,80,46,.3)}
+  button.tb .val{color:#c9a227;margin-left:7px}
+
+  .foot{margin-top:auto;display:flex;flex-direction:column;align-items:center;gap:9px}
+  .ledger{display:flex;gap:5px;height:22px;align-items:flex-end}
+  .tip{font-size:12px;letter-spacing:.24em;color:#6b7a5e;transition:opacity .6s ease}
+  .tip.dim{opacity:.28}
+
+  .sheet{
+    position:fixed;inset:0;z-index:20;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;gap:16px;padding:24px;
+    background:#14100e;transition:opacity .6s ease,visibility .6s;
+  }
+  .sheet.off{opacity:0;visibility:hidden;pointer-events:none}
+  .sheet h1{margin:0;font-family:'Bodoni Moda',serif;font-style:italic;font-weight:400;
+            font-size:clamp(38px,12vw,66px);letter-spacing:.06em;color:#ede4d0}
+  .sheet .jp{margin:-10px 0 0;font-size:13px;letter-spacing:.62em;color:#c9a227;
+             font-weight:600;text-indent:.62em}
+  .rule{width:min(300px,70vw);height:1px;background:linear-gradient(90deg,
+        transparent,rgba(201,162,39,.65),transparent)}
+  #demo{width:min(320px,84vw);height:auto;aspect-ratio:320/180;display:block}
+  .sheet p{margin:0;font-size:13px;line-height:2;text-align:center;color:#9a9384;
+           max-width:min(370px,88vw);letter-spacing:.06em}
+  .sheet p b{color:#c1502e;font-weight:600}
+  .go{
+    font-family:'Shippori Mincho',serif;font-weight:600;font-size:15px;letter-spacing:.5em;
+    text-indent:.5em;color:#14100e;background:#c9a227;border:0;border-radius:1px;
+    padding:14px 40px;cursor:pointer;margin-top:4px;
+    transition:transform .5s cubic-bezier(.16,1,.3,1),background .4s;
+  }
+  .go:active{transform:scale(.96);background:#c1502e}
+  #err{
+    position:fixed;left:16px;right:16px;bottom:18px;z-index:40;display:none;
+    white-space:pre-line;font-size:12.5px;line-height:1.8;color:#ede4d0;
+    background:rgba(20,16,14,.96);border:1px solid #c1502e;padding:13px 15px;
+  }
+  @media (orientation:landscape) and (max-height:520px){
+    .sheet{gap:10px;padding:12px} #demo{width:min(250px,38vw)}
+    .sheet p{font-size:11.5px;line-height:1.7}
+  }
+</style>
+</head>
+<body>
+
+<canvas id="view"></canvas>
+<video id="video" playsinline muted autoplay></video>
+
+<div class="hud">
+  <div class="row">
+    <div>
+      <div class="note" id="noteEl">—<span class="cents" id="tuneEl">本調子</span></div>
+      <div class="stroke" id="strokeEl">ポ ン</div>
+    </div>
+    <div class="sp"></div>
+    <div class="btns">
+      <button class="tb" id="tuneBtn" type="button">調子<span class="val" id="tuneLbl">本</span></button>
+      <button class="tb" id="flipBtn" type="button">⟲ カメラ</button>
+      <button class="tb" id="sndBtn" type="button">音<span class="val" id="sndLbl">ON</span></button>
+    </div>
+  </div>
+  <div class="foot">
+    <div class="ledger" id="ledgerEl"></div>
+    <div class="tip" id="tipEl">手をカメラに写してください</div>
+  </div>
+</div>
+
+<div class="sheet" id="start">
+  <h1>Tsuzumi</h1>
+  <p class="jp">小鼓</p>
+  <div class="rule"></div>
+  <canvas id="demo" width="640" height="360"></canvas>
+  <p>片手を上から<b>振り下ろして</b>皮を打つ。<br>
+     真ん中はポン、端はチ。<br>
+     もう一方の手を<b>握る</b>ほど調べ緒が締まり、音が上がる。</p>
+  <button class="go" id="go" type="button">打つ</button>
+</div>
+
+<div id="err"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+<script>
+(function(){
+'use strict';
+
+// ═══════════════════════════════════════════════════════════════════════
+//  DOM
+// ═══════════════════════════════════════════════════════════════════════
+var cv       = document.getElementById('view');
+var ctx      = cv.getContext('2d');
+var video    = document.getElementById('video');
+var errBox   = document.getElementById('err');
+var startSh  = document.getElementById('start');
+var goBtn    = document.getElementById('go');
+var flipBtn  = document.getElementById('flipBtn');
+var sndBtn   = document.getElementById('sndBtn');
+var sndLbl   = document.getElementById('sndLbl');
+var tuneBtn  = document.getElementById('tuneBtn');
+var tuneLbl  = document.getElementById('tuneLbl');
+var noteEl   = document.getElementById('noteEl');
+var tuneEl   = document.getElementById('tuneEl');
+var strokeEl = document.getElementById('strokeEl');
+var ledgerEl = document.getElementById('ledgerEl');
+var tipEl    = document.getElementById('tipEl');
+var demoCv   = document.getElementById('demo');
+var dctx     = demoCv.getContext('2d');
+
+function now(){
+  return (typeof performance !== 'undefined' && performance.now)
+    ? performance.now() : Date.now();
+}
+function clamp(v,a,b){ return v<a?a:(v>b?b:v); }
+function lerp(a,b,t){ return a+(b-a)*t; }
+function outQuint(t){ t=clamp(t,0,1); var u=1-t; return 1-u*u*u*u*u; }
+
+// ═══════════════════════════════════════════════════════════════════════
+//  PALETTE
+// ═══════════════════════════════════════════════════════════════════════
+var C_INK='#14100e', C_SHU='#c1502e', C_KIN='#c9a227',
+    C_NERI='#ede4d0', C_TAKE='#6b7a5e';
+
+// ═══════════════════════════════════════════════════════════════════════
+//  BESSEL — the whole piece rests on these. J_m(x) by its series; the
+//  terms fall away fast once k exceeds x/2, so 30 of them is exact to
+//  double precision over the range any drum mode ever reaches.
+// ═══════════════════════════════════════════════════════════════════════
+function besselJ(m, x){
+  if (!isFinite(x)) return 0;
+  var ax = Math.abs(x), sum = 0, k, lnFact = [1];
+  for (k=1;k<=40;k++) lnFact[k] = lnFact[k-1]*k;
+  var half = ax*0.5;
+  for (k=0;k<30;k++){
+    var a = lnFact[k], b = lnFact[k+m];
+    if (!isFinite(a) || !isFinite(b) || a===0 || b===0) break;
+    var term = Math.pow(-1,k) * Math.pow(half, 2*k+m) / (a*b);
+    if (!isFinite(term)) break;
+    sum += term;
+    if (k > half + 6 && Math.abs(term) < 1e-12) break;
+  }
+  return isFinite(sum) ? sum : 0;
+}
+// (m, n-th zero of J_m, frequency ratio to the fundamental, weight, decay)
+var MODES = [
+  { m:0, z:2.4048, f:1.000, w:1.00, dec:0.42 },
+  { m:1, z:3.8317, f:1.593, w:0.72, dec:0.30 },
+  { m:2, z:5.1356, f:2.135, w:0.54, dec:0.22 },
+  { m:0, z:5.5201, f:2.295, w:0.46, dec:0.20 },
+  { m:3, z:6.3802, f:2.653, w:0.36, dec:0.15 },
+  { m:1, z:7.0156, f:2.917, w:0.30, dec:0.13 },
+  { m:2, z:8.4172, f:3.500, w:0.22, dec:0.10 }
+];
+// J_m(z*u) sampled over u in [0,1], so drawing the standing waves is a
+// table lookup instead of a series per ring per frame
+var LUTN = 96, LUT = [];
+(function buildLut(){
+  for (var i=0;i<MODES.length;i++){
+    var row = new Float32Array(LUTN+1);
+    for (var j=0;j<=LUTN;j++) row[j] = besselJ(MODES[i].m, MODES[i].z * (j/LUTN));
+    LUT.push(row);
+  }
+})();
+function lutAt(i, u){
+  var x = clamp(u,0,1)*LUTN, j = x|0, f = x-j;
+  var r = LUT[i];
+  if (j >= LUTN) return r[LUTN];
+  return r[j] + (r[j+1]-r[j])*f;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  SCALE — 陰音階 (miyako-bushi). Squeezing the cords tightens the skin
+//  and raises the note, exactly as it does on a real 小鼓; here the five
+//  reachable pitches are a real scale so what comes out is music.
+// ═══════════════════════════════════════════════════════════════════════
+var SCALE = [0, 1, 5, 7, 8];
+var TUNINGS = [
+  { key:'本', label:'本調子', tonic:293.66, names:['D','E♭','G','A','B♭'] },
+  { key:'二', label:'二 上 り', tonic:349.23, names:['F','G♭','B♭','C','D♭'] },
+  { key:'三', label:'三 下 り', tonic:220.00, names:['A','B♭','D','E','F'] }
+];
+var tuneIdx = 0;
+
+// ═══════════════════════════════════════════════════════════════════════
+//  CANVAS
+// ═══════════════════════════════════════════════════════════════════════
+var W=1,H=1,S=1,DPR=1;
+var DX=1, DY=1, R=1, RY=1;            // drum centre, radius, squashed radius
+var panel = document.createElement('canvas');
+var pctx  = panel.getContext('2d');
+var camS  = document.createElement('canvas');
+camS.width = 160; camS.height = 120;
+var cctx  = camS.getContext('2d');
+
+function layout(){
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  var w = window.innerWidth, h = window.innerHeight;
+  cv.width = Math.max(2, Math.round(w*DPR));
+  cv.height = Math.max(2, Math.round(h*DPR));
+  cv.style.width = w+'px'; cv.style.height = h+'px';
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  W=w; H=h; S=Math.min(W,H)/720;
+  R  = Math.min(W*0.34, H*0.30);
+  RY = R*0.62;
+  DX = W*0.5;
+  DY = H*0.47;
+  drawPanel();
+}
+window.addEventListener('resize', layout);
+window.addEventListener('orientationchange', function(){ setTimeout(layout,220); });
+
+// ── 鏡板 — the painted pine panel, drawn once ────────────────────────
+var seed = 20260906;
+function rnd(){ seed = (seed*1664525 + 1013904223) & 0x7fffffff; return seed/0x7fffffff; }
+function drawPanel(){
+  var w = Math.max(2, Math.round(W)), h = Math.max(2, Math.round(H));
+  panel.width = w; panel.height = h;
+  seed = 20260906;
+  pctx.setTransform(1,0,0,1,0,0);
+  // aged gold ground
+  var g = pctx.createLinearGradient(0,0,0,h);
+  g.addColorStop(0,'#3a2c18'); g.addColorStop(0.45,'#2a2013'); g.addColorStop(1,'#191310');
+  pctx.fillStyle = g; pctx.fillRect(0,0,w,h);
+  // leaf squares — the panel is gold LEAF, laid in a grid, and the seams show
+  var leaf = Math.max(28, 74*S);
+  pctx.strokeStyle = 'rgba(201,162,39,.055)'; pctx.lineWidth = 1;
+  for (var x=0;x<w;x+=leaf){ pctx.beginPath(); pctx.moveTo(x+.5,0); pctx.lineTo(x+.5,h); pctx.stroke(); }
+  for (var y=0;y<h;y+=leaf){ pctx.beginPath(); pctx.moveTo(0,y+.5); pctx.lineTo(w,y+.5); pctx.stroke(); }
+  for (var i=0;i<160;i++){
+    pctx.fillStyle = 'rgba(201,162,39,' + (0.012 + rnd()*0.035) + ')';
+    var lx = Math.floor(rnd()*(w/leaf))*leaf, ly = Math.floor(rnd()*(h/leaf))*leaf;
+    pctx.fillRect(lx, ly, leaf, leaf);
+  }
+  var floorY = h*0.845;
+  // the pine
+  pctx.save();
+  pctx.strokeStyle = 'rgba(16,13,11,.86)'; pctx.lineCap='round'; pctx.lineJoin='round';
+  var bx = w*0.14, by = floorY;
+  var tx = w*0.34, ty = h*0.30;
+  pctx.lineWidth = Math.max(9, 26*S);
+  pctx.beginPath();
+  pctx.moveTo(bx, by);
+  pctx.bezierCurveTo(bx - w*0.02, h*0.66, w*0.20, h*0.50, tx, ty);
+  pctx.stroke();
+  pctx.lineWidth = Math.max(5, 14*S);
+  var br = [[0.30,0.44,0.60,0.36],[0.32,0.38,0.66,0.26],[0.22,0.55,0.05,0.50]];
+  for (i=0;i<br.length;i++){
+    pctx.beginPath();
+    pctx.moveTo(w*br[i][0], h*br[i][1]);
+    pctx.quadraticCurveTo(w*(br[i][0]+br[i][2])*0.5, h*(br[i][1]-0.08), w*br[i][2], h*br[i][3]);
+    pctx.stroke();
+  }
+  // needle clusters — a few hundred short strokes each
+  var clusters = [[0.34,0.28,1.0],[0.62,0.34,0.85],[0.20,0.47,0.7],[0.50,0.20,0.55]];
+  for (i=0;i<clusters.length;i++){
+    var cx = w*clusters[i][0], cy = h*clusters[i][1], sc = clusters[i][2];
+    var rad = Math.min(w,h)*0.115*sc;
+    for (var k=0;k<230;k++){
+      var a = rnd()*6.2832, d = Math.pow(rnd(),0.55)*rad;
+      var px = cx + Math.cos(a)*d*1.5, py = cy + Math.sin(a)*d*0.72;
+      var la = rnd()*6.2832, ln = (4 + rnd()*11)*S;
+      pctx.strokeStyle = 'rgba(14,12,10,' + (0.30 + rnd()*0.42) + ')';
+      pctx.lineWidth = Math.max(0.7, 1.7*S);
+      pctx.beginPath();
+      pctx.moveTo(px, py); pctx.lineTo(px + Math.cos(la)*ln, py + Math.sin(la)*ln);
+      pctx.stroke();
+    }
+  }
+  pctx.restore();
+  // the cedar stage floor, running away in perspective
+  pctx.fillStyle = '#241b14'; pctx.fillRect(0, floorY, w, h-floorY);
+  var boards = 7;
+  for (i=0;i<=boards;i++){
+    var u = i/boards;
+    var xTop = w*(0.5 + (u-0.5)*0.62), xBot = w*(0.5 + (u-0.5)*1.9);
+    pctx.strokeStyle = 'rgba(201,162,39,.10)'; pctx.lineWidth = Math.max(1,1.4*S);
+    pctx.beginPath(); pctx.moveTo(xTop, floorY); pctx.lineTo(xBot, h); pctx.stroke();
+  }
+  pctx.fillStyle = 'rgba(201,162,39,.16)';
+  pctx.fillRect(0, floorY, w, Math.max(1, 2*S));
+  // the lamp: one soft pool, off to the left, everything falls away from it
+  var lg = pctx.createRadialGradient(w*0.30, h*0.30, 0, w*0.30, h*0.30, Math.max(w,h)*0.85);
+  lg.addColorStop(0,'rgba(255,226,150,.10)');
+  lg.addColorStop(0.42,'rgba(255,214,130,.03)');
+  lg.addColorStop(1,'rgba(0,0,0,.55)');
+  pctx.fillStyle = lg; pctx.fillRect(0,0,w,h);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  AUDIO — a struck membrane. A 12ms noise slap drives a bank of high-Q
+//  bandpasses tuned to the Bessel mode ratios, each mode's amplitude set
+//  by J_m(z*r) at the strike radius, so the timbre falls out of where you
+//  hit rather than out of a preset. The shell's air resonance underneath
+//  carries the actual pitch. Everything lands on a compressor via a dry
+//  path and a convolver send.
+// ═══════════════════════════════════════════════════════════════════════
+var ac=null, master=null, comp=null, dry=null, send=null, conv=null,
+    noiseBuf=null, sound=true;
+
+function makeIR(seconds, dark){
+  var n = Math.max(1, Math.floor(ac.sampleRate*seconds));
+  var buf = ac.createBuffer(2, n, ac.sampleRate);
+  for (var c=0;c<2;c++){
+    var d = buf.getChannelData(c), lp = 0;
+    for (var i=0;i<n;i++){
+      var t = i/n;
+      var env = Math.pow(1-t, 2.6) * (i < ac.sampleRate*0.004 ? i/(ac.sampleRate*0.004) : 1);
+      var v = (Math.random()*2-1) * env;
+      lp += (v - lp) * dark;                 // one-pole: a hall, not a plate
+      d[i] = lp;
+    }
+  }
+  return buf;
+}
+function initAudio(){
+  if (ac){ if (ac.state==='suspended' && ac.resume) ac.resume(); return; }
+  var AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) return;
+  try { ac = new AC(); } catch(e){ ac = null; return; }
+  comp = ac.createDynamicsCompressor();
+  try {
+    comp.threshold.value=-18; comp.knee.value=28; comp.ratio.value=8;
+    comp.attack.value=0.004; comp.release.value=0.22;
+  } catch(e){}
+  master = ac.createGain(); master.gain.value = 0.85;
+  master.connect(comp); comp.connect(ac.destination);
+  dry = ac.createGain(); dry.gain.value = 0.92; dry.connect(master);
+  conv = ac.createConvolver();
+  try { conv.buffer = makeIR(1.9, 0.34); } catch(e){}
+  send = ac.createGain(); send.gain.value = 0.30;
+  send.connect(conv); conv.connect(master);
+  var n = Math.max(1, Math.floor(ac.sampleRate*0.4));
+  noiseBuf = ac.createBuffer(1, n, ac.sampleRate);
+  var d = noiseBuf.getChannelData(0);
+  for (var i=0;i<n;i++) d[i] = Math.random()*2-1;
+  if (ac.state==='suspended' && ac.resume) ac.resume();
+}
+
+function safeAmp(v){ return clamp(v, 0.0002, 1.2); }
+
+function strike(r, vel, f0, skinBase){
+  if (!ac || !sound || !dry || !noiseBuf) return;
+  if (!isFinite(r) || !isFinite(vel) || !isFinite(f0) || !isFinite(skinBase)) return;
+  var t = ac.currentTime, i;
+  var rc = clamp(r, 0, 0.86);
+  var out = ac.createGain(); out.gain.value = safeAmp(0.16 + 0.62*vel);
+  out.connect(dry); out.connect(send);
+
+  // ── the skin ──
+  var src = ac.createBufferSource(); src.buffer = noiseBuf;
+  var exc = ac.createGain();
+  exc.gain.setValueAtTime(0.0001, t);
+  exc.gain.exponentialRampToValueAtTime(1, t+0.0014);
+  exc.gain.exponentialRampToValueAtTime(0.0001, t + 0.009 + 0.010*(1-rc));
+  src.connect(exc);
+  var maxDec = 0.25, any = false;
+  for (i=0;i<MODES.length;i++){
+    var M = MODES[i];
+    var amp = Math.abs(lutAt(i, rc)) * M.w;
+    if (!isFinite(amp) || amp < 0.006) continue;
+    var f = skinBase * M.f;
+    if (!isFinite(f) || f < 25 || f > 14000) continue;
+    var bp = ac.createBiquadFilter(); bp.type = 'bandpass';
+    bp.frequency.setValueAtTime(f, t);
+    bp.Q.setValueAtTime(11 + 13*(1 - i/MODES.length), t);
+    var g = ac.createGain();
+    var dec = M.dec * (0.72 + 0.55*(1-rc));
+    g.gain.setValueAtTime(safeAmp(amp), t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t+dec);
+    exc.connect(bp); bp.connect(g); g.connect(out);
+    if (dec > maxDec) maxDec = dec;
+    any = true;
+  }
+  // the source is kept alive past the tail so the ringing filters are never
+  // collected out from under their own decay
+  src.start(t); src.stop(t + maxDec + 0.08);
+
+  // ── the shell: the air inside the body, which is what has the pitch.
+  //    A centre strike drives it hard; a rim strike barely touches it.
+  var shellAmt = Math.pow(1-rc, 1.5);
+  if (shellAmt > 0.02){
+    var sdec = 0.42 + 0.72*shellAmt;
+    var parts = [[1, 0.52, 1.0], [2, 0.14, 0.55], [3.02, 0.055, 0.34]];
+    for (i=0;i<parts.length;i++){
+      var pf = f0*parts[i][0];
+      if (!isFinite(pf) || pf < 25 || pf > 14000) continue;
+      var o = ac.createOscillator(); o.type = 'sine';
+      o.frequency.setValueAtTime(pf, t);
+      var og = ac.createGain();
+      var pa = safeAmp(parts[i][1] * shellAmt * (0.35 + 0.75*vel));
+      og.gain.setValueAtTime(0.0001, t);
+      og.gain.exponentialRampToValueAtTime(pa, t+0.006);
+      og.gain.exponentialRampToValueAtTime(0.0001, t + sdec*parts[i][2]);
+      o.connect(og); og.connect(out);
+      o.start(t); o.stop(t + sdec*parts[i][2] + 0.05);
+    }
+  }
+  // ── the leather slap: only near the rim, and only ever a transient
+  if (rc > 0.34){
+    var s2 = ac.createBufferSource(); s2.buffer = noiseBuf;
+    var hp = ac.createBiquadFilter(); hp.type='highpass';
+    hp.frequency.setValueAtTime(2400 + 2600*rc, t);
+    var sg = ac.createGain();
+    sg.gain.setValueAtTime(safeAmp(0.16*(rc-0.34)/0.52*(0.4+vel)), t);
+    sg.gain.exponentialRampToValueAtTime(0.0001, t+0.035);
+    s2.connect(hp); hp.connect(sg); sg.connect(out);
+    s2.start(t); s2.stop(t+0.07);
+  }
+  return any;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  CAMERA
+// ═══════════════════════════════════════════════════════════════════════
+var facing='user', mirror=true, stream=null, started=false, camOK=false;
+function showError(e){
+  var msg = (e && e.message) ? e.message : String(e || 'unknown');
+  errBox.style.display = 'block';
+  errBox.textContent = 'カメラを起動できませんでした：' + msg +
+    '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+}
+function startStream(){
+  var md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) return Promise.reject(new Error('getUserMedia is unavailable'));
+  if (stream && stream.getTracks) stream.getTracks().forEach(function(t){ t.stop(); });
+  return md.getUserMedia({
+    video:{ facingMode:{ ideal:facing }, width:{ ideal:960 }, height:{ ideal:720 } },
+    audio:false
+  }).then(function(st){
+    stream = st; video.srcObject = st; mirror = (facing==='user'); camOK = true;
+    var p = video.play();
+    return (p && p.then) ? p.catch(function(){}) : null;
+  });
+}
+flipBtn.addEventListener('click', function(){
+  facing = (facing==='user') ? 'environment' : 'user';
+  loseAll();
+  startStream().then(startMpCamera).catch(showError);
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+//  HANDS — two of them. Either may strike; the calmer one sets the
+//  tension. The strike gate is the one proved out in KOTSUCHI, turned
+//  through ninety degrees: a Schmitt-latched crossing of the skin plane
+//  plus a monotonic run, so noise cannot make a drum stroke out of
+//  nothing, and velocity is never differentiated across a dropout.
+// ═══════════════════════════════════════════════════════════════════════
+var hands=null, mpCamera=null, mpReady=false;
+var LOST_MS = 320, TRACK_GAP = 0.12, TRACK_JUMP = 0.33;
+var HIT_DEAD = 0.030, HIT_RUN = 0.082, HIT_MIN = 0.72, HIT_COOL = 105;
+var TIPS=[8,12,16,20], PIPS=[6,10,14,18];
+
+function mkHand(){
+  return { live:false, armed:false, t:-1e9, x:0.5, y:0.5, px:0.5, py:0.5,
+           vx:0, vy:0, grip:0.5, gripS:0.5, side:0, run:0, runDir:0,
+           lastHit:-1e9, trail:[] };
+}
+var Hs = [mkHand(), mkHand()];
+function loseHand(h){
+  h.live=false; h.armed=false; h.side=0; h.run=0; h.runDir=0;
+  h.vx=0; h.vy=0; h.trail.length=0;
+}
+function loseAll(){ loseHand(Hs[0]); loseHand(Hs[1]); }
+
+function initHands(){
+  if (typeof window.Hands !== 'function') return false;
+  try {
+    hands = new window.Hands({ locateFile:function(f){
+      return 'https://cdn.jsdelivr.net/npm/@mediapipe/hands/' + f;
+    }});
+    hands.setOptions({ maxNumHands:2, modelComplexity:0,
+                       minDetectionConfidence:0.6, minTrackingConfidence:0.5 });
+    hands.onResults(onHands);
+    mpReady = true; return true;
+  } catch(e){ return false; }
+}
+function startMpCamera(){
+  if (!mpReady || !hands || mpCamera) return;
+  if (typeof window.Camera !== 'function') return;
+  try {
+    mpCamera = new window.Camera(video, {
+      onFrame:function(){
+        if (!hands) return Promise.resolve();
+        return hands.send({ image: video }).catch(function(){});
+      }, width:480, height:360
+    });
+    mpCamera.start();
+  } catch(e){ mpCamera = null; }
+}
+function validLm(c){
+  if (!c || c.length < 21) return null;
+  for (var i=0;i<21;i++){
+    var p = c[i];
+    if (!p || typeof p.x!=='number' || typeof p.y!=='number' ||
+        !isFinite(p.x) || !isFinite(p.y)) return null;
+  }
+  return c;
+}
+// grip: fingertip reach, normalized by the hand's own size so it does not
+// change when the player moves nearer the camera. 1 = fist, 0 = open.
+function gripOf(c){
+  var wr = c[0], mc = c[9];
+  if (!wr || !mc) return null;
+  var unit = Math.hypot(mc.x-wr.x, mc.y-wr.y);
+  if (!isFinite(unit) || unit < 1e-4) return null;
+  var sum = 0, n = 0;
+  for (var i=0;i<TIPS.length;i++){
+    var tp = c[TIPS[i]];
+    if (!tp) continue;
+    sum += Math.hypot(tp.x-wr.x, tp.y-wr.y) / unit;
+    n++;
+  }
+  if (!n) return null;
+  var span = sum/n;
+  if (!isFinite(span)) return null;
+  return clamp((2.12 - span)/(2.12 - 1.16), 0, 1);
+}
+function readHand(c, h, t){
+  var ids=[0,5,9,13,17], cx=0, cy=0, i;
+  for (i=0;i<ids.length;i++){
+    var p = c[ids[i]];
+    if (!p) return false;
+    cx += p.x; cy += p.y;
+  }
+  cx/=ids.length; cy/=ids.length;
+  if (!isFinite(cx) || !isFinite(cy)) return false;
+  var x = mirror ? (1-cx) : cx, y = cy;
+  if (!isFinite(x) || !isFinite(y)) return false;
+
+  var gp = gripOf(c);
+  if (gp !== null) h.grip = gp;
+
+  var dt = h.live ? (t - h.t)/1000 : 0;
+  var jump = h.live ? Math.hypot(x-h.x, y-h.y) : 0;
+  h.px = h.live ? h.x : x;
+  h.py = h.live ? h.y : y;
+  if (h.live && dt > 0.004 && dt < TRACK_GAP && jump < TRACK_JUMP){
+    var nvx=(x-h.x)/dt, nvy=(y-h.y)/dt;
+    if (isFinite(nvx) && isFinite(nvy)){
+      h.vx += (nvx-h.vx)*0.55;
+      h.vy += (nvy-h.vy)*0.55;
+      h.armed = true;
+    }
+  } else {
+    h.vx=0; h.vy=0; h.armed=false; h.run=0; h.runDir=0; h.side=0;
+  }
+  h.x=x; h.y=y; h.t=t; h.live=true;
+  h.gripS += (h.grip - h.gripS) * 0.22;
+  h.trail.push({x:x, y:y});
+  while (h.trail.length > 12) h.trail.shift();
+  checkStrike(h, t);
+  return true;
+}
+// MediaPipe does not promise a stable order between frames, so the two
+// hands are matched to the slot they are actually nearest to. Without this
+// the slots swap under you and both hands read as teleporting — which the
+// jump guard then correctly treats as a re-acquisition, killing the tension
+// reading and the strike arming several times a second.
+function palmOf(c){
+  var ids=[0,5,9,13,17], cx=0, cy=0;
+  for (var i=0;i<ids.length;i++){
+    var p = c[ids[i]];
+    if (!p) return null;
+    cx += p.x; cy += p.y;
+  }
+  cx /= ids.length; cy /= ids.length;
+  if (!isFinite(cx) || !isFinite(cy)) return null;
+  return { x: mirror ? (1-cx) : cx, y: cy };
+}
+function onHands(res){
+  var list = (res && res.multiHandLandmarks) ? res.multiHandLandmarks : [];
+  var t = now(), i;
+  var found = [];
+  for (i=0;i<list.length && found.length<2;i++){
+    var c = validLm(list[i]);
+    if (!c) continue;
+    var pm = palmOf(c);
+    if (!pm) continue;
+    found.push({ c:c, p:pm });
+  }
+  var order = [0,1];
+  if (found.length === 2 && Hs[0].live && Hs[1].live){
+    var same = Math.hypot(found[0].p.x-Hs[0].x, found[0].p.y-Hs[0].y) +
+               Math.hypot(found[1].p.x-Hs[1].x, found[1].p.y-Hs[1].y);
+    var swap = Math.hypot(found[0].p.x-Hs[1].x, found[0].p.y-Hs[1].y) +
+               Math.hypot(found[1].p.x-Hs[0].x, found[1].p.y-Hs[0].y);
+    if (swap < same) order = [1,0];
+  } else if (found.length === 1){
+    // one hand: give it to whichever slot it is nearer, so a hand that
+    // briefly vanishes comes back to its own slot and keeps its grip
+    var d0 = Hs[0].live ? Math.hypot(found[0].p.x-Hs[0].x, found[0].p.y-Hs[0].y) : 9;
+    var d1 = Hs[1].live ? Math.hypot(found[0].p.x-Hs[1].x, found[0].p.y-Hs[1].y) : 9;
+    order = (Hs[1].live && d1 < d0) ? [1,0] : [0,1];
+  }
+  var used = [false,false];
+  for (i=0;i<found.length;i++){
+    var slot = order[i];
+    if (used[slot]) slot = 1-slot;
+    used[slot] = true;
+    readHand(found[i].c, Hs[slot], t);
+  }
+  for (i=0;i<2;i++) if (!used[i] && Hs[i].live && (t - Hs[i].t) > LOST_MS) loseHand(Hs[i]);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  THE STRIKE
+// ═══════════════════════════════════════════════════════════════════════
+var lastStrokeT = -1e9, lastStroke = '';
+function planeY(){ return (DY - R*0.34)/H; }
+
+function checkStrike(h, t){
+  // monotonic run first
+  var d = (h.vy > 0) ? 1 : (h.vy < 0 ? -1 : h.runDir);
+  if (d !== h.runDir){ h.runDir = d; h.run = 0; }
+  var st = Math.abs(h.y - h.py);
+  if (isFinite(st)) h.run += st;
+
+  var pl = planeY();
+  var prev = h.side;
+  if (h.y > pl + HIT_DEAD) h.side = 1;
+  else if (h.y < pl - HIT_DEAD) h.side = -1;
+  if (!(prev === -1 && h.side === 1)) return;   // must cross downward
+  if (!h.armed) return;
+  if (t - h.lastHit < HIT_COOL) return;
+  if (h.run < HIT_RUN) return;
+  if (h.runDir !== 1) return;
+  if (h.vy < HIT_MIN) return;
+  if (h.vy < Math.abs(h.vx) * 0.85) return;     // a strike, not a wipe across
+
+  // where on the skin
+  var den = (h.y - h.py), xa = h.x;
+  if (isFinite(den) && Math.abs(den) > 1e-6){
+    var f = clamp((pl - h.py)/den, 0, 1);
+    var ix = h.px + (h.x - h.px)*f;
+    if (isFinite(ix)) xa = ix;
+  }
+  var rr = Math.abs(xa*W - DX)/R;
+  if (!isFinite(rr) || rr > 1.15) return;        // swung past the drum entirely
+
+  h.lastHit = t; h.run = 0;
+  fire(clamp(rr,0,1), clamp((h.vy - HIT_MIN)/2.6, 0, 1), xa, t);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  MEMBRANE STATE — the modes that are actually ringing right now. The
+//  synth and the drawing read the same array.
+// ═══════════════════════════════════════════════════════════════════════
+var modeAmp = new Float32Array(MODES.length);
+var modePh  = new Float32Array(MODES.length);
+var modeDec = new Float32Array(MODES.length);
+var hitTheta = 0, ripples = [], dust = [], ledger = [], hitCount = 0;
+var flash = 0, skinPush = 0;
+var tension = 0, tensionS = 0, step = 0, stepHold = 0;
+
+function currentF0(){
+  var T = TUNINGS[tuneIdx];
+  return T.tonic * Math.pow(2, SCALE[step]/12);
+}
+function skinBaseFreq(){
+  // the cords tighten the skin as well as raising the note
+  return currentF0() * (1.32 + 0.30*tensionS);
+}
+function fire(r, vel, xa, t){
+  var f0 = currentF0(), sb = skinBaseFreq();
+  strike(r, vel, f0, sb);
+  hitTheta = (xa*W < DX) ? Math.PI : 0;
+  for (var i=0;i<MODES.length;i++){
+    var a = Math.abs(lutAt(i, clamp(r,0,0.86))) * MODES[i].w * (0.30 + 0.85*vel);
+    modeAmp[i] = clamp(modeAmp[i]*0.35 + a, 0, 1.6);
+    modePh[i] = 0;
+    modeDec[i] = MODES[i].dec * (0.72 + 0.55*(1-r));
+  }
+  hitCount++;
+  ripples.push({ r:r, x:xa*W, t:0, vel:vel });
+  while (ripples.length > 7) ripples.shift();
+  var n = Math.round(7 + 20*vel);
+  for (i=0;i<n;i++){
+    var ang = Math.random()*6.2832;
+    dust.push({ x: DX + (xa*W-DX)*0.9, y: DY - RY*0.1,
+                vx: Math.cos(ang)*(40+220*vel)*S, vy: -(30+240*vel)*S*Math.random()-20*S,
+                life:0, max:0.7+Math.random()*0.8, r:(0.9+Math.random()*2.1)*S });
+  }
+  while (dust.length > 200) dust.shift();
+  flash = Math.max(flash, 0.35 + 0.6*vel);
+  skinPush = Math.max(skinPush, 0.5 + 0.5*vel);
+
+  var name = (r < 0.30) ? 'ポ ン' : (r < 0.58) ? 'プ' : (r < 0.82) ? 'タ' : 'チ';
+  lastStroke = name; lastStrokeT = t;
+  strokeEl.textContent = name;
+  strokeEl.classList.add('on');
+  ledger.push({ step:step, r:r, vel:vel, t:t });
+  while (ledger.length > 14) ledger.shift();
+  drawLedger();
+}
+function drawLedger(){
+  var html = '';
+  for (var i=0;i<ledger.length;i++){
+    var e = ledger[i];
+    var hgt = Math.round(5 + e.step*4);
+    var op = (0.28 + 0.72*(i+1)/ledger.length).toFixed(2);
+    var col = e.r < 0.42 ? '#c9a227' : '#c1502e';
+    html += '<span style="display:inline-block;width:4px;height:' + hgt +
+            'px;background:' + col + ';opacity:' + op + '"></span>';
+  }
+  ledgerEl.innerHTML = html;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  TENSION — read from the calmer hand, so with two hands one holds the
+//  pitch while the other strikes, and with one hand a fist is simply a
+//  higher note than an open palm. Quantized to the scale with hysteresis
+//  so the pitch never flutters between two degrees.
+// ═══════════════════════════════════════════════════════════════════════
+function updateTension(dt){
+  var a = Hs[0], b = Hs[1], src = null;
+  if (a.live && b.live) src = (Math.abs(a.vy) <= Math.abs(b.vy)) ? a : b;
+  else if (a.live) src = a;
+  else if (b.live) src = b;
+  if (src) tension = src.gripS;
+  tensionS += (tension - tensionS) * clamp(dt*6.5, 0, 1);
+  var raw = tensionS * (SCALE.length - 1);
+  if (raw > step + 0.62) step = Math.min(SCALE.length-1, step+1);
+  else if (raw < step - 0.62) step = Math.max(0, step-1);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  DRAW
+// ═══════════════════════════════════════════════════════════════════════
+function skinDisp(u, th){
+  // the actual standing wave: sum of the ringing modes at radius u, angle th
+  var s = 0;
+  for (var i=0;i<MODES.length;i++){
+    var a = modeAmp[i];
+    if (a < 0.004) continue;
+    var ang = MODES[i].m ? Math.cos(MODES[i].m*(th - hitTheta)) : 1;
+    s += a * lutAt(i, u) * ang * Math.cos(modePh[i]);
+  }
+  return s;
+}
+function drawDrum(t){
+  var i, k;
+  // cords: two hanging ropes from the rim, tightening visibly with tension
+  var slack = (1 - tensionS);
+  ctx.strokeStyle = C_SHU; ctx.lineCap='round';
+  for (i=-1;i<=1;i+=2){
+    var ax = DX + i*R*0.92, ay = DY;
+    var bxp = DX + i*R*0.52, byp = DY + R*1.15;
+    ctx.lineWidth = Math.max(1.6, (4.2 - 1.6*tensionS)*S);
+    ctx.beginPath();
+    ctx.moveTo(ax, ay);
+    ctx.quadraticCurveTo(ax + i*R*0.10*slack + i*R*0.02, DY + R*0.62 + R*0.24*slack, bxp, byp);
+    ctx.stroke();
+  }
+  ctx.lineCap='butt';
+
+  // the body: a lacquered hourglass seen edge on
+  ctx.save();
+  var bg = ctx.createLinearGradient(DX-R, 0, DX+R, 0);
+  bg.addColorStop(0,'#0d0a09'); bg.addColorStop(0.34,'#2b211a');
+  bg.addColorStop(0.55,'#181210'); bg.addColorStop(1,'#0a0807');
+  ctx.fillStyle = bg;
+  ctx.beginPath();
+  ctx.moveTo(DX-R*0.92, DY);
+  ctx.bezierCurveTo(DX-R*0.42, DY+R*0.44, DX-R*0.42, DY+R*0.72, DX-R*0.86, DY+R*1.16);
+  ctx.lineTo(DX+R*0.86, DY+R*1.16);
+  ctx.bezierCurveTo(DX+R*0.42, DY+R*0.72, DX+R*0.42, DY+R*0.44, DX+R*0.92, DY);
+  ctx.closePath(); ctx.fill();
+  ctx.restore();
+
+  // the skin
+  ctx.save();
+  ctx.beginPath(); ctx.ellipse(DX, DY, R, RY, 0, 0, 6.2832);
+  var sg = ctx.createRadialGradient(DX - R*0.28, DY - RY*0.34, R*0.05, DX, DY, R);
+  sg.addColorStop(0,'#f3ecd9'); sg.addColorStop(0.62,'#ddd2b8'); sg.addColorStop(1,'#a89b7d');
+  ctx.fillStyle = sg; ctx.fill();
+  ctx.clip();
+
+  // ── the standing waves. This is the signature: what you hear, drawn.
+  var rings = 26, spokes = 44;
+  for (k=1;k<=rings;k++){
+    var u = k/rings;
+    ctx.beginPath();
+    for (i=0;i<=spokes;i++){
+      var th = i/spokes*6.2832;
+      var dsp = skinDisp(u, th);
+      var rr = u * (1 + dsp*0.055);
+      var px = DX + Math.cos(th)*R*rr;
+      var py = DY + Math.sin(th)*RY*rr + dsp*RY*0.10;
+      if (i===0) ctx.moveTo(px,py); else ctx.lineTo(px,py);
+    }
+    ctx.closePath();
+    var d0 = skinDisp(u, 0);
+    var a = clamp(Math.abs(d0)*0.55, 0, 0.5);
+    ctx.strokeStyle = d0 > 0 ? 'rgba(255,246,222,' + (0.045 + a) + ')'
+                             : 'rgba(60,44,30,' + (0.055 + a) + ')';
+    ctx.lineWidth = Math.max(0.8, (1.0 + 2.4*a)*S);
+    ctx.stroke();
+  }
+  // 波紋 from each strike
+  for (i=0;i<ripples.length;i++){
+    var rp = ripples[i];
+    var pr = rp.t/0.85;
+    if (pr > 1) continue;
+    var rad = outQuint(pr)*R*1.25;
+    ctx.beginPath();
+    ctx.ellipse(rp.x, DY, rad, rad*(RY/R), 0, 0, 6.2832);
+    ctx.strokeStyle = 'rgba(255,240,205,' + clamp((1-pr)*0.5*rp.vel + (1-pr)*0.12, 0, 0.6) + ')';
+    ctx.lineWidth = Math.max(1, (1 + 3.5*(1-pr))*S);
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  // rim: gold, and the 調べ緒 lacing around it
+  ctx.beginPath(); ctx.ellipse(DX, DY, R, RY, 0, 0, 6.2832);
+  ctx.strokeStyle = C_KIN; ctx.lineWidth = Math.max(2, 4.5*S); ctx.stroke();
+  ctx.strokeStyle = 'rgba(20,16,14,.6)'; ctx.lineWidth = Math.max(1,1.4*S); ctx.stroke();
+  for (i=0;i<28;i++){
+    var a2 = i/28*6.2832;
+    var x1 = DX + Math.cos(a2)*R*0.995, y1 = DY + Math.sin(a2)*RY*0.995;
+    var x2 = DX + Math.cos(a2)*R*1.055, y2 = DY + Math.sin(a2)*RY*1.055;
+    ctx.strokeStyle = 'rgba(193,80,46,' + (0.30 + 0.45*tensionS) + ')';
+    ctx.lineWidth = Math.max(1, 1.8*S);
+    ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+  }
+
+  // the strike plane, shown only faintly, and only while a hand is up
+  var anyUp = (Hs[0].live && Hs[0].y < planeY()) || (Hs[1].live && Hs[1].y < planeY());
+  if (anyUp){
+    var py2 = planeY()*H;
+    ctx.strokeStyle = 'rgba(201,162,39,.16)';
+    ctx.setLineDash([3*S, 9*S]); ctx.lineWidth = Math.max(1,1.2*S);
+    ctx.beginPath(); ctx.moveTo(DX-R*1.05, py2); ctx.lineTo(DX+R*1.05, py2); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+}
+
+function drawHands(){
+  var i, k;
+  for (k=0;k<2;k++){
+    var h = Hs[k];
+    if (!h.live) continue;
+    var hx = h.x*W, hy = h.y*H;
+    // trail
+    if (h.trail.length > 1){
+      ctx.lineCap='round';
+      for (i=1;i<h.trail.length;i++){
+        var a = h.trail[i-1], b = h.trail[i], f = i/h.trail.length;
+        ctx.strokeStyle = 'rgba(237,228,208,' + (0.03 + 0.16*f) + ')';
+        ctx.lineWidth = (1 + 9*f)*S;
+        ctx.beginPath(); ctx.moveTo(a.x*W, a.y*H); ctx.lineTo(b.x*W, b.y*H); ctx.stroke();
+      }
+      ctx.lineCap='butt';
+    }
+    // the hand: an open ring when open, a filled dot when gripped
+    var g = h.gripS;
+    var rad = lerp(30, 12, g)*S;
+    ctx.beginPath(); ctx.arc(hx, hy, rad, 0, 6.2832);
+    ctx.fillStyle = 'rgba(193,80,46,' + (0.10 + 0.55*g) + ')';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(237,228,208,' + (0.30 + 0.45*(1-g)) + ')';
+    ctx.lineWidth = Math.max(1.2, (1.4 + 1.6*(1-g))*S);
+    ctx.stroke();
+    // the fingers, as five short marks that draw in as the hand opens
+    for (i=0;i<5;i++){
+      var an = -1.9 + i*0.62;
+      var l0 = rad*1.15, l1 = rad*(1.15 + 1.5*(1-g));
+      ctx.strokeStyle = 'rgba(237,228,208,' + (0.10 + 0.34*(1-g)) + ')';
+      ctx.lineWidth = Math.max(1, 1.6*S);
+      ctx.beginPath();
+      ctx.moveTo(hx+Math.cos(an)*l0, hy+Math.sin(an)*l0);
+      ctx.lineTo(hx+Math.cos(an)*l1, hy+Math.sin(an)*l1);
+      ctx.stroke();
+    }
+  }
+}
+
+function render(t, dt){
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  ctx.clearRect(0,0,W,H);
+  if (panel.width > 1) ctx.drawImage(panel, 0, 0, W, H);
+
+  // the player, dyed into the panel very faintly — present, not a window
+  if (camOK && video.readyState >= 2 && video.videoWidth > 0){
+    try {
+      cctx.setTransform(1,0,0,1,0,0);
+      cctx.filter = 'grayscale(1) contrast(1.3)';
+      if (mirror) cctx.setTransform(-1,0,0,1,camS.width,0);
+      cctx.drawImage(video, 0, 0, camS.width, camS.height);
+      cctx.setTransform(1,0,0,1,0,0); cctx.filter = 'none';
+      ctx.save();
+      ctx.globalCompositeOperation = 'screen';
+      ctx.globalAlpha = 0.13;
+      var vr = video.videoWidth/video.videoHeight, cr = W/H, dw, dh;
+      if (vr > cr){ dh = H; dw = H*vr; } else { dw = W; dh = W/vr; }
+      ctx.drawImage(camS, (W-dw)/2, (H-dh)/2, dw, dh);
+      ctx.restore();
+    } catch(e){}
+  }
+
+  ctx.save();
+  ctx.translate(0, -skinPush*4*S);
+  drawDrum(t);
+  ctx.restore();
+
+  // gold dust
+  for (var i=0;i<dust.length;i++){
+    var p = dust[i];
+    var a = 1 - p.life/p.max;
+    ctx.globalAlpha = clamp(a*a, 0, 1);
+    ctx.fillStyle = C_KIN;
+    ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, 6.2832); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+
+  drawHands();
+
+  if (flash > 0.01){
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    var fg = ctx.createRadialGradient(DX, DY, 0, DX, DY, R*2.1);
+    fg.addColorStop(0,'rgba(255,236,186,' + clamp(flash*0.20,0,0.4) + ')');
+    fg.addColorStop(1,'rgba(255,214,130,0)');
+    ctx.fillStyle = fg; ctx.fillRect(0,0,W,H);
+    ctx.restore();
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  START-SHEET DEMO
+// ═══════════════════════════════════════════════════════════════════════
+var demoT = 0;
+function drawDemo(dt){
+  var w = demoCv.width, h = demoCv.height;
+  demoT = (demoT + dt) % 3.4;
+  var p = demoT;
+  dctx.setTransform(1,0,0,1,0,0);
+  dctx.fillStyle = '#14100e'; dctx.fillRect(0,0,w,h);
+
+  var dx = w*0.60, dy = h*0.60, r = h*0.30, ry = r*0.62;
+  // grip hand on the left — opens and closes over the loop
+  var grip = 0.5 - 0.5*Math.cos(p/3.4*6.2832*2);
+  var gx = w*0.20, gy = h*0.52;
+  dctx.beginPath(); dctx.arc(gx, gy, 15 + 14*(1-grip), 0, 6.2832);
+  dctx.fillStyle = 'rgba(193,80,46,' + (0.10+0.55*grip) + ')'; dctx.fill();
+  dctx.strokeStyle = 'rgba(237,228,208,.55)'; dctx.lineWidth = 2; dctx.stroke();
+  dctx.fillStyle = '#6b7a5e'; dctx.font = '13px "Shippori Mincho", serif';
+  dctx.textAlign = 'center';
+  dctx.fillText(grip > 0.55 ? '締める' : 'ゆるめる', gx, h*0.84);
+
+  // the drum
+  dctx.beginPath(); dctx.ellipse(dx, dy, r, ry, 0, 0, 6.2832);
+  dctx.fillStyle = '#ddd2b8'; dctx.fill();
+  dctx.strokeStyle = '#c9a227'; dctx.lineWidth = 3; dctx.stroke();
+
+  // the strike: falls, lands, ripples
+  var cyc = p % 1.7;
+  var fall = clamp(cyc/0.42, 0, 1);
+  var hy2 = lerp(h*0.05, dy - ry*0.34, outQuint(fall));
+  var hx2 = dx + (p < 1.7 ? 0 : r*0.72);
+  if (cyc < 0.44){
+    dctx.beginPath(); dctx.arc(hx2, hy2, 17, 0, 6.2832);
+    dctx.strokeStyle = '#ede4d0'; dctx.lineWidth = 2.5; dctx.stroke();
+    dctx.strokeStyle = 'rgba(237,228,208,.22)'; dctx.lineWidth = 9;
+    dctx.beginPath(); dctx.moveTo(hx2, Math.max(h*0.05, hy2-52)); dctx.lineTo(hx2, hy2); dctx.stroke();
+  } else {
+    var rt = (cyc-0.44)/0.9;
+    if (rt < 1){
+      dctx.beginPath();
+      dctx.ellipse(hx2, dy, outQuint(rt)*r*1.15, outQuint(rt)*ry*1.15, 0, 0, 6.2832);
+      dctx.strokeStyle = 'rgba(255,240,205,' + (0.75*(1-rt)) + ')';
+      dctx.lineWidth = 2 + 3*(1-rt); dctx.stroke();
+    }
+    dctx.fillStyle = '#c1502e'; dctx.font = '600 17px "Shippori Mincho", serif';
+    dctx.globalAlpha = clamp(1.6-rt*2, 0, 1);
+    dctx.fillText(p < 1.7 ? 'ポン' : 'チ', hx2, dy - ry - 16);
+    dctx.globalAlpha = 1;
+  }
+  dctx.fillStyle = '#6b7a5e'; dctx.font = '13px "Shippori Mincho", serif';
+  dctx.fillText('打つ', dx, h*0.97);
+  dctx.textAlign = 'start';
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  LOOP
+// ═══════════════════════════════════════════════════════════════════════
+var lastT = now(), tipMsg = '', lastNote = '';
+function tick(){
+  var t = now();
+  var dt = clamp((t-lastT)/1000, 0, 0.05);
+  lastT = t;
+
+  var i;
+  for (i=0;i<2;i++) if (Hs[i].live && (t - Hs[i].t) > LOST_MS) loseHand(Hs[i]);
+
+  if (!started){ drawDemo(dt); requestAnimationFrame(tick); return; }
+
+  updateTension(dt);
+
+  // the ringing modes decay, and their phase advances at the beat rate
+  // between neighbouring modes so the drawn wave actually moves
+  for (i=0;i<MODES.length;i++){
+    if (modeAmp[i] > 0.0005){
+      modeAmp[i] *= Math.pow(0.02, dt/Math.max(0.05, modeDec[i]));
+      modePh[i] += dt * (5.5 + i*3.1);
+      if (modeAmp[i] < 0.0005) modeAmp[i] = 0;
+    }
+  }
+  for (i=ripples.length-1;i>=0;i--){
+    ripples[i].t += dt;
+    if (ripples[i].t > 0.9) ripples.splice(i,1);
+  }
+  for (i=dust.length-1;i>=0;i--){
+    var p = dust[i];
+    p.vy += 620*S*dt; p.x += p.vx*dt; p.y += p.vy*dt;
+    p.vx *= (1 - clamp(1.6*dt,0,0.5));
+    p.life += dt;
+    if (p.life > p.max) dust.splice(i,1);
+  }
+  flash *= Math.pow(0.004, dt);
+  skinPush *= Math.pow(0.001, dt);
+
+  render(t, dt);
+
+  // HUD
+  var nm = TUNINGS[tuneIdx].names[step];
+  if (nm !== lastNote){
+    lastNote = nm;
+    noteEl.innerHTML = nm + '<span class="cents" id="tuneEl">' +
+                       TUNINGS[tuneIdx].label + '</span>';
+  }
+  if (t - lastStrokeT > 900) strokeEl.classList.remove('on');
+  var m;
+  if (!Hs[0].live && !Hs[1].live) m = '手をカメラに写してください';
+  else if (t - lastStrokeT < 2200) m = (Hs[0].live && Hs[1].live)
+      ? 'もう一方の手を握ると 音が上がる' : 'もう一方の手も 写すと 音を保てる';
+  else m = '上から 振り下ろす';
+  if (m !== tipMsg){ tipMsg = m; tipEl.textContent = m; }
+  tipEl.classList.toggle('dim', t - lastStrokeT < 1400);
+
+  requestAnimationFrame(tick);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  CONTROLS / BOOT
+// ═══════════════════════════════════════════════════════════════════════
+tuneBtn.addEventListener('click', function(){
+  tuneIdx = (tuneIdx+1) % TUNINGS.length;
+  tuneLbl.textContent = TUNINGS[tuneIdx].key;
+  lastNote = '';
+});
+sndBtn.addEventListener('click', function(){
+  sound = !sound; sndLbl.textContent = sound ? 'ON' : 'OFF';
+  if (sound) initAudio();
+});
+goBtn.addEventListener('click', function(){
+  if (started) return;
+  started = true;
+  initAudio();
+  startSh.classList.add('off');
+  startStream().then(function(){
+    if (initHands()) startMpCamera();
+  }).catch(showError);
+});
+
+tuneLbl.textContent = TUNINGS[tuneIdx].key;
+layout();
+requestAnimationFrame(tick);
+
+// exposed for the headless harness
+window.__tsuzumi = {
+  state:function(){ return { started:started, step:step, tension:tensionS,
+                             note:TUNINGS[tuneIdx].names[step], tune:tuneIdx,
+                             ripples:ripples.length, ledger:ledger.length, hits:hitCount,
+                             modes:Array.prototype.slice.call(modeAmp) }; },
+  feed:onHands, hands:Hs, lose:loseAll, modes:MODES, bessel:besselJ, lut:lutAt,
+  planeY:planeY, geom:function(){ return {W:W,H:H,DX:DX,DY:DY,R:R,RY:RY}; },
+  f0:currentF0, skin:skinBaseFreq
+};
+
+})();
+</script>
+</body>
+</html>
