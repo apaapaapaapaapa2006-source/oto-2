@@ -1,0 +1,1016 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>AMAMADO ─ 雨の窓</title>
+<meta name="description" content="カメラ映像が曇った窓の外になる。粒のひとつひとつが本物のレンズで、中だけ景色が広く逆さに映り、そこだけが澄んでいる。手のひらで拭えば曇りが晴れ、重くなった粒は自分の重さで流れ落ちて濡れた筋を残す。">
+<meta name="theme-color" content="#e8ecea">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@300;500&family=Space+Grotesk:wght@300;400&display=swap" rel="stylesheet">
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  AMAMADO ─ 雨の窓                              ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  PALETTE   曇   kumori   #e8ecea  the fogged pane — the ground of the piece
+            水浅葱 mizuasagi #a7c4bc  wet glass where it has been cleared
+            鉛   namari   #7d8a8c  the frame, the muntins, all secondary type
+            藍鼠 ainezu   #55666e  the primary type and the sill's shadow
+            錆浅葱 sabiasagi #6e8f8a  the one accent, used only on the drops
+            MOOD: an overcast afternoon indoors, looking out. Deliberately
+            HIGH-KEY — the collection is heavy with night and ink, and this
+            is the pale end of it. Nothing in this piece is ever darker than
+            the frame, and the frame is a soft grey-green, not black.
+  BACKGROUND  There is no background: the camera IS the view, seen through
+            the glass. What is drawn over it is the window — a frame, two
+            muntins, and a sill along the bottom where the run-off pools.
+  TYPE      Zen Kaku Gothic New Light for the Japanese, wide-tracked, and
+            Space Grotesk Light for the Latin and the numbers. A cool
+            geometric grotesque: the third and last typographic voice of the
+            night, against a marker hand and a 明朝.
+  MOTION    Floaty and slow. Fog builds and clears over seconds, UI cross
+            fades take half a second, nothing snaps. The only fast movement
+            in the piece is a drop letting go and running — and that is
+            gravity, not an ease.
+  SIGNATURE Every drop is a real lens. The pass samples the source at
+            center - (p-center)*k, so each drop shows a WIDE, INVERTED view
+            of the world behind it — which is what water on glass actually
+            does — and it is the only sharp thing on a fogged pane. Drops
+            grow by condensation, merge by volume when they touch, and once
+            heavy enough run down under their own weight, carving a clear
+            trail that stays clear and then slowly fogs over again. The
+            window remembers where the rain ran.
+  ── performance ───────────────────────────────────────────────────────────
+  Everything happens on ONE reused ImageData at a fixed internal pixel
+  budget (~78k px), upscaled to the display. The drop field is rasterized
+  only inside each drop's bounding box, so its cost is the total AREA of
+  the drops, not pixels × drops. The fogged look is a bilinear read from a
+  quarter-res box-downsample built once per frame, never a per-pixel blur.
+  No array is allocated inside the frame loop.
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<style>
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;padding:0;height:100%;overflow:hidden;background:#e8ecea}
+  body{
+    font-family:'Zen Kaku Gothic New','Hiragino Sans',sans-serif;font-weight:300;
+    color:#55666e;-webkit-user-select:none;user-select:none;touch-action:none;
+  }
+  #view{position:fixed;inset:0;width:100%;height:100%;display:block}
+  #video{position:fixed;width:2px;height:2px;opacity:0;pointer-events:none;left:-10px;top:-10px}
+
+  .hud{position:fixed;inset:0;pointer-events:none;display:flex;flex-direction:column;
+       padding:calc(14px + env(safe-area-inset-top)) 16px 16px}
+  .row{display:flex;align-items:flex-start;gap:12px}
+  .plate{
+    background:rgba(255,255,255,.5);
+    backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);
+    border:1px solid rgba(125,138,140,.28);border-radius:2px;padding:7px 12px 8px;
+  }
+  .mode{font-size:15px;letter-spacing:.34em;color:#55666e;font-weight:500}
+  .modeEn{font-family:'Space Grotesk',sans-serif;font-size:9.5px;letter-spacing:.3em;
+          color:#7d8a8c;margin-top:3px}
+  .meter{margin-top:7px;width:88px;height:2px;background:rgba(125,138,140,.25);position:relative}
+  .meter i{position:absolute;inset:0 auto 0 0;background:#6e8f8a;
+           transition:width .5s cubic-bezier(.22,1,.36,1)}
+  .meterLbl{font-family:'Space Grotesk',sans-serif;font-size:9px;letter-spacing:.22em;
+            color:#7d8a8c;margin-top:5px}
+  .sp{flex:1}
+  .btns{display:flex;flex-direction:column;gap:7px;align-items:flex-end;pointer-events:auto}
+  button.tb{
+    font-family:'Zen Kaku Gothic New',sans-serif;font-weight:300;font-size:12px;color:#55666e;
+    background:rgba(255,255,255,.62);border:1px solid rgba(125,138,140,.34);
+    border-radius:2px;padding:7px 11px;cursor:pointer;letter-spacing:.14em;
+    transition:background .45s ease,color .45s ease;
+  }
+  button.tb:active{background:rgba(110,143,138,.28)}
+  button.tb .val{color:#6e8f8a;margin-left:7px}
+  .foot{margin-top:auto;display:flex;justify-content:center}
+  .tip{font-size:12px;letter-spacing:.2em;color:#55666e;
+       background:rgba(255,255,255,.5);padding:5px 14px;border-radius:2px;
+       transition:opacity .6s ease}
+  .tip.dim{opacity:0}
+
+  .sheet{
+    position:fixed;inset:0;z-index:20;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;gap:16px;padding:24px;
+    background:#e8ecea;transition:opacity .6s ease,visibility .6s;
+  }
+  .sheet.off{opacity:0;visibility:hidden;pointer-events:none}
+  .sheet h1{margin:0;font-family:'Space Grotesk',sans-serif;font-weight:300;
+            font-size:clamp(32px,10vw,54px);letter-spacing:.24em;color:#55666e;
+            text-indent:.24em}
+  .sheet .jp{margin:-4px 0 0;font-size:12px;letter-spacing:.6em;color:#7d8a8c;text-indent:.6em}
+  .rule{width:min(280px,68vw);height:1px;background:rgba(125,138,140,.4)}
+  #demo{width:min(300px,82vw);height:auto;aspect-ratio:300/170;display:block;
+        border:1px solid rgba(125,138,140,.3);border-radius:2px}
+  .sheet p{margin:0;font-size:13px;line-height:2.1;text-align:center;color:#7d8a8c;
+           max-width:min(350px,88vw);letter-spacing:.05em}
+  .sheet p b{color:#55666e;font-weight:500}
+  .go{
+    font-family:'Zen Kaku Gothic New',sans-serif;font-weight:500;font-size:14px;
+    letter-spacing:.46em;text-indent:.46em;color:#f4f7f6;background:#6e8f8a;
+    border:0;border-radius:2px;padding:14px 40px;cursor:pointer;margin-top:4px;
+    transition:transform .55s cubic-bezier(.22,1,.36,1),background .45s;
+  }
+  .go:active{transform:scale(.97);background:#55666e}
+  #err{
+    position:fixed;left:16px;right:16px;bottom:18px;z-index:40;display:none;
+    white-space:pre-line;font-size:12.5px;line-height:1.8;color:#f4f7f6;
+    background:rgba(85,102,110,.97);border:1px solid #6e8f8a;padding:13px 15px;
+  }
+  @media (orientation:landscape) and (max-height:520px){
+    .sheet{gap:9px;padding:12px} #demo{width:min(240px,38vw)}
+    .sheet p{font-size:11.5px;line-height:1.7}
+  }
+</style>
+</head>
+<body>
+
+<canvas id="view"></canvas>
+<video id="video" playsinline muted autoplay></video>
+
+<div class="hud">
+  <div class="row">
+    <div class="plate">
+      <div class="mode" id="modeEl">霧雨</div>
+      <div class="modeEn" id="modeEnEl">DRIZZLE</div>
+      <div class="meter"><i id="fogBar" style="width:0%"></i></div>
+      <div class="meterLbl" id="fogLbl">CONDENSATION 0%</div>
+    </div>
+    <div class="sp"></div>
+    <div class="btns">
+      <button class="tb" id="modeBtn" type="button">雨<span class="val" id="modeLbl">霧</span></button>
+      <button class="tb" id="flipBtn" type="button">⟲ カメラ</button>
+      <button class="tb" id="sndBtn" type="button">音<span class="val" id="sndLbl">ON</span></button>
+    </div>
+  </div>
+  <div class="foot"><div class="tip" id="tipEl">手をカメラに写してください</div></div>
+</div>
+
+<div class="sheet" id="start">
+  <h1>AMAMADO</h1>
+  <p class="jp">雨 の 窓</p>
+  <div class="rule"></div>
+  <canvas id="demo" width="600" height="340"></canvas>
+  <p>窓が曇っていく。<br>
+     <b>手のひらで拭う</b>と、そこだけ晴れる。<br>
+     粒はひとつずつレンズで、重くなると流れ落ちる。</p>
+  <button class="go" id="go" type="button">窓 を 開 く</button>
+</div>
+
+<div id="err"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+<script>
+(function(){
+'use strict';
+
+// ═══════════════════════════════════════════════════════════════════════
+//  DOM
+// ═══════════════════════════════════════════════════════════════════════
+var cv      = document.getElementById('view');
+var ctx     = cv.getContext('2d');
+var video   = document.getElementById('video');
+var errBox  = document.getElementById('err');
+var startSh = document.getElementById('start');
+var goBtn   = document.getElementById('go');
+var flipBtn = document.getElementById('flipBtn');
+var sndBtn  = document.getElementById('sndBtn');
+var sndLbl  = document.getElementById('sndLbl');
+var modeBtn = document.getElementById('modeBtn');
+var modeLbl = document.getElementById('modeLbl');
+var modeEl  = document.getElementById('modeEl');
+var modeEnEl= document.getElementById('modeEnEl');
+var fogBar  = document.getElementById('fogBar');
+var fogLbl  = document.getElementById('fogLbl');
+var tipEl   = document.getElementById('tipEl');
+var demoCv  = document.getElementById('demo');
+var dctx    = demoCv.getContext('2d');
+
+function now(){
+  return (typeof performance !== 'undefined' && performance.now)
+    ? performance.now() : Date.now();
+}
+function clamp(v,a,b){ return v<a?a:(v>b?b:v); }
+function lerp(a,b,t){ return a+(b-a)*t; }
+
+// ═══════════════════════════════════════════════════════════════════════
+//  MODES
+// ═══════════════════════════════════════════════════════════════════════
+var MODES = [
+  { jp:'霧雨', en:'DRIZZLE', key:'霧',
+    spawn:46, rMin:0.7, rMax:3.4, grow:0.58, slideR:4.6, fogRate:0.22, fogMax:1.00, rainGrow:0.00,
+    lens:1.55, gust:0.55, rain:0.34 },
+  { jp:'夕立', en:'DOWNPOUR', key:'立',
+    spawn:26, rMin:1.4, rMax:6.5, grow:1.35, slideR:4.0, fogRate:0.13, fogMax:0.72, rainGrow:0.40,
+    lens:1.95, gust:1.00, rain:0.72 },
+  { jp:'硝子', en:'BARE GLASS', key:'硝',
+    spawn:40, rMin:1.8, rMax:7.5, grow:0.72, slideR:5.0, fogRate:0.00, fogMax:0.00, rainGrow:1.05,
+    lens:2.25, gust:0.30, rain:0.16 }
+];
+var mode = 0;
+
+// ═══════════════════════════════════════════════════════════════════════
+//  BUFFERS — allocated on resize only. Nothing here is ever reallocated
+//  inside the frame loop.
+// ═══════════════════════════════════════════════════════════════════════
+var W=1,H=1,S=1,DPR=1;
+var IW=0, IH=0, BW=0, BH=0;
+var PIXEL_BUDGET = 62000;
+var capCv = document.createElement('canvas'), capCtx = capCv.getContext('2d');
+var outCv = document.createElement('canvas'), outCtx = outCv.getContext('2d');
+var srcImg=null, outImg=null, src=null, out=null;
+var blurBuf=null, fog=null, dxA=null, dyA=null, shade=null, mask=null, grain=null;
+
+function allocate(iw, ih){
+  IW = iw; IH = ih;
+  BW = Math.max(1, IW >> 2); BH = Math.max(1, IH >> 2);
+  capCv.width = IW; capCv.height = IH;
+  outCv.width = IW; outCv.height = IH;
+  outImg = outCtx.createImageData(IW, IH);
+  out = outImg.data;
+  srcImg = null; src = null;
+  var n = IW*IH;
+  blurBuf = new Float32Array(BW*BH*3);
+  fog     = new Float32Array(n);
+  dxA     = new Int16Array(n);
+  dyA     = new Int16Array(n);
+  shade   = new Uint8Array(n);
+  mask    = new Uint8Array(n);
+  grain   = new Uint8Array(n);
+  for (var i=0;i<n;i++) grain[i] = 200 + ((Math.random()*56)|0);
+  // start with the pane already misted, so there is something to wipe
+  var f0 = MODES[mode].fogMax * 0.72;
+  for (i=0;i<n;i++) fog[i] = f0;
+  drops.length = 0;
+}
+function layout(){
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  var w = window.innerWidth, h = window.innerHeight;
+  cv.width = Math.max(2, Math.round(w*DPR));
+  cv.height = Math.max(2, Math.round(h*DPR));
+  cv.style.width = w+'px'; cv.style.height = h+'px';
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  W=w; H=h; S=Math.min(W,H)/720;
+  var aspect = W/H;
+  var ih = Math.max(80, Math.round(Math.sqrt(PIXEL_BUDGET/aspect)));
+  var iw = Math.max(80, Math.round(ih*aspect));
+  // keep both a multiple of 4 so the quarter-res buffer tiles exactly
+  iw = Math.max(80, iw - (iw & 3)); ih = Math.max(80, ih - (ih & 3));
+  if (iw !== IW || ih !== IH) allocate(iw, ih);
+}
+window.addEventListener('resize', layout);
+window.addEventListener('orientationchange', function(){ setTimeout(layout,220); });
+
+// ═══════════════════════════════════════════════════════════════════════
+//  AUDIO — a designed weather bed, not an afterthought: one looped noise
+//  band whose brightness and level follow the mode, gusting on a slow
+//  random walk, plus a real drop blip (a fast UPWARD pitch sweep, which is
+//  the actual physics of a bubble pinching off) whenever a drop lets go.
+// ═══════════════════════════════════════════════════════════════════════
+var ac=null, master=null, comp=null, wet=null, conv=null, noiseBuf=null;
+var rainSrc=null, rainBp=null, rainHp=null, rainGain=null, sound=true;
+var gustPhase=0, gustVal=0.5;
+
+function initAudio(){
+  if (ac){ if (ac.state==='suspended' && ac.resume) ac.resume(); return; }
+  var AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) return;
+  try { ac = new AC(); } catch(e){ ac = null; return; }
+  comp = ac.createDynamicsCompressor();
+  try {
+    comp.threshold.value=-20; comp.knee.value=28; comp.ratio.value=6;
+    comp.attack.value=0.006; comp.release.value=0.28;
+  } catch(e){}
+  master = ac.createGain(); master.gain.value = 0.8;
+  master.connect(comp); comp.connect(ac.destination);
+  // a small room for the drops to land in
+  conv = ac.createConvolver();
+  try {
+    var ln = Math.max(1, Math.floor(ac.sampleRate*1.1));
+    var ib = ac.createBuffer(2, ln, ac.sampleRate);
+    for (var c=0;c<2;c++){
+      var d2 = ib.getChannelData(c), lp = 0;
+      for (var k=0;k<ln;k++){
+        var v = (Math.random()*2-1) * Math.pow(1-k/ln, 3.2);
+        lp += (v-lp)*0.42; d2[k] = lp;
+      }
+    }
+    conv.buffer = ib;
+  } catch(e){}
+  wet = ac.createGain(); wet.gain.value = 0.26;
+  wet.connect(conv); conv.connect(master);
+
+  var n = Math.max(1, Math.floor(ac.sampleRate*2.0));
+  noiseBuf = ac.createBuffer(1, n, ac.sampleRate);
+  var d = noiseBuf.getChannelData(0);
+  for (var i=0;i<n;i++) d[i] = Math.random()*2-1;
+
+  rainSrc = ac.createBufferSource();
+  rainSrc.buffer = noiseBuf; rainSrc.loop = true;
+  rainHp = ac.createBiquadFilter(); rainHp.type='highpass';
+  rainHp.frequency.value = 380;
+  rainBp = ac.createBiquadFilter(); rainBp.type='lowpass';
+  rainBp.frequency.value = 2400; rainBp.Q.value = 0.7;
+  rainGain = ac.createGain(); rainGain.gain.value = 0;
+  rainSrc.connect(rainHp); rainHp.connect(rainBp);
+  rainBp.connect(rainGain); rainGain.connect(master); rainGain.connect(wet);
+  try { rainSrc.start(0); } catch(e){}
+  if (ac.state==='suspended' && ac.resume) ac.resume();
+}
+function updateRain(dt){
+  if (!ac || !rainGain) return;
+  gustPhase += dt;
+  if (gustPhase > 0.5){
+    gustPhase = 0;
+    gustVal = clamp(gustVal + (Math.random()-0.5)*0.42, 0.18, 1);
+  }
+  var M = MODES[mode];
+  var target = sound ? M.rain * (0.55 + 0.45*gustVal) * 0.30 : 0;
+  var t = ac.currentTime;
+  try {
+    rainGain.gain.setTargetAtTime(clamp(target,0,0.4), t, 0.55);
+    rainBp.frequency.setTargetAtTime(
+      clamp(1500 + 2600*M.rain*gustVal, 300, 9000), t, 0.7);
+  } catch(e){}
+}
+function sfxDrip(pan01, size){
+  if (!ac || !sound || !master) return;
+  if (!isFinite(pan01) || !isFinite(size)) return;
+  var t = ac.currentTime;
+  var f0 = clamp(520 + 700*(1-clamp(size,0,1)), 180, 4000);
+  var o = ac.createOscillator(); o.type = 'sine';
+  o.frequency.setValueAtTime(f0*0.62, t);
+  o.frequency.exponentialRampToValueAtTime(f0*1.55, t+0.028);
+  var g = ac.createGain();
+  var amp = clamp(0.035 + 0.10*clamp(size,0,1), 0.002, 0.2);
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(amp, t+0.004);
+  g.gain.exponentialRampToValueAtTime(0.0001, t+0.13);
+  var node = g;
+  if (ac.createStereoPanner){
+    var pn = ac.createStereoPanner();
+    pn.pan.setValueAtTime(clamp(pan01*2-1, -1, 1), t);
+    g.connect(pn); node = pn;
+  }
+  o.connect(g); node.connect(master); node.connect(wet);
+  o.start(t); o.stop(t+0.18);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  CAMERA
+// ═══════════════════════════════════════════════════════════════════════
+var facing='user', mirror=true, stream=null, started=false, camOK=false;
+function showError(e){
+  var msg = (e && e.message) ? e.message : String(e || 'unknown');
+  errBox.style.display = 'block';
+  errBox.textContent = 'カメラを起動できませんでした：' + msg +
+    '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+}
+function startStream(){
+  var md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) return Promise.reject(new Error('getUserMedia is unavailable'));
+  if (stream && stream.getTracks) stream.getTracks().forEach(function(t){ t.stop(); });
+  return md.getUserMedia({
+    video:{ facingMode:{ ideal:facing }, width:{ ideal:960 }, height:{ ideal:720 } },
+    audio:false
+  }).then(function(st){
+    stream = st; video.srcObject = st; mirror = (facing==='user'); camOK = true;
+    var p = video.play();
+    return (p && p.then) ? p.catch(function(){}) : null;
+  });
+}
+flipBtn.addEventListener('click', function(){
+  facing = (facing==='user') ? 'environment' : 'user';
+  loseAll();
+  startStream().then(startMpCamera).catch(showError);
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+//  HANDS — no gesture recognition at all here: a hand is a warm object
+//  moving over cold glass, and all the piece needs is where the palm is
+//  and how big it is. That is why this piece has no strike gate.
+// ═══════════════════════════════════════════════════════════════════════
+var hands=null, mpCamera=null, mpReady=false;
+var LOST_MS = 320, TRACK_GAP = 0.12, TRACK_JUMP = 0.40;
+function mkHand(){
+  return { live:false, t:-1e9, x:0.5, y:0.5, px:0.5, py:0.5,
+           vx:0, vy:0, rad:0.09, wipe:0 };
+}
+var Hs = [mkHand(), mkHand()];
+function loseHand(h){ h.live=false; h.vx=0; h.vy=0; }
+function loseAll(){ loseHand(Hs[0]); loseHand(Hs[1]); }
+
+function initHands(){
+  if (typeof window.Hands !== 'function') return false;
+  try {
+    hands = new window.Hands({ locateFile:function(f){
+      return 'https://cdn.jsdelivr.net/npm/@mediapipe/hands/' + f;
+    }});
+    hands.setOptions({ maxNumHands:2, modelComplexity:0,
+                       minDetectionConfidence:0.6, minTrackingConfidence:0.5 });
+    hands.onResults(onHands);
+    mpReady = true; return true;
+  } catch(e){ return false; }
+}
+function startMpCamera(){
+  if (!mpReady || !hands || mpCamera) return;
+  if (typeof window.Camera !== 'function') return;
+  try {
+    mpCamera = new window.Camera(video, {
+      onFrame:function(){
+        if (!hands) return Promise.resolve();
+        return hands.send({ image: video }).catch(function(){});
+      }, width:480, height:360
+    });
+    mpCamera.start();
+  } catch(e){ mpCamera = null; }
+}
+function validLm(c){
+  if (!c || c.length < 21) return null;
+  for (var i=0;i<21;i++){
+    var p = c[i];
+    if (!p || typeof p.x!=='number' || typeof p.y!=='number' ||
+        !isFinite(p.x) || !isFinite(p.y)) return null;
+  }
+  return c;
+}
+function readHand(c, h, t){
+  var ids=[0,5,9,13,17], cx=0, cy=0, i;
+  for (i=0;i<ids.length;i++){
+    var p = c[ids[i]];
+    if (!p) return false;
+    cx += p.x; cy += p.y;
+  }
+  cx/=ids.length; cy/=ids.length;
+  if (!isFinite(cx) || !isFinite(cy)) return false;
+  var x = mirror ? (1-cx) : cx, y = cy;
+  if (!isFinite(x) || !isFinite(y)) return false;
+
+  // palm size, so the wipe is the size of the hand and not a fixed disc
+  var wr = c[0], mc = c[9];
+  if (wr && mc){
+    var u = Math.hypot(mc.x-wr.x, mc.y-wr.y);
+    if (isFinite(u) && u > 1e-4) h.rad = clamp(u*2.6, 0.035, 0.34);
+  }
+  var dt = h.live ? (t-h.t)/1000 : 0;
+  var jump = h.live ? Math.hypot(x-h.x, y-h.y) : 0;
+  h.px = h.live ? h.x : x;
+  h.py = h.live ? h.y : y;
+  if (h.live && dt > 0.004 && dt < TRACK_GAP && jump < TRACK_JUMP){
+    var nvx=(x-h.x)/dt, nvy=(y-h.y)/dt;
+    if (isFinite(nvx) && isFinite(nvy)){
+      h.vx += (nvx-h.vx)*0.5; h.vy += (nvy-h.vy)*0.5;
+    }
+  } else { h.vx=0; h.vy=0; }
+  h.x=x; h.y=y; h.t=t; h.live=true;
+  return true;
+}
+function palmOf(c){
+  var ids=[0,5,9,13,17], cx=0, cy=0;
+  for (var i=0;i<ids.length;i++){
+    var p = c[ids[i]];
+    if (!p) return null;
+    cx += p.x; cy += p.y;
+  }
+  cx/=ids.length; cy/=ids.length;
+  if (!isFinite(cx) || !isFinite(cy)) return null;
+  return { x: mirror ? (1-cx) : cx, y: cy };
+}
+function onHands(res){
+  var list = (res && res.multiHandLandmarks) ? res.multiHandLandmarks : [];
+  var t = now(), i, found = [];
+  for (i=0;i<list.length && found.length<2;i++){
+    var c = validLm(list[i]);
+    if (!c) continue;
+    var pm = palmOf(c);
+    if (pm) found.push({ c:c, p:pm });
+  }
+  var order = [0,1];
+  if (found.length === 2 && Hs[0].live && Hs[1].live){
+    var same = Math.hypot(found[0].p.x-Hs[0].x, found[0].p.y-Hs[0].y) +
+               Math.hypot(found[1].p.x-Hs[1].x, found[1].p.y-Hs[1].y);
+    var swap = Math.hypot(found[0].p.x-Hs[1].x, found[0].p.y-Hs[1].y) +
+               Math.hypot(found[1].p.x-Hs[0].x, found[1].p.y-Hs[0].y);
+    if (swap < same) order = [1,0];
+  } else if (found.length === 1){
+    var d0 = Hs[0].live ? Math.hypot(found[0].p.x-Hs[0].x, found[0].p.y-Hs[0].y) : 9;
+    var d1 = Hs[1].live ? Math.hypot(found[0].p.x-Hs[1].x, found[0].p.y-Hs[1].y) : 9;
+    order = (Hs[1].live && d1 < d0) ? [1,0] : [0,1];
+  }
+  var used = [false,false];
+  for (i=0;i<found.length;i++){
+    var slot = order[i];
+    if (used[slot]) slot = 1-slot;
+    used[slot] = true;
+    readHand(found[i].c, Hs[slot], t);
+  }
+  for (i=0;i<2;i++) if (!used[i] && Hs[i].live && (t-Hs[i].t) > LOST_MS) loseHand(Hs[i]);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  DROPS
+// ═══════════════════════════════════════════════════════════════════════
+var drops = [];
+var MAXDROPS = 300;
+var spawnAcc = 0, fogAvg = 0;
+
+function spawnDrop(x, y, r){
+  if (drops.length >= MAXDROPS) return null;
+  var d = { x:x, y:y, r:r, vy:0, sliding:false, life:0, wob:Math.random()*6.28 };
+  drops.push(d);
+  return d;
+}
+function stepDrops(dt, t){
+  var M = MODES[mode], i, j;
+  // condensation nucleates new drops
+  spawnAcc += dt * M.spawn * (0.4 + 0.6*fogAvg);
+  while (spawnAcc >= 1){
+    spawnAcc -= 1;
+    spawnDrop(Math.random()*IW, Math.random()*IH,
+              M.rMin + Math.random()*(M.rMax-M.rMin)*0.45);
+  }
+  var slideR = M.slideR;
+  for (i=drops.length-1;i>=0;i--){
+    var d = drops[i];
+    d.life += dt;
+    if (!d.sliding){
+      // grows out of the mist around it
+      d.r += dt * M.grow * (0.35 + 0.9*fogAvg + M.rainGrow) / Math.max(0.6, d.r*0.42);
+      if (d.r > slideR){
+        d.sliding = true; d.vy = 4 + Math.random()*8;
+        sfxDrip(clamp(d.x/IW, 0, 1), clamp((d.r-slideR)/6, 0, 1));
+      }
+    } else {
+      // heavier drops fall faster and are harder to stop
+      d.vy += dt * (34 + d.r*13);
+      d.vy = Math.min(d.vy, 22 + d.r*16);
+      var prevY = d.y;
+      d.y += d.vy*dt;
+      d.x += Math.sin(d.life*3.1 + d.wob) * dt * 5.5;
+      // the trail: clear the fog it has run through, and shed a little of
+      // itself, which is why a run leaves a beaded streak and not a line
+      wipeTrack(d.x, prevY, d.x, d.y, d.r*0.72, 1);
+      d.r -= dt * d.r * 0.22;
+      if (Math.random() < dt*13 && d.r > M.rMin*1.5){
+        var nd = spawnDrop(d.x + (Math.random()-0.5)*d.r, prevY, d.r*0.30);
+        if (nd) d.r *= 0.94;
+      }
+      if (d.y - d.r > IH || d.r < M.rMin*0.7){ drops.splice(i,1); continue; }
+    }
+    if (!isFinite(d.x) || !isFinite(d.y) || !isFinite(d.r)){ drops.splice(i,1); continue; }
+    d.r = clamp(d.r, 0.3, 26);
+    d.x = clamp(d.x, -30, IW+30);
+  }
+  // merging: only the sliding drops sweep, so this is O(sliding x all),
+  // and there are never more than a handful sliding at once
+  for (i=0;i<drops.length;i++){
+    var a = drops[i];
+    if (!a.sliding) continue;
+    for (j=drops.length-1;j>=0;j--){
+      if (j === i) continue;
+      var b = drops[j];
+      if (b.sliding) continue;
+      var ddx = a.x-b.x, ddy = a.y-b.y;
+      var rr = a.r + b.r*0.85;
+      if (ddx*ddx + ddy*ddy > rr*rr) continue;
+      // volume adds, radius does not
+      a.r = Math.cbrt(a.r*a.r*a.r + b.r*b.r*b.r);
+      drops.splice(j,1);
+      if (j < i) i--;
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  FOG — one Float32 per internal pixel. It regrows inside the main pass
+//  (so it costs nothing extra) and is only ever cleared over the small
+//  boxes a palm or a running drop actually covers.
+// ═══════════════════════════════════════════════════════════════════════
+function wipeDisc(cx, cy, r, amount){
+  if (!fog || !isFinite(cx) || !isFinite(cy) || !isFinite(r) || r <= 0) return;
+  var x0 = Math.max(0, Math.floor(cx-r)), x1 = Math.min(IW-1, Math.ceil(cx+r));
+  var y0 = Math.max(0, Math.floor(cy-r)), y1 = Math.min(IH-1, Math.ceil(cy+r));
+  var r2 = r*r;
+  for (var y=y0;y<=y1;y++){
+    var dy = y-cy, row = y*IW;
+    for (var x=x0;x<=x1;x++){
+      var dx = x-cx;
+      var d2 = dx*dx+dy*dy;
+      if (d2 > r2) continue;
+      var f = 1 - Math.sqrt(d2/r2);         // soft edge
+      var i = row+x;
+      var nv = fog[i] - amount*f;
+      fog[i] = nv > 0 ? nv : 0;
+    }
+  }
+}
+function wipeTrack(x0, y0, x1, y1, r, amount){
+  var dx = x1-x0, dy = y1-y0;
+  var len = Math.hypot(dx, dy);
+  if (!isFinite(len)) return;
+  var n = Math.min(24, Math.max(1, Math.ceil(len/Math.max(0.8, r*0.6))));
+  for (var k=0;k<=n;k++){
+    var u = k/n;
+    wipeDisc(x0+dx*u, y0+dy*u, r, amount);
+  }
+}
+function handWipe(dt){
+  for (var k=0;k<2;k++){
+    var h = Hs[k];
+    if (!h.live) continue;
+    var r = h.rad * IW * 0.5;
+    var sp = Math.hypot(h.vx, h.vy);
+    // a slow deliberate wipe clears more than a fast smear
+    var amt = clamp(dt * (4.5 - 1.6*clamp(sp,0,1.6)), 0, 1) * 2.2;
+    wipeTrack(h.px*IW, h.py*IH, h.x*IW, h.y*IH, r, amt);
+    h.wipe = clamp(h.wipe + dt*3.5, 0, 1);
+    // and it sweeps the drops off the glass in front of it
+    for (var i=drops.length-1;i>=0;i--){
+      var d = drops[i];
+      var ddx = d.x - h.x*IW, ddy = d.y - h.y*IH;
+      if (ddx*ddx + ddy*ddy < r*r){
+        if (d.r > MODES[mode].slideR*0.8 && !d.sliding){
+          d.sliding = true; d.vy = 10;
+        } else if (Math.random() < 0.35) drops.splice(i,1);
+      }
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  THE PASS
+// ═══════════════════════════════════════════════════════════════════════
+function buildBlur(){
+  // 4x4 box downsample, one read per source pixel
+  blurBuf.fill(0);
+  var x, y, bi, si;
+  for (y=0;y<IH;y++){
+    var by = (y>>2); if (by >= BH) by = BH-1;
+    var rowB = by*BW;
+    var rowS = y*IW;
+    for (x=0;x<IW;x++){
+      var bx = (x>>2); if (bx >= BW) bx = BW-1;
+      bi = (rowB+bx)*3; si = (rowS+x)<<2;
+      blurBuf[bi]   += src[si];
+      blurBuf[bi+1] += src[si+1];
+      blurBuf[bi+2] += src[si+2];
+    }
+  }
+  var inv = 1/16, nB = BW*BH*3;
+  for (var i=0;i<nB;i++) blurBuf[i] *= inv;
+}
+function rasterDrops(){
+  mask.fill(0);
+  var M = MODES[mode], lens = M.lens;
+  for (var k=0;k<drops.length;k++){
+    var d = drops[k];
+    var r = d.r;
+    if (r < 0.6) continue;
+    var cx = d.x, cy = d.y, r2 = r*r;
+    var x0 = Math.max(0, Math.floor(cx-r)), x1 = Math.min(IW-1, Math.ceil(cx+r));
+    var y0 = Math.max(0, Math.floor(cy-r)), y1 = Math.min(IH-1, Math.ceil(cy+r));
+    if (x1 < x0 || y1 < y0) continue;
+    // per-drop constants, so the inner loop carries no divides at all
+    var invR2 = 1/r2, negK = -(1+lens), invRD = 1/(r*1.4142136);
+    for (var y=y0;y<=y1;y++){
+      var ddy = y-cy, row = y*IW;
+      for (var x=x0;x<=x1;x++){
+        var ddx = x-cx;
+        var d2 = ddx*ddx+ddy*ddy;
+        if (d2 > r2) continue;
+        var i = row+x;
+        var nz = Math.sqrt(1 - d2*invR2);        // hemisphere normal, z
+        // a wide inverted view: sample at centre - (p-centre)*lens
+        dxA[i] = (ddx*negK)|0; dyA[i] = (ddy*negK)|0;
+        // rim goes dark, and one specular up-left
+        var lit = (-ddx - ddy) * invRD;
+        var sp = lit > 0 ? lit*lit*lit*lit : 0;
+        var sv = (0.62 + 0.46*nz + 0.62*sp*nz)*100;
+        shade[i] = sv < 0 ? 0 : (sv > 255 ? 255 : sv|0);
+        mask[i] = 1;
+      }
+    }
+  }
+}
+function pass(dt){
+  var M = MODES[mode];
+  var fogRate = M.fogRate*dt, fogMax = M.fogMax;
+  var x, y, i, o, si;
+  var fSum = 0;
+  var iwm1 = IW-1, ihm1 = IH-1;
+  for (y=0;y<IH;y++){
+    var row = y*IW;
+    var by = y*0.25, byi = by|0, fy = by-byi;
+    if (byi > BH-1) byi = BH-1;
+    var byi1 = byi+1 < BH ? byi+1 : byi;
+    var rowB0 = byi*BW, rowB1 = byi1*BW;
+    for (x=0;x<IW;x++){
+      i = row+x; o = i<<2;
+      var f = fog[i] + fogRate;
+      if (f > fogMax) f = fogMax;
+      fog[i] = f;
+      fSum += f;
+      var r, g, b;
+      if (mask[i]){
+        // ── inside a drop: the world, wide and upside down, and sharp
+        var sx = x + dxA[i], sy = y + dyA[i];
+        if (sx < 0) sx = 0; else if (sx > iwm1) sx = iwm1;
+        if (sy < 0) sy = 0; else if (sy > ihm1) sy = ihm1;
+        si = (sy*IW + sx) << 2;
+        var sh = shade[i]*0.01;
+        r = src[si]*sh; g = src[si+1]*sh; b = src[si+2]*sh;
+        // a drop is water: it cools and slightly saturates what it carries
+        var lum = r*0.30 + g*0.59 + b*0.11;
+        r = lum + (r-lum)*1.18;
+        g = lum + (g-lum)*1.14 + 3;
+        b = lum + (b-lum)*1.18 + 9;
+      } else if (f > 0.012){
+        // ── fogged glass: a bilinear read of the quarter-res box blur,
+        //    lifted toward white and drained of colour as the mist thickens
+        var bx = x*0.25, bxi = bx|0, fx = bx-bxi;
+        if (bxi > BW-1) bxi = BW-1;
+        var bxi1 = bxi+1 < BW ? bxi+1 : bxi;
+        var w00 = (1-fx)*(1-fy), w10 = fx*(1-fy), w01 = (1-fx)*fy, w11 = fx*fy;
+        var a0 = (rowB0+bxi)*3, a1 = (rowB0+bxi1)*3,
+            a2 = (rowB1+bxi)*3, a3 = (rowB1+bxi1)*3;
+        var br = blurBuf[a0]*w00   + blurBuf[a1]*w10   + blurBuf[a2]*w01   + blurBuf[a3]*w11;
+        var bg = blurBuf[a0+1]*w00 + blurBuf[a1+1]*w10 + blurBuf[a2+1]*w01 + blurBuf[a3+1]*w11;
+        var bb = blurBuf[a0+2]*w00 + blurBuf[a1+2]*w10 + blurBuf[a2+2]*w01 + blurBuf[a3+2]*w11;
+        si = o;
+        var mixv = f;
+        r = src[si]   + (br - src[si])   * mixv;
+        g = src[si+1] + (bg - src[si+1]) * mixv;
+        b = src[si+2] + (bb - src[si+2]) * mixv;
+        var l2 = r*0.30 + g*0.59 + b*0.11;
+        var des = 0.78*f;
+        r = r + (l2-r)*des; g = g + (l2-g)*des; b = b + (l2-b)*des;
+        var gr = grain[i]*0.0039;                     // condensation tooth
+        var lift = 200*f*gr;
+        r = r*(1-0.62*f) + lift;
+        g = g*(1-0.60*f) + lift*1.01;
+        b = b*(1-0.58*f) + lift*1.02;
+      } else {
+        // ── clear glass, but still glass: a faint cool cast
+        si = o;
+        r = src[si]*0.97 + 3;
+        g = src[si+1]*0.98 + 5;
+        b = src[si+2]*0.99 + 8;
+      }
+      out[o]   = r < 0 ? 0 : (r > 255 ? 255 : r);
+      out[o+1] = g < 0 ? 0 : (g > 255 ? 255 : g);
+      out[o+2] = b < 0 ? 0 : (b > 255 ? 255 : b);
+      out[o+3] = 255;
+    }
+  }
+  fogAvg = fSum / (IW*IH);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  DRAW
+// ═══════════════════════════════════════════════════════════════════════
+function grabCamera(){
+  if (!camOK || video.readyState < 2 || !video.videoWidth) return false;
+  try {
+    capCtx.setTransform(1,0,0,1,0,0);
+    if (mirror) capCtx.setTransform(-1,0,0,1,IW,0);
+    var vr = video.videoWidth/video.videoHeight, cr = IW/IH, dw, dh;
+    if (vr > cr){ dh = IH; dw = IH*vr; } else { dw = IW; dh = IW/vr; }
+    capCtx.drawImage(video, (IW-dw)/2, (IH-dh)/2, dw, dh);
+    capCtx.setTransform(1,0,0,1,0,0);
+    srcImg = capCtx.getImageData(0, 0, IW, IH);
+    src = srcImg.data;
+    return true;
+  } catch(e){ return false; }
+}
+function drawWindow(){
+  // frame, muntins and sill — drawn over the pane, in display space
+  var m = Math.max(9, 20*S);
+  ctx.strokeStyle = 'rgba(125,138,140,.55)';
+  ctx.lineWidth = m;
+  ctx.strokeRect(m/2, m/2, W-m, H-m);
+  ctx.strokeStyle = 'rgba(255,255,255,.30)';
+  ctx.lineWidth = Math.max(1, 2*S);
+  ctx.strokeRect(m, m, W-m*2, H-m*2);
+  // two muntins
+  ctx.fillStyle = 'rgba(125,138,140,.48)';
+  var mw = Math.max(5, 11*S);
+  ctx.fillRect(W*0.5 - mw/2, m, mw, H-m*2);
+  ctx.fillRect(m, H*0.42 - mw/2, W-m*2, mw);
+  ctx.fillStyle = 'rgba(255,255,255,.24)';
+  ctx.fillRect(W*0.5 - mw/2, m, mw*0.34, H-m*2);
+  ctx.fillRect(m, H*0.42 - mw/2, W-m*2, mw*0.30);
+  // the sill, where the run-off collects
+  var sy = H - m;
+  var sg = ctx.createLinearGradient(0, sy - 14*S, 0, sy);
+  sg.addColorStop(0,'rgba(110,143,138,0)');
+  sg.addColorStop(1,'rgba(110,143,138,.34)');
+  ctx.fillStyle = sg;
+  ctx.fillRect(m, sy - 14*S, W-m*2, 14*S);
+}
+function drawHands(){
+  for (var k=0;k<2;k++){
+    var h = Hs[k];
+    if (!h.live) continue;
+    var hx = h.x*W, hy = h.y*H, r = h.rad*W*0.5;
+    ctx.beginPath(); ctx.arc(hx, hy, r, 0, 6.2832);
+    ctx.strokeStyle = 'rgba(255,255,255,.44)';
+    ctx.lineWidth = Math.max(1.2, 2.2*S); ctx.stroke();
+    ctx.beginPath(); ctx.arc(hx, hy, r*0.96, 0, 6.2832);
+    ctx.strokeStyle = 'rgba(110,143,138,.34)';
+    ctx.lineWidth = Math.max(1, 1.4*S); ctx.stroke();
+    // the leading edge of the wipe
+    var sp = Math.hypot(h.vx, h.vy);
+    if (sp > 0.10){
+      var a = Math.atan2(h.vy, h.vx);
+      ctx.beginPath();
+      ctx.arc(hx, hy, r*1.14, a-0.85, a+0.85);
+      ctx.strokeStyle = 'rgba(255,255,255,' + clamp(0.15+sp*0.35, 0, 0.6) + ')';
+      ctx.lineWidth = Math.max(1.5, 3.2*S); ctx.stroke();
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  START-SHEET DEMO
+// ═══════════════════════════════════════════════════════════════════════
+var demoT = 0, demoFog = [];
+function drawDemo(dt){
+  var w = demoCv.width, h = demoCv.height;
+  demoT = (demoT + dt) % 4.0;
+  var p = demoT;
+  dctx.setTransform(1,0,0,1,0,0);
+  // "outside": a soft pale scene
+  var bg = dctx.createLinearGradient(0,0,0,h);
+  bg.addColorStop(0,'#b9c9c6'); bg.addColorStop(1,'#8fa5a4');
+  dctx.fillStyle = bg; dctx.fillRect(0,0,w,h);
+  dctx.fillStyle = 'rgba(85,102,110,.30)';
+  dctx.fillRect(w*0.10, h*0.42, w*0.16, h*0.58);
+  dctx.fillRect(w*0.62, h*0.30, w*0.22, h*0.70);
+  dctx.fillStyle = 'rgba(110,143,138,.35)';
+  dctx.beginPath(); dctx.arc(w*0.44, h*0.72, h*0.22, 0, 6.2832); dctx.fill();
+
+  // the mist, cleared by a travelling palm
+  var wipeX = w*0.14 + w*0.72 * clamp((p-0.7)/1.9, 0, 1);
+  var wiped = p > 0.7;
+  dctx.save();
+  dctx.fillStyle = 'rgba(238,242,240,.86)';
+  dctx.fillRect(0,0,w,h);
+  if (wiped){
+    dctx.globalCompositeOperation = 'destination-out';
+    var span = clamp((p-0.7)/1.9, 0, 1);
+    for (var k=0;k<=40;k++){
+      var u = k/40;
+      if (u > span) break;
+      var gx = w*0.14 + w*0.72*u;
+      var gr2 = dctx.createRadialGradient(gx, h*0.52, 0, gx, h*0.52, h*0.30);
+      gr2.addColorStop(0,'rgba(0,0,0,1)'); gr2.addColorStop(1,'rgba(0,0,0,0)');
+      dctx.fillStyle = gr2;
+      dctx.beginPath(); dctx.arc(gx, h*0.52, h*0.30, 0, 6.2832); dctx.fill();
+    }
+    // and it fogs back over
+    if (p > 2.9){
+      dctx.globalCompositeOperation = 'source-over';
+      dctx.fillStyle = 'rgba(238,242,240,' + clamp((p-2.9)/1.1, 0, 0.86) + ')';
+      dctx.fillRect(0,0,w,h);
+    }
+  }
+  dctx.restore();
+
+  // a few lens drops, one of them running
+  var ds = [[0.22,0.24,7],[0.34,0.62,5],[0.72,0.30,6],[0.60,0.74,4],[0.86,0.55,8]];
+  for (var i=0;i<ds.length;i++){
+    var dx2 = w*ds[i][0], dy2 = h*ds[i][1], rr = ds[i][2]*1.6;
+    dctx.beginPath(); dctx.arc(dx2, dy2, rr, 0, 6.2832);
+    dctx.fillStyle = 'rgba(160,190,186,.55)'; dctx.fill();
+    dctx.strokeStyle = 'rgba(255,255,255,.6)'; dctx.lineWidth = 1.2; dctx.stroke();
+    dctx.beginPath(); dctx.arc(dx2-rr*0.3, dy2-rr*0.3, rr*0.26, 0, 6.2832);
+    dctx.fillStyle = 'rgba(255,255,255,.85)'; dctx.fill();
+  }
+  var run = clamp((p-1.4)/2.0, 0, 1);
+  var ry = h*0.10 + h*0.95*run;
+  dctx.strokeStyle = 'rgba(190,215,212,.55)'; dctx.lineWidth = 9;
+  dctx.beginPath(); dctx.moveTo(w*0.48, h*0.10); dctx.lineTo(w*0.48, ry); dctx.stroke();
+  dctx.beginPath(); dctx.arc(w*0.48, ry, 11, 0, 6.2832);
+  dctx.fillStyle = 'rgba(150,185,182,.75)'; dctx.fill();
+  dctx.strokeStyle = 'rgba(255,255,255,.7)'; dctx.lineWidth = 1.4; dctx.stroke();
+
+  // the palm
+  if (wiped && p < 2.7){
+    dctx.beginPath(); dctx.arc(wipeX, h*0.52, h*0.30, 0, 6.2832);
+    dctx.strokeStyle = 'rgba(255,255,255,.75)'; dctx.lineWidth = 2.5; dctx.stroke();
+  }
+  dctx.fillStyle = 'rgba(85,102,110,.7)';
+  dctx.font = '300 15px "Zen Kaku Gothic New", sans-serif';
+  dctx.textAlign = 'center';
+  dctx.fillText('手のひらで拭う', w*0.5, h*0.13);
+  dctx.textAlign = 'start';
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  LOOP
+// ═══════════════════════════════════════════════════════════════════════
+var lastT = now(), tipMsg = '', hudT = 0;
+function tick(){
+  var t = now();
+  var dt = clamp((t-lastT)/1000, 0, 0.05);
+  lastT = t;
+
+  for (var i=0;i<2;i++) if (Hs[i].live && (t-Hs[i].t) > LOST_MS) loseHand(Hs[i]);
+
+  if (!started){ drawDemo(dt); requestAnimationFrame(tick); return; }
+
+  updateRain(dt);
+
+  var haveFrame = grabCamera();
+  if (haveFrame && src && out){
+    stepDrops(dt, t);
+    handWipe(dt);
+    buildBlur();
+    rasterDrops();
+    pass(dt);
+    outCtx.putImageData(outImg, 0, 0);
+  }
+
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  ctx.clearRect(0,0,W,H);
+  if (haveFrame || (out && outCv.width > 1)){
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(outCv, 0, 0, W, H);
+  } else {
+    ctx.fillStyle = '#e8ecea'; ctx.fillRect(0,0,W,H);
+  }
+  drawHands();
+  drawWindow();
+
+  hudT += dt;
+  if (hudT > 0.22){
+    hudT = 0;
+    var pct = Math.round(clamp(fogAvg,0,1)*100);
+    fogBar.style.width = pct + '%';
+    fogLbl.textContent = 'CONDENSATION ' + pct + '%';
+    var m;
+    if (!Hs[0].live && !Hs[1].live) m = '手をカメラに写してください';
+    else if (fogAvg > 0.45) m = '手のひらで 拭う';
+    else if (drops.length > 90) m = '粒が育つと 流れ落ちる';
+    else m = '粒の中だけ 逆さに映る';
+    if (m !== tipMsg){ tipMsg = m; tipEl.textContent = m; }
+    tipEl.classList.toggle('dim', !camOK);
+  }
+  requestAnimationFrame(tick);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  CONTROLS / BOOT
+// ═══════════════════════════════════════════════════════════════════════
+function applyMode(){
+  var M = MODES[mode];
+  modeEl.textContent = M.jp;
+  modeEnEl.textContent = M.en;
+  modeLbl.textContent = M.key;
+  if (fog){
+    var f0 = M.fogMax*0.55;
+    for (var i=0;i<fog.length;i++) if (fog[i] > f0) fog[i] = f0;
+  }
+}
+modeBtn.addEventListener('click', function(){
+  mode = (mode+1) % MODES.length;
+  applyMode();
+});
+sndBtn.addEventListener('click', function(){
+  sound = !sound; sndLbl.textContent = sound ? 'ON' : 'OFF';
+  if (sound) initAudio();
+});
+goBtn.addEventListener('click', function(){
+  if (started) return;
+  started = true;
+  initAudio();
+  startSh.classList.add('off');
+  startStream().then(function(){
+    if (initHands()) startMpCamera();
+  }).catch(showError);
+});
+
+layout();
+applyMode();
+requestAnimationFrame(tick);
+
+// exposed for the headless harness
+window.__amamado = {
+  state:function(){ return { started:started, mode:mode, drops:drops.length,
+                             sliding:drops.filter(function(d){ return d.sliding; }).length,
+                             fogAvg:fogAvg, IW:IW, IH:IH, BW:BW, BH:BH }; },
+  feed:onHands, hands:Hs, lose:loseAll, drops:function(){ return drops; },
+  buffers:function(){ return { out:out, src:src, fog:fog, mask:mask,
+                               dxA:dxA, dyA:dyA, shade:shade, blur:blurBuf }; },
+  pass:pass, raster:rasterDrops, blur:buildBlur, modes:MODES,
+  wipeDisc:wipeDisc, spawn:spawnDrop, step:stepDrops
+};
+
+})();
+</script>
+</body>
+</html>
