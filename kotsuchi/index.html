@@ -1,0 +1,1320 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>KOTSUCHI ─ だるま落とし</title>
+<meta name="description" content="畳の上のだるま落とし。手を横に速く払うと一番下の胴だけが飛び、上の段はそのまま落ちる。塔は本物のばね連結なので、払いが甘いと揺れが上へ伝わって崩れる。だるまの首を落とさずに何段まで積めるか。">
+<meta name="theme-color" content="#f4efe2">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Yusei+Magic&family=Bebas+Neue&display=swap" rel="stylesheet">
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  KOTSUCHI ─ だるま落とし                       ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  PALETTE   生成 kinari   #f4efe2  the mat, the paper, the ground of everything
+            朱   shu      #e2513a  the daruma, the mallet head, every impact
+            藍   ai       #24486b  the mat's binding, the rules, the numerals
+            萌黄 moegi    #7fa650  the second body block, the fresh rush
+            山吹 yamabuki #f0b429  the third body block, the score, the clear
+            墨   sumi     #2b2723  type and the line under the toy
+            MOOD: broad daylight. A lacquered wooden toy sitting on a new
+            tatami mat with the shoji open. Nothing here glows — everything
+            is lit. This is deliberately the brightest piece in the gallery;
+            the collection had drifted toward ink and night, and a festival
+            toy has no business being dark.
+  BACKGROUND  A real woven tatami: horizontal rush lines at two tones, in
+            three panels divided by 縁 (indigo cloth binding with a fine
+            gold thread). Drawn once into an offscreen canvas at resize, not
+            per frame. The camera is composited onto it in multiply at 30%
+            and greyscale, so the player reads as a SHADOW cast on the mat
+            rather than a video window — you are in the room, above the toy.
+  TYPE      Yusei Magic for every Japanese word — a marker-drawn hand that
+            belongs on a festival stall sign. Bebas Neue, wide-tracked, for
+            the score and the 段 numeral only, so the numbers read as
+            stencilled onto the box the toy came in.
+  MOTION    Snappy and mechanical, the opposite of a floaty piece. Nothing
+            drifts. Impacts use a back-out overshoot of 120ms and then stop
+            dead; the screen shake is 3 frames and gone. The only slow thing
+            on screen is the tower's wobble, and that is physics, not easing.
+  SIGNATURE The tower is a real chain of coupled springs. Each block is held
+            over the one below it by friction modelled as a spring, so a
+            sloppy strike does not just "score less" — it injects a lateral
+            impulse at the bottom that travels UP the stack as a visible
+            travelling wave, and if any joint opens past the tolerance the
+            whole thing goes over. You can watch a bad hit become a collapse
+            two seconds later. Nothing else in the gallery has a stack.
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<style>
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;padding:0;height:100%;overflow:hidden;background:#f4efe2}
+  body{
+    font-family:'Yusei Magic','Hiragino Sans',sans-serif;
+    color:#2b2723;
+    -webkit-user-select:none;user-select:none;
+    touch-action:none;
+  }
+  #view{position:fixed;inset:0;width:100%;height:100%;display:block}
+  #video{position:fixed;width:2px;height:2px;opacity:0;pointer-events:none;left:-10px;top:-10px}
+
+  /* ── HUD ───────────────────────────────────────────────────────── */
+  .hud{position:fixed;inset:0;pointer-events:none;display:flex;flex-direction:column;
+       padding:calc(10px + env(safe-area-inset-top)) 12px 12px}
+  .bar{display:flex;align-items:flex-start;gap:10px}
+  .plate{
+    background:rgba(244,239,226,.82);
+    border:2px solid #2b2723;
+    border-radius:3px;
+    box-shadow:3px 3px 0 rgba(43,39,35,.18);
+    padding:5px 10px 6px;
+  }
+  .stage{display:flex;align-items:baseline;gap:7px}
+  .stage .k{font-size:11px;letter-spacing:.16em;color:#24486b}
+  .stage .n{font-family:'Bebas Neue',sans-serif;font-size:30px;line-height:.86;
+            letter-spacing:.05em;color:#24486b}
+  .score{font-family:'Bebas Neue',sans-serif;font-size:26px;line-height:1;
+         letter-spacing:.09em;color:#2b2723}
+  .score .u{font-family:'Yusei Magic',sans-serif;font-size:10px;letter-spacing:.1em;
+            color:#6b6157;margin-left:4px}
+  .life{display:flex;gap:4px;margin-top:4px}
+  .life i{width:11px;height:11px;border-radius:50%;background:#e2513a;
+          border:2px solid #2b2723;display:block;
+          transition:transform .18s cubic-bezier(.2,1.7,.5,1),opacity .18s}
+  .life i.gone{background:#f4efe2;opacity:.5;transform:scale(.7)}
+  .sp{flex:1}
+  .btns{display:flex;flex-direction:column;gap:6px;align-items:flex-end;pointer-events:auto}
+  button.tb{
+    font-family:'Yusei Magic',sans-serif;font-size:12px;color:#2b2723;
+    background:rgba(244,239,226,.9);border:2px solid #2b2723;border-radius:3px;
+    box-shadow:2px 2px 0 rgba(43,39,35,.2);
+    padding:6px 10px;cursor:pointer;letter-spacing:.06em;
+    transition:transform .1s cubic-bezier(.2,1.7,.5,1),box-shadow .1s;
+  }
+  button.tb:active{transform:translate(2px,2px);box-shadow:0 0 0 rgba(0,0,0,0)}
+  button.tb .val{color:#e2513a;margin-left:5px}
+
+  .foot{margin-top:auto;display:flex;justify-content:center;padding-bottom:6px}
+  .tip{
+    font-size:12.5px;letter-spacing:.07em;color:#2b2723;
+    background:rgba(244,239,226,.86);border:2px solid #2b2723;border-radius:3px;
+    padding:5px 14px;box-shadow:2px 2px 0 rgba(43,39,35,.16);
+    transition:opacity .3s;
+  }
+  .tip.hide{opacity:0}
+
+  /* ── sheets ────────────────────────────────────────────────────── */
+  .sheet{
+    position:fixed;inset:0;z-index:20;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;gap:14px;padding:22px;
+    background:#f4efe2;
+    transition:opacity .28s ease,visibility .28s;
+  }
+  .sheet.off{opacity:0;visibility:hidden;pointer-events:none}
+  .sheet h1{
+    margin:0;font-size:clamp(30px,9vw,50px);letter-spacing:.2em;
+    font-family:'Bebas Neue',sans-serif;font-weight:400;color:#2b2723;
+  }
+  .sheet .jp{margin:-6px 0 0;font-size:13px;letter-spacing:.34em;color:#e2513a}
+  .sheet .rule{width:min(320px,74vw);height:2px;background:#2b2723;opacity:.75;margin:2px 0}
+  #demo{width:min(300px,80vw);height:auto;aspect-ratio:300/170;display:block;
+        border:2px solid #2b2723;border-radius:3px;background:#efe8d8;
+        box-shadow:4px 4px 0 rgba(43,39,35,.16)}
+  .sheet p{margin:0;font-size:13px;line-height:1.85;text-align:center;color:#4a433c;
+           max-width:min(360px,86vw)}
+  .sheet p b{color:#e2513a;font-weight:400}
+  .go{
+    font-family:'Yusei Magic',sans-serif;font-size:17px;letter-spacing:.24em;
+    color:#f4efe2;background:#e2513a;border:2px solid #2b2723;border-radius:3px;
+    padding:12px 40px 13px;cursor:pointer;margin-top:2px;
+    box-shadow:4px 4px 0 #2b2723;
+    transition:transform .1s cubic-bezier(.2,1.7,.5,1),box-shadow .1s;
+  }
+  .go:active{transform:translate(4px,4px);box-shadow:0 0 0 #2b2723}
+  .big{font-family:'Bebas Neue',sans-serif;font-size:clamp(44px,15vw,84px);
+       line-height:.9;letter-spacing:.06em;color:#24486b;margin:0}
+  .lbl{font-size:12px;letter-spacing:.3em;color:#6b6157;margin:0}
+
+  #err{
+    position:fixed;left:14px;right:14px;bottom:16px;z-index:40;display:none;
+    white-space:pre-line;font-size:12.5px;line-height:1.7;color:#f4efe2;
+    background:#2b2723;border:2px solid #e2513a;border-radius:3px;padding:12px 14px;
+  }
+  @media (orientation:landscape) and (max-height:520px){
+    #demo{width:min(240px,40vw)}
+    .sheet{gap:9px;padding:12px}
+    .sheet p{font-size:12px;line-height:1.6}
+  }
+</style>
+</head>
+<body>
+
+<canvas id="view"></canvas>
+<video id="video" playsinline muted autoplay></video>
+
+<div class="hud">
+  <div class="bar">
+    <div class="plate">
+      <div class="stage"><span class="k">段</span><span class="n" id="stageEl">1</span></div>
+      <div class="life" id="lifeEl"></div>
+    </div>
+    <div class="plate"><div class="score"><span id="scoreEl">0</span><span class="u">点</span></div></div>
+    <div class="sp"></div>
+    <div class="btns">
+      <button class="tb" id="lvBtn" type="button">手加減<span class="val" id="lvLbl">並</span></button>
+      <button class="tb" id="flipBtn" type="button">⟲ カメラ</button>
+      <button class="tb" id="sndBtn" type="button">音<span class="val" id="sndLbl">ON</span></button>
+    </div>
+  </div>
+  <div class="foot"><div class="tip" id="tipEl">手をカメラに写してください</div></div>
+</div>
+
+<div class="sheet" id="start">
+  <h1>KOTSUCHI</h1>
+  <p class="jp">だ る ま 落 と し</p>
+  <div class="rule"></div>
+  <canvas id="demo" width="600" height="340"></canvas>
+  <p>一番下の胴を、手で<b>横に速く払う</b>。<br>
+     上の段はそのまま落ちる。<br>
+     払いが甘いと塔が揺れて、崩れる。</p>
+  <button class="go" id="go" type="button">落 と す</button>
+</div>
+
+<div class="sheet off" id="over">
+  <p class="lbl" id="overLbl">おわり</p>
+  <p class="big" id="overBig">0</p>
+  <p id="overBody">—</p>
+  <div class="rule"></div>
+  <button class="go" id="again" type="button">も う 一 度</button>
+</div>
+
+<div id="err"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+<script>
+(function(){
+'use strict';
+
+// ═══════════════════════════════════════════════════════════════════════
+//  DOM
+// ═══════════════════════════════════════════════════════════════════════
+var cv       = document.getElementById('view');
+var ctx      = cv.getContext('2d');
+var video    = document.getElementById('video');
+var errBox   = document.getElementById('err');
+var startSh  = document.getElementById('start');
+var overSh   = document.getElementById('over');
+var goBtn    = document.getElementById('go');
+var againBtn = document.getElementById('again');
+var flipBtn  = document.getElementById('flipBtn');
+var sndBtn   = document.getElementById('sndBtn');
+var sndLbl   = document.getElementById('sndLbl');
+var lvBtn    = document.getElementById('lvBtn');
+var lvLbl    = document.getElementById('lvLbl');
+var scoreEl  = document.getElementById('scoreEl');
+var stageEl  = document.getElementById('stageEl');
+var lifeEl   = document.getElementById('lifeEl');
+var tipEl    = document.getElementById('tipEl');
+var overLbl  = document.getElementById('overLbl');
+var overBig  = document.getElementById('overBig');
+var overBody = document.getElementById('overBody');
+var demoCv   = document.getElementById('demo');
+var dctx     = demoCv.getContext('2d');
+
+function now(){
+  return (typeof performance !== 'undefined' && performance.now)
+    ? performance.now() : Date.now();
+}
+function clamp(v,a,b){ return v < a ? a : (v > b ? b : v); }
+function lerp(a,b,t){ return a + (b-a)*t; }
+// back-out overshoot: the one easing this piece uses for everything snappy
+function outBack(t){ var c=1.9; t=clamp(t,0,1); var u=t-1; return 1 + (c+1)*u*u*u + c*u*u; }
+function outCubic(t){ t=clamp(t,0,1); var u=1-t; return 1-u*u*u; }
+
+// ═══════════════════════════════════════════════════════════════════════
+//  PALETTE
+// ═══════════════════════════════════════════════════════════════════════
+var C_KINARI='#f4efe2', C_SHU='#e2513a', C_AI='#24486b',
+    C_MOEGI='#7fa650', C_YAMA='#f0b429', C_SUMI='#2b2723';
+var BODY_COLS = [C_AI, C_MOEGI, C_YAMA, C_SHU, C_AI, C_MOEGI];
+
+// ═══════════════════════════════════════════════════════════════════════
+//  CANVAS / LAYOUT
+// ═══════════════════════════════════════════════════════════════════════
+var W=1, H=1, S=1, DPR=1;
+var BW=1, BH=1, HH=1, groundY=1, CX=1;
+var mat = document.createElement('canvas');
+var mctx = mat.getContext('2d');
+var camS = document.createElement('canvas');   // small greyscale camera buffer
+camS.width = 192; camS.height = 144;
+var cctx = camS.getContext('2d');
+
+function bodyCountFor(lv){
+  var t = [4,4,5,5,6];
+  return (lv-1 < t.length) ? t[lv-1] : 6;
+}
+
+function layout(){
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  var w = window.innerWidth, h = window.innerHeight;
+  cv.width  = Math.max(2, Math.round(w*DPR));
+  cv.height = Math.max(2, Math.round(h*DPR));
+  cv.style.width = w+'px'; cv.style.height = h+'px';
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  W = w; H = h; S = Math.min(W,H)/720;
+  CX = W*0.5;
+  groundY = H*0.815;
+  var maxN = bodyCountFor(level) + 1.6;
+  BH = Math.min(64*S, (groundY - H*0.155) / maxN);
+  BH = Math.max(20, BH);
+  BW = Math.min(W*0.44, BH*3.3);
+  HH = BH*1.55;
+  drawMat();
+}
+
+// ── the tatami, drawn once ───────────────────────────────────────────
+function drawMat(){
+  var w = Math.max(2, Math.round(W)), h = Math.max(2, Math.round(H));
+  mat.width = w; mat.height = h;
+  mctx.setTransform(1,0,0,1,0,0);
+  mctx.fillStyle = '#f1ebdb'; mctx.fillRect(0,0,w,h);
+  // rush weave: fine horizontal lines, two tones, faint vertical slub
+  var step = Math.max(3, Math.round(4.4*S));
+  for (var y=0; y<h; y+=step){
+    mctx.fillStyle = ((y/step)|0) % 2 ? 'rgba(180,171,138,.20)' : 'rgba(226,219,196,.55)';
+    mctx.fillRect(0, y, w, Math.max(1, step*0.5));
+  }
+  mctx.globalAlpha = 0.30;
+  for (var x=0; x<w; x+=Math.max(11, 16*S)){
+    mctx.fillStyle = 'rgba(202,193,163,.5)';
+    mctx.fillRect(x + ((x/37)|0)%3, 0, 1, h);
+  }
+  mctx.globalAlpha = 1;
+  // 縁 — indigo binding, two of them, dividing the mat into panels
+  var bindW = Math.max(12, 26*S);
+  var bands = [w*0.185, w*0.815];
+  for (var i=0;i<bands.length;i++){
+    var bx = bands[i] - bindW/2;
+    mctx.fillStyle = '#24486b'; mctx.fillRect(bx, 0, bindW, h);
+    mctx.fillStyle = 'rgba(255,255,255,.09)'; mctx.fillRect(bx, 0, bindW*0.3, h);
+    mctx.fillStyle = 'rgba(240,180,41,.55)';
+    mctx.fillRect(bx + bindW*0.30, 0, Math.max(1,1.4*S), h);
+    mctx.fillRect(bx + bindW*0.68, 0, Math.max(1,1.4*S), h);
+    mctx.fillStyle = 'rgba(20,30,45,.30)';
+    mctx.fillRect(bx, 0, Math.max(1,1.5*S), h);
+    mctx.fillRect(bx+bindW-Math.max(1,1.5*S), 0, Math.max(1,1.5*S), h);
+  }
+  // soft daylight from the left, as if the shoji is open there
+  var gl = mctx.createLinearGradient(0,0,w,h);
+  gl.addColorStop(0,'rgba(255,252,240,.42)');
+  gl.addColorStop(0.55,'rgba(255,250,235,0)');
+  gl.addColorStop(1,'rgba(120,108,82,.14)');
+  mctx.fillStyle = gl; mctx.fillRect(0,0,w,h);
+}
+window.addEventListener('resize', layout);
+window.addEventListener('orientationchange', function(){ setTimeout(layout, 220); });
+
+// ═══════════════════════════════════════════════════════════════════════
+//  AUDIO — struck wood. A noise transient plus a bank of inharmonic sine
+//  modes with independent decays. Every SFX in the piece is one call to
+//  strike(), with a different mode set, so they share a material but have
+//  clearly different attacks and never mud up when three overlap.
+// ═══════════════════════════════════════════════════════════════════════
+var ac=null, master=null, comp=null, noiseBuf=null, sound=true;
+
+function initAudio(){
+  if (ac){ if (ac.state === 'suspended' && ac.resume) ac.resume(); return; }
+  var AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) return;
+  try { ac = new AC(); } catch(e){ ac = null; return; }
+  comp = ac.createDynamicsCompressor();
+  try {
+    comp.threshold.value = -17; comp.knee.value = 26; comp.ratio.value = 9;
+    comp.attack.value = 0.003; comp.release.value = 0.17;
+  } catch(e){}
+  master = ac.createGain(); master.gain.value = 0.9;
+  master.connect(comp); comp.connect(ac.destination);
+  var n = Math.max(1, Math.floor(ac.sampleRate * 0.3));
+  noiseBuf = ac.createBuffer(1, n, ac.sampleRate);
+  var d = noiseBuf.getChannelData(0);
+  for (var i=0;i<n;i++) d[i] = Math.random()*2 - 1;
+  if (ac.state === 'suspended' && ac.resume) ac.resume();
+}
+
+function strike(base, ratios, amps, decays, amp, clickAmt, clickHz){
+  if (!ac || !sound || !master) return;
+  if (!isFinite(base) || !isFinite(amp) || amp <= 0) return;
+  var t = ac.currentTime, i;
+  var bus = ac.createGain(); bus.gain.value = clamp(amp,0,1.4); bus.connect(master);
+  if (clickAmt > 0 && noiseBuf){
+    var s = ac.createBufferSource(); s.buffer = noiseBuf;
+    var hp = ac.createBiquadFilter(); hp.type='highpass';
+    hp.frequency.value = clamp(clickHz||1500, 40, 14000);
+    var cg = ac.createGain();
+    cg.gain.setValueAtTime(clamp(clickAmt,0.0002,1), t);
+    cg.gain.exponentialRampToValueAtTime(0.0001, t+0.022);
+    s.connect(hp); hp.connect(cg); cg.connect(bus);
+    s.start(t); s.stop(t+0.07);
+  }
+  for (i=0;i<ratios.length;i++){
+    var f = base * ratios[i];
+    if (!isFinite(f) || f < 20 || f > 15000) continue;
+    var a = amps[i], dec = decays[i];
+    if (!isFinite(a) || a <= 0 || !isFinite(dec) || dec <= 0) continue;
+    var o = ac.createOscillator(); o.type='sine'; o.frequency.setValueAtTime(f, t);
+    var g = ac.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(clamp(a,0.0002,1), t+0.0022);
+    g.gain.exponentialRampToValueAtTime(0.0001, t+dec);
+    o.connect(g); g.connect(bus);
+    o.start(t); o.stop(t+dec+0.05);
+  }
+}
+
+function whoosh(amp, dur){
+  if (!ac || !sound || !master || !noiseBuf) return;
+  if (!isFinite(amp) || amp <= 0 || !isFinite(dur) || dur <= 0) return;
+  var t = ac.currentTime;
+  var s = ac.createBufferSource(); s.buffer = noiseBuf;
+  var bp = ac.createBiquadFilter(); bp.type='bandpass'; bp.Q.value = 1.1;
+  bp.frequency.setValueAtTime(520, t);
+  bp.frequency.exponentialRampToValueAtTime(2700, t+dur);
+  var g = ac.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(clamp(amp,0.0002,1), t+dur*0.32);
+  g.gain.exponentialRampToValueAtTime(0.0001, t+dur);
+  s.connect(bp); bp.connect(g); g.connect(master);
+  s.start(t); s.stop(t+dur+0.06);
+}
+
+// the four voices
+function sfxKnock(q){
+  var base = lerp(880, 1420, clamp(q,0,1));
+  strike(base, [1,1.58,2.34,3.11,4.24],
+               [0.50,0.30,0.19,0.11,0.06],
+               [0.14,0.105,0.075,0.052,0.036],
+               lerp(0.42,0.70,q), lerp(0.16,0.42,q), 2100);
+  strike(163, [1,1.71], [0.34,0.14], [0.16,0.10], 0.34, 0, 0);
+}
+function sfxThud(v){
+  var a = clamp(0.16 + v*0.55, 0.12, 0.7);
+  strike(lerp(210,158,clamp(v,0,1)), [1,1.72,2.61],
+         [0.52,0.22,0.10], [0.20,0.13,0.085], a, 0.16, 620);
+}
+function sfxDead(){   // a strike that hit the wrong block: no ring at all
+  strike(268, [1,1.42,1.93], [0.44,0.20,0.09], [0.085,0.06,0.04], 0.5, 0.30, 800);
+}
+function sfxClack(){  // 拍子木
+  strike(2380, [1,1.47,2.11], [0.46,0.27,0.13], [0.062,0.046,0.030], 0.62, 0.5, 3000);
+}
+function sfxSuzu(){   // 鈴 — long, high, inharmonic
+  strike(2640, [1,2.76,5.40,8.93], [0.34,0.24,0.15,0.08],
+         [1.5,1.15,0.85,0.55], 0.4, 0, 0);
+}
+function sfxRumble(){
+  if (!ac || !sound || !master || !noiseBuf) return;
+  var t = ac.currentTime;
+  var s = ac.createBufferSource(); s.buffer = noiseBuf; s.loop = true;
+  var lp = ac.createBiquadFilter(); lp.type='lowpass';
+  lp.frequency.setValueAtTime(900, t);
+  lp.frequency.exponentialRampToValueAtTime(120, t+0.9);
+  var g = ac.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.30, t+0.05);
+  g.gain.exponentialRampToValueAtTime(0.0001, t+1.0);
+  s.connect(lp); lp.connect(g); g.connect(master);
+  s.start(t); s.stop(t+1.05);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  CAMERA
+// ═══════════════════════════════════════════════════════════════════════
+var facing='user', mirror=true, stream=null, started=false, camOK=false;
+
+function showError(e){
+  var msg = (e && e.message) ? e.message : String(e || 'unknown');
+  errBox.style.display = 'block';
+  errBox.textContent = 'カメラを起動できませんでした：' + msg +
+    '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+}
+function startStream(){
+  var md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) return Promise.reject(new Error('getUserMedia is unavailable'));
+  if (stream && stream.getTracks) stream.getTracks().forEach(function(t){ t.stop(); });
+  return md.getUserMedia({
+    video:{ facingMode:{ ideal:facing }, width:{ ideal:960 }, height:{ ideal:720 } },
+    audio:false
+  }).then(function(st){
+    stream = st; video.srcObject = st; mirror = (facing === 'user'); camOK = true;
+    var p = video.play();
+    return (p && p.then) ? p.catch(function(){}) : null;
+  });
+}
+flipBtn.addEventListener('click', function(){
+  facing = (facing === 'user') ? 'environment' : 'user';
+  loseHand();
+  startStream().then(startMpCamera).catch(showError);
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+//  HAND — one hand, and one gesture: a fast horizontal sweep THROUGH the
+//  tower's centre line. Requiring an actual sign change of (x - 0.5) at
+//  speed is what keeps tracker jitter (which never travels that far) from
+//  ever registering as a strike.
+// ═══════════════════════════════════════════════════════════════════════
+var hands=null, mpCamera=null, mpReady=false;
+var LOST_MS = 320;
+var TRACK_GAP = 0.12;      // s — longer than this is a dropout
+var TRACK_JUMP = 0.33;     // normalized — longer than this is a re-acquisition
+// side is a latched Schmitt trigger, not a raw sign test: it commits to a
+// side only past DEAD, so tracker jitter sitting on the centre line can
+// never flip it, and a hand landing exactly on 0.5 cannot swallow a sweep.
+var SWIPE_DEAD = 0.045;
+// ...and `run` is the distance travelled since the smoothed velocity last
+// changed sign. A chop accumulates it in three frames; a shaking hand
+// reverses constantly and can never bank it. Position alone is not enough
+// evidence — the PATH has to be monotonic too.
+var SWIPE_RUN = 0.12;
+var Hn = { live:false, armed:false, t:-1e9, x:0.5, y:0.5, px:0.5, py:0.5,
+           vx:0, vy:0, sp:0, ext:4, side:0, run:0, runDir:0 };
+var trail = [];
+var TIPS=[8,12,16,20], PIPS=[6,10,14,18];
+
+function loseHand(){
+  Hn.live = false; Hn.armed = false; Hn.side = 0;
+  Hn.run = 0; Hn.runDir = 0;
+  Hn.vx = 0; Hn.vy = 0; Hn.sp = 0;
+  trail.length = 0;
+}
+function initHands(){
+  if (typeof window.Hands !== 'function') return false;
+  try {
+    hands = new window.Hands({ locateFile:function(f){
+      return 'https://cdn.jsdelivr.net/npm/@mediapipe/hands/' + f;
+    }});
+    hands.setOptions({ maxNumHands:1, modelComplexity:0,
+                       minDetectionConfidence:0.6, minTrackingConfidence:0.5 });
+    hands.onResults(onHands);
+    mpReady = true; return true;
+  } catch(e){ return false; }
+}
+function startMpCamera(){
+  if (!mpReady || !hands) return;
+  if (mpCamera) return;
+  if (typeof window.Camera !== 'function') return;
+  try {
+    mpCamera = new window.Camera(video, {
+      onFrame: function(){
+        if (!hands) return Promise.resolve();
+        return hands.send({ image: video }).catch(function(){});
+      },
+      width:480, height:360
+    });
+    mpCamera.start();
+  } catch(e){ mpCamera = null; }
+}
+function validLm(c){
+  if (!c || c.length < 21) return null;
+  for (var i=0;i<21;i++){
+    var p = c[i];
+    if (!p || typeof p.x !== 'number' || typeof p.y !== 'number' ||
+        !isFinite(p.x) || !isFinite(p.y)) return null;
+  }
+  return c;
+}
+function readHand(c, t){
+  var ids=[0,5,9,13,17], cx=0, cy=0, i;
+  for (i=0;i<ids.length;i++){
+    var p = c[ids[i]];
+    if (!p) return false;
+    cx += p.x; cy += p.y;
+  }
+  cx /= ids.length; cy /= ids.length;
+  if (!isFinite(cx) || !isFinite(cy)) return false;
+  var x = mirror ? (1-cx) : cx, y = cy;
+  if (!isFinite(x) || !isFinite(y)) return false;
+
+  var wr = c[0], ext = 0;
+  for (i=0;i<4;i++){
+    var a = c[TIPS[i]], b = c[PIPS[i]];
+    if (!a || !b) continue;
+    if (Math.hypot(a.x-wr.x, a.y-wr.y) > Math.hypot(b.x-wr.x, b.y-wr.y)*1.06) ext++;
+  }
+
+  var dt = Hn.live ? (t - Hn.t)/1000 : 0;
+  var jump = Hn.live ? Math.hypot(x - Hn.x, y - Hn.y) : 0;
+  Hn.px = Hn.live ? Hn.x : x;
+  Hn.py = Hn.live ? Hn.y : y;
+  // A camera frame is ~33ms. A gap longer than TRACK_GAP is a dropout, not
+  // motion, and a step longer than TRACK_JUMP is the tracker re-acquiring
+  // somewhere else, not a hand travelling. Differentiating across either
+  // invents an enormous velocity out of nothing — which used to fire a
+  // phantom strike AND eat the cooldown that the player's real one needed.
+  // Both cases re-arm from scratch instead.
+  if (Hn.live && dt > 0.004 && dt < TRACK_GAP && jump < TRACK_JUMP){
+    var nvx = (x - Hn.x)/dt, nvy = (y - Hn.y)/dt;
+    if (isFinite(nvx) && isFinite(nvy)){
+      Hn.vx += (nvx - Hn.vx)*0.55;
+      Hn.vy += (nvy - Hn.vy)*0.55;
+      Hn.armed = true;
+    }
+  } else {
+    Hn.vx = 0; Hn.vy = 0; Hn.armed = false;
+    Hn.run = 0; Hn.runDir = 0; Hn.side = 0;
+  }
+  Hn.x = x; Hn.y = y; Hn.t = t; Hn.ext = ext; Hn.live = true;
+  Hn.sp = Math.hypot(Hn.vx, Hn.vy);
+
+  trail.push({x:x, y:y, t:t});
+  while (trail.length > 14) trail.shift();
+
+  checkSwipe(t);
+  return true;
+}
+function onHands(res){
+  var list = (res && res.multiHandLandmarks) ? res.multiHandLandmarks : [];
+  var t = now(), got = false;
+  for (var i=0;i<list.length && !got;i++){
+    var c = validLm(list[i]);
+    if (c) got = readHand(c, t);
+  }
+  if (!got && Hn.live && (t - Hn.t) > LOST_MS) loseHand();
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  DIFFICULTY
+// ═══════════════════════════════════════════════════════════════════════
+var LEVELS = [
+  { name:'並', min:1.15, good:3.0, damp:3.7, tol:0.58, jolt:330, K:250 },
+  { name:'上', min:1.45, good:3.7, damp:2.8, tol:0.49, jolt:420, K:265 },
+  { name:'鬼', min:1.80, good:4.5, damp:2.1, tol:0.42, jolt:520, K:280 }
+];
+var diff = 0;
+lvBtn.addEventListener('click', function(){
+  diff = (diff+1) % LEVELS.length;
+  lvLbl.textContent = LEVELS[diff].name;
+  if (phase !== 'idle') newRun();
+});
+sndBtn.addEventListener('click', function(){
+  sound = !sound; sndLbl.textContent = sound ? 'ON' : 'OFF';
+  if (sound) initAudio();
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+//  GAME STATE
+// ═══════════════════════════════════════════════════════════════════════
+var phase = 'idle';          // idle | play | clear | fall | over
+var phaseT = 0;
+var level = 1, score = 0, lives = 3;
+var combo = 0, comboT = 0;
+var blocks = [];             // index 0 = bottom of the stack
+var flying = [];
+var chips = [];
+var pops = [];
+var shake = 0, flash = 0, shear = 0;
+var lastHit = -1e9;
+var settleT = 0;
+
+function mkBlock(kind, colIdx){
+  return { kind:kind, col: kind==='head' ? C_SHU : BODY_COLS[colIdx % BODY_COLS.length],
+           x:0, vx:0, yy:0, vy:0, restY:0, rot:0, landed:true, h:1, w:1 };
+}
+function buildTower(){
+  blocks.length = 0; flying.length = 0; chips.length = 0; pops.length = 0;
+  var n = bodyCountFor(level), i;
+  for (i=0;i<n;i++) blocks.push(mkBlock('body', i));
+  blocks.push(mkBlock('head', 0));
+  layout();                       // BH depends on the block count
+  computeRest();
+  for (i=0;i<blocks.length;i++){ blocks[i].yy = blocks[i].restY; blocks[i].vy = 0; }
+  settleT = 0;
+}
+function computeRest(){
+  var yAcc = groundY;
+  for (var i=0;i<blocks.length;i++){
+    var b = blocks[i];
+    b.h = (b.kind === 'head') ? HH : BH;
+    b.w = (b.kind === 'head') ? BW*0.80 : BW;
+    b.restY = yAcc - b.h*0.5;
+    yAcc -= b.h;
+  }
+}
+function newRun(){
+  level = 1; score = 0; lives = 3; combo = 0; comboT = 0;
+  buildTower();
+  phase = 'play'; phaseT = 0;
+  overSh.classList.add('off');
+  syncHud();
+}
+function syncHud(){
+  scoreEl.textContent = String(score);
+  stageEl.textContent = String(level);
+  var html = '';
+  for (var i=0;i<3;i++) html += '<i class="' + (i < lives ? '' : 'gone') + '"></i>';
+  lifeEl.innerHTML = html;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  THE STRIKE
+// ═══════════════════════════════════════════════════════════════════════
+function checkSwipe(t){
+  // accumulate the monotonic run before anything else
+  var d = (Hn.vx > 0) ? 1 : (Hn.vx < 0 ? -1 : Hn.runDir);
+  if (d !== Hn.runDir){ Hn.runDir = d; Hn.run = 0; }
+  var stepd = Math.abs(Hn.x - Hn.px);
+  if (isFinite(stepd)) Hn.run += stepd;
+  // latch the side — it must keep tracking even when we are not
+  // in play, so that entering a round mid-sweep cannot fire a strike
+  var prevSide = Hn.side;
+  if (Hn.x > 0.5 + SWIPE_DEAD) Hn.side = 1;
+  else if (Hn.x < 0.5 - SWIPE_DEAD) Hn.side = -1;
+  var flipped = (prevSide !== 0 && Hn.side !== 0 && Hn.side !== prevSide);
+  if (!flipped) return;
+  if (phase !== 'play' || !Hn.armed) return;
+  if (t - lastHit < 230) return;
+  if (Hn.run < SWIPE_RUN) return;
+  if (Hn.runDir !== Hn.side) return;          // the run must go the way the sweep went
+  var L = LEVELS[diff];
+  var avx = Math.abs(Hn.vx);
+  if (avx < L.min) return;
+  if (avx < Math.abs(Hn.vy) * 1.15) return;      // must be a chop, not a lift
+  // where the sweep was when it passed the tower
+  var yN = Hn.y;
+  var den = (Hn.x - Hn.px);
+  if (isFinite(den) && Math.abs(den) > 1e-6 && (Hn.px - 0.5)*(Hn.x - 0.5) < 0){
+    var f = clamp((0.5 - Hn.px)/den, 0, 1);
+    var iy = Hn.py + (Hn.y - Hn.py)*f;
+    if (isFinite(iy)) yN = iy;
+  }
+  if (!isFinite(yN)) return;
+  lastHit = t;
+  Hn.run = 0;
+  resolveStrike(yN * H, avx, Hn.side > 0 ? 1 : -1, t);
+}
+
+function resolveStrike(hitY, sp, dir, t){
+  if (phase !== 'play') return;
+  var L = LEVELS[diff];
+  if (blocks.length <= 1) return;                 // only the head is left
+  var bottom = blocks[0];
+  var dy = Math.abs(hitY - bottom.yy);
+  // the hit window is the block, but never narrower than 5.5% of the screen:
+  // on a small phone a body block is only ~28px tall and aiming a chop into
+  // that band is not a skill test, it is a lottery
+  var reach = Math.max(bottom.h * 0.80, H * 0.055);
+
+  if (dy > reach){
+    // did the sweep pass through some higher block instead?
+    var hitHigher = false;
+    for (var i=1;i<blocks.length;i++){
+      if (Math.abs(hitY - blocks[i].yy) < blocks[i].h*0.62){ hitHigher = true; break; }
+    }
+    if (hitHigher){
+      // you cannot take a block out of the middle: it just shoves the tower
+      var j = clamp(sp/L.good, 0, 1) * L.jolt * S * 0.85 * dir;
+      for (var k=0;k<blocks.length;k++) blocks[k].vx += j * (0.35 + 0.65*k/blocks.length);
+      combo = 0;
+      shake = Math.max(shake, 6*S); sfxDead(); whoosh(0.14, 0.16);
+      addPop('下から', hitY, C_SUMI);
+      puff(CX, hitY, dir, 8, 'rgba(120,110,95,.5)');
+      return;
+    }
+    whoosh(0.10, 0.15);
+    return;                                        // clean miss, nothing happens
+  }
+
+  // ── a real hit on the bottom block ────────────────────────────────
+  var clean = clamp((sp - L.min)/(L.good - L.min), 0, 1);
+  var acc   = 1 - clamp(dy/reach, 0, 1);
+  var q     = clamp(clean*0.62 + acc*0.38, 0, 1);
+
+  var gone = blocks.shift();
+  gone.vx  = dir * (sp * W * 0.30 + 260*S);
+  gone.vy  = -(70 + 190*q) * S;
+  gone.rot = 0;
+  gone.vrot= dir * (5 + 11*q);
+  gone.life= 0;
+  flying.push(gone);
+
+  computeRest();
+  for (var m=0;m<blocks.length;m++){ blocks[m].landed = false; }
+  // the friction drag of the leaving block, applied at the new bottom;
+  // the spring chain carries it upward from there
+  blocks[0].vx += dir * (1-q) * L.jolt * S;
+
+  combo++; comboT = t;
+  var mult = 1 + Math.min(combo-1, 5)*0.2;
+  var gain = Math.round((90 + 430*q) * (1 + (level-1)*0.28) * mult);
+  score += gain;
+
+  shake = Math.max(shake, (3 + 9*q)*S);
+  flash = Math.max(flash, 0.25 + 0.45*q);
+  shear = dir * (6 + 22*q) * S;
+  sfxKnock(q); whoosh(0.10 + 0.20*q, 0.13);
+  puff(CX, gone.yy, dir, Math.round(6 + 14*q), 'rgba(214,196,150,.85)');
+  addPop(q > 0.82 ? '小気味よい' : (q > 0.5 ? '通った' : 'かすった'),
+         gone.yy, q > 0.5 ? C_SHU : C_SUMI);
+  addPop('+'+gain, gone.yy - BH*0.55, C_AI);
+  syncHud();
+}
+
+function addPop(txt, y, col){
+  pops.push({ txt:txt, x:CX, y:y, t:0, col:col });
+  while (pops.length > 8) pops.shift();
+}
+function puff(x, y, dir, n, col){
+  for (var i=0;i<n;i++){
+    chips.push({
+      x:x + (Math.random()-0.5)*BW*0.7,
+      y:y + (Math.random()-0.5)*BH*0.8,
+      vx: dir*(90 + Math.random()*420)*S + (Math.random()-0.5)*160*S,
+      vy: -(40 + Math.random()*300)*S,
+      r: (1.6 + Math.random()*3.4)*S,
+      rot: Math.random()*6.28, vrot:(Math.random()-0.5)*16,
+      life:0, max:0.5 + Math.random()*0.6, col:col
+    });
+  }
+  while (chips.length > 260) chips.shift();
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  ROUND ENDS — both guarded on phase, so they fire exactly once
+// ═══════════════════════════════════════════════════════════════════════
+function levelClear(){
+  if (phase !== 'play') return;
+  phase = 'clear'; phaseT = 0;
+  var bonus = 300 * level + lives*150;
+  score += bonus;
+  addPop('だるま残った', groundY - HH*1.4, C_YAMA);
+  addPop('+'+bonus, groundY - HH*1.9, C_AI);
+  flash = Math.max(flash, 0.7);
+  sfxClack();
+  setTimeout(sfxClack, 110);
+  setTimeout(sfxSuzu, 230);
+  syncHud();
+}
+function topple(){
+  if (phase !== 'play') return;
+  phase = 'fall'; phaseT = 0;
+  combo = 0;
+  lives--;
+  var i;
+  for (i=0;i<blocks.length;i++){
+    var b = blocks[i];
+    var d = (b.x >= 0 ? 1 : -1);
+    b.vx += d*(120 + 300*Math.random())*S;
+    b.vy = -60*S*Math.random();
+    b.vrot = d*(2 + Math.random()*7);
+    b.rot = b.rot || 0;
+    b.life = 0;
+    flying.push(b);
+  }
+  blocks.length = 0;
+  shake = Math.max(shake, 16*S);
+  sfxRumble();
+  for (i=0;i<4;i++) setTimeout(function(){ sfxThud(0.6 + Math.random()*0.4); }, 60 + i*130);
+  puff(CX, groundY - BH, 1, 26, 'rgba(150,138,112,.7)');
+  addPop('崩れた', groundY - BH*2, C_SHU);
+  syncHud();
+}
+function gameOver(){
+  if (phase === 'over') return;
+  phase = 'over'; phaseT = 0;
+  overLbl.textContent = 'おわり';
+  overBig.textContent = String(score);
+  overBody.textContent = level + '段目で崩れました。' +
+    (level >= 5 ? '見事な手さばき。' : level >= 3 ? 'もう一歩。' : '払いを速く、まっすぐに。');
+  overSh.classList.remove('off');
+}
+againBtn.addEventListener('click', function(){ initAudio(); newRun(); });
+
+// ═══════════════════════════════════════════════════════════════════════
+//  PHYSICS
+// ═══════════════════════════════════════════════════════════════════════
+var G = 2500;
+function stepStack(dt){
+  var L = LEVELS[diff], i, b;
+  var g = G * S;
+  computeRest();
+  for (i=0;i<blocks.length;i++){
+    b = blocks[i];
+    // vertical
+    if (b.yy < b.restY - 0.4){
+      b.vy += g*dt;
+      b.yy += b.vy*dt;
+      b.landed = false;
+      if (b.yy >= b.restY){
+        var impact = b.vy;
+        b.yy = b.restY; b.vy = 0;
+        if (!b.landed){
+          b.landed = true;
+          var v = clamp(impact/(1400*S), 0, 1);
+          if (v > 0.05){
+            sfxThud(v);
+            b.vx += (Math.random()-0.5) * v * 90 * S;
+            puff(CX + b.x, b.restY + b.h*0.45, 1, 3, 'rgba(196,182,150,.55)');
+            if (i === 0) shake = Math.max(shake, v*7*S);
+          }
+        }
+      }
+    } else {
+      b.yy = b.restY; b.vy = 0; b.landed = true;
+    }
+    // horizontal: held over the block below by a spring standing in for friction
+    var xBelow = (i === 0) ? 0 : blocks[i-1].x;
+    var ax = L.K*(xBelow - b.x) - L.damp*b.vx;
+    if (!isFinite(ax)) ax = 0;
+    b.vx += ax*dt;
+    b.x  += b.vx*dt;
+    if (!isFinite(b.x)){ b.x = 0; b.vx = 0; }
+    var lean = clamp((b.x - xBelow)/(BW*0.9), -1, 1);
+    b.rot += ((lean*0.20) - b.rot) * clamp(dt*13, 0, 1);
+  }
+  // topple test
+  var tol = BW * LEVELS[diff].tol;
+  for (i=0;i<blocks.length;i++){
+    var below = (i === 0) ? 0 : blocks[i-1].x;
+    if (Math.abs(blocks[i].x - below) > tol){ topple(); return; }
+  }
+  // settled and only the head left → clear
+  if (blocks.length === 1){
+    var hd = blocks[0];
+    if (hd.landed && Math.abs(hd.vx) < 26*S && Math.abs(hd.x) < BW*0.34){
+      settleT += dt;
+      if (settleT > 0.45) levelClear();
+    } else settleT = 0;
+  } else settleT = 0;
+}
+function stepFlying(dt){
+  var g = G*S;
+  for (var i=flying.length-1;i>=0;i--){
+    var b = flying[i];
+    b.vy += g*dt;
+    b.x  += b.vx*dt; b.yy += b.vy*dt;
+    b.vx *= (1 - clamp(2.0*dt,0,0.5));
+    b.rot += b.vrot*dt;
+    b.life += dt;
+    var fl = groundY + b.h*0.5;
+    if (b.yy > fl && b.vy > 0){
+      b.yy = fl; b.vy *= -0.32; b.vrot *= 0.5;
+      if (Math.abs(b.vy) > 80*S) sfxThud(clamp(Math.abs(b.vy)/(900*S),0,1)*0.7);
+      else b.vy = 0;
+    }
+    if (b.life > 4 || Math.abs(b.x) > W*1.4) flying.splice(i,1);
+  }
+}
+function stepChips(dt){
+  var g = G*S*0.55;
+  for (var i=chips.length-1;i>=0;i--){
+    var p = chips[i];
+    p.vy += g*dt; p.x += p.vx*dt; p.y += p.vy*dt;
+    p.vx *= (1 - clamp(2.6*dt,0,0.6));
+    p.rot += p.vrot*dt; p.life += dt;
+    if (p.y > groundY + 12*S){ p.y = groundY + 12*S; p.vy *= -0.2; p.vx *= 0.5; }
+    if (p.life > p.max) chips.splice(i,1);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  DRAW
+// ═══════════════════════════════════════════════════════════════════════
+function roundRect(c,x,y,w,h,r){
+  r = Math.min(r, Math.abs(w)/2, Math.abs(h)/2);
+  c.beginPath();
+  c.moveTo(x+r,y); c.lineTo(x+w-r,y); c.quadraticCurveTo(x+w,y,x+w,y+r);
+  c.lineTo(x+w,y+h-r); c.quadraticCurveTo(x+w,y+h,x+w-r,y+h);
+  c.lineTo(x+r,y+h); c.quadraticCurveTo(x,y+h,x,y+h-r);
+  c.lineTo(x,y+r); c.quadraticCurveTo(x,y,x+r,y); c.closePath();
+}
+function shade(hex, k){
+  var r = parseInt(hex.substr(1,2),16), g = parseInt(hex.substr(3,2),16), b = parseInt(hex.substr(5,2),16);
+  r = Math.round(clamp(r*k,0,255)); g = Math.round(clamp(g*k,0,255)); b = Math.round(clamp(b*k,0,255));
+  return 'rgb('+r+','+g+','+b+')';
+}
+function drawBody(b){
+  var w = b.w, h = b.h, x = CX + b.x, y = b.yy;
+  ctx.save();
+  ctx.translate(x, y); ctx.rotate(b.rot);
+  // cylinder: body, a lighter left face, a rim at the top
+  ctx.fillStyle = b.col;
+  roundRect(ctx, -w/2, -h/2, w, h, Math.max(2, 3*S)); ctx.fill();
+  var gr = ctx.createLinearGradient(-w/2,0,w/2,0);
+  gr.addColorStop(0,'rgba(255,255,255,.30)');
+  gr.addColorStop(0.42,'rgba(255,255,255,.05)');
+  gr.addColorStop(1,'rgba(0,0,0,.24)');
+  ctx.fillStyle = gr;
+  roundRect(ctx, -w/2, -h/2, w, h, Math.max(2, 3*S)); ctx.fill();
+  ctx.fillStyle = shade(b.col, 1.22);
+  ctx.beginPath(); ctx.ellipse(0, -h/2, w/2, h*0.16, 0, 0, 6.2832); ctx.fill();
+  ctx.strokeStyle = C_SUMI; ctx.lineWidth = Math.max(1.4, 2.2*S);
+  roundRect(ctx, -w/2, -h/2, w, h, Math.max(2, 3*S)); ctx.stroke();
+  ctx.beginPath(); ctx.ellipse(0, -h/2, w/2, h*0.16, 0, 0, 6.2832); ctx.stroke();
+  ctx.restore();
+}
+function drawHead(b){
+  var w = b.w, h = b.h, x = CX + b.x, y = b.yy;
+  ctx.save();
+  ctx.translate(x, y); ctx.rotate(b.rot);
+  // daruma: a weighted egg
+  ctx.beginPath();
+  ctx.moveTo(-w*0.50, h*0.50);
+  ctx.bezierCurveTo(-w*0.56, -h*0.10, -w*0.36, -h*0.52, 0, -h*0.52);
+  ctx.bezierCurveTo( w*0.36, -h*0.52,  w*0.56, -h*0.10,  w*0.50, h*0.50);
+  ctx.closePath();
+  ctx.fillStyle = C_SHU; ctx.fill();
+  var gr = ctx.createLinearGradient(-w/2,0,w/2,0);
+  gr.addColorStop(0,'rgba(255,255,255,.26)');
+  gr.addColorStop(0.45,'rgba(255,255,255,.02)');
+  gr.addColorStop(1,'rgba(0,0,0,.26)');
+  ctx.fillStyle = gr; ctx.fill();
+  ctx.strokeStyle = C_SUMI; ctx.lineWidth = Math.max(1.4, 2.2*S); ctx.stroke();
+  // face
+  ctx.beginPath(); ctx.ellipse(0, -h*0.06, w*0.31, h*0.30, 0, 0, 6.2832);
+  ctx.fillStyle = '#f7f2e6'; ctx.fill(); ctx.stroke();
+  ctx.fillStyle = C_SUMI;
+  var er = Math.max(1.6, w*0.052);
+  ctx.beginPath(); ctx.ellipse(-w*0.115, -h*0.10, er, er*1.15, 0, 0, 6.2832); ctx.fill();
+  ctx.beginPath(); ctx.ellipse( w*0.115, -h*0.10, er, er*1.15, 0, 0, 6.2832); ctx.fill();
+  ctx.lineWidth = Math.max(1.2, 1.8*S); ctx.strokeStyle = C_SUMI;
+  ctx.beginPath();
+  ctx.moveTo(-w*0.075, h*0.055); ctx.quadraticCurveTo(0, h*0.115, w*0.075, h*0.055);
+  ctx.stroke();
+  // 眉 — the two brush strokes
+  ctx.lineWidth = Math.max(1.6, 2.6*S); ctx.lineCap='round';
+  ctx.beginPath();
+  ctx.moveTo(-w*0.20, -h*0.20); ctx.quadraticCurveTo(-w*0.115,-h*0.255,-w*0.045,-h*0.19);
+  ctx.moveTo( w*0.20, -h*0.20); ctx.quadraticCurveTo( w*0.115,-h*0.255, w*0.045,-h*0.19);
+  ctx.stroke(); ctx.lineCap='butt';
+  ctx.restore();
+}
+function drawBlock(b){ if (b.kind === 'head') drawHead(b); else drawBody(b); }
+
+function drawHand(){
+  if (!Hn.live){ return; }
+  var L = LEVELS[diff];
+  var hx = Hn.x*W, hy = Hn.y*H;
+  var ang = (Hn.sp > 0.12) ? Math.atan2(Hn.vy, Hn.vx) : 0;
+  var rdy = clamp(Math.abs(Hn.vx)/L.min, 0, 1);
+  var i;
+  // sweep trail
+  if (trail.length > 1){
+    ctx.lineCap='round';
+    for (i=1;i<trail.length;i++){
+      var a = trail[i-1], b2 = trail[i];
+      var f = i/trail.length;
+      ctx.strokeStyle = 'rgba(226,81,58,' + (0.05 + 0.30*f*rdy) + ')';
+      ctx.lineWidth = (2 + 15*f)*S;
+      ctx.beginPath(); ctx.moveTo(a.x*W, a.y*H); ctx.lineTo(b2.x*W, b2.y*H); ctx.stroke();
+    }
+    ctx.lineCap='butt';
+  }
+  // the mallet
+  ctx.save();
+  ctx.translate(hx, hy); ctx.rotate(ang);
+  var mw = 46*S, mh = 26*S;
+  ctx.strokeStyle = C_SUMI; ctx.lineWidth = Math.max(1.3, 2*S);
+  ctx.fillStyle = '#c9a86a';
+  roundRect(ctx, -mw*0.5, -mh*0.5, mw, mh, 4*S); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = 'rgba(0,0,0,.16)';
+  roundRect(ctx, -mw*0.5, mh*0.06, mw, mh*0.44, 3*S); ctx.fill();
+  ctx.fillStyle = '#e0c894';
+  roundRect(ctx, -mw*0.10, -mh*0.95, mw*0.20, mh*1.9, 3*S); ctx.fill();
+  ctx.strokeStyle = C_SUMI;
+  roundRect(ctx, -mw*0.10, -mh*0.95, mw*0.20, mh*1.9, 3*S); ctx.stroke();
+  ctx.restore();
+  // speed ring — fills as the sweep gets fast enough to count
+  ctx.beginPath();
+  ctx.arc(hx, hy, 34*S, -1.5708, -1.5708 + 6.2832*rdy);
+  ctx.strokeStyle = rdy >= 1 ? C_SHU : 'rgba(43,39,35,.34)';
+  ctx.lineWidth = Math.max(2, 3.4*S); ctx.stroke();
+  if (rdy >= 1){
+    ctx.beginPath(); ctx.arc(hx, hy, 40*S, 0, 6.2832);
+    ctx.strokeStyle = 'rgba(226,81,58,.35)'; ctx.lineWidth = Math.max(1,1.6*S); ctx.stroke();
+  }
+}
+
+function render(t, dt){
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  ctx.clearRect(0,0,W,H);
+  var sx = 0, sy = 0;
+  if (shake > 0.2){
+    sx = (Math.random()-0.5)*shake; sy = (Math.random()-0.5)*shake;
+  }
+  ctx.save(); ctx.translate(sx, sy);
+
+  // mat
+  if (mat.width > 1) ctx.drawImage(mat, 0, 0, W, H);
+
+  // the player, as a shadow on the mat
+  if (camOK && video.readyState >= 2 && video.videoWidth > 0){
+    try {
+      cctx.setTransform(1,0,0,1,0,0);
+      cctx.filter = 'grayscale(1) contrast(1.15) brightness(1.05)';
+      if (mirror){ cctx.setTransform(-1,0,0,1,camS.width,0); }
+      cctx.drawImage(video, 0, 0, camS.width, camS.height);
+      cctx.setTransform(1,0,0,1,0,0);
+      cctx.filter = 'none';
+      ctx.save();
+      ctx.globalCompositeOperation = 'multiply';
+      ctx.globalAlpha = 0.30;
+      var vr = video.videoWidth/video.videoHeight, cr = W/H, dw, dh;
+      if (vr > cr){ dh = H; dw = H*vr; } else { dw = W; dh = W/vr; }
+      ctx.drawImage(camS, (W-dw)/2, (H-dh)/2, dw, dh);
+      ctx.restore();
+    } catch(e){ /* a camera frame we cannot read is simply not drawn */ }
+  }
+
+  // the 台 the toy stands on
+  ctx.fillStyle = 'rgba(43,39,35,.13)';
+  ctx.beginPath();
+  ctx.ellipse(CX, groundY + 6*S, BW*0.92, 13*S, 0, 0, 6.2832); ctx.fill();
+  ctx.fillStyle = '#b98d52';
+  roundRect(ctx, CX - BW*0.86, groundY, BW*1.72, 15*S, 3*S); ctx.fill();
+  ctx.fillStyle = 'rgba(0,0,0,.20)';
+  roundRect(ctx, CX - BW*0.86, groundY + 8*S, BW*1.72, 7*S, 3*S); ctx.fill();
+  ctx.strokeStyle = C_SUMI; ctx.lineWidth = Math.max(1.4,2.2*S);
+  roundRect(ctx, CX - BW*0.86, groundY, BW*1.72, 15*S, 3*S); ctx.stroke();
+
+  // the target band — where the bottom block is, so the eye knows the height
+  if (phase === 'play' && blocks.length > 1){
+    var b0 = blocks[0];
+    var pulse = 0.10 + 0.07*Math.sin(t*0.006);
+    ctx.fillStyle = 'rgba(226,81,58,' + pulse + ')';
+    ctx.fillRect(0, b0.yy - b0.h*0.5, W, b0.h);
+    ctx.strokeStyle = 'rgba(226,81,58,.42)';
+    ctx.setLineDash([9*S, 7*S]); ctx.lineWidth = Math.max(1,1.6*S);
+    ctx.beginPath();
+    ctx.moveTo(0, b0.yy - b0.h*0.5); ctx.lineTo(W, b0.yy - b0.h*0.5);
+    ctx.moveTo(0, b0.yy + b0.h*0.5); ctx.lineTo(W, b0.yy + b0.h*0.5);
+    ctx.stroke(); ctx.setLineDash([]);
+  }
+
+  var i;
+  for (i=0;i<flying.length;i++) drawBlock(flying[i]);
+  for (i=blocks.length-1;i>=0;i--) drawBlock(blocks[i]);
+
+  // wood chips
+  for (i=0;i<chips.length;i++){
+    var p = chips[i];
+    var a = 1 - p.life/p.max;
+    ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.rot);
+    ctx.globalAlpha = clamp(a,0,1);
+    ctx.fillStyle = p.col;
+    ctx.fillRect(-p.r, -p.r*0.42, p.r*2, p.r*0.84);
+    ctx.restore();
+  }
+  ctx.globalAlpha = 1;
+
+  drawHand();
+
+  // score pops
+  ctx.textAlign = 'center';
+  for (i=0;i<pops.length;i++){
+    var q2 = pops[i];
+    var pt = q2.t/0.9;
+    if (pt > 1) continue;
+    ctx.globalAlpha = clamp(1 - pt*pt, 0, 1);
+    var rise = outCubic(pt) * 52*S;
+    var sc = outBack(clamp(pt*4,0,1));
+    ctx.save();
+    ctx.translate(q2.x, q2.y - rise); ctx.scale(sc, sc);
+    ctx.font = Math.round(20*S) + 'px "Yusei Magic", sans-serif';
+    ctx.lineWidth = Math.max(2.5, 4.5*S); ctx.strokeStyle = C_KINARI;
+    ctx.strokeText(q2.txt, 0, 0);
+    ctx.fillStyle = q2.col; ctx.fillText(q2.txt, 0, 0);
+    ctx.restore();
+  }
+  ctx.globalAlpha = 1;
+
+  // combo
+  if (combo > 1 && phase === 'play'){
+    var cf = clamp(1 - (t - comboT)/2500, 0, 1);
+    ctx.globalAlpha = cf;
+    ctx.font = Math.round(15*S) + 'px "Yusei Magic", sans-serif';
+    ctx.fillStyle = C_SHU;
+    ctx.fillText(combo + ' 連', CX, H*0.115);
+    ctx.globalAlpha = 1;
+  }
+  ctx.textAlign = 'start';
+
+  ctx.restore();
+
+  // impact flash + a hard shear of the whole mat, 3 frames and gone
+  if (flash > 0.01){
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.fillStyle = 'rgba(255,247,225,' + clamp(flash*0.55,0,0.7) + ')';
+    ctx.fillRect(0,0,W,H);
+    ctx.restore();
+  }
+  if (Math.abs(shear) > 0.4){
+    ctx.save();
+    ctx.globalAlpha = 0.25;
+    ctx.drawImage(cv, 0, 0, cv.width, cv.height*0.5, shear, 0, W, H*0.5);
+    ctx.restore();
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  START-SHEET DEMO — a 2.6s loop of the gesture, so nobody has to read
+// ═══════════════════════════════════════════════════════════════════════
+var demoT = 0;
+function drawDemo(dt){
+  var w = demoCv.width, h = demoCv.height;
+  demoT = (demoT + dt) % 2.6;
+  var p = demoT;
+  dctx.setTransform(1,0,0,1,0,0);
+  dctx.fillStyle = '#efe8d8'; dctx.fillRect(0,0,w,h);
+  dctx.strokeStyle = 'rgba(180,171,138,.5)'; dctx.lineWidth = 1;
+  for (var y=0;y<h;y+=8){ dctx.beginPath(); dctx.moveTo(0,y+0.5); dctx.lineTo(w,y+0.5); dctx.stroke(); }
+
+  var cx = w*0.5, gy = h*0.86, bh = 40, bw = 128;
+  // how far through the strike are we
+  var struck = p > 1.05;
+  var drop = struck ? outCubic(clamp((p-1.05)/0.30,0,1)) : 0;
+  var cols = [C_AI, C_MOEGI, C_YAMA];
+  var n = 3;
+  // base plate
+  dctx.fillStyle = '#b98d52'; dctx.fillRect(cx-bw*0.86, gy, bw*1.72, 9);
+  dctx.strokeStyle = C_SUMI; dctx.lineWidth = 2;
+  dctx.strokeRect(cx-bw*0.86, gy, bw*1.72, 9);
+
+  for (var i=0;i<n;i++){
+    if (i === 0 && struck) continue;
+    var idx = struck ? i-1 : i;
+    var yy = gy - (idx+0.5)*bh - (struck ? (1-drop)*bh : 0);
+    dctx.fillStyle = cols[i%cols.length];
+    dctx.fillRect(cx-bw/2, yy-bh/2, bw, bh);
+    dctx.strokeStyle = C_SUMI; dctx.lineWidth = 2;
+    dctx.strokeRect(cx-bw/2, yy-bh/2, bw, bh);
+  }
+  // head
+  var hidx = struck ? n-1 : n;
+  var hy = gy - hidx*bh - 30 - (struck ? (1-drop)*bh : 0);
+  dctx.beginPath(); dctx.ellipse(cx, hy, 34, 30, 0, 0, 6.2832);
+  dctx.fillStyle = C_SHU; dctx.fill(); dctx.strokeStyle = C_SUMI; dctx.lineWidth = 2; dctx.stroke();
+  dctx.beginPath(); dctx.ellipse(cx, hy-2, 19, 17, 0, 0, 6.2832);
+  dctx.fillStyle = '#f7f2e6'; dctx.fill(); dctx.stroke();
+  dctx.fillStyle = C_SUMI;
+  dctx.beginPath(); dctx.arc(cx-7, hy-4, 2.6, 0, 6.2832); dctx.fill();
+  dctx.beginPath(); dctx.arc(cx+7, hy-4, 2.6, 0, 6.2832); dctx.fill();
+
+  // the flying block
+  if (struck){
+    var ft = (p-1.05);
+    var fx = cx + ft*760, fy = gy - bh*0.5 - ft*90 + 900*ft*ft;
+    dctx.save(); dctx.translate(fx, fy); dctx.rotate(ft*7);
+    dctx.fillStyle = cols[0]; dctx.fillRect(-bw/2,-bh/2,bw,bh);
+    dctx.strokeStyle = C_SUMI; dctx.lineWidth = 2; dctx.strokeRect(-bw/2,-bh/2,bw,bh);
+    dctx.restore();
+  }
+  // the hand sweeping through
+  var sweep = clamp((p-0.45)/0.70, 0, 1);
+  if (p < 1.9){
+    var hx = lerp(w*0.06, w*0.97, outCubic(sweep));
+    var hyy = gy - bh*0.5;
+    dctx.globalAlpha = p < 0.45 ? clamp(p/0.45,0,1) : clamp((1.9-p)/0.4,0,1);
+    dctx.strokeStyle = 'rgba(226,81,58,.45)'; dctx.lineWidth = 9; dctx.lineCap='round';
+    dctx.beginPath(); dctx.moveTo(Math.max(w*0.06, hx-96), hyy); dctx.lineTo(hx, hyy); dctx.stroke();
+    dctx.lineCap='butt';
+    dctx.fillStyle = '#c9a86a';
+    dctx.fillRect(hx-24, hyy-13, 48, 26);
+    dctx.strokeStyle = C_SUMI; dctx.lineWidth = 2;
+    dctx.strokeRect(hx-24, hyy-13, 48, 26);
+    dctx.globalAlpha = 1;
+  }
+  // label
+  dctx.fillStyle = 'rgba(43,39,35,.6)';
+  dctx.font = '15px "Yusei Magic", sans-serif'; dctx.textAlign = 'center';
+  dctx.fillText('一番下だけを、速く', w*0.5, 24);
+  dctx.textAlign = 'start';
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  LOOP
+// ═══════════════════════════════════════════════════════════════════════
+var lastT = now();
+function tick(){
+  var t = now();
+  var dt = clamp((t - lastT)/1000, 0, 0.05);
+  lastT = t;
+
+  if (Hn.live && (t - Hn.t) > LOST_MS) loseHand();
+
+  if (phase === 'idle'){
+    drawDemo(dt);
+  } else {
+    phaseT += dt;
+    if (phase === 'play'){
+      stepStack(dt);
+      if (combo > 0 && t - comboT > 2500) combo = 0;
+    } else if (phase === 'clear'){
+      if (phaseT > 1.5){
+        level++; buildTower(); phase = 'play'; phaseT = 0; syncHud();
+      }
+    } else if (phase === 'fall'){
+      if (phaseT > 1.6){
+        if (lives > 0){ buildTower(); phase = 'play'; phaseT = 0; }
+        else gameOver();
+      }
+    }
+    stepFlying(dt);
+    stepChips(dt);
+    for (var i=0;i<pops.length;i++) pops[i].t += dt;
+    shake *= Math.pow(0.02, dt);
+    flash *= Math.pow(0.001, dt);
+    shear *= Math.pow(0.0005, dt);
+    if (shake < 0.2) shake = 0;
+    render(t, dt);
+    updateTip(t);
+  }
+  requestAnimationFrame(tick);
+}
+
+var tipMsg = '';
+function updateTip(t){
+  var m;
+  if (!Hn.live) m = '手をカメラに写してください';
+  else if (phase === 'fall') m = '崩れた — 積み直します';
+  else if (phase === 'clear') m = 'だるまが残った';
+  else if (blocks.length <= 1) m = '—';
+  else if (Math.abs(Hn.vx) < LEVELS[diff].min*0.55) m = '赤い帯を、横に速く払う';
+  else m = 'その速さで、真横に';
+  if (m !== tipMsg){ tipMsg = m; tipEl.textContent = m; }
+  tipEl.classList.toggle('hide', phase === 'play' && blocks.length <= 1);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  BOOT
+// ═══════════════════════════════════════════════════════════════════════
+goBtn.addEventListener('click', function(){
+  if (started) return;
+  started = true;
+  initAudio();
+  startSh.classList.add('off');
+  newRun();
+  startStream().then(function(){
+    if (initHands()) startMpCamera();
+  }).catch(showError);
+});
+
+lvLbl.textContent = LEVELS[diff].name;
+layout();
+syncHud();
+requestAnimationFrame(tick);
+
+// exposed only so the headless harness can drive the piece
+window.__kotsuchi = {
+  state:function(){ return { phase:phase, level:level, score:score, lives:lives,
+                             blocks:blocks.length, flying:flying.length, combo:combo }; },
+  hand:Hn, strike:resolveStrike, feed:onHands, lose:loseHand,
+  blocks:function(){ return blocks; },
+  levels:LEVELS, diffIdx:function(){ return diff; }
+};
+
+})();
+</script>
+</body>
+</html>
