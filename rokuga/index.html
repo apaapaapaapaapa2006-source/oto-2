@@ -1,0 +1,619 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>ROKUGA ─ 擦り切れたテープ</title>
+<meta name="description" content="カメラ映像を本物のコンポジット信号に変換して、わざと下手に復調して戻すエフェクト。色は滲み、輪郭にはドットクロールが這う。動いたところほどテープが擦り切れ、そこだけドロップアウトが増えていく。">
+<meta name="theme-color" content="#0b0e10">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=VT323&display=swap" rel="stylesheet">
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  ROKUGA ─ 録画                               ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  PALETTE   磁気 jiki    #0b0e10  the dark the deck sits in
+            燐光 rinkou  #9dffc4  phosphor green-white, the only light source
+            藍鼠 ainezu  #2a3a44  cold blue in the shadows of the picture
+            生成 kinari  #ded6c4  worn white, the OSD and the dropouts
+            警告 keikou  #ff3b30  the red that only appears when tape is gone
+            MOOD: a tape played far too many times, at night, in a room where
+            the deck is the loudest thing. Everything glows slightly because
+            a CRT cannot show black, and nothing in the picture is ever quite
+            still, because the tape is not quite still either.
+
+  BACKGROUND  None to speak of — the picture fills the tube and the tube fills
+            the screen. What surrounds it is the dark of the room and the
+            faint bloom the phosphor throws back onto it.
+
+  TYPE      VT323, the only bitmap face in the collection, used exclusively
+            for the on-screen display the way a deck would: top-left status,
+            a running counter, and nothing else. Japanese labels sit in the
+            system gothic so the OSD keeps its machine voice.
+
+  MOTION    Tape has no easing. Everything either holds perfectly still or
+            jumps a whole number of lines. The only continuous movement in
+            the piece is the dot crawl, and that is not motion — it is the
+            subcarrier beating against the sampling grid.
+
+  SIGNATURE THE SIGNAL IS ACTUALLY ENCODED AND DECODED. Every frame is turned
+            into a real composite waveform — chroma quadrature-modulated onto
+            a subcarrier at a quarter the sample rate, summed with luma into
+            one number per pixel — and then demodulated with filters that are
+            deliberately too narrow. Dot crawl and rainbow fringing are not
+            drawn on; they fall out of the luma filter failing to reject the
+            subcarrier, exactly as they do on a real deck. On top of that the
+            WEAR MAP remembers: motion accumulates into a buffer that decays
+            over minutes, so wherever you moved, the oxide is thinner — chroma
+            dies there first, then the dropouts start.
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<style>
+  *{ margin:0; padding:0; box-sizing:border-box; }
+  html,body{
+    width:100%; height:100%; overflow:hidden; background:#0b0e10; color:#ded6c4;
+    font-family:'Hiragino Kaku Gothic ProN',system-ui,sans-serif;
+    -webkit-user-select:none; user-select:none; touch-action:none;
+    overscroll-behavior:none; -webkit-tap-highlight-color:transparent;
+  }
+  #view{ position:fixed; inset:0; width:100%; height:100%; display:block; }
+
+  #ctl{ position:fixed; left:0; right:0; bottom:0; z-index:10; pointer-events:none;
+        padding:0 9px calc(env(safe-area-inset-bottom,0px) + 13px);
+        display:flex; justify-content:center; gap:6px; flex-wrap:wrap; }
+  .btn{ pointer-events:auto; cursor:pointer;
+        background:rgba(11,14,16,0.7); border:1px solid rgba(157,255,196,0.34);
+        color:#9dffc4; padding:8px 10px; min-height:37px; border-radius:2px;
+        font-family:inherit; font-size:11.5px; letter-spacing:0.06em;
+        backdrop-filter:blur(4px); -webkit-backdrop-filter:blur(4px);
+        display:inline-flex; align-items:center; gap:5px; }
+  .btn small{ font-family:'VT323',monospace; font-size:14px; opacity:0.75; letter-spacing:0; }
+  .btn:active{ background:#9dffc4; color:#0b0e10; border-color:#9dffc4; }
+
+  #start{ position:fixed; inset:0; z-index:30; background:#0b0e10;
+          display:flex; flex-direction:column; align-items:center; justify-content:center;
+          gap:15px; padding:30px 26px; text-align:center; }
+  #start.gone{ display:none; }
+  #start .en{ font-family:'VT323',monospace; font-size:15px; letter-spacing:0.4em;
+              margin-right:-0.4em; color:#9dffc4; opacity:0.8; }
+  #start h1{ font-family:'VT323',monospace; font-size:clamp(46px,17vw,86px);
+             font-weight:400; letter-spacing:0.1em; margin-right:-0.1em; color:#ded6c4;
+             text-shadow:0 0 26px rgba(157,255,196,0.45); line-height:1; }
+  #start .jp{ font-size:13px; letter-spacing:0.4em; margin-right:-0.4em; opacity:0.62; }
+  #start .rule{ width:min(250px,64vw); height:1px;
+                background:linear-gradient(90deg,transparent,rgba(157,255,196,.5),transparent); }
+  #start p{ font-size:12.5px; line-height:2.1; max-width:23em; color:rgba(222,214,196,0.78); }
+  #go{ pointer-events:auto; cursor:pointer; margin-top:4px; border:none; border-radius:2px;
+       background:#9dffc4; color:#08120c; padding:14px 34px;
+       font-family:'VT323',monospace; font-size:24px; letter-spacing:0.18em; margin-right:-0.18em; }
+  #err{ position:fixed; left:50%; top:50%; transform:translate(-50%,-50%); z-index:40;
+        display:none; white-space:pre-line; max-width:82vw; background:#ff3b30; color:#fff;
+        padding:14px 16px; font-size:12.5px; line-height:1.85; }
+</style>
+</head>
+<body>
+
+<canvas id="view"></canvas>
+
+<div id="ctl">
+  <button class="btn" id="flipBtn" type="button">⟲ カメラ</button>
+  <button class="btn" id="genBtn" type="button">世代<small id="genLbl">3</small></button>
+  <button class="btn" id="wearBtn" type="button">摩耗<small id="wearLbl">on</small></button>
+  <button class="btn" id="eraseBtn" type="button">巻き直す</button>
+  <button class="btn" id="saveBtn" type="button">保存</button>
+  <button class="btn" id="sndBtn" type="button">♪<small id="sndLbl">on</small></button>
+</div>
+
+<div id="start">
+  <div class="en">COMPOSITE VIDEO</div>
+  <h1>ROKUGA</h1>
+  <div class="jp">録画</div>
+  <div class="rule"></div>
+  <p>カメラの映像を本物のコンポジット信号に変えて、<br>
+     わざと下手に戻します。色は滲み、輪郭にはドットクロールが這います。<br>
+     <b>動いたところほどテープが擦り切れて</b>、そこだけ画が失われていきます。</p>
+  <button id="go" type="button">▶ 再生</button>
+  <div style="font-size:11px;opacity:.45">カメラを使います・音が鳴ります</div>
+</div>
+
+<div id="err"></div>
+
+<script>
+(function(){
+'use strict';
+
+// ═══════════════════════════════════════════════════════════════════════
+//  ELEMENTS
+// ═══════════════════════════════════════════════════════════════════════
+var view = document.getElementById('view'), ctx = view.getContext('2d');
+var startEl = document.getElementById('start'), goBtn = document.getElementById('go');
+var errBox = document.getElementById('err');
+var flipBtn = document.getElementById('flipBtn');
+var genBtn = document.getElementById('genBtn'), genLbl = document.getElementById('genLbl');
+var wearBtn = document.getElementById('wearBtn'), wearLbl = document.getElementById('wearLbl');
+var eraseBtn = document.getElementById('eraseBtn');
+var saveBtn = document.getElementById('saveBtn');
+var sndBtn = document.getElementById('sndBtn'), sndLbl = document.getElementById('sndLbl');
+
+var video = document.createElement('video');
+video.playsInline = true; video.muted = true;
+video.setAttribute('playsinline',''); video.autoplay = true;
+
+function now(){ return performance.now(); }
+function clamp255(v){ return v < 0 ? 0 : v > 255 ? 255 : v; }
+
+// ═══════════════════════════════════════════════════════════════════════
+//  GENERATIONS — how many times this tape has been dubbed
+// ═══════════════════════════════════════════════════════════════════════
+var GENS = [
+  { n:1, lumaW:3, chromaW:7,  noise:4,  wobble:0.4, wearK:0.7, drop:0.20, sat:1.00, hue:0.05, comb:1.00 },
+  { n:3, lumaW:3, chromaW:11, noise:10, wobble:0.9, wearK:1.0, drop:0.55, sat:0.88, hue:0.16, comb:0.45 },
+  { n:8, lumaW:5, chromaW:17, noise:20, wobble:1.8, wearK:1.5, drop:1.00, sat:0.70, hue:0.38, comb:0.12 }
+];
+var gi = 1;
+function G(){ return GENS[gi]; }
+
+// ═══════════════════════════════════════════════════════════════════════
+//  BUFFERS
+// ═══════════════════════════════════════════════════════════════════════
+var W = 0, H = 0, dpr = 1;
+var small = document.createElement('canvas'), sctx = small.getContext('2d', { willReadFrequently:true });
+var out   = document.createElement('canvas'), octx = out.getContext('2d');
+var sw = 0, sh = 0;
+var srcData = null, outImg = null;
+var comp = null, accY = null, accI = null, accQ = null;
+var prevY = null, wear = null, lineShift = null;
+var wearOn = true;
+
+// The subcarrier sits at a quarter of the sample rate and flips phase every
+// line, so there are only eight distinct phases in the whole picture. Tabling
+// them turns two trig calls per pixel into two array reads.
+var NOISE = new Float32Array(8192);
+(function(){ for (var i = 0; i < 8192; i++) NOISE[i] = Math.random() - 0.5; })();
+var nptr = 0;
+
+var COS = new Float32Array(8), SIN = new Float32Array(8);
+(function(){
+  for (var x = 0; x < 4; x++){
+    for (var par = 0; par < 2; par++){
+      var ph = (Math.PI / 2) * x + (par ? Math.PI : 0);
+      COS[(x << 1) | par] = Math.cos(ph);
+      SIN[(x << 1) | par] = Math.sin(ph);
+    }
+  }
+})();
+
+var QUALS = [{n:'オート'},{n:'高'},{n:'低'}];
+var qual = 0, autoLong = 400, lastAdapt = 0, frameMs = 16;
+function procLong(){ return qual === 1 ? 620 : qual === 2 ? 260 : autoLong; }
+
+function resize(){
+  dpr = Math.min(window.devicePixelRatio || 1, 2);
+  W = Math.max(1, Math.round(window.innerWidth * dpr));
+  H = Math.max(1, Math.round(window.innerHeight * dpr));
+  view.width = W; view.height = H;
+  view.style.width = window.innerWidth + 'px';
+  view.style.height = window.innerHeight + 'px';
+
+  var L = procLong();
+  if (W >= H){ sw = L; sh = Math.max(2, Math.round(L * H / W)); }
+  else       { sh = L; sw = Math.max(2, Math.round(L * W / H)); }
+  small.width = sw; small.height = sh;
+  out.width = sw; out.height = sh;
+  outImg = octx.createImageData(sw, sh);
+  comp = new Float32Array(sw);
+  accY = new Float32Array(sw); accI = new Float32Array(sw); accQ = new Float32Array(sw);
+  var old = wear, ow = wearW, oh = wearH;
+  prevY = new Uint8Array(sw * sh);
+  wear = new Float32Array(sw * sh);
+  wearW = sw; wearH = sh;
+  lineShift = new Float32Array(sh);
+  // carry the wear across a resize — the tape does not get younger
+  if (old && ow > 1 && oh > 1){
+    for (var y = 0; y < sh; y++){
+      var sy = (y * oh / sh) | 0;
+      for (var x = 0; x < sw; x++) wear[y * sw + x] = old[sy * ow + ((x * ow / sw) | 0)];
+    }
+  }
+  primed = false;
+}
+var wearW = 0, wearH = 0, primed = false;
+
+// ═══════════════════════════════════════════════════════════════════════
+//  SOUND — the deck, not the tape
+// ═══════════════════════════════════════════════════════════════════════
+var ac = null, master = null, muted = false, hissGain = null;
+function initAudio(){
+  if (ac) return;
+  var AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) return;
+  ac = new AC();
+  master = ac.createGain(); master.gain.value = muted ? 0 : 0.6;
+  master.connect(ac.destination);
+  // capstan hum: mains-ish, with its own second harmonic
+  [50, 100, 150].forEach(function(f, i){
+    var o = ac.createOscillator(); o.type = 'sine'; o.frequency.value = f;
+    var g = ac.createGain(); g.gain.value = [0.06, 0.028, 0.012][i];
+    o.connect(g); g.connect(master); o.start();
+  });
+  // tape hiss
+  var len = ac.sampleRate * 2, buf = ac.createBuffer(1, len, ac.sampleRate), d = buf.getChannelData(0);
+  for (var i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * 0.4;
+  var src = ac.createBufferSource(); src.buffer = buf; src.loop = true;
+  var hp = ac.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 3400;
+  hissGain = ac.createGain(); hissGain.gain.value = 0.05;
+  src.connect(hp); hp.connect(hissGain); hissGain.connect(master); src.start();
+}
+var lastCrackle = 0;
+function crackle(amt){
+  if (!ac || muted) return;
+  var t = now();
+  if (t - lastCrackle < 70) return;
+  lastCrackle = t;
+  var T = ac.currentTime, n = (ac.sampleRate * 0.05) | 0;
+  var buf = ac.createBuffer(1, n, ac.sampleRate), ch = buf.getChannelData(0);
+  for (var i = 0; i < n; i++) ch[i] = (Math.random() * 2 - 1) * (1 - i / n);
+  var s = ac.createBufferSource(); s.buffer = buf;
+  var bp = ac.createBiquadFilter(); bp.type = 'bandpass';
+  bp.frequency.value = 1200 + Math.random() * 3600; bp.Q.value = 0.8;
+  var g = ac.createGain(); g.gain.value = Math.min(0.2, amt);
+  s.connect(bp); bp.connect(g); g.connect(master); s.start(T); s.stop(T + 0.06);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  CAMERA
+// ═══════════════════════════════════════════════════════════════════════
+var facing = 'user', mirror = true, stream = null;
+function showError(e){
+  var msg = (e && e.message) ? e.message : String(e || 'unknown');
+  errBox.style.display = 'block';
+  errBox.textContent = 'カメラを起動できませんでした：' + msg +
+    '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+}
+function startStream(){
+  var md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) return Promise.reject(new Error('getUserMedia is unavailable'));
+  if (stream && stream.getTracks) stream.getTracks().forEach(function(t){ t.stop(); });
+  return md.getUserMedia({
+    video:{ facingMode:{ ideal:facing }, width:{ ideal:1280 }, height:{ ideal:720 } },
+    audio:false
+  }).then(function(st){
+    stream = st; video.srcObject = st; mirror = (facing === 'user');
+    var p = video.play();
+    return (p && p.then) ? p.catch(function(){}) : null;
+  });
+}
+flipBtn.addEventListener('click', function(){
+  facing = (facing === 'user') ? 'environment' : 'user';
+  primed = false;
+  startStream().catch(showError);
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+//  TAPE TRANSPORT — the things that go wrong
+// ═══════════════════════════════════════════════════════════════════════
+var trackT = 0, trackY = 0, trackH = 0, trackAmt = 0;
+var counter = 0;
+
+function transport(dt, t){
+  var g = G();
+  // timebase wobble: every line starts a fraction of a pixel late
+  var w = g.wobble;
+  for (var y = 0; y < sh; y++){
+    lineShift[y] = Math.sin(t * 0.004 + y * 0.7) * w * 0.6 +
+                   Math.sin(t * 0.0013 + y * 0.13) * w;
+  }
+  // head switching: the bottom few lines are from the other head and never
+  // line up
+  var hs = Math.max(2, (sh * 0.022) | 0);
+  for (var i = 0; i < hs; i++){
+    var yy = sh - 1 - i;
+    lineShift[yy] += (1 - i / hs) * (5 + w * 6) + (Math.random() - 0.5) * 3;
+  }
+  // tracking: now and then a band of the picture tears sideways
+  if (trackT > 0){
+    trackT -= dt;
+    for (var b = 0; b < trackH; b++){
+      var ty = (trackY + b) % sh;
+      lineShift[ty] += trackAmt * (0.4 + Math.random() * 0.6);
+    }
+    if (trackT <= 0) trackAmt = 0;
+  } else if (Math.random() < dt * (0.10 + gi * 0.16)){
+    trackT = 0.10 + Math.random() * 0.35;
+    trackY = (Math.random() * sh) | 0;
+    trackH = Math.max(2, (sh * (0.02 + Math.random() * 0.10)) | 0);
+    trackAmt = (Math.random() < 0.5 ? -1 : 1) * (4 + Math.random() * 22);
+    crackle(0.10);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  ENCODE → TAPE → DECODE
+// ═══════════════════════════════════════════════════════════════════════
+function process(dt, t){
+  var vw = video.videoWidth, vh = video.videoHeight;
+  if (!vw || !vh || video.readyState < 2) return false;
+
+  var sc = Math.max(sw / vw, sh / vh), dw = vw * sc, dh = vh * sc;
+  sctx.save();
+  if (mirror){ sctx.translate(sw, 0); sctx.scale(-1, 1); }
+  sctx.drawImage(video, (sw - dw) / 2, (sh - dh) / 2, dw, dh);
+  sctx.restore();
+
+  srcData = sctx.getImageData(0, 0, sw, sh).data;
+  var d = srcData, o = outImg.data;
+  var g = G();
+  var lw = g.lumaW, cw = g.chromaW;
+  var lHalf = (lw / 2) | 0, cHalf = (cw / 2) | 0;
+  var noiseAmt = g.noise, sat = g.sat, comb = g.comb;
+  var wearDecay = Math.pow(0.5, dt / 90000);   // half of it gone after 90 seconds
+  var anyDrop = 0;
+
+  for (var y = 0; y < sh; y++){
+    var row = y * sw;
+    var par = y & 1;
+    var shift = lineShift[y];
+    var si = Math.floor(shift), sf = shift - si;
+    // one small hue error per line, not per pixel — a real timebase error
+    // turns the colour wheel a few degrees, it does not spin it
+    var he = (sf - 0.5) * g.hue;
+    var hc = Math.cos(he), hs2 = Math.sin(he);
+
+    // ── encode one line onto the subcarrier ────────────────────────────
+    for (var x = 0; x < sw; x++){
+      var xs = x + si;
+      if (xs < 0) xs = 0; else if (xs > sw - 2) xs = sw - 2;
+      var p = (row + xs) << 2, p2 = p + 4;
+      var r  = d[p]   + (d[p2]   - d[p])   * sf;
+      var gg = d[p+1] + (d[p2+1] - d[p+1]) * sf;
+      var b  = d[p+2] + (d[p2+2] - d[p+2]) * sf;
+      var Y = 0.299 * r + 0.587 * gg + 0.114 * b;
+      var I = 0.596 * r - 0.274 * gg - 0.322 * b;
+      var Q = 0.211 * r - 0.523 * gg + 0.312 * b;
+      var ph = ((x & 3) << 1) | par;
+      // one wire, one number: luma plus quadrature-modulated chroma
+      comp[x] = Y + (I * COS[ph] + Q * SIN[ph]) * sat;
+    }
+    // ── decode it badly ────────────────────────────────────────────────
+    // Luma is a box that is NOT a whole number of subcarrier cycles wide, so
+    // it cannot null the subcarrier — the residue it leaves is dot crawl.
+    // Chroma is far too narrow, which is where the bleed comes from.
+    var sumY = 0, sumI = 0, sumQ = 0, k;
+    for (k = 0; k <= lHalf; k++) sumY += comp[Math.min(sw - 1, k)];
+    for (k = 0; k <= cHalf; k++){
+      var phk = ((k & 3) << 1) | par;
+      sumI += comp[Math.min(sw - 1, k)] * COS[phk];
+      sumQ += comp[Math.min(sw - 1, k)] * SIN[phk];
+    }
+    for (var x3 = 0; x3 < sw; x3++){
+      var i0 = row + x3;
+
+      var xm = x3 > 0 ? x3 - 1 : 0, xp = x3 < sw - 1 ? x3 + 1 : sw - 1;
+      var notch = (comp[xm] + comp[xp]) * 0.5;
+      var Yd = notch * comb + (sumY / lw) * (1 - comb);
+      var Id0 = (sumI / cw) * 2;
+      var Qd0 = (sumQ / cw) * 2;
+      var Id = Id0 * hc - Qd0 * hs2;
+      var Qd = Id0 * hs2 + Qd0 * hc;
+
+      // ── the tape itself ──────────────────────────────────────────────
+      var wv = wear[i0];
+      nptr = (nptr + 1) & 8191;
+      if (wv > 0){
+        var chromaLeft = 1 / (1 + wv * 2.2);
+        Id *= chromaLeft; Qd *= chromaLeft;
+        Yd += NOISE[nptr] * wv * 26;
+      }
+      if (noiseAmt) Yd += NOISE[(nptr * 7 + 13) & 8191] * noiseAmt;
+
+      var rr = Yd + 0.956 * Id + 0.621 * Qd;
+      var gr = Yd - 0.272 * Id - 0.647 * Qd;
+      var br = Yd - 1.106 * Id + 1.703 * Qd;
+
+      // dropout: where the oxide is thinnest the signal is simply gone, and
+      // the deck holds the last level it had
+      if (wv > 0.55 && NOISE[(nptr * 3 + 601) & 8191] + 0.5 < (wv - 0.55) * 0.010 * g.drop){
+        var bright = NOISE[(nptr * 11 + 97) & 8191] < 0.2;
+        rr = gr = br = bright ? 236 : 14;
+        anyDrop++;
+      }
+
+      var q = i0 << 2;
+      o[q]   = clamp255(rr);
+      o[q+1] = clamp255(gr);
+      o[q+2] = clamp255(br);
+      o[q+3] = 255;
+
+      // ── wear: remember where the picture moved ───────────────────────
+      var yb = Yd < 0 ? 0 : Yd > 255 ? 255 : Yd | 0;
+      if (primed && wearOn){
+        var diff = yb - prevY[i0];
+        if (diff < 0) diff = -diff;
+        if (diff > 9) wear[i0] += (diff - 9) * 0.00008 * g.wearK;
+      }
+      prevY[i0] = yb;
+      wear[i0] = wear[i0] * wearDecay;
+      if (wear[i0] > 2.2) wear[i0] = 2.2;
+
+      // slide the boxes along
+      var addL = Math.min(sw - 1, x3 + lHalf + 1), remL = x3 - lHalf;
+      sumY += comp[addL] - comp[remL < 0 ? 0 : remL];
+      var addC = Math.min(sw - 1, x3 + cHalf + 1), remC = x3 - cHalf;
+      var pa = ((addC & 3) << 1) | par, pr = (((remC < 0 ? 0 : remC) & 3) << 1) | par;
+      sumI += comp[addC] * COS[pa] - comp[remC < 0 ? 0 : remC] * COS[pr];
+      sumQ += comp[addC] * SIN[pa] - comp[remC < 0 ? 0 : remC] * SIN[pr];
+    }
+  }
+  octx.putImageData(outImg, 0, 0);
+  primed = true;
+  if (anyDrop > sw * 0.02) crackle(Math.min(0.18, anyDrop / (sw * 8)));
+  return true;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  THE TUBE
+// ═══════════════════════════════════════════════════════════════════════
+function fmtCounter(sec){
+  var s = sec | 0;
+  var h = (s / 3600) | 0, m = ((s / 60) | 0) % 60, ss = s % 60;
+  return h + ':' + (m < 10 ? '0' : '') + m + ':' + (ss < 10 ? '0' : '') + ss;
+}
+function draw(t){
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.fillStyle = '#0b0e10';
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.imageSmoothingEnabled = true;
+  ctx.drawImage(out, 0, 0, W, H);
+
+  // scanlines: the gaps between the lines the tube actually paints
+  var u = Math.min(W, H);
+  var lineH = Math.max(2, Math.round(H / Math.max(120, sh)));
+  ctx.save();
+  ctx.globalAlpha = 0.14;
+  ctx.fillStyle = '#000';
+  for (var y = 0; y < H; y += lineH * 2) ctx.fillRect(0, y, W, lineH);
+  ctx.restore();
+
+  // phosphor bloom
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.globalAlpha = 0.13;
+  if (canFilter) ctx.filter = 'blur(' + (u * 0.012).toFixed(1) + 'px)';
+  ctx.drawImage(out, 0, 0, W, H);
+  if (canFilter) ctx.filter = 'none';
+  ctx.restore();
+
+  // the tube is not flat and the corners never get enough beam
+  var vg = ctx.createRadialGradient(W/2, H/2, u * 0.34, W/2, H/2, Math.max(W,H) * 0.72);
+  vg.addColorStop(0, 'rgba(0,0,0,0)');
+  vg.addColorStop(1, 'rgba(0,0,0,0.62)');
+  ctx.fillStyle = vg; ctx.fillRect(0, 0, W, H);
+
+  // OSD
+  var fs = Math.max(15, u * 0.042);
+  ctx.font = fs + "px 'VT323', monospace";
+  ctx.textBaseline = 'top';
+  ctx.fillStyle = 'rgba(222,214,196,0.9)';
+  ctx.shadowColor = 'rgba(157,255,196,0.6)'; ctx.shadowBlur = fs * 0.5;
+  var m = u * 0.055;
+  var blink = (t % 1400) < 1100;
+  ctx.textAlign = 'left';
+  if (blink) ctx.fillText('▶ PLAY', m, m);
+  ctx.textAlign = 'right';
+  ctx.fillText('SP  ' + fmtCounter(counter), W - m, m);
+  ctx.textAlign = 'left';
+  ctx.fillText('GEN ' + G().n, m, H - m - fs * 1.1);
+  ctx.textAlign = 'right';
+  ctx.fillText(wearOn ? 'WEAR' : 'WEAR OFF', W - m, H - m - fs * 1.1);
+  ctx.shadowBlur = 0;
+  ctx.textAlign = 'left';
+}
+
+var canFilter = (function(){
+  var c = document.createElement('canvas').getContext('2d');
+  try { c.filter = 'blur(2px)'; return c.filter !== 'none' && c.filter !== ''; }
+  catch(e){ return false; }
+})();
+
+// ═══════════════════════════════════════════════════════════════════════
+//  LOOP
+// ═══════════════════════════════════════════════════════════════════════
+var running = false, lastFrame = 0;
+function adapt(){
+  if (qual !== 0 || now() - lastAdapt < 1600) return;
+  lastAdapt = now();
+  var want = autoLong;
+  if (frameMs > 40 && autoLong > 260) want = autoLong - 70;
+  else if (frameMs < 22 && autoLong < 620) want = autoLong + 70;
+  if (want !== autoLong){ autoLong = want; resize(); }
+}
+function loop(){
+  requestAnimationFrame(loop);
+  if (!running) return;
+  var t = now();
+  var dt = lastFrame ? Math.min(80, t - lastFrame) : 16;
+  if (lastFrame && dt < 400) frameMs = frameMs * 0.9 + dt * 0.1;
+  lastFrame = t;
+  counter += dt / 1000;
+
+  transport(dt / 1000, t);
+  process(dt, t);
+  draw(t);
+  adapt();
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  UI
+// ═══════════════════════════════════════════════════════════════════════
+genBtn.addEventListener('click', function(){
+  gi = (gi + 1) % GENS.length;
+  genLbl.textContent = String(G().n);
+});
+wearBtn.addEventListener('click', function(){
+  wearOn = !wearOn;
+  wearLbl.textContent = wearOn ? 'on' : 'off';
+});
+eraseBtn.addEventListener('click', function(){
+  if (wear) wear.fill(0);
+  counter = 0;
+  crackle(0.14);
+});
+sndBtn.addEventListener('click', function(){
+  muted = !muted; sndLbl.textContent = muted ? 'off' : 'on';
+  if (master) master.gain.setTargetAtTime(muted ? 0 : 0.6, ac.currentTime, 0.2);
+});
+saveBtn.addEventListener('click', function(){
+  if (!running) return;
+  try {
+    view.toBlob(function(blob){
+      if (!blob) return;
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'rokuga_' + Date.now() + '.png';
+      a.click();
+      setTimeout(function(){ URL.revokeObjectURL(a.href); }, 4000);
+    }, 'image/png');
+  } catch(e){ showError(e); }
+});
+window.addEventListener('resize', resize);
+window.addEventListener('orientationchange', function(){ setTimeout(resize, 250); });
+
+goBtn.addEventListener('click', function(){
+  goBtn.textContent = 'LOADING';
+  initAudio();
+  if (ac && ac.state === 'suspended') ac.resume();
+  startStream().then(function(){
+    startEl.classList.add('gone');
+    running = true;
+    goBtn.textContent = '▶ 再生';
+  }).catch(function(e){ goBtn.textContent = '▶ 再生'; showError(e); });
+});
+
+resize();
+requestAnimationFrame(loop);
+
+// a headless harness can inspect the signal path without a camera
+window.__ROKUGA__ = {
+  state: function(){
+    var mx = 0, sum = 0, i;
+    if (wear){ for (i = 0; i < wear.length; i++){ if (wear[i] > mx) mx = wear[i]; sum += wear[i]; } }
+    return { running:running, primed:primed, gen:G().n, wearOn:wearOn,
+             sw:sw, sh:sh, frameMs:frameMs, autoLong:autoLong, counter:counter,
+             wearMax:mx, wearMean:wear ? sum / wear.length : 0,
+             track:trackAmt, canFilter:canFilter };
+  },
+  soak: function(v){ if (wear) wear.fill(v); },
+  sample: function(n){
+    var d = octx.getImageData(0, 0, sw, sh).data, o = [];
+    for (var i = 0; i < n; i++){
+      var q = (((Math.random() * sw * sh) | 0) << 2);
+      o.push([d[q], d[q+1], d[q+2]]);
+    }
+    return o;
+  }
+};
+
+})();
+</script></body></html>
