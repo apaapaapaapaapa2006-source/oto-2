@@ -1,0 +1,745 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>KIRIE ─ 切って重ねた紙の奥行き</title>
+<meta name="description" content="カメラ映像が明るさごとに切り分けられ、色紙を重ねた切り絵になる。紙と紙のあいだには本当に隙間があり、手を開くと層が離れて影が落ち、手を動かすと視差でずれる。">
+<meta name="theme-color" content="#efe4cf">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Klee+One:wght@400;600&display=swap" rel="stylesheet">
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  KIRIE ─ 切り絵                              ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  PALETTE   生成 kinari  #efe4cf  paper ground, the box the diorama sits in
+            砂子 sunago  #d9c9a8  the shallow shadow paper casts on paper
+            藍   ai      #2f4c66  deepest sheet
+            朱   shu     #c0503f  the one warm accent, used sparingly
+            墨   sumi    #2a2521  cut edges and type
+            MOOD: a paper-cut diorama in a shallow box on a table, lit from
+            the upper left by window light. Matte, warm, handmade — there is
+            no glow anywhere in this piece, and nothing is emissive. The
+            sheets take their colours from what the camera actually sees, so
+            the palette above is the box, not the picture.
+
+  BACKGROUND  Washi: a warm ground with visible fibres and a soft press of
+            shadow toward the edges, as if the paper is very slightly domed.
+            Never a vignette of darkness — paper gets warmer at the edge, not
+            blacker.
+
+  TYPE      Klee One — a Japanese face that looks pencil-written rather than
+            printed. Against KAGEE's mincho, MINAMO's rounded gothic, AMITEN's
+            Bebas and HAKUCHU's Space Mono, this is the only handwritten type
+            in the collection, because the labels on a craft box are written
+            by hand.
+
+  MOTION    Paper is stiff. Sheets slide and separate, they never bounce,
+            stretch or fade. The only easing is the weight of a sheet coming
+            to rest — a single smoothed follow, no springs, no overshoot.
+
+  SIGNATURE THERE IS REAL AIR BETWEEN THE SHEETS. Each brightness band is a
+            separate sheet of paper at its own height, and opening your hand
+            pulls the stack apart into a diorama: the gaps grow, each sheet
+            casts a real shadow onto the one behind it, and moving your hand
+            slides the sheets past each other at different rates, so the
+            parallax tells you the depth. The cut lines are placed by
+            histogram quantile, not by fixed thresholds, so every sheet holds
+            about the same area of paper and the stack composes itself in any
+            light — a dark room and a bright one both cut cleanly.
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<style>
+  *{ margin:0; padding:0; box-sizing:border-box; }
+  html,body{
+    width:100%; height:100%; overflow:hidden;
+    background:#efe4cf; color:#2a2521;
+    font-family:'Klee One','Hiragino Mincho ProN',serif;
+    -webkit-user-select:none; user-select:none; touch-action:none;
+    overscroll-behavior:none; -webkit-tap-highlight-color:transparent;
+  }
+  #view{ position:fixed; inset:0; width:100%; height:100%; display:block; }
+
+  .chrome{ position:fixed; left:0; right:0; z-index:10; pointer-events:none; }
+  #top{ top:0; padding:calc(env(safe-area-inset-top,0px) + 12px) 16px 0;
+        display:flex; justify-content:space-between; align-items:flex-start; gap:10px; }
+  #bottom{ bottom:0; padding:0 10px calc(env(safe-area-inset-bottom,0px) + 13px);
+           display:flex; justify-content:center; gap:6px; flex-wrap:wrap; }
+
+  .tag{ background:rgba(255,252,244,0.72); border:1px solid rgba(42,37,33,0.28);
+        padding:5px 9px; font-size:11.5px; letter-spacing:0.1em; line-height:1.5; }
+  #name b{ font-weight:600; letter-spacing:0.2em; }
+  #name span{ opacity:0.55; margin-left:6px; font-size:10px; letter-spacing:0.16em; }
+  #stat{ text-align:right; font-variant-numeric:tabular-nums; }
+
+  .btn{ pointer-events:auto; cursor:pointer;
+        background:rgba(255,252,244,0.86); border:1px solid rgba(42,37,33,0.36);
+        color:#2a2521; padding:8px 10px; min-height:37px; border-radius:2px;
+        font-family:inherit; font-size:12px; letter-spacing:0.06em;
+        display:inline-flex; align-items:center; gap:5px; }
+  .btn small{ font-size:10px; opacity:0.6; letter-spacing:0.1em; }
+  .btn:active{ background:#2a2521; color:#efe4cf; border-color:#2a2521; }
+
+  #hint{ position:fixed; left:0; right:0; z-index:10; pointer-events:none;
+         bottom:calc(env(safe-area-inset-bottom,0px) + 70px); text-align:center;
+         font-size:12px; line-height:1.9; color:rgba(42,37,33,0.62);
+         transition:opacity .6s ease; }
+
+  #start{ position:fixed; inset:0; z-index:30; background:#efe4cf;
+          display:flex; flex-direction:column; align-items:center; justify-content:center;
+          gap:15px; padding:30px 26px; text-align:center; }
+  #start.gone{ display:none; }
+  #start .en{ font-size:10px; letter-spacing:0.42em; margin-right:-0.42em; opacity:0.5; }
+  #start h1{ font-size:clamp(34px,12vw,58px); font-weight:600;
+             letter-spacing:0.16em; margin-right:-0.16em; }
+  #start .rule{ width:min(230px,60vw); height:1px; background:rgba(42,37,33,0.3); }
+  #start p{ font-size:12.5px; line-height:2.1; max-width:22em; color:rgba(42,37,33,0.8); }
+  #go{ pointer-events:auto; cursor:pointer; margin-top:4px; border:none; border-radius:2px;
+       background:#2f4c66; color:#f6efe0; padding:14px 32px;
+       font-family:inherit; font-size:16px; font-weight:600;
+       letter-spacing:0.26em; margin-right:-0.26em; }
+  #err{ position:fixed; left:50%; top:50%; transform:translate(-50%,-50%); z-index:40;
+        display:none; white-space:pre-line; max-width:82vw; background:#c0503f; color:#fff;
+        padding:14px 16px; font-size:12.5px; line-height:1.85; }
+</style>
+</head>
+<body>
+
+<canvas id="view"></canvas>
+
+<div class="chrome" id="top">
+  <div class="tag" id="name"><b>切り絵</b><span>KIRIE</span></div>
+  <div class="tag" id="stat">5枚</div>
+</div>
+
+<div id="hint">手を開くと紙が離れます<br>手を動かすと層がずれます</div>
+
+<div class="chrome" id="bottom">
+  <button class="btn" id="flipBtn" type="button">⟲ カメラ</button>
+  <button class="btn" id="layerBtn" type="button">枚数<small id="layerLbl">5</small></button>
+  <button class="btn" id="invBtn" type="button">手前<small id="invLbl">明</small></button>
+  <button class="btn" id="qualBtn" type="button">画質<small id="qualLbl">オート</small></button>
+  <button class="btn" id="saveBtn" type="button">保存</button>
+  <button class="btn" id="sndBtn" type="button">♪<small id="sndLbl">ON</small></button>
+</div>
+
+<div id="start">
+  <div class="en">PAPER-CUT DIORAMA</div>
+  <h1>切り絵</h1>
+  <div class="rule"></div>
+  <p>カメラに映るものを明るさで切り分けて、色紙を重ねた切り絵にします。<br>
+     紙と紙のあいだには隙間があります。<br>
+     <b>手を開くと</b>層が離れ、<b>手を動かすと</b>ずれます。</p>
+  <button id="go" type="button">紙を切る</button>
+  <div style="font-size:11px;opacity:.5">カメラを使います・音は control で切れます</div>
+</div>
+
+<div id="err"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+<script>
+(function(){
+'use strict';
+
+// ═══════════════════════════════════════════════════════════════════════
+//  ELEMENTS
+// ═══════════════════════════════════════════════════════════════════════
+var view = document.getElementById('view'), ctx = view.getContext('2d');
+var startEl = document.getElementById('start'), goBtn = document.getElementById('go');
+var errBox = document.getElementById('err'), statEl = document.getElementById('stat');
+var hintEl = document.getElementById('hint');
+var flipBtn = document.getElementById('flipBtn');
+var layerBtn = document.getElementById('layerBtn'), layerLbl = document.getElementById('layerLbl');
+var invBtn = document.getElementById('invBtn'), invLbl = document.getElementById('invLbl');
+var qualBtn = document.getElementById('qualBtn'), qualLbl = document.getElementById('qualLbl');
+var saveBtn = document.getElementById('saveBtn');
+var sndBtn = document.getElementById('sndBtn'), sndLbl = document.getElementById('sndLbl');
+
+var video = document.createElement('video');
+video.playsInline = true; video.muted = true;
+video.setAttribute('playsinline',''); video.autoplay = true;
+
+function now(){ return performance.now(); }
+
+// ═══════════════════════════════════════════════════════════════════════
+//  CANVASES
+// ═══════════════════════════════════════════════════════════════════════
+var W = 0, H = 0, dpr = 1;
+var small = document.createElement('canvas'), sctx = small.getContext('2d', { willReadFrequently:true });
+var mask  = document.createElement('canvas'), mctx = mask.getContext('2d');
+var sheets = [], shadows = [];   // one cut sheet per band, plus its cast shadow
+var tmpC = document.createElement('canvas'), tmpX = tmpC.getContext('2d');
+var stage = document.createElement('canvas'), gctx = stage.getContext('2d');
+var fibreStage = document.createElement('canvas'), fsctx = fibreStage.getContext('2d');
+var sw = 0, sh = 0, stW = 0, stH = 0;
+var lum = null, maskImg = null, deckle = null;
+
+var QUALS = [{n:'オート'},{n:'高'},{n:'低'}];
+var qual = 0, autoLong = 380, lastAdapt = 0, procMs = 12, frameMs = 16;
+function maskLong(){ return qual === 1 ? 900 : qual === 2 ? 300 : autoLong; }
+
+var canFilter = (function(){
+  var c = document.createElement('canvas').getContext('2d');
+  try { c.filter = 'blur(2px)'; return c.filter !== 'none' && c.filter !== ''; }
+  catch(e){ return false; }
+})();
+
+// low-frequency noise so the cut line wanders like a torn deckle instead of
+// following the pixel grid
+function buildDeckle(){
+  var N = 64, g = 16, grid = new Float32Array(g * g), i;
+  for (i = 0; i < g * g; i++) grid[i] = Math.random();
+  deckle = new Float32Array(N * N);
+  for (var y = 0; y < N; y++){
+    var fy = y / N * (g - 1), y0 = fy | 0, ty = fy - y0, y1 = Math.min(g - 1, y0 + 1);
+    for (var x = 0; x < N; x++){
+      var fx = x / N * (g - 1), x0 = fx | 0, tx = fx - x0, x1 = Math.min(g - 1, x0 + 1);
+      var a = grid[y0 * g + x0] + (grid[y0 * g + x1] - grid[y0 * g + x0]) * tx;
+      var b = grid[y1 * g + x0] + (grid[y1 * g + x1] - grid[y1 * g + x0]) * tx;
+      deckle[y * N + x] = (a + (b - a) * ty) - 0.5;
+    }
+  }
+}
+buildDeckle();
+
+var fibre = null;
+function buildFibre(){
+  var c = document.createElement('canvas'); c.width = c.height = 300;
+  var x = c.getContext('2d');
+  x.fillStyle = '#ffffff'; x.fillRect(0, 0, 300, 300);
+  x.strokeStyle = 'rgba(120,100,70,0.055)';
+  for (var i = 0; i < 240; i++){
+    var px = Math.random() * 300, py = Math.random() * 300;
+    var a = Math.random() * Math.PI, L = 6 + Math.random() * 34;
+    x.lineWidth = 0.5 + Math.random();
+    x.beginPath();
+    x.moveTo(px, py);
+    x.lineTo(px + Math.cos(a) * L, py + Math.sin(a) * L);
+    x.stroke();
+  }
+  fibre = c;
+}
+buildFibre();
+
+function resize(){
+  dpr = Math.min(window.devicePixelRatio || 1, 2);
+  W = Math.max(1, Math.round(window.innerWidth * dpr));
+  H = Math.max(1, Math.round(window.innerHeight * dpr));
+  view.width = W; view.height = H;
+  view.style.width = window.innerWidth + 'px';
+  view.style.height = window.innerHeight + 'px';
+
+  var L = maskLong();
+  if (W >= H){ sw = L; sh = Math.max(1, Math.round(L * H / W)); }
+  else       { sh = L; sw = Math.max(1, Math.round(L * W / H)); }
+  small.width = sw; small.height = sh;
+  mask.width = sw; mask.height = sh;
+  lum = new Uint8Array(sw * sh);
+  maskImg = mctx.createImageData(sw, sh);
+
+  // the sheets are composited at a capped size, then blitted once
+  var SL = Math.min(Math.max(W, H), qual === 1 ? 1200 : 900);
+  if (W >= H){ stW = SL; stH = Math.max(1, Math.round(SL * H / W)); }
+  else       { stH = SL; stW = Math.max(1, Math.round(SL * W / H)); }
+  stage.width = stW; stage.height = stH;
+  tmpC.width = sw; tmpC.height = sh;
+  sheets = []; shadows = [];
+  for (var si = 0; si < N; si++){
+    var c = document.createElement('canvas');
+    c.width = stW; c.height = stH;
+    sheets.push(c);
+    var sd = null;
+    if (si > 0){ sd = document.createElement('canvas'); sd.width = sw; sd.height = sh; }
+    shadows.push(sd);
+  }
+  cutAll();
+  fibreStage.width = stW; fibreStage.height = stH;
+  fsctx.clearRect(0, 0, stW, stH);
+  var fs = Math.min(stW, stH) * 0.55;
+  for (var fy = 0; fy < stH; fy += fs)
+    for (var fx = 0; fx < stW; fx += fs) fsctx.drawImage(fibre, fx, fy, fs, fs);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  SOUND — paper only. Nothing in this piece is electric.
+// ═══════════════════════════════════════════════════════════════════════
+var ac = null, master = null, muted = false;
+function initAudio(){
+  if (ac) return;
+  var AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) return;
+  ac = new AC();
+  master = ac.createGain(); master.gain.value = muted ? 0 : 0.5;
+  master.connect(ac.destination);
+  // room: barely there
+  var len = ac.sampleRate * 2, buf = ac.createBuffer(1, len, ac.sampleRate), d = buf.getChannelData(0);
+  for (var i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * 0.25;
+  var src = ac.createBufferSource(); src.buffer = buf; src.loop = true;
+  var lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 260;
+  var g = ac.createGain(); g.gain.value = 0.05;
+  src.connect(lp); lp.connect(g); g.connect(master); src.start();
+}
+var lastRustle = 0;
+function rustle(amt){
+  if (!ac || muted) return;
+  var t = now();
+  if (t - lastRustle < 90) return;
+  lastRustle = t;
+  var T = ac.currentTime, n = (ac.sampleRate * 0.13) | 0;
+  var buf = ac.createBuffer(1, n, ac.sampleRate), ch = buf.getChannelData(0);
+  for (var i = 0; i < n; i++){
+    var e = 1 - i / n;
+    ch[i] = (Math.random() * 2 - 1) * e * e;
+  }
+  var s = ac.createBufferSource(); s.buffer = buf;
+  var bp = ac.createBiquadFilter(); bp.type = 'bandpass';
+  bp.frequency.value = 2600 + Math.random() * 2600; bp.Q.value = 0.7;
+  var gg = ac.createGain(); gg.gain.value = Math.min(0.22, amt * 0.3);
+  s.connect(bp); bp.connect(gg); gg.connect(master);
+  s.start(T); s.stop(T + 0.15);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  CAMERA
+// ═══════════════════════════════════════════════════════════════════════
+var facing = 'user', mirror = true, stream = null;
+function showError(e){
+  var msg = (e && e.message) ? e.message : String(e || 'unknown');
+  errBox.style.display = 'block';
+  errBox.textContent = 'カメラを起動できませんでした：' + msg +
+    '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+}
+function startStream(){
+  var md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) return Promise.reject(new Error('getUserMedia is unavailable'));
+  if (stream && stream.getTracks) stream.getTracks().forEach(function(t){ t.stop(); });
+  return md.getUserMedia({
+    video:{ facingMode:{ ideal:facing }, width:{ ideal:1280 }, height:{ ideal:720 } },
+    audio:false
+  }).then(function(st){
+    stream = st; video.srcObject = st; mirror = (facing === 'user');
+    var p = video.play();
+    return (p && p.then) ? p.catch(function(){}) : null;
+  });
+}
+flipBtn.addEventListener('click', function(){
+  facing = (facing === 'user') ? 'environment' : 'user';
+  loseHand();
+  startStream().then(startMpCamera).catch(showError);
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+//  HAND — opens the stack, and slides it
+// ═══════════════════════════════════════════════════════════════════════
+var hands = null, mpCamera = null, mpReady = false;
+var lm = null, lastHandT = -1e9, LOST_MS = 340;
+var TIPS = [8,12,16,20], PIPS = [6,10,14,18];
+
+function initHands(){
+  if (typeof window.Hands !== 'function') return false;
+  try {
+    hands = new window.Hands({ locateFile:function(f){
+      return 'https://cdn.jsdelivr.net/npm/@mediapipe/hands/' + f;
+    }});
+    hands.setOptions({ maxNumHands:1, modelComplexity:0,
+                       minDetectionConfidence:0.6, minTrackingConfidence:0.5 });
+    hands.onResults(onHands);
+    mpReady = true; return true;
+  } catch(e){ return false; }
+}
+function validLm(c){
+  if (!c || c.length < 21) return null;
+  for (var i = 0; i < 21; i++){
+    var p = c[i];
+    if (!p || typeof p.x !== 'number' || typeof p.y !== 'number' ||
+        !isFinite(p.x) || !isFinite(p.y)) return null;
+  }
+  return c;
+}
+function onHands(res){
+  var c = (res && res.multiHandLandmarks && res.multiHandLandmarks.length)
+        ? validLm(res.multiHandLandmarks[0]) : null;
+  if (c){ lm = c; lastHandT = now(); }
+}
+function loseHand(){ lm = null; lastHandT = -1e9; }
+function startMpCamera(){
+  if (!mpReady || typeof window.Camera !== 'function') return;
+  try {
+    if (mpCamera && mpCamera.stop) mpCamera.stop();
+    mpCamera = new window.Camera(video, {
+      onFrame:function(){
+        if (!hands || !running) return Promise.resolve();
+        return hands.send({ image:video }).catch(function(){});
+      },
+      width:480, height:360
+    });
+    mpCamera.start();
+  } catch(e){ mpReady = false; }
+}
+function readHand(){
+  if (!lm || now() - lastHandT > LOST_MS) return null;
+  var ids = [0,5,9,13,17], cx = 0, cy = 0, i;
+  for (i = 0; i < ids.length; i++){ cx += lm[ids[i]].x; cy += lm[ids[i]].y; }
+  cx /= ids.length; cy /= ids.length;
+  var wr = lm[0], span = Math.hypot(lm[5].x - lm[17].x, lm[5].y - lm[17].y);
+  if (!isFinite(span) || span <= 0) return null;
+  var ext = 0;
+  for (i = 0; i < TIPS.length; i++){
+    var dt = Math.hypot(lm[TIPS[i]].x - wr.x, lm[TIPS[i]].y - wr.y);
+    var dp = Math.hypot(lm[PIPS[i]].x - wr.x, lm[PIPS[i]].y - wr.y);
+    if (dt > dp * 1.05) ext++;
+  }
+  return { x: mirror ? 1 - cx : cx, y: cy, open: ext / 4 };
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  THE STACK
+// ═══════════════════════════════════════════════════════════════════════
+var N = 5, brightFront = true;
+var thr = [], cols = [], primed = false;
+var sep = 0, sepT = 0, panX = 0, panY = 0, panXT = 0, panYT = 0;
+
+function resetStack(){
+  thr = []; cols = []; primed = false;
+  for (var k = 0; k < N; k++){
+    thr.push(255 * (k + 1) / (N + 1));
+    cols.push([200, 190, 170]);
+  }
+}
+resetStack();
+
+var HIST = new Uint32Array(64);
+var sumR = null, sumG = null, sumB = null, cnt = null;
+function bandBufs(){
+  if (sumR && sumR.length === N) return;
+  sumR = new Float64Array(N); sumG = new Float64Array(N);
+  sumB = new Float64Array(N); cnt = new Float64Array(N);
+}
+
+function analyse(){
+  var vw = video.videoWidth, vh = video.videoHeight;
+  if (!vw || !vh || video.readyState < 2) return false;
+
+  var sc = Math.max(sw / vw, sh / vh), dw = vw * sc, dh = vh * sc;
+  sctx.save();
+  if (mirror){ sctx.translate(sw, 0); sctx.scale(-1, 1); }
+  sctx.drawImage(video, (sw - dw) / 2, (sh - dh) / 2, dw, dh);
+  sctx.restore();
+
+  var t0 = now();
+  var src = sctx.getImageData(0, 0, sw, sh).data;
+  var n = sw * sh, i, p, k;
+
+  HIST.fill(0);
+  for (i = 0, p = 0; i < n; i++, p += 4){
+    var v = (src[p] * 77 + src[p+1] * 150 + src[p+2] * 29) >> 8;
+    lum[i] = v;
+    HIST[v >> 2]++;
+  }
+
+  // cut lines by equal-area quantile, so every sheet holds about the same
+  // amount of paper whatever the light is doing
+  var want = n / N, acc = 0, next = 1;
+  for (k = 0; k < 64 && next < N; k++){
+    acc += HIST[k];
+    while (next < N && acc >= want * next){
+      var t = (k * 4) + 2;
+      thr[next - 1] = primed ? thr[next - 1] + (t - thr[next - 1]) * 0.10 : t;
+      next++;
+    }
+  }
+  while (next < N){ thr[next - 1] = 250; next++; }
+
+  // each sheet takes the average colour of the band it covers, so the paper
+  // really is the colour the camera saw
+  bandBufs();
+  sumR.fill(0); sumG.fill(0); sumB.fill(0); cnt.fill(0);
+  for (i = 0, p = 0; i < n; i++, p += 4){
+    var L = lum[i], b = 0;
+    while (b < N - 1 && L >= thr[b]) b++;
+    sumR[b] += src[p]; sumG[b] += src[p+1]; sumB[b] += src[p+2]; cnt[b]++;
+  }
+  for (k = 0; k < N; k++){
+    var c = cnt[k] || 1;
+    var r = sumR[k] / c, g = sumG[k] / c, bl = sumB[k] / c;
+    var y = r * 0.299 + g * 0.587 + bl * 0.114;
+    // keep the band's hue, but put its value on an even ladder so the sheets
+    // stay tellable apart — five averaged browns all look like one sheet
+    var Lt = 58 + 176 * (N > 1 ? k / (N - 1) : 0.5);
+    r = Lt + (r - y) * 0.62 + 6; g = Lt + (g - y) * 0.62 + 2; bl = Lt + (bl - y) * 0.62 - 4;
+    r = Math.max(0, Math.min(255, r));
+    g = Math.max(0, Math.min(255, g));
+    bl = Math.max(0, Math.min(255, bl));
+    if (!primed) cols[k] = [r, g, bl];
+    else {
+      cols[k][0] += (r - cols[k][0]) * 0.08;
+      cols[k][1] += (g - cols[k][1]) * 0.08;
+      cols[k][2] += (bl - cols[k][2]) * 0.08;
+    }
+  }
+  primed = true;
+  procMs = procMs * 0.85 + (now() - t0) * 0.15;
+  return true;
+}
+
+// build the cut mask for sheet k into `mask`, opaque where this sheet has paper
+function bandOf(k){ return brightFront ? k : (N - 1 - k); }
+
+function cutSheet(k){
+  var d = maskImg.data, amp = 5;
+  var c = cols[bandOf(k)], r = c[0] | 0, g = c[1] | 0, b = c[2] | 0;
+  // sheet 0 is the full back sheet; every sheet above it is a nested cut.
+  // going the other way we take the mirrored quantile so the sheets keep
+  // holding equal area instead of mirroring the luma value itself.
+  var T = k === 0 ? -1 : (brightFront ? thr[k - 1] : thr[N - 1 - k]);
+  var full = (k === 0);
+  for (var y = 0, i = 0; y < sh; y++){
+    var row = (y & 63) << 6;
+    for (var x = 0; x < sw; x++, i++){
+      var on;
+      if (full) on = true;
+      else {
+        var v = lum[i] + deckle[row | (x & 63)] * amp;
+        on = brightFront ? (v >= T) : (v <= T);
+      }
+      var q = i << 2;
+      d[q] = r; d[q+1] = g; d[q+2] = b; d[q+3] = on ? 255 : 0;
+    }
+  }
+  mctx.putImageData(maskImg, 0, 0);
+}
+
+// Cutting is expensive (a pixel pass and a texture upload per sheet) but the
+// cut only changes when the picture does. The hand moves paper that has
+// already been cut, so this runs at the analysis rate and the parallax stays
+// at full frame rate.
+function cutAll(){
+  if (!primed || !sheets.length) return;
+  var u = Math.min(stW, stH);
+  for (var k = 0; k < N; k++){
+    cutSheet(k);
+    var c = sheets[k].getContext('2d');
+    c.setTransform(1, 0, 0, 1, 0, 0);
+    c.clearRect(0, 0, stW, stH);
+    // Keep the cut hard. A bilinear upscale smears the edge into a ramp and
+    // contrast() cannot pull it back, because CSS filters do not touch alpha —
+    // so upscale nearest (the mask is only about half the stage, and the
+    // stair-stepping reads as a hand-cut edge anyway) and take the width off
+    // it with a blur under one pixel.
+    c.imageSmoothingEnabled = false;
+    if (canFilter) c.filter = 'blur(' + (u * 0.0016).toFixed(2) + 'px)';
+    c.drawImage(mask, 0, 0, stW, stH);
+    if (canFilter) c.filter = 'none';
+
+    // Bake the cast shadow now, at the same rate as the cut. Canvas
+    // shadowBlur re-blurs the whole layer on EVERY draw and costs more than
+    // the rest of the frame together; a shadow baked once and then simply
+    // translated is the same picture for a fiftieth of the price.
+    if (k > 0 && shadows[k]){
+      tmpX.setTransform(1, 0, 0, 1, 0, 0);
+      tmpX.clearRect(0, 0, sw, sh);
+      tmpX.drawImage(mask, 0, 0);
+      tmpX.globalCompositeOperation = 'source-in';
+      tmpX.fillStyle = '#4a3a26';
+      tmpX.fillRect(0, 0, sw, sh);
+      tmpX.globalCompositeOperation = 'source-over';
+      var sc2 = shadows[k].getContext('2d');
+      sc2.setTransform(1, 0, 0, 1, 0, 0);
+      sc2.clearRect(0, 0, sw, sh);
+      if (canFilter) sc2.filter = 'blur(' + Math.max(1, sw * 0.012).toFixed(2) + 'px)';
+      sc2.drawImage(tmpC, 0, 0);
+      if (canFilter) sc2.filter = 'none';
+    }
+  }
+}
+
+function drawStack(){
+  var u = Math.min(stW, stH);
+  gctx.setTransform(1, 0, 0, 1, 0, 0);
+  gctx.clearRect(0, 0, stW, stH);
+  gctx.fillStyle = '#e6d9c0';                   // the box the diorama sits in
+  gctx.fillRect(0, 0, stW, stH);
+
+  var gap = (0.006 + sep * 0.030) * u;          // air between sheets
+  var slide = (0.004 + sep * 0.028) * u;        // how far parallax carries
+
+  for (var k = 0; k < N && k < sheets.length; k++){
+    var dx = panX * slide * k;
+    var dy = panY * slide * k * 0.6;
+    var lift = gap * k;
+    if (k > 0 && shadows[k]){
+      gctx.save();
+      gctx.globalAlpha = 0.30 + sep * 0.22;
+      gctx.imageSmoothingEnabled = true;
+      gctx.drawImage(shadows[k], dx + lift * 0.55 + u * 0.003,
+                                 dy - lift * 0.16 + lift * 0.75 + u * 0.004, stW, stH);
+      gctx.restore();
+    }
+    gctx.drawImage(sheets[k], dx, dy - lift * 0.16);
+  }
+  fibreOnStage();
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  PAGE FURNITURE
+// ═══════════════════════════════════════════════════════════════════════
+function drawPaper(){
+  // washi ground, warmer at the edges rather than darker
+  var g = ctx.createRadialGradient(W * 0.34, H * 0.22, Math.min(W,H) * 0.1,
+                                   W * 0.5, H * 0.5, Math.max(W,H) * 0.78);
+  g.addColorStop(0, '#f6ecd9');
+  g.addColorStop(1, '#e2d3b6');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+}
+function fibreOnStage(){
+  gctx.save();
+  gctx.globalCompositeOperation = 'multiply';
+  gctx.globalAlpha = 0.5;
+  gctx.drawImage(fibreStage, 0, 0);
+  gctx.restore();
+}
+function drawHandMark(h){
+  if (!h) return;
+  var u = Math.min(W, H), x = h.x * W, y = h.y * H;
+  ctx.save();
+  ctx.globalAlpha = 0.5;
+  ctx.strokeStyle = '#2a2521';
+  ctx.lineWidth = Math.max(1, u * 0.0022);
+  var r = u * (0.020 + h.open * 0.026);
+  ctx.beginPath(); ctx.arc(x, y, r, 0, 6.2832); ctx.stroke();
+  ctx.globalAlpha = 0.28;
+  ctx.beginPath(); ctx.arc(x, y, r * 0.30, 0, 6.2832); ctx.stroke();
+  ctx.restore();
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  LOOP
+// ═══════════════════════════════════════════════════════════════════════
+var running = false, lastProc = 0, lastStat = 0, startedAt = 0;
+function adapt(){
+  if (qual !== 0 || now() - lastAdapt < 1600) return;
+  lastAdapt = now();
+  var want = autoLong;
+  if (frameMs > 40 && autoLong > 260) want = autoLong - 80;        // under 25fps
+  else if (frameMs < 22 && autoLong < 760) want = autoLong + 80;    // over 45fps
+  if (want !== autoLong){ autoLong = want; resize(); }
+}
+
+var lastFrame = 0;
+function loop(){
+  requestAnimationFrame(loop);
+  if (!running) return;
+  var t = now();
+  if (lastFrame){
+    var dt = t - lastFrame;
+    if (dt < 400) frameMs = frameMs * 0.9 + dt * 0.1;   // ignore tab-switch gaps
+  }
+  lastFrame = t;
+
+  var h = readHand();
+  var targetSep = h ? h.open : 0;
+  var targetX = h ? (h.x - 0.5) * 2 : 0;
+  var targetY = h ? (h.y - 0.5) * 2 : 0;
+  // paper is stiff: one smoothed follow, no spring
+  var prevSep = sep, prevX = panX;
+  sepT += (targetSep - sepT) * 0.10; sep = sepT;
+  panXT += (targetX - panXT) * 0.10; panX = panXT;
+  panYT += (targetY - panYT) * 0.10; panY = panYT;
+  var moved = Math.abs(sep - prevSep) * 4 + Math.abs(panX - prevX);
+  if (moved > 0.012) rustle(moved);
+
+  if (t - lastProc >= 40){
+    if (analyse()){ cutAll(); lastProc = t; adapt(); }
+  }
+
+  if (primed){
+    drawStack();
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(stage, 0, 0, W, H);
+  } else {
+    drawPaper();
+  }
+  drawHandMark(h);
+
+  if (t - lastStat > 400){
+    lastStat = t;
+    statEl.textContent = N + '枚' + (h ? ' ・ ひらき ' + Math.round(sep * 100) + '%' : '');
+  }
+  if (h && t - startedAt > 8000 && hintEl.style.opacity !== '0') hintEl.style.opacity = '0';
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  UI
+// ═══════════════════════════════════════════════════════════════════════
+var LAYER_OPTS = [3, 5, 7];
+layerBtn.addEventListener('click', function(){
+  var i = LAYER_OPTS.indexOf(N);
+  N = LAYER_OPTS[(i + 1) % LAYER_OPTS.length];
+  layerLbl.textContent = String(N);
+  resetStack();
+  resize();
+});
+invBtn.addEventListener('click', function(){
+  brightFront = !brightFront;
+  invLbl.textContent = brightFront ? '明' : '暗';
+  cutAll();
+});
+qualBtn.addEventListener('click', function(){
+  qual = (qual + 1) % QUALS.length;
+  qualLbl.textContent = QUALS[qual].n;
+  resize();
+});
+sndBtn.addEventListener('click', function(){
+  muted = !muted; sndLbl.textContent = muted ? 'OFF' : 'ON';
+  if (master) master.gain.setTargetAtTime(muted ? 0 : 0.5, ac.currentTime, 0.2);
+});
+saveBtn.addEventListener('click', function(){
+  if (!running) return;
+  try {
+    view.toBlob(function(blob){
+      if (!blob) return;
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'kirie_' + Date.now() + '.png';
+      a.click();
+      setTimeout(function(){ URL.revokeObjectURL(a.href); }, 4000);
+    }, 'image/png');
+  } catch(e){ showError(e); }
+});
+window.addEventListener('resize', resize);
+window.addEventListener('orientationchange', function(){ setTimeout(resize, 250); });
+
+goBtn.addEventListener('click', function(){
+  goBtn.textContent = 'よみこみ中';
+  initAudio();
+  if (ac && ac.state === 'suspended') ac.resume();
+  startStream().then(function(){
+    if (initHands()) startMpCamera();
+    startEl.classList.add('gone');
+    running = true; startedAt = now();
+    goBtn.textContent = '紙を切る';
+  }).catch(function(e){ goBtn.textContent = '紙を切る'; showError(e); });
+});
+
+resize();
+drawPaper();
+requestAnimationFrame(loop);
+
+// a headless harness can drive this without a camera
+window.__KIRIE__ = {
+  feed: function(l){ onHands({ multiHandLandmarks:[l] }); },
+  state: function(){
+    return { running:running, primed:primed, N:N, brightFront:brightFront,
+             sep:sep, panX:panX, panY:panY,
+             thr:thr.slice(), cols:cols.map(function(c){ return c.map(Math.round); }),
+             sw:sw, sh:sh, stW:stW, stH:stH, procMs:procMs, frameMs:frameMs,
+             autoLong:autoLong, canFilter:canFilter };
+  }
+};
+
+})();
+</script>
+</body>
+</html>
