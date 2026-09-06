@@ -1,0 +1,1039 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>CHIKEI ─ 明るさを標高として測る</title>
+<meta name="description" content="カメラに映るものの明るさをそのまま標高として読み、本物の等高線を引いて一枚の地形図にする。手を上げると水位が上がって低い所から沈み、もう一方の手で等高線の間隔が変わる。地形図・海図・断面の三通り。">
+<meta name="theme-color" content="#f0e9da">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@200;400&family=BIZ+UDPGothic&display=swap" rel="stylesheet">
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  CHIKEI ─ 明るさを標高として測る                 ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  PALETTE   図紙 zushi     #f0e9da  warm map paper, never white
+            等高 tokoh     #966845  the ordinary contour, brown ink
+            主曲 shukyoku  #6b3f22  every fifth line, twice the weight
+            水   mizu      #5793b2  the sea, and the depth curves under it
+            朱   shu       #c0442e  spot heights, the section line, the hands
+            MOOD: a 1:25,000 survey sheet on a drawing table. Warm paper,
+            brown ink, one blue, one red. This piece is deliberately the
+            most *legible* thing in the gallery — every other effect here
+            is atmosphere, and this one is information. It should look like
+            something you could fold up and navigate by.
+  BACKGROUND  The sheet itself: paper grain, a graticule of fine ticks, a
+            ruled 図郭 border and a scale bar. The camera is never drawn as
+            video at all — only its luminance survives, as elevation. That
+            is the point: you do not see yourself, you see your terrain.
+  TYPE      Oswald 200/400 for every numeral and latin label — condensed,
+            which is what map lettering is — and BIZ UDPGothic for Japanese.
+            Neither appears anywhere else in the gallery. Elevation labels
+            are set tiny and ride along the index contours.
+  MOTION    Surveying pace. The field is temporally smoothed, so contours
+            breathe rather than flicker; the sea level eases over about a
+            third of a second; labels fade. The only quick motion is the
+            shoreline sparkle, and it is two pixels wide.
+  SIGNATURE Brightness is elevation, and the contours are REAL — marching
+            squares on a blurred luminance field, so every line is a closed
+            iso-line that wraps a peak properly instead of a filter that
+            looks a bit like one. Your face becomes a hill with your nose
+            as the summit and a spot height printed on it. Raise a hand and
+            the sea rises: the low ground floods from the edges inward, the
+            shoreline finds the exact iso-line, and depth curves appear
+            beneath it. The other hand sets the contour interval, so you
+            can survey coarsely or finely. In 断面 the piece draws a live
+            cross-section along one scan line — the actual profile of the
+            elevation data, which is the proof that this is a measurement
+            and not a texture.
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<style>
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;padding:0;height:100%;overflow:hidden;background:#f0e9da}
+  body{
+    font-family:'BIZ UDPGothic','Hiragino Sans',sans-serif;color:#5a4630;
+    -webkit-user-select:none;user-select:none;touch-action:none;
+  }
+  #view{position:fixed;inset:0;width:100%;height:100%;display:block}
+  #video{position:fixed;width:2px;height:2px;opacity:0;pointer-events:none;left:-10px;top:-10px}
+
+  .btn{
+    position:fixed;z-index:6;cursor:pointer;
+    font:400 11px/1 'Oswald',sans-serif;letter-spacing:.2em;
+    color:#5a4630;background:rgba(240,233,218,.9);
+    border:1px solid #966845;padding:9px 13px;
+  }
+  .btn:active{background:#966845;color:#f0e9da}
+  #flip{top:calc(env(safe-area-inset-top,0px) + 12px);right:12px}
+  #mode{top:calc(env(safe-area-inset-top,0px) + 12px);left:12px;min-width:96px;text-align:center;
+        font-family:'BIZ UDPGothic',sans-serif;font-size:12px;letter-spacing:.14em}
+
+  #err{
+    display:none;position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);
+    z-index:9;max-width:min(88vw,460px);white-space:pre-wrap;line-height:1.8;
+    background:#f0e9da;border:2px solid #c0442e;padding:20px 22px;
+    font:400 13px/1.8 'BIZ UDPGothic',sans-serif;color:#5a4630;
+  }
+
+  #veil{
+    position:fixed;inset:0;z-index:8;display:flex;align-items:center;justify-content:center;
+    background:rgba(240,233,218,.96);padding:22px;transition:opacity .5s ease;
+  }
+  #veil.hide{opacity:0;pointer-events:none}
+  .panel{width:min(92vw,440px)}
+  .rule{height:2px;background:#6b3f22;margin:0 0 4px}
+  .rule.thin{height:1px;background:#966845;margin:4px 0 18px}
+  h1{margin:0;font:200 46px/1 'Oswald',sans-serif;letter-spacing:.16em;color:#6b3f22}
+  h1 b{display:block;margin-top:10px;font:400 13px/1.7 'BIZ UDPGothic',sans-serif;
+       letter-spacing:.3em;color:#966845}
+  #demo{display:block;width:100%;height:auto;margin:16px 0 2px;border:1px solid #c9b998}
+  .lead{font:400 12.5px/2 'BIZ UDPGothic',sans-serif;color:#7a6448;margin:14px 0 0}
+  .lead em{font-style:normal;color:#c0442e}
+  .legend{display:flex;gap:14px;margin-top:12px;flex-wrap:wrap}
+  .legend span{font:400 10.5px/1.6 'BIZ UDPGothic',sans-serif;color:#966845;
+               display:flex;align-items:center;gap:6px}
+  .sw{width:16px;height:3px;display:inline-block}
+  button.go{
+    margin-top:20px;width:100%;cursor:pointer;
+    font:400 15px/1 'Oswald',sans-serif;letter-spacing:.32em;text-indent:.32em;
+    color:#f0e9da;background:#6b3f22;border:1px solid #6b3f22;padding:15px 0;
+  }
+  button.go:active{background:#c0442e;border-color:#c0442e}
+</style>
+</head>
+<body>
+
+<canvas id="view"></canvas>
+<video id="video" playsinline muted autoplay></video>
+<button class="btn" id="mode">地形図</button>
+<button class="btn" id="flip">⟲ カメラ</button>
+<div id="err"></div>
+
+<div id="veil">
+  <div class="panel">
+    <div class="rule"></div>
+    <h1>CHIKEI<b>明るさを標高として測る</b></h1>
+    <div class="rule thin"></div>
+    <canvas id="demo" width="640" height="290"></canvas>
+    <p class="lead">カメラに映るものの<em>明るさ</em>をそのまま<em>標高</em>として読み、本物の等高線を引く。<br>
+      片手を<em>上げると水位が上がり</em>、低い所から沈んでいく。<br>
+      もう一方の手の高さで<em>等高線の間隔</em>が変わる。</p>
+    <div class="legend">
+      <span><i class="sw" style="background:#966845"></i>等高線</span>
+      <span><i class="sw" style="background:#6b3f22"></i>主曲線</span>
+      <span><i class="sw" style="background:#5793b2"></i>水面下</span>
+      <span><i class="sw" style="background:#c0442e"></i>標高点</span>
+    </div>
+    <button class="go" id="startBtn">SURVEY</button>
+  </div>
+</div>
+
+<script>
+(function(){
+'use strict';
+
+// ═══════════════════════════════════════════════════════════════════════
+//  DOM
+// ═══════════════════════════════════════════════════════════════════════
+var view    = document.getElementById('view');
+var ctx     = view.getContext('2d');
+var video   = document.getElementById('video');
+var flipBtn = document.getElementById('flip');
+var modeBtn = document.getElementById('mode');
+var errBox  = document.getElementById('err');
+var veil    = document.getElementById('veil');
+var startBtn= document.getElementById('startBtn');
+var demoCv  = document.getElementById('demo');
+var demoCtx = demoCv.getContext('2d');
+
+function now(){
+  return (window.performance && window.performance.now) ? window.performance.now() : Date.now();
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  MODES
+// ═══════════════════════════════════════════════════════════════════════
+var MODES = [
+  { key:'topo', name:'地形図', en:'TOPOGRAPHIC',
+    paper:'#f0e9da', line:'#966845', index:'#6b3f22', mark:'#c0442e',
+    water:[87,147,178], deep:[38,78,104],
+    // hypsometric ramp, low → high
+    ramp:[[214,220,196],[228,226,198],[238,231,206],[228,208,172],[209,180,140]] },
+  { key:'chart', name:'海図', en:'NAUTICAL CHART',
+    paper:'#fbfaf4', line:'#6f9fb8', index:'#2d6d90', mark:'#b0447f',
+    water:[190,219,232], deep:[120,175,203],
+    ramp:[[247,241,214],[244,236,202],[240,230,190],[236,224,178],[232,218,166]] },
+  { key:'section', name:'断面', en:'SECTION',
+    paper:'#efeae1', line:'#8d8377', index:'#3b352d', mark:'#c0442e',
+    water:[176,186,193], deep:[126,140,150],
+    ramp:[[239,234,225],[239,234,225],[239,234,225],[239,234,225],[239,234,225]] }
+];
+var modeIx = 0;
+function M(){ return MODES[modeIx]; }
+
+// ═══════════════════════════════════════════════════════════════════════
+//  SIZE + BUFFERS.  Everything that is allocated is allocated HERE, once
+//  per resize.  The per-frame path allocates nothing except the ImageData
+//  that getImageData is obliged to hand back.
+// ═══════════════════════════════════════════════════════════════════════
+var W=1, H=1, DPR=1, U=1;
+var COLS=1, ROWS=1, CELL=1;
+var fld=null, prevFld=null, tmpFld=null;   // Float32Array, COLS*ROWS
+var srcCv=null, srcCtx=null;               // the camera, downsampled
+var tintCv=null, tintCtx=null, tintImg=null;
+var paperCv=null, paperCtx=null;
+var pixelsWritten = 0;                     // per frame, for the harness
+
+function resize(){
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  W = Math.max(1, window.innerWidth|0);
+  H = Math.max(1, window.innerHeight|0);
+  view.width  = Math.round(W*DPR);
+  view.height = Math.round(H*DPR);
+  view.style.width = W+'px';
+  view.style.height = H+'px';
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  U = Math.min(W,H)/640;
+
+  // ~7 screen pixels per sample: fine enough that a face reads as a hill,
+  // coarse enough that a mid-range phone holds 30fps.
+  COLS = Math.max(48, Math.min(190, Math.round(W/7)));
+  ROWS = Math.max(36, Math.min(150, Math.round(H/7)));
+  CELL = W/COLS;
+
+  var n = COLS*ROWS;
+  fld     = new Float32Array(n);
+  prevFld = new Float32Array(n);
+  tmpFld  = new Float32Array(n);
+
+  if (!srcCv){ srcCv = document.createElement('canvas'); srcCtx = srcCv.getContext('2d'); }
+  srcCv.width = COLS; srcCv.height = ROWS;
+  if (!tintCv){ tintCv = document.createElement('canvas'); tintCtx = tintCv.getContext('2d'); }
+  tintCv.width = COLS; tintCv.height = ROWS;
+  if (tintCtx) tintImg = tintCtx.createImageData(COLS, ROWS);
+
+  buildPaper();
+}
+
+function buildPaper(){
+  if (!paperCv){ paperCv = document.createElement('canvas'); paperCtx = paperCv.getContext('2d'); }
+  if (!paperCtx) return;
+  paperCv.width = Math.round(W*DPR); paperCv.height = Math.round(H*DPR);
+  var p = paperCtx;
+  p.setTransform(DPR,0,0,DPR,0,0);
+  p.fillStyle = M().paper; p.fillRect(0,0,W,H);
+  // paper grain: sparse flecks, drawn once
+  var i, n = Math.min(2600, Math.round(W*H/620));
+  p.fillStyle = 'rgba(120,96,64,0.05)';
+  for (i=0;i<n;i++){
+    var x = Math.random()*W, y = Math.random()*H, s = Math.random()*1.6+0.4;
+    p.fillRect(x, y, s, s);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  AUDIO — near silent, and deliberately so.  A survey sheet does not make
+//  a noise.  What is here is the wind over whatever land is still above
+//  water: a single band of noise whose centre rises as the coast dries out
+//  and whose level falls as the map floods.  Nothing else.
+// ═══════════════════════════════════════════════════════════════════════
+var AC = window.AudioContext || window.webkitAudioContext;
+var ac=null, master=null, comp=null, windGain=null, windFilt=null, subGain=null;
+
+function initAudio(){
+  if (ac || !AC) return;
+  try { ac = new AC(); } catch(e){ ac = null; return; }
+  comp = ac.createDynamicsCompressor();
+  try {
+    comp.threshold.value = -24; comp.knee.value = 20;
+    comp.ratio.value = 6; comp.attack.value = 0.01; comp.release.value = 0.4;
+  } catch(e){}
+  master = ac.createGain(); master.gain.value = 0.55;
+  master.connect(comp); comp.connect(ac.destination);
+
+  var len = Math.floor(ac.sampleRate*2);
+  var buf = ac.createBuffer(1, len, ac.sampleRate);
+  var d = buf.getChannelData(0), i;
+  for (i=0;i<len;i++) d[i] = Math.random()*2-1;
+
+  var s1 = ac.createBufferSource(); s1.buffer = buf; s1.loop = true;
+  windFilt = ac.createBiquadFilter();
+  windFilt.type = 'bandpass'; windFilt.frequency.value = 620; windFilt.Q.value = 0.8;
+  windGain = ac.createGain(); windGain.gain.value = 0.0001;
+  s1.connect(windFilt); windFilt.connect(windGain); windGain.connect(master);
+  try { s1.start(); } catch(e){}
+
+  var s2 = ac.createBufferSource(); s2.buffer = buf; s2.loop = true;
+  var lp = ac.createBiquadFilter();
+  lp.type = 'lowpass'; lp.frequency.value = 110;
+  subGain = ac.createGain(); subGain.gain.value = 0.0001;
+  s2.connect(lp); lp.connect(subGain); subGain.connect(master);
+  try { s2.start(); } catch(e){}
+}
+function resumeAudio(){ if (ac && ac.state === 'suspended'){ try{ ac.resume(); }catch(e){} } }
+
+function setAmbience(landFrac){
+  if (!ac || !windGain || !windFilt || !subGain) return;
+  var x = Math.max(0, Math.min(1, landFrac));
+  if (!isFinite(x)) x = 0;
+  try {
+    windGain.gain.setTargetAtTime(0.0001 + x*0.030, ac.currentTime, 0.5);
+    windFilt.frequency.setTargetAtTime(360 + x*900, ac.currentTime, 0.6);
+    subGain.gain.setTargetAtTime(0.0001 + (1-x)*0.026, ac.currentTime, 0.5);
+  } catch(e){}
+}
+function blip(){
+  if (!ac || !master) return;
+  var t = ac.currentTime;
+  var o = ac.createOscillator(), g = ac.createGain();
+  o.type = 'triangle'; o.frequency.setValueAtTime(880, t);
+  o.frequency.exponentialRampToValueAtTime(1320, t+0.04);
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.05, t+0.005);
+  g.gain.exponentialRampToValueAtTime(0.0001, t+0.10);
+  o.connect(g); g.connect(master);
+  o.start(t); o.stop(t+0.13);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  CAMERA
+// ═══════════════════════════════════════════════════════════════════════
+var facing='user', mirror=true, stream=null, camOK=false;
+
+function showError(e){
+  var msg = (e && e.message) ? e.message : String(e || 'unknown');
+  errBox.style.display = 'block';
+  errBox.textContent = 'カメラを起動できませんでした：' + msg +
+    '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+}
+function startStream(){
+  var md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) return Promise.reject(new Error('getUserMedia is unavailable'));
+  if (stream && stream.getTracks) stream.getTracks().forEach(function(t){ t.stop(); });
+  return md.getUserMedia({
+    video:{ facingMode:{ ideal:facing }, width:{ ideal:960 }, height:{ ideal:720 } },
+    audio:false
+  }).then(function(st){
+    stream = st; video.srcObject = st; mirror = (facing === 'user'); camOK = true;
+    var p = video.play();
+    return (p && p.then) ? p.catch(function(){}) : null;
+  });
+}
+flipBtn.addEventListener('click', function(){
+  facing = (facing === 'user') ? 'environment' : 'user';
+  loseHands();
+  startStream().then(startMpCamera).catch(showError);
+});
+modeBtn.addEventListener('click', function(){
+  modeIx = (modeIx+1) % MODES.length;
+  modeBtn.textContent = M().name;
+  buildPaper();
+  blip();
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+//  HANDS — two, and neither of them is a cursor.  The first sets the sea
+//  level, the second sets the contour interval.
+// ═══════════════════════════════════════════════════════════════════════
+var hands=null, mpCamera=null, mpReady=false;
+var LOST_MS = 400;
+var HANDS = [ newHand(), newHand() ];
+function newHand(){ return { live:false, t:-1e9, x:0.5, y:0.5, lm:null }; }
+function loseHand(h){ h.live = false; h.lm = null; }
+function loseHands(){ loseHand(HANDS[0]); loseHand(HANDS[1]); }
+
+function initHands(){
+  if (typeof window.Hands !== 'function') return false;
+  try {
+    hands = new window.Hands({ locateFile:function(f){
+      return 'https://cdn.jsdelivr.net/npm/@mediapipe/hands/' + f;
+    }});
+    hands.setOptions({ maxNumHands:2, modelComplexity:0,
+                       minDetectionConfidence:0.6, minTrackingConfidence:0.5 });
+    hands.onResults(onHands);
+    mpReady = true; return true;
+  } catch(e){ return false; }
+}
+function startMpCamera(){
+  if (!mpReady || !hands) return;
+  if (mpCamera) return;
+  if (typeof window.Camera !== 'function') return;
+  try {
+    mpCamera = new window.Camera(video, {
+      onFrame: function(){
+        if (!hands) return Promise.resolve();
+        return hands.send({ image: video }).catch(function(){});
+      },
+      width:480, height:360
+    });
+    mpCamera.start();
+  } catch(e){ mpCamera = null; }
+}
+function validLm(c){
+  if (!c || c.length < 21) return null;
+  for (var i=0;i<21;i++){
+    var p = c[i];
+    if (!p || typeof p.x !== 'number' || typeof p.y !== 'number' ||
+        !isFinite(p.x) || !isFinite(p.y)) return null;
+  }
+  return c;
+}
+function onHands(res){
+  var t = now();
+  var list = (res && res.multiHandLandmarks) ? res.multiHandLandmarks : null;
+  var n = list ? Math.min(list.length, 2) : 0;
+  var i, k;
+  for (i=0;i<2;i++){
+    var c = (i < n) ? validLm(list[i]) : null;
+    if (!c){
+      if (HANDS[i].live && t - HANDS[i].t > LOST_MS) loseHand(HANDS[i]);
+      continue;
+    }
+    var ids=[0,5,9,13,17], cx=0, cy=0;
+    for (k=0;k<ids.length;k++){
+      var p = c[ids[k]];
+      if (!p) break;
+      cx += p.x; cy += p.y;
+    }
+    if (k < ids.length) continue;
+    cx /= ids.length; cy /= ids.length;
+    if (!isFinite(cx) || !isFinite(cy)) continue;
+    var x = mirror ? (1-cx) : cx;
+    if (!isFinite(x)) continue;
+    HANDS[i].x = x; HANDS[i].y = cy;
+    HANDS[i].t = t; HANDS[i].live = true; HANDS[i].lm = c;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  THE FIELD
+// ═══════════════════════════════════════════════════════════════════════
+var haveField = false;
+var fieldFrozen = false;   // set only by the offline harness
+
+function readField(){
+  if (fieldFrozen) return true;
+  if (!camOK || !video || !video.videoWidth || !srcCtx || !fld) return false;
+  var vw = video.videoWidth, vh = video.videoHeight;
+  if (!vw || !vh) return false;
+
+  // cover-fit the camera into the sample grid, flipping here so the field
+  // is already the right way round and nothing downstream has to care
+  var s = Math.max(COLS/vw, ROWS/vh);
+  var dw = vw*s, dh = vh*s;
+  srcCtx.save();
+  if (mirror){ srcCtx.translate(COLS, 0); srcCtx.scale(-1, 1); }
+  try { srcCtx.drawImage(video, (COLS-dw)/2, (ROWS-dh)/2, dw, dh); }
+  catch(e){ srcCtx.restore(); return false; }
+  srcCtx.restore();
+
+  var img;
+  try { img = srcCtx.getImageData(0, 0, COLS, ROWS); }
+  catch(e){ return false; }
+  if (!img || !img.data) return false;
+  var d = img.data, n = COLS*ROWS, i;
+  if (d.length < n*4) return false;
+
+  // Rec.601 luma, then a temporal blend against the previous field.  The
+  // blend is what stops the contours boiling: camera noise moves a sample
+  // across a level boundary every frame otherwise, and a contour line that
+  // flickers is unreadable.
+  for (i=0;i<n;i++){
+    var o = i*4;
+    var l = (d[o]*0.299 + d[o+1]*0.587 + d[o+2]*0.114)/255;
+    if (!isFinite(l)) l = 0;
+    tmpFld[i] = prevFld[i] + (l - prevFld[i])*0.34;
+  }
+  // separable 3-tap blur, in place through fld
+  var x, y, idx;
+  for (y=0;y<ROWS;y++){
+    var row = y*COLS;
+    for (x=0;x<COLS;x++){
+      idx = row+x;
+      var a = tmpFld[x>0 ? idx-1 : idx];
+      var b = tmpFld[idx];
+      var c2 = tmpFld[x<COLS-1 ? idx+1 : idx];
+      fld[idx] = (a + b*2 + c2)*0.25;
+    }
+  }
+  for (x=0;x<COLS;x++){
+    for (y=0;y<ROWS;y++){
+      idx = y*COLS+x;
+      var a2 = fld[y>0 ? idx-COLS : idx];
+      var b2 = fld[idx];
+      var c3 = fld[y<ROWS-1 ? idx+COLS : idx];
+      tmpFld[idx] = (a2 + b2*2 + c3)*0.25;
+    }
+  }
+  for (i=0;i<n;i++){
+    var v = tmpFld[i];
+    if (!isFinite(v)) v = 0;
+    if (v < 0) v = 0; else if (v > 1) v = 1;
+    fld[i] = v;
+    prevFld[i] = v;
+  }
+  haveField = true;
+  return true;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  CONTROLS derived from the hands
+// ═══════════════════════════════════════════════════════════════════════
+var sea = 0.26, seaTarget = 0.26;
+var levels = 14, levelsTarget = 14;
+var landFrac = 1;
+
+function stepControls(dt){
+  var a = HANDS[0].live ? HANDS[0] : (HANDS[1].live ? HANDS[1] : null);
+  var b = (HANDS[0].live && HANDS[1].live) ? HANDS[1] : null;
+  if (a){
+    // hand at the top of frame ⇒ high water
+    seaTarget = 0.04 + (1 - Math.max(0, Math.min(1, a.y)))*0.80;
+  }
+  if (b){
+    levelsTarget = Math.round(6 + (1 - Math.max(0, Math.min(1, b.y)))*20);
+  }
+  if (!isFinite(seaTarget)) seaTarget = 0.26;
+  if (!isFinite(levelsTarget)) levelsTarget = 14;
+  levelsTarget = Math.max(6, Math.min(26, levelsTarget));
+
+  var k = 1 - Math.exp(-6.5*dt);
+  sea += (seaTarget - sea)*k;
+  levels += (levelsTarget - levels)*(1 - Math.exp(-4*dt));
+  if (!isFinite(sea)) sea = 0.26;
+  if (!isFinite(levels)) levels = 14;
+  sea = Math.max(0, Math.min(0.95, sea));
+  levels = Math.max(6, Math.min(26, levels));
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  TINT — hypsometric colour and the sea, written into a COLS×ROWS image
+//  and scaled up with smoothing.  Letting the browser interpolate is what
+//  gives a soft shoreline for free; drawing cells as rectangles would look
+//  like a spreadsheet.
+// ═══════════════════════════════════════════════════════════════════════
+function drawTint(){
+  if (!tintImg || !tintCtx || !fld) return;
+  var m = M();
+  var d = tintImg.data, n = COLS*ROWS, i;
+  var ramp = m.ramp, water = m.water, deep = m.deep;
+  var land = 0;
+  pixelsWritten = 0;
+  for (i=0;i<n;i++){
+    var v = fld[i];
+    var o = i*4;
+    if (v < sea){
+      // depth: 0 at the shore, 1 at the deepest the sea can be
+      var dep = sea > 1e-4 ? (sea - v)/sea : 0;
+      if (dep < 0) dep = 0; else if (dep > 1) dep = 1;
+      d[o]   = water[0] + (deep[0]-water[0])*dep;
+      d[o+1] = water[1] + (deep[1]-water[1])*dep;
+      d[o+2] = water[2] + (deep[2]-water[2])*dep;
+      d[o+3] = 235;
+    } else {
+      land++;
+      var t = sea < 1 ? (v - sea)/(1 - sea) : 0;
+      if (t < 0) t = 0; else if (t > 1) t = 1;
+      var f = t*(ramp.length-1);
+      var i0 = f|0;
+      if (i0 > ramp.length-2) i0 = ramp.length-2;
+      var fr = f - i0;
+      var c0 = ramp[i0], c1 = ramp[i0+1];
+      d[o]   = c0[0] + (c1[0]-c0[0])*fr;
+      d[o+1] = c0[1] + (c1[1]-c0[1])*fr;
+      d[o+2] = c0[2] + (c1[2]-c0[2])*fr;
+      d[o+3] = 205;
+    }
+    pixelsWritten++;
+  }
+  landFrac = n > 0 ? land/n : 1;
+  tintCtx.putImageData(tintImg, 0, 0);
+  var sm = ctx.imageSmoothingEnabled;
+  ctx.imageSmoothingEnabled = true;
+  try { ctx.drawImage(tintCv, 0, 0, COLS, ROWS, 0, 0, W, H); } catch(e){}
+  ctx.imageSmoothingEnabled = sm;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  MARCHING SQUARES.  Real iso-lines: for each cell, only the levels that
+//  actually fall between its lowest and highest corner are tested, so the
+//  cost is proportional to the length of the coastline rather than to
+//  cells × levels.
+// ═══════════════════════════════════════════════════════════════════════
+var segCount = 0;
+
+function contours(){
+  if (!fld) return;
+  var m = M();
+  var step = 1/levels;
+  var sx = W/(COLS-1), sy = H/(ROWS-1);
+  var x, y, li;
+  segCount = 0;
+
+  // three passes so each ink is one path: subdued, index, and undersea
+  var pass;
+  for (pass=0; pass<3; pass++){
+    if (pass === 0){ ctx.strokeStyle = m.line;  ctx.lineWidth = Math.max(0.6, 0.9*U); }
+    else if (pass === 1){ ctx.strokeStyle = m.index; ctx.lineWidth = Math.max(1.1, 1.7*U); }
+    else { ctx.strokeStyle = 'rgba(' + m.deep[0] + ',' + m.deep[1] + ',' + m.deep[2] + ',0.55)';
+           ctx.lineWidth = Math.max(0.6, 0.8*U); }
+    ctx.beginPath();
+
+    for (y=0; y<ROWS-1; y++){
+      var r0 = y*COLS, r1 = r0+COLS;
+      for (x=0; x<COLS-1; x++){
+        var a = fld[r0+x], b = fld[r0+x+1], c = fld[r1+x+1], dd = fld[r1+x];
+        var lo = a, hi = a;
+        if (b<lo) lo=b; if (b>hi) hi=b;
+        if (c<lo) lo=c; if (c>hi) hi=c;
+        if (dd<lo) lo=dd; if (dd>hi) hi=dd;
+        var l0 = Math.ceil(lo/step), l1 = Math.floor(hi/step);
+        if (l1 < l0) continue;
+        // A cell spanning many levels means the field is aliased there:
+        // six lines crossing one seven-pixel cell is mush, not information,
+        // and it is also where a noisy frame would blow up the frame time.
+        // Cap it, and the work per frame is bounded by cells × 7 × 2.
+        if (l1 - l0 > 6) l1 = l0 + 6;
+        for (li=l0; li<=l1; li++){
+          var L = li*step;
+          if (L <= 0 || L >= 1) continue;
+          var under = (L < sea);
+          var isIndex = (li % 5 === 0);
+          if (pass === 0 && (under || isIndex)) continue;
+          if (pass === 1 && (under || !isIndex)) continue;
+          if (pass === 2 && !under) continue;
+          emitCell(x, y, a, b, c, dd, L, sx, sy);
+        }
+      }
+    }
+    ctx.stroke();
+  }
+}
+
+function ipol(v0, v1, L){
+  var dv = v1 - v0;
+  if (Math.abs(dv) < 1e-9) return 0.5;
+  var t = (L - v0)/dv;
+  if (t < 0) return 0; if (t > 1) return 1;
+  return t;
+}
+
+function emitCell(x, y, a, b, c, d, L, sx, sy){
+  var code = (a>=L?1:0) | (b>=L?2:0) | (c>=L?4:0) | (d>=L?8:0);
+  if (code === 0 || code === 15) return;
+  // edge crossings, in grid units
+  var tx = x + ipol(a,b,L), ty = y;            // top    (a→b)
+  var rx = x+1,             ry = y + ipol(b,c,L); // right (b→c)
+  var bx = x + ipol(d,c,L), by = y+1;          // bottom (d→c)
+  var lx = x,               ly = y + ipol(a,d,L); // left  (a→d)
+
+  switch(code){
+    case 1: case 14: seg(lx,ly, tx,ty, sx,sy); break;
+    case 2: case 13: seg(tx,ty, rx,ry, sx,sy); break;
+    case 3: case 12: seg(lx,ly, rx,ry, sx,sy); break;
+    case 4: case 11: seg(rx,ry, bx,by, sx,sy); break;
+    case 6: case 9:  seg(tx,ty, bx,by, sx,sy); break;
+    case 7: case 8:  seg(lx,ly, bx,by, sx,sy); break;
+    case 5:  seg(lx,ly, tx,ty, sx,sy); seg(rx,ry, bx,by, sx,sy); break;
+    case 10: seg(tx,ty, rx,ry, sx,sy); seg(lx,ly, bx,by, sx,sy); break;
+  }
+}
+function seg(x0,y0,x1,y1, sx,sy){
+  var ax = x0*sx, ay = y0*sy, bx2 = x1*sx, by2 = y1*sy;
+  if (!isFinite(ax) || !isFinite(ay) || !isFinite(bx2) || !isFinite(by2)) return;
+  ctx.moveTo(ax, ay); ctx.lineTo(bx2, by2);
+  segCount++;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  SPOT HEIGHTS — local maxima of the field, labelled the way a survey
+//  sheet labels a summit.  Sampled on a coarse stride and hysteretic, so
+//  the labels do not pop in and out every frame.
+// ═══════════════════════════════════════════════════════════════════════
+var peaks = [];
+var peakT = 0;
+
+function findPeaks(dt){
+  peakT += dt;
+  if (peakT < 0.30 || !fld) return;
+  peakT = 0;
+  var found = [], x, y;
+  var st = 3;
+  for (y=st; y<ROWS-st; y++){
+    for (x=st; x<COLS-st; x++){
+      var v = fld[y*COLS+x];
+      if (v < sea + 0.10) continue;
+      var isMax = true, dx, dy;
+      for (dy=-st; dy<=st && isMax; dy+=st){
+        for (dx=-st; dx<=st; dx+=st){
+          if (!dx && !dy) continue;
+          if (fld[(y+dy)*COLS + (x+dx)] > v){ isMax = false; break; }
+        }
+      }
+      if (!isMax) continue;
+      var tooClose = false, k;
+      for (k=0;k<found.length;k++){
+        if (Math.abs(found[k].x-x) < 10 && Math.abs(found[k].y-y) < 10){ tooClose = true; break; }
+      }
+      if (!tooClose) found.push({ x:x, y:y, v:v });
+      if (found.length >= 6) break;
+    }
+    if (found.length >= 6) break;
+  }
+  peaks = found;
+}
+
+function drawPeaks(){
+  if (!peaks.length) return;
+  var m = M();
+  var sx = W/(COLS-1), sy = H/(ROWS-1), i;
+  ctx.save();
+  ctx.fillStyle = m.mark;
+  ctx.font = '400 ' + Math.max(9, 10*U|0) + 'px Oswald, sans-serif';
+  ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+  for (i=0;i<peaks.length;i++){
+    var p = peaks[i];
+    var px = p.x*sx, py = p.y*sy;
+    if (!isFinite(px) || !isFinite(py)) continue;
+    ctx.beginPath();
+    ctx.moveTo(px-3.2*U, py); ctx.lineTo(px+3.2*U, py);
+    ctx.moveTo(px, py-3.2*U); ctx.lineTo(px, py+3.2*U);
+    ctx.strokeStyle = m.mark; ctx.lineWidth = Math.max(0.8, 1.1*U);
+    ctx.stroke();
+    ctx.fillText(Math.round(p.v*1000) + '', px + 5.5*U, py + 0.5*U);
+  }
+  ctx.restore();
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  SECTION — the actual elevation profile along one scan line.  This is
+//  the mode that proves the picture is data: it is the same numbers the
+//  contours came from, drawn as a graph.
+// ═══════════════════════════════════════════════════════════════════════
+function drawSection(){
+  if (!fld) return;
+  var m = M();
+  var a = HANDS[0].live ? HANDS[0] : (HANDS[1].live ? HANDS[1] : null);
+  var ry = a ? Math.round(Math.max(0, Math.min(1, a.y))*(ROWS-1)) : Math.round(ROWS*0.5);
+  if (!isFinite(ry)) ry = Math.round(ROWS*0.5);
+  ry = Math.max(0, Math.min(ROWS-1, ry));
+  var syPx = ry*(H/(ROWS-1));
+
+  // where the section is taken
+  ctx.save();
+  ctx.setLineDash([7*U, 5*U]);
+  ctx.strokeStyle = m.mark; ctx.lineWidth = Math.max(1, 1.4*U);
+  ctx.beginPath(); ctx.moveTo(0, syPx); ctx.lineTo(W, syPx); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillStyle = m.mark;
+  ctx.font = '400 ' + Math.max(9, 10*U|0) + 'px Oswald, sans-serif';
+  ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
+  ctx.fillText('A', 6*U, syPx - 4*U);
+  ctx.textAlign = 'right';
+  ctx.fillText("A'", W - 6*U, syPx - 4*U);
+  ctx.restore();
+
+  // the profile panel
+  var ph = Math.min(H*0.28, 190*U);
+  var py0 = H - ph - Math.max(10, 14*U);
+  ctx.save();
+  ctx.fillStyle = 'rgba(240,233,218,0.93)';
+  ctx.fillRect(0, py0, W, ph);
+  ctx.strokeStyle = m.index; ctx.lineWidth = Math.max(1, 1.3*U);
+  ctx.beginPath(); ctx.moveTo(0, py0); ctx.lineTo(W, py0); ctx.stroke();
+
+  var base = py0 + ph - Math.max(8, 12*U);
+  var span = ph - Math.max(20, 28*U);
+  var i, xx, vv;
+  // sea, drawn behind the ground
+  var seaY = base - sea*span;
+  ctx.fillStyle = 'rgba(' + m.water[0] + ',' + m.water[1] + ',' + m.water[2] + ',0.42)';
+  ctx.fillRect(0, seaY, W, Math.max(0, base - seaY));
+  ctx.strokeStyle = 'rgba(' + m.deep[0] + ',' + m.deep[1] + ',' + m.deep[2] + ',0.7)';
+  ctx.lineWidth = Math.max(0.8, 1*U);
+  ctx.beginPath(); ctx.moveTo(0, seaY); ctx.lineTo(W, seaY); ctx.stroke();
+
+  // the ground itself
+  ctx.beginPath();
+  ctx.moveTo(0, base);
+  for (i=0;i<COLS;i++){
+    vv = fld[ry*COLS + i];
+    if (!isFinite(vv)) vv = 0;
+    xx = i*(W/(COLS-1));
+    ctx.lineTo(xx, base - vv*span);
+  }
+  ctx.lineTo(W, base);
+  ctx.closePath();
+  ctx.fillStyle = 'rgba(141,131,119,0.30)';
+  ctx.fill();
+  ctx.strokeStyle = m.index; ctx.lineWidth = Math.max(1, 1.5*U);
+  ctx.beginPath();
+  for (i=0;i<COLS;i++){
+    vv = fld[ry*COLS + i];
+    if (!isFinite(vv)) vv = 0;
+    xx = i*(W/(COLS-1));
+    if (i === 0) ctx.moveTo(xx, base - vv*span);
+    else ctx.lineTo(xx, base - vv*span);
+  }
+  ctx.stroke();
+
+  ctx.fillStyle = m.line;
+  ctx.font = '400 ' + Math.max(8, 9.5*U|0) + 'px Oswald, sans-serif';
+  ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+  ctx.fillText('SECTION A–A\'   V.E. ×' + (span/W*COLS/6).toFixed(1), 8*U, py0 + 5*U);
+  ctx.restore();
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  SHEET FURNITURE + HANDS + HUD
+// ═══════════════════════════════════════════════════════════════════════
+function drawFrame(){
+  var m = M();
+  var mg = Math.max(8, 11*U);
+  ctx.save();
+  ctx.strokeStyle = m.index; ctx.lineWidth = Math.max(1, 1.5*U);
+  ctx.strokeRect(mg, mg, W-mg*2, H-mg*2);
+  // graticule ticks
+  ctx.lineWidth = 1; ctx.strokeStyle = m.line;
+  var i, n = 10;
+  ctx.beginPath();
+  for (i=1;i<n;i++){
+    var x = mg + (W-mg*2)*i/n;
+    ctx.moveTo(x, mg); ctx.lineTo(x, mg + 6*U);
+    ctx.moveTo(x, H-mg); ctx.lineTo(x, H-mg - 6*U);
+  }
+  for (i=1;i<n;i++){
+    var y = mg + (H-mg*2)*i/n;
+    ctx.moveTo(mg, y); ctx.lineTo(mg + 6*U, y);
+    ctx.moveTo(W-mg, y); ctx.lineTo(W-mg - 6*U, y);
+  }
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawHands(){
+  var m = M();
+  var i;
+  ctx.save();
+  for (i=0;i<HANDS.length;i++){
+    var h = HANDS[i];
+    if (!h.live) continue;
+    var hx = h.x*W, hy = h.y*H;
+    if (!isFinite(hx) || !isFinite(hy)) continue;
+    ctx.strokeStyle = m.mark; ctx.lineWidth = Math.max(1, 1.3*U);
+    ctx.globalAlpha = 0.85;
+    ctx.beginPath(); ctx.arc(hx, hy, 13*U, 0, Math.PI*2); ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(hx-19*U, hy); ctx.lineTo(hx-7*U, hy);
+    ctx.moveTo(hx+7*U, hy);  ctx.lineTo(hx+19*U, hy);
+    ctx.moveTo(hx, hy-19*U); ctx.lineTo(hx, hy-7*U);
+    ctx.moveTo(hx, hy+7*U);  ctx.lineTo(hx, hy+19*U);
+    ctx.stroke();
+    ctx.globalAlpha = 0.7;
+    ctx.fillStyle = m.mark;
+    ctx.font = '400 ' + Math.max(8, 9.5*U|0) + 'px "BIZ UDPGothic", sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    var role = (i === 0 || !HANDS[0].live) ? '水位' : '等高線間隔';
+    ctx.fillText(role, hx, hy + 22*U);
+  }
+  ctx.restore();
+}
+
+function drawHud(){
+  var m = M();
+  var mg = Math.max(8, 11*U) + 10*U;
+  ctx.save();
+  ctx.fillStyle = m.index;
+  ctx.font = '400 ' + Math.max(9, 10*U|0) + 'px Oswald, sans-serif';
+  ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+  ctx.fillText('CHIKEI   ' + M().en + '   1:25,000', mg, mg + 14*U);
+
+  // legend block, bottom-left, out of the way of the section panel
+  var by = (M().key === 'section') ? mg + 30*U : H - mg - 34*U;
+  ctx.font = '400 ' + Math.max(9, 10*U|0) + 'px Oswald, sans-serif';
+  ctx.textBaseline = 'top';
+  ctx.fillStyle = m.line;
+  ctx.fillText('C.I. ' + Math.round(1000/levels) + ' m', mg, by);
+  ctx.fillText('SEA ' + Math.round(sea*1000) + ' m', mg, by + 13*U);
+  ctx.fillText('LAND ' + Math.round(landFrac*100) + '%', mg, by + 26*U);
+
+  if (!HANDS[0].live && !HANDS[1].live){
+    ctx.fillStyle = m.mark;
+    ctx.font = '400 ' + Math.max(10, 11.5*U|0) + 'px "BIZ UDPGothic", sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+    var msg = camOK ? '手をかざすと水位が動きます' : 'カメラを待っています';
+    ctx.fillText(msg, W/2, H - Math.max(14, 18*U));
+  }
+
+  // scale bar
+  var sbw = Math.min(W*0.24, 140*U);
+  var sbx = W - mg - sbw, sby = H - mg - 16*U;
+  ctx.strokeStyle = m.index; ctx.lineWidth = Math.max(1, 1.2*U);
+  ctx.beginPath();
+  ctx.moveTo(sbx, sby); ctx.lineTo(sbx+sbw, sby);
+  ctx.moveTo(sbx, sby-4*U); ctx.lineTo(sbx, sby+4*U);
+  ctx.moveTo(sbx+sbw/2, sby-3*U); ctx.lineTo(sbx+sbw/2, sby+3*U);
+  ctx.moveTo(sbx+sbw, sby-4*U); ctx.lineTo(sbx+sbw, sby+4*U);
+  ctx.stroke();
+  ctx.fillStyle = m.line;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+  ctx.font = '400 ' + Math.max(8, 9*U|0) + 'px Oswald, sans-serif';
+  ctx.fillText('1 km', sbx + sbw/2, sby + 5*U);
+  ctx.restore();
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  THE WAITING DIAGRAM — a hill, and a sea that rises up it
+// ═══════════════════════════════════════════════════════════════════════
+var demoT = 0;
+function drawDemo(dt){
+  if (!demoCtx) return;
+  demoT = (demoT + dt) % 6.0;
+  var d = demoCtx, w = demoCv.width, h = demoCv.height;
+  d.setTransform(1,0,0,1,0,0);
+  d.fillStyle = '#f7f2e6'; d.fillRect(0,0,w,h);
+
+  var p = demoT/6.0;
+  var seaD = 0.10 + (Math.sin(p*Math.PI*2 - Math.PI/2)*0.5+0.5)*0.55;
+
+  // an elevation function: two hills
+  function elev(u){
+    return Math.exp(-Math.pow((u-0.36)/0.20, 2))*0.92 +
+           Math.exp(-Math.pow((u-0.72)/0.15, 2))*0.62;
+  }
+  var base = h - 46, span = h - 96, i;
+
+  // sea
+  var seaY = base - seaD*span;
+  d.fillStyle = 'rgba(87,147,178,0.35)';
+  d.fillRect(0, seaY, w, base - seaY);
+  d.strokeStyle = 'rgba(45,109,144,0.8)'; d.lineWidth = 2;
+  d.beginPath(); d.moveTo(0, seaY); d.lineTo(w, seaY); d.stroke();
+
+  // ground
+  d.beginPath(); d.moveTo(0, base);
+  for (i=0;i<=w;i+=4) d.lineTo(i, base - elev(i/w)*span);
+  d.lineTo(w, base); d.closePath();
+  d.fillStyle = 'rgba(228,214,182,0.9)'; d.fill();
+  d.strokeStyle = '#6b3f22'; d.lineWidth = 2.4;
+  d.beginPath();
+  for (i=0;i<=w;i+=4){
+    var yy = base - elev(i/w)*span;
+    if (i===0) d.moveTo(i,yy); else d.lineTo(i,yy);
+  }
+  d.stroke();
+
+  // contour ticks, so the idea "level ⇒ line" is on screen
+  var n = 10;
+  for (i=1;i<n;i++){
+    var L = i/n;
+    var yy2 = base - L*span;
+    d.strokeStyle = (i%5===0) ? 'rgba(107,63,34,0.55)' : 'rgba(150,104,69,0.32)';
+    d.lineWidth = (i%5===0) ? 1.8 : 1;
+    d.beginPath(); d.moveTo(0, yy2); d.lineTo(w, yy2); d.stroke();
+  }
+
+  d.fillStyle = '#966845';
+  d.font = '400 19px "BIZ UDPGothic", sans-serif';
+  d.textAlign = 'center';
+  d.fillText('明るい所ほど高い　　手を上げると水位が上がる', w/2, h - 14);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  LOOP
+// ═══════════════════════════════════════════════════════════════════════
+var lastT = 0, running = false, started = false;
+var fps = 60, fpsAcc = 0, fpsN = 0;
+
+function frame(){
+  var t = now();
+  var dt = (t - lastT)/1000;
+  if (!isFinite(dt) || dt < 0) dt = 0;
+  dt = Math.min(dt, 0.05);
+  lastT = t;
+  if (dt > 0.0005){ fpsAcc += 1/dt; fpsN++; if (fpsN >= 30){ fps = fpsAcc/fpsN; fpsAcc = 0; fpsN = 0; } }
+
+  if (!running){
+    drawDemo(dt);
+  } else {
+    stepControls(dt);
+    readField();
+    findPeaks(dt);
+    setAmbience(landFrac);
+  }
+
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  if (paperCv) ctx.drawImage(paperCv, 0, 0, W, H);
+  else { ctx.fillStyle = M().paper; ctx.fillRect(0,0,W,H); }
+
+  if (running && haveField){
+    drawTint();
+    contours();
+    drawPeaks();
+    if (M().key === 'section') drawSection();
+  }
+  drawFrame();
+  if (running){
+    drawHands();
+    drawHud();
+  }
+
+  requestAnimationFrame(frame);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  BOOT
+// ═══════════════════════════════════════════════════════════════════════
+window.addEventListener('resize', resize);
+if (window.visualViewport && window.visualViewport.addEventListener){
+  window.visualViewport.addEventListener('resize', resize);
+}
+resize();
+modeBtn.textContent = M().name;   // the label belongs to the state, not the markup
+lastT = now();
+requestAnimationFrame(frame);
+
+startBtn.addEventListener('click', function(){
+  initAudio(); resumeAudio();
+  veil.classList.add('hide');
+  running = true;
+  if (!started){
+    started = true;
+    if (initHands()) startStream().then(startMpCamera).catch(showError);
+    else startStream().catch(showError);
+  }
+});
+
+// exposed only so the offline harness can assert on the real state
+window.__CHIKEI__ = {
+  s:function(){
+    return { running:running, mode:M().key, sea:sea, levels:levels,
+             land:landFrac, cols:COLS, rows:ROWS, haveField:haveField,
+             segs:segCount, pixels:pixelsWritten, peaks:peaks.length,
+             fieldLen: fld ? fld.length : 0, fps:fps,
+             hands:[HANDS[0].live, HANDS[1].live] };
+  },
+  field:function(){ return fld; },
+  setMode:function(i){ modeIx = i % MODES.length; modeBtn.textContent = M().name; buildPaper(); },
+  // drive the field directly, so the contour tracer can be tested against
+  // a shape whose iso-lines are known in advance
+  poke:function(fn){
+    if (!fld) return;
+    fieldFrozen = true;
+    var x, y;
+    for (y=0;y<ROWS;y++){
+      for (x=0;x<COLS;x++){
+        var v = fn(x/(COLS-1), y/(ROWS-1));
+        fld[y*COLS+x] = Math.max(0, Math.min(1, v));
+      }
+    }
+    haveField = true;
+  }
+};
+
+})();
+</script>
+</body>
+</html>
