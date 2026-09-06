@@ -1,0 +1,1608 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>KENDAMA ─ 糸でつながった玉</title>
+<meta name="description" content="手がそのまま剣になるけん玉。玉は本物の糸でつながっていて、振り上げた勢いと落ちてくる速さが全部physicsで決まる。速く上げて、落ちる所へ皿を添える。上げながら受けにいくと弾かれる。">
+<meta name="theme-color" content="#eef3f8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Zen+Kaku+Gothic+New:wght@500;700&display=swap" rel="stylesheet">
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  KENDAMA ─ 糸でつながった玉                     ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  PALETTE   青焼 aoyaki   #eef3f8  the sheet. cold paper, very slightly blue
+            罫   kei      #cddded  the 10mm grid, printed not drawn
+            重罫 omokei   #a8c4dc  every 5th line, and the sheet's border
+            製図 seizu    #1b3f5e  every outline, every numeral. drafting ink
+            朱書 shusho   #d94f34  the ball, the target cup, every correction
+            鉛筆 enpitsu  #7f9cb5  the trajectory locus, drawn in pencil
+            MOOD: a mechanical drawing of a toy, on cold blue print paper,
+            under fluorescent light. No glow anywhere, no gradients, no
+            night. The gallery is full of lanterns and dusk; this one is a
+            drawing office at 3pm. Everything is a LINE — the toy is never
+            filled, it is hatched at 45° like a section view.
+  BACKGROUND  Printed graph paper: 10u minor rules, 50u heavy rules, a
+            double border inset from the edge, and a 表題欄 (title block)
+            ruled into the bottom-right corner. The grid is rendered once
+            into an offscreen canvas on resize and blitted, never per frame.
+            The camera is composited over it in multiply at 9% greyscale so
+            the player is a faint photostat under the drawing, not a window.
+  TYPE      Share Tech Mono for every number and every latin label — the
+            stencil of a drawing sheet. Zen Kaku Gothic New for Japanese,
+            500 for labels and 700 only for the current 課題. Labels are
+            tracked +0.18em and set small; the drawing is the loud thing.
+  MOTION    Mechanical and quantised. Nothing floats. The score steps in
+            increments instead of tweening. Impacts are a 3-frame shake and
+            a 120ms back-out on the struck cup, then dead stop. The only
+            continuous motion on the sheet is the pendulum, and that is
+            integrated physics, not easing.
+  SIGNATURE The ball is a real point mass on an inextensible string solved
+            with position-based dynamics against a MOVING anchor, so the
+            whip of a fast pull is genuinely transferred to the ball. Two
+            things are drawn that no other piece in the gallery draws: the
+            string goes SLACK as a catenary the moment tension drops to
+            zero, and while it is taut the tension is drawn on the sheet as
+            a dimensioned force vector, arrowhead and all. The ball's hole
+            is a sprung angle that lags the string, so yanking makes it
+            wobble and only a smooth pull lines it up for the spike.
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<style>
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;padding:0;height:100%;overflow:hidden;background:#eef3f8}
+  body{
+    font-family:'Zen Kaku Gothic New','Hiragino Sans',sans-serif;
+    color:#1b3f5e;-webkit-user-select:none;user-select:none;touch-action:none;
+  }
+  #view{position:fixed;inset:0;width:100%;height:100%;display:block}
+  #video{position:fixed;width:2px;height:2px;opacity:0;pointer-events:none;left:-10px;top:-10px}
+
+  .mono{font-family:'Share Tech Mono',ui-monospace,monospace}
+
+  #flip{
+    position:fixed;top:calc(env(safe-area-inset-top,0px) + 12px);right:12px;z-index:6;
+    font:500 12px/1 'Zen Kaku Gothic New',sans-serif;letter-spacing:.14em;
+    color:#1b3f5e;background:rgba(238,243,248,.86);border:1.5px solid #1b3f5e;
+    padding:9px 13px;cursor:pointer;border-radius:0;
+  }
+  #flip:active{background:#1b3f5e;color:#eef3f8}
+
+  #err{
+    display:none;position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);
+    z-index:9;max-width:min(88vw,460px);white-space:pre-wrap;line-height:1.75;
+    background:#eef3f8;border:2px solid #d94f34;padding:20px 22px;
+    font:500 13px/1.75 'Zen Kaku Gothic New',sans-serif;color:#1b3f5e;
+  }
+
+  .sheet{
+    position:fixed;inset:0;z-index:8;display:flex;align-items:center;justify-content:center;
+    background:rgba(238,243,248,.94);padding:22px;
+  }
+  .sheet.hide{display:none}
+  .panel{
+    width:min(92vw,430px);border:2px solid #1b3f5e;background:#eef3f8;
+    padding:24px 22px 20px;position:relative;
+  }
+  .panel:before{
+    content:'';position:absolute;inset:5px;border:1px solid #a8c4dc;pointer-events:none;
+  }
+  .stamp{
+    font:400 10px/1 'Share Tech Mono',monospace;letter-spacing:.3em;color:#7f9cb5;
+    display:flex;justify-content:space-between;margin-bottom:14px;
+  }
+  h1{
+    margin:0;font:400 40px/0.95 'Share Tech Mono',monospace;letter-spacing:.1em;color:#1b3f5e;
+  }
+  h1 b{display:block;font:700 13px/1.6 'Zen Kaku Gothic New',sans-serif;letter-spacing:.34em;color:#d94f34;margin-top:9px}
+  #demo{display:block;width:100%;height:auto;margin:16px 0 4px;border:1px solid #a8c4dc;background:#f6f9fc}
+  .lead{font:500 12.5px/1.9 'Zen Kaku Gothic New',sans-serif;color:#2f5a7a;margin:12px 0 0}
+  .lead em{font-style:normal;color:#d94f34;font-weight:700}
+  .rules{margin:12px 0 0;padding:0;list-style:none}
+  .rules li{
+    font:500 11.5px/1.7 'Zen Kaku Gothic New',sans-serif;color:#537b98;
+    padding-left:16px;position:relative;margin-top:5px;
+  }
+  .rules li:before{content:'';position:absolute;left:2px;top:.62em;width:7px;height:1.5px;background:#a8c4dc}
+  button.go{
+    margin-top:18px;width:100%;display:block;cursor:pointer;
+    font:400 17px/1 'Share Tech Mono',monospace;letter-spacing:.24em;
+    color:#eef3f8;background:#1b3f5e;border:2px solid #1b3f5e;padding:15px 0;
+  }
+  button.go:active{background:#d94f34;border-color:#d94f34}
+  .res{font:400 13px/1 'Share Tech Mono',monospace;letter-spacing:.2em;color:#7f9cb5;margin:2px 0 0}
+  .big{font:400 62px/1 'Share Tech Mono',monospace;letter-spacing:.04em;color:#d94f34;margin:6px 0 0}
+  .sub{font:500 12px/1.8 'Zen Kaku Gothic New',sans-serif;color:#537b98;margin:10px 0 0}
+</style>
+</head>
+<body>
+
+<canvas id="view"></canvas>
+<video id="video" playsinline muted autoplay></video>
+<button id="flip">⟲ カメラ</button>
+<div id="err"></div>
+
+<div class="sheet" id="startSheet">
+  <div class="panel">
+    <div class="stamp"><span>OTO-II / 032</span><span>SCALE 1:1</span></div>
+    <h1>KENDAMA<b>けん玉</b></h1>
+    <canvas id="demo" width="600" height="330"></canvas>
+    <p class="lead">手が、そのまま<em>剣</em>になる。玉は糸でぶら下がっているだけ。<em>速く振り上げて</em>、落ちてくる所へ皿を<em>そっと添える</em>。</p>
+    <ul class="rules">
+      <li>上げながら受けにいくと弾かれる。落ちる速さに合わせること</li>
+      <li>手の向きが剣の向き。玉の穴は糸の反対を向く</li>
+      <li>成功すると時間が増える。0 になったら終わり</li>
+    </ul>
+    <button class="go" id="startBtn">START</button>
+  </div>
+</div>
+
+<div class="sheet hide" id="overSheet">
+  <div class="panel">
+    <div class="stamp"><span>RESULT</span><span id="rTricks">00 CATCH</span></div>
+    <p class="res">SCORE</p>
+    <p class="big mono" id="rScore">0</p>
+    <p class="sub" id="rNote">—</p>
+    <button class="go" id="retryBtn">RETRY</button>
+  </div>
+</div>
+
+<script>
+(function(){
+'use strict';
+
+// ═══════════════════════════════════════════════════════════════════════
+//  DOM
+// ═══════════════════════════════════════════════════════════════════════
+var view      = document.getElementById('view');
+var ctx       = view.getContext('2d');
+var video     = document.getElementById('video');
+var flipBtn   = document.getElementById('flip');
+var errBox    = document.getElementById('err');
+var startSheet= document.getElementById('startSheet');
+var overSheet = document.getElementById('overSheet');
+var startBtn  = document.getElementById('startBtn');
+var retryBtn  = document.getElementById('retryBtn');
+var demoCv    = document.getElementById('demo');
+var demoCtx   = demoCv.getContext('2d');
+var rScore    = document.getElementById('rScore');
+var rTricks   = document.getElementById('rTricks');
+var rNote     = document.getElementById('rNote');
+
+var C = {
+  paper:'#eef3f8', kei:'#cddded', omokei:'#a8c4dc',
+  ink:'#1b3f5e', shu:'#d94f34', pencil:'#7f9cb5'
+};
+
+// ═══════════════════════════════════════════════════════════════════════
+//  SIZE.  Everything in the drawing is expressed in "u" — drafting units.
+//  U is the pixels-per-unit for this screen, so the toy is the same size
+//  relative to the sheet on a phone in portrait and a laptop in landscape.
+// ═══════════════════════════════════════════════════════════════════════
+var W=1, H=1, DPR=1, U=1;
+var paperCv=null, paperCtx=null;
+
+function resize(){
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  W = Math.max(1, window.innerWidth|0);
+  H = Math.max(1, window.innerHeight|0);
+  view.width  = Math.round(W*DPR);
+  view.height = Math.round(H*DPR);
+  view.style.width  = W+'px';
+  view.style.height = H+'px';
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  U = Math.min(W,H)/620;
+  buildPaper();
+}
+
+function buildPaper(){
+  if (!paperCv){
+    paperCv = document.createElement('canvas');
+    paperCtx = paperCv.getContext('2d');
+  }
+  if (!paperCtx) return;
+  paperCv.width  = Math.round(W*DPR);
+  paperCv.height = Math.round(H*DPR);
+  var p = paperCtx;
+  p.setTransform(DPR,0,0,DPR,0,0);
+  p.fillStyle = C.paper; p.fillRect(0,0,W,H);
+
+  var g = 10*U, i, n;
+  // minor rules
+  p.strokeStyle = C.kei; p.lineWidth = 1; p.beginPath();
+  for (i=0, n=Math.ceil(W/g); i<=n; i++){ var x=Math.round(i*g)+0.5; p.moveTo(x,0); p.lineTo(x,H); }
+  for (i=0, n=Math.ceil(H/g); i<=n; i++){ var y=Math.round(i*g)+0.5; p.moveTo(0,y); p.lineTo(W,y); }
+  p.stroke();
+  // heavy rules every 5th
+  p.strokeStyle = C.omokei; p.lineWidth = 1; p.beginPath();
+  for (i=0, n=Math.ceil(W/(g*5)); i<=n; i++){ var x2=Math.round(i*g*5)+0.5; p.moveTo(x2,0); p.lineTo(x2,H); }
+  for (i=0, n=Math.ceil(H/(g*5)); i<=n; i++){ var y2=Math.round(i*g*5)+0.5; p.moveTo(0,y2); p.lineTo(W,y2); }
+  p.stroke();
+  // sheet border, double rule
+  var m = Math.max(8, 10*U);
+  p.strokeStyle = C.omokei; p.lineWidth = 2;
+  p.strokeRect(m, m, W-m*2, H-m*2);
+  p.lineWidth = 1;
+  p.strokeRect(m+4, m+4, W-m*2-8, H-m*2-8);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  AUDIO — modal wood.  Every impact in this piece is a struck wooden
+//  body: four inharmonic partials in the ratios of a short cylinder,
+//  each with its own decay, plus a 6ms filtered-noise transient for the
+//  attack.  No oscillator-plus-reverb anywhere.  A continuous band of
+//  noise, opened by the ball's speed, is the string cutting the air.
+// ═══════════════════════════════════════════════════════════════════════
+var AC = window.AudioContext || window.webkitAudioContext;
+var ac=null, master=null, comp=null, swishGain=null, swishFilt=null, noiseBuf=null;
+
+function makeNoise(){
+  if (!ac) return null;
+  var len = Math.floor(ac.sampleRate*2);
+  var b = ac.createBuffer(1, len, ac.sampleRate);
+  var d = b.getChannelData(0);
+  for (var i=0;i<len;i++) d[i] = Math.random()*2-1;
+  return b;
+}
+
+function initAudio(){
+  if (ac || !AC) return;
+  try { ac = new AC(); } catch(e){ ac = null; return; }
+  comp = ac.createDynamicsCompressor();
+  try {
+    comp.threshold.value = -16; comp.knee.value = 22;
+    comp.ratio.value = 9; comp.attack.value = 0.003; comp.release.value = 0.16;
+  } catch(e){}
+  master = ac.createGain(); master.gain.value = 0.85;
+  master.connect(comp); comp.connect(ac.destination);
+
+  noiseBuf = makeNoise();
+  if (noiseBuf){
+    var src = ac.createBufferSource();
+    src.buffer = noiseBuf; src.loop = true;
+    swishFilt = ac.createBiquadFilter();
+    swishFilt.type = 'bandpass'; swishFilt.frequency.value = 900; swishFilt.Q.value = 1.1;
+    swishGain = ac.createGain(); swishGain.gain.value = 0.0001;
+    src.connect(swishFilt); swishFilt.connect(swishGain); swishGain.connect(master);
+    try { src.start(); } catch(e){}
+  }
+}
+function resumeAudio(){ if (ac && ac.state === 'suspended'){ try{ ac.resume(); }catch(e){} } }
+
+var WOOD = [
+  { r:1.00, g:1.00, d:0.42 },
+  { r:2.71, g:0.42, d:0.22 },
+  { r:5.15, g:0.20, d:0.13 },
+  { r:8.94, g:0.09, d:0.07 }
+];
+
+function wood(freq, amp, len){
+  if (!ac || !master) return;
+  if (!isFinite(freq) || !isFinite(amp) || freq<=0) return;
+  var t = ac.currentTime, i;
+  for (i=0;i<WOOD.length;i++){
+    var m = WOOD[i];
+    var f = freq*m.r;
+    if (f > 15000) continue;
+    var o = ac.createOscillator();
+    var g = ac.createGain();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(f, t);
+    var pk = Math.max(0.0002, amp*m.g*0.34);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(pk, t+0.004);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + m.d*len);
+    o.connect(g); g.connect(master);
+    o.start(t); o.stop(t + m.d*len + 0.05);
+  }
+  // attack transient
+  if (noiseBuf){
+    var s = ac.createBufferSource(); s.buffer = noiseBuf;
+    var bp = ac.createBiquadFilter();
+    bp.type='bandpass'; bp.frequency.value = Math.min(9000, freq*3.2); bp.Q.value = 0.8;
+    var ng = ac.createGain();
+    ng.gain.setValueAtTime(Math.max(0.0002, amp*0.30), t);
+    ng.gain.exponentialRampToValueAtTime(0.0001, t+0.028);
+    s.connect(bp); bp.connect(ng); ng.connect(master);
+    s.start(t); s.stop(t+0.06);
+  }
+}
+
+function thud(amp){
+  if (!ac || !master) return;
+  var t = ac.currentTime;
+  var o = ac.createOscillator(), g = ac.createGain(), lp = ac.createBiquadFilter();
+  lp.type='lowpass'; lp.frequency.value = 320;
+  o.type='sine'; o.frequency.setValueAtTime(148, t);
+  o.frequency.exponentialRampToValueAtTime(76, t+0.14);
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(Math.max(0.0002, amp*0.5), t+0.006);
+  g.gain.exponentialRampToValueAtTime(0.0001, t+0.20);
+  o.connect(lp); lp.connect(g); g.connect(master);
+  o.start(t); o.stop(t+0.24);
+  if (noiseBuf){
+    var s = ac.createBufferSource(); s.buffer = noiseBuf;
+    var f2 = ac.createBiquadFilter(); f2.type='lowpass'; f2.frequency.value=700;
+    var g2 = ac.createGain();
+    g2.gain.setValueAtTime(Math.max(0.0002, amp*0.30), t);
+    g2.gain.exponentialRampToValueAtTime(0.0001, t+0.09);
+    s.connect(f2); f2.connect(g2); g2.connect(master);
+    s.start(t); s.stop(t+0.12);
+  }
+}
+
+function tick(hi){
+  if (!ac || !master) return;
+  var t = ac.currentTime;
+  var o = ac.createOscillator(), g = ac.createGain();
+  o.type='square'; o.frequency.setValueAtTime(hi?1760:1180, t);
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.05, t+0.003);
+  g.gain.exponentialRampToValueAtTime(0.0001, t+0.05);
+  o.connect(g); g.connect(master);
+  o.start(t); o.stop(t+0.07);
+}
+
+function setSwish(v){
+  if (!swishGain || !swishFilt || !ac) return;
+  var x = Math.max(0, Math.min(1, v));
+  if (!isFinite(x)) x = 0;
+  try {
+    swishGain.gain.setTargetAtTime(0.0001 + x*0.055, ac.currentTime, 0.06);
+    swishFilt.frequency.setTargetAtTime(620 + x*1900, ac.currentTime, 0.08);
+  } catch(e){}
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  CAMERA
+// ═══════════════════════════════════════════════════════════════════════
+var facing='user', mirror=true, stream=null, camOK=false;
+
+function showError(e){
+  var msg = (e && e.message) ? e.message : String(e || 'unknown');
+  errBox.style.display = 'block';
+  errBox.textContent = 'カメラを起動できませんでした：' + msg +
+    '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+}
+function startStream(){
+  var md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) return Promise.reject(new Error('getUserMedia is unavailable'));
+  if (stream && stream.getTracks) stream.getTracks().forEach(function(t){ t.stop(); });
+  return md.getUserMedia({
+    video:{ facingMode:{ ideal:facing }, width:{ ideal:960 }, height:{ ideal:720 } },
+    audio:false
+  }).then(function(st){
+    stream = st; video.srcObject = st; mirror = (facing === 'user'); camOK = true;
+    var p = video.play();
+    return (p && p.then) ? p.catch(function(){}) : null;
+  });
+}
+flipBtn.addEventListener('click', function(){
+  facing = (facing === 'user') ? 'environment' : 'user';
+  loseHand();
+  startStream().then(startMpCamera).catch(showError);
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+//  HAND.  The palm centre is the grip; the wrist→middle-MCP direction is
+//  the ken's tilt.  Velocity is differentiated only across frames that are
+//  actually consecutive — a dropout or a re-acquisition jump would invent
+//  a huge velocity out of nothing, which here would throw the ball across
+//  the sheet and eat the player's attempt.
+// ═══════════════════════════════════════════════════════════════════════
+var hands=null, mpCamera=null, mpReady=false;
+var TRACK_GAP = 0.14;   // s
+var TRACK_JUMP = 0.34;  // normalised
+var LOST_MS = 400;
+
+var Hn = { live:false, t:-1e9, x:0.5, y:0.42, ang:0, lm:null, seen:0 };
+
+function loseHand(){
+  Hn.live = false; Hn.lm = null;
+  ken.vx = 0; ken.vy = 0; ken.hist.length = 0;
+}
+function initHands(){
+  if (typeof window.Hands !== 'function') return false;
+  try {
+    hands = new window.Hands({ locateFile:function(f){
+      return 'https://cdn.jsdelivr.net/npm/@mediapipe/hands/' + f;
+    }});
+    hands.setOptions({ maxNumHands:1, modelComplexity:0,
+                       minDetectionConfidence:0.6, minTrackingConfidence:0.5 });
+    hands.onResults(onHands);
+    mpReady = true; return true;
+  } catch(e){ return false; }
+}
+function startMpCamera(){
+  if (!mpReady || !hands) return;
+  if (mpCamera) return;
+  if (typeof window.Camera !== 'function') return;
+  try {
+    mpCamera = new window.Camera(video, {
+      onFrame: function(){
+        if (!hands) return Promise.resolve();
+        return hands.send({ image: video }).catch(function(){});
+      },
+      width:480, height:360
+    });
+    mpCamera.start();
+  } catch(e){ mpCamera = null; }
+}
+function validLm(c){
+  if (!c || c.length < 21) return null;
+  for (var i=0;i<21;i++){
+    var p = c[i];
+    if (!p || typeof p.x !== 'number' || typeof p.y !== 'number' ||
+        !isFinite(p.x) || !isFinite(p.y)) return null;
+  }
+  return c;
+}
+function onHands(res){
+  var t = now();
+  var list = (res && res.multiHandLandmarks) ? res.multiHandLandmarks : null;
+  var c = (list && list.length) ? validLm(list[0]) : null;
+  if (!c){ if (Hn.live && t - Hn.t > LOST_MS) loseHand(); return; }
+
+  var ids=[0,5,9,13,17], cx=0, cy=0, i;
+  for (i=0;i<ids.length;i++){
+    var p = c[ids[i]];
+    if (!p) return;
+    cx += p.x; cy += p.y;
+  }
+  cx/=ids.length; cy/=ids.length;
+  if (!isFinite(cx) || !isFinite(cy)) return;
+
+  var wr = c[0], mid = c[9];
+  if (!wr || !mid) return;
+  var ax = mid.x - wr.x, ay = mid.y - wr.y;
+  if (!isFinite(ax) || !isFinite(ay)) return;
+  if (mirror) ax = -ax;
+  // 0 rad = ken pointing straight up.  Fingers up ⇒ ken up.
+  var raw = Math.atan2(ax, -ay);
+  if (!isFinite(raw)) raw = 0;
+  var tilt = Math.max(-0.85, Math.min(0.85, raw));
+
+  var x = mirror ? (1-cx) : cx, y = cy;
+  if (!isFinite(x) || !isFinite(y)) return;
+
+  var dt = Hn.live ? (t - Hn.t)/1000 : 0;
+  var jump = Hn.live ? Math.hypot(x-Hn.x, y-Hn.y) : 0;
+  var continuous = (Hn.live && dt > 0.004 && dt < TRACK_GAP && jump < TRACK_JUMP);
+  if (!continuous){ ken.hist.length = 0; ken.vx = 0; ken.vy = 0; }
+
+  Hn.x = x; Hn.y = y; Hn.t = t; Hn.live = true; Hn.lm = c; Hn.seen = t;
+  Hn.ang += (tilt - Hn.ang)*0.30;
+  if (!isFinite(Hn.ang)) Hn.ang = 0;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  GEOMETRY OF THE TOY, in drafting units, ken-local, +y is DOWN.
+// ═══════════════════════════════════════════════════════════════════════
+var GRIP_Y   =   12;
+var CROSS_Y  =  -74;
+var CUP_DX   =   44;
+var CROSS_HX =   50;
+var ANCH_Y   =  -80;
+var TIP_Y    = -158;
+
+var BR       =   26;   // ball radius
+var R_BIG    =   34;
+var R_SML    =   24;
+var L_STR    =  155;   // string length — longer than the ken, so the ball
+                       // hangs clear of the grip instead of resting on it
+
+// Every number below was tuned against the offline harness, not by feel.
+// From a hang, the ball must rise ~169u past the ken to reach the 大皿, so
+// the pull needs roughly sqrt(2·G·228) ≈ 490 u/s once drag is paid for.
+// Through the mapping below that is a hand crossing ~1.45 frame heights per
+// second — a real yank, but one a person can actually make, and the same
+// low G means the ball comes back down slowly enough to be met.
+// Raising G, lengthening the string or shrinking MAP_YG puts the catch out
+// of human reach entirely; the harness autopilot is what proves it is not.
+var G_ACC    =  520;   // u/s²
+var AIR      = 0.18;   // 1/s, free flight
+var SWING_DAMP = 2.8;  // 1/s, tangential only, while the string is taut
+var CATCH_V  =  400;   // fallback acceptance speed; per-trick values below
+var REL_V    =  520;   // ken speed that shakes a seated ball loose
+var HIT_V    =  110;   // relative speed that counts as a real miss, not a graze
+// When the cup is yanked out from under it, the ball is LEFT BEHIND — it
+// does not leave with the ken's velocity.  Handing it the full velocity was
+// a real bug: relative speed was then zero, the acceptance test passed on
+// the very next substep, and the ball rode the ken off the top of the
+// sheet, seated, forever.  It keeps a fraction, and catching is deaf for a
+// moment afterwards so the same frame cannot re-seat it.
+var RELEASE_KEEP = 0.30;
+var CATCH_COOL   = 0.16;   // s
+
+// hand (normalised) → ken (screen).  The slice is inset so the toy never
+// swings into the title block or off the top of the sheet.
+var MAP_X0 = 0.08, MAP_XG = 0.84;
+var MAP_Y0 = 0.07, MAP_YG = 0.54;
+
+// The difficulty curve lives here, in the acceptance tolerance, not in the
+// cup radii.  `lat` is how far off the cup's axis the ball may be, in cup
+// radii.  For 大皿 it is wide enough (1.9 × 34u = 65u) to swallow a ball
+// that comes straight back down the ken's centre line 48u away — so the
+// first trick asks only for timing.  For 小皿 it is 1.25 × 24u = 30u, well
+// short of the same 48u, so that one genuinely demands you move the cup
+// under the ball.  とめけん asks for both, plus the hole to be looking at
+// the spike.  `v` is the relative speed each will still accept.
+var TRICKS = [
+  { key:'big',   name:'大皿',   en:'BIG CUP',   score:100, time:4.5, v:470, lat:1.90, up:2.10 },
+  { key:'small', name:'小皿',   en:'SMALL CUP', score:160, time:5.5, v:410, lat:1.55, up:1.90 },
+  { key:'spike', name:'とめけん', en:'SPIKE',     score:320, time:8.0, v:310, lat:1.00, up:1.00 }
+];
+
+// ═══════════════════════════════════════════════════════════════════════
+//  STATE
+// ═══════════════════════════════════════════════════════════════════════
+var phase = 'idle';                       // idle | play | over
+var ken = { x:0, y:0, px:0, py:0, vx:0, vy:0, ang:0, hist:[] };
+var ball = { x:0, y:0, vx:0, vy:0, hole:0, holeW:0, taut:false, tension:0 };
+var seat = { on:false, kind:'', t:0, ox:0, oy:0, cool:0 };
+var locus = [];
+var fx = [];
+var toast = { text:'', t:-9 };
+var cupFlash = { big:0, small:0, spike:0 };
+var shake = 0;
+
+var score=0, shownScore=0, chain=0, best=0, catches=0, trickIx=0;
+var timeLeft=0, lastTickSec=-1, tightenRounds=0;
+var lastT = 0, started=false, overAt=0;
+
+function now(){
+  return (window.performance && window.performance.now) ? window.performance.now() : Date.now();
+}
+try { best = parseInt(window.localStorage.getItem('oto2.kendama.best')||'0', 10) || 0; } catch(e){ best = 0; }
+
+function kenAnchorX(){ return W*0.5; }
+
+function resetToy(){
+  ken.x = kenAnchorX(); ken.y = H*0.34;
+  ken.px = ken.x; ken.py = ken.y;
+  ken.vx = 0; ken.vy = 0; ken.ang = 0; ken.hist.length = 0;
+  var a = anchorPt();
+  ball.x = a.x; ball.y = a.y + L_STR*U;
+  ball.vx = 0; ball.vy = 0; ball.hole = -Math.PI/2; ball.holeW = 0;
+  ball.taut = true; ball.tension = 0;
+  seat.on = false; seat.kind = ''; seat.t = 0; seat.ox = 0; seat.oy = 0; seat.cool = 0;
+  locus.length = 0; fx.length = 0;
+}
+
+function resetGame(){
+  score=0; shownScore=0; chain=0; catches=0; trickIx=0; tightenRounds=0;
+  timeLeft=60; lastTickSec=-1; shake=0;
+  toast.text=''; toast.t=-9;
+  cupFlash.big=0; cupFlash.small=0; cupFlash.spike=0;
+  resetToy();
+  phase='play';
+}
+
+function curTrick(){ return TRICKS[trickIx % TRICKS.length]; }
+function radiusScale(){ return Math.max(0.74, 1 - tightenRounds*0.055); }
+
+// ═══════════════════════════════════════════════════════════════════════
+//  KEN-LOCAL → WORLD
+// ═══════════════════════════════════════════════════════════════════════
+function rot(lx, ly, a){
+  var c = Math.cos(a), s = Math.sin(a);
+  return { x: lx*c - ly*s, y: lx*s + ly*c };
+}
+function toWorld(lx, ly){
+  var r = rot(lx*U, ly*U, ken.ang);
+  return { x: ken.x + r.x, y: ken.y + r.y };
+}
+function kenUp(){ var r = rot(0,-1,ken.ang); return r; }
+function anchorPt(){ return toWorld(0, ANCH_Y); }
+function tipPt(){ return toWorld(0, TIP_Y); }
+function cupCentre(kind){
+  if (kind==='big')   return toWorld(-CUP_DX, CROSS_Y);
+  if (kind==='small') return toWorld( CUP_DX, CROSS_Y);
+  return tipPt();
+}
+function cupRadius(kind){
+  var s = radiusScale();
+  if (kind==='big')   return R_BIG*U*s;
+  if (kind==='small') return R_SML*U*s;
+  return BR*U*1.35*s;
+}
+function seatPoint(kind){
+  var n = kenUp();
+  if (kind==='spike'){
+    var tp = tipPt();
+    return { x: tp.x + n.x*BR*U*0.5, y: tp.y + n.y*BR*U*0.5 };
+  }
+  var c = cupCentre(kind);
+  return { x: c.x + n.x*BR*U*0.75, y: c.y + n.y*BR*U*0.75 };
+}
+// velocity of the point of the ken that is at (px,py)
+function kenPointVel(px, py){
+  var wz = ken.angW || 0;
+  var rx = px - ken.x, ry = py - ken.y;
+  return { x: ken.vx - wz*ry, y: ken.vy + wz*rx };
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  PHYSICS
+// ═══════════════════════════════════════════════════════════════════════
+function stepKen(dt){
+  var tx, ty;
+  if (Hn.live){
+    tx = (MAP_X0 + Hn.x*MAP_XG) * W;
+    ty = (MAP_Y0 + Hn.y*MAP_YG) * H;
+  } else {
+    tx = ken.x; ty = ken.y;
+  }
+  if (!isFinite(tx)) tx = W*0.5;
+  if (!isFinite(ty)) ty = H*0.34;
+
+  var k = Hn.live ? (1 - Math.exp(-24*dt)) : (1 - Math.exp(-8*dt));
+  ken.px = ken.x; ken.py = ken.y;
+  ken.x += (tx - ken.x)*k;
+  ken.y += (ty - ken.y)*k;
+  if (!isFinite(ken.x)) ken.x = W*0.5;
+  if (!isFinite(ken.y)) ken.y = H*0.34;
+
+  var pa = ken.ang;
+  var target = Hn.live ? Hn.ang : ken.ang;
+  ken.ang += (target - ken.ang)*(1 - Math.exp(-14*dt));
+  if (!isFinite(ken.ang)) ken.ang = 0;
+  ken.angW = dt>0 ? (ken.ang - pa)/dt : 0;
+  if (!isFinite(ken.angW)) ken.angW = 0;
+
+  var nvx = dt>0 ? (ken.x-ken.px)/dt : 0;
+  var nvy = dt>0 ? (ken.y-ken.py)/dt : 0;
+  if (!isFinite(nvx)) nvx = 0;
+  if (!isFinite(nvy)) nvy = 0;
+  ken.vx += (nvx - ken.vx)*0.5;
+  ken.vy += (nvy - ken.vy)*0.5;
+}
+
+function segDist(px,py, ax,ay, bx,by){
+  var dx = bx-ax, dy = by-ay;
+  var L2 = dx*dx + dy*dy;
+  var t = L2 > 1e-9 ? ((px-ax)*dx + (py-ay)*dy)/L2 : 0;
+  t = Math.max(0, Math.min(1, t));
+  var qx = ax + dx*t, qy = ay + dy*t;
+  return { d: Math.hypot(px-qx, py-qy), x:qx, y:qy };
+}
+
+function bodySegments(){
+  var s1a = toWorld(0, GRIP_Y),  s1b = toWorld(0, TIP_Y);
+  var s2a = toWorld(-CROSS_HX, CROSS_Y), s2b = toWorld(CROSS_HX, CROSS_Y);
+  return [
+    { a:s1a, b:s1b, r: 7*U },
+    { a:s2a, b:s2b, r: 11*U }
+  ];
+}
+
+// A cup does not catch a sphere within some radius — it catches a ball that
+// is OVER it and coming down.  So the acceptance zone is directional: tight
+// across the cup's mouth, generous along its axis.  Drawn on the sheet as a
+// dashed tolerance ellipse, so what the player sees is what is tested.
+var ZONE_DOWN = 0.45;
+function zoneOf(key){
+  var i;
+  for (i=0;i<TRICKS.length;i++) if (TRICKS[i].key === key) return TRICKS[i];
+  return TRICKS[0];
+}
+
+// Does `kind` accept the ball right now?  Returns the relative speed on
+// acceptance, or -1.  Geometry first, speed last, so the cheap rejections
+// happen first and the speed test reads as the skill gate it is.
+function zoneHit(kind){
+  var z  = zoneOf(kind);
+  var sp = seatPoint(kind);
+  var R  = cupRadius(kind);
+  var n  = kenUp();
+
+  if (kind !== 'spike'){
+    if (-n.y < 0.30) return -1;             // the cup is not facing up
+    var rx = ball.x-sp.x, ry = ball.y-sp.y;
+    var up  = rx*n.x + ry*n.y;              // along the cup's axis
+    var lat = rx*(-n.y) + ry*(n.x);         // across its mouth
+    if (Math.abs(lat) > R*z.lat) return -1;
+    if (up < -R*ZONE_DOWN || up > R*z.up) return -1;
+  } else {
+    var d = Math.hypot(ball.x-sp.x, ball.y-sp.y);
+    if (d > R) return -1;
+    // the ball must be on the spike's side of the tip…
+    var tp = tipPt();
+    var bx = ball.x-tp.x, by = ball.y-tp.y;
+    var bl = Math.hypot(bx,by);
+    if (bl > 1e-6 && (bx*n.x + by*n.y)/bl < 0.15) return -1;
+    // …and its hole must actually be looking at the spike
+    var hx = Math.cos(ball.hole), hy = Math.sin(ball.hole);
+    var tox = tp.x-ball.x, toy = tp.y-ball.y;
+    var tl = Math.hypot(tox,toy);
+    if (tl < 1e-6) return -1;
+    if ((hx*tox + hy*toy)/tl < 0.72) return -1;
+  }
+
+  var kv = kenPointVel(sp.x, sp.y);
+  var rel = Math.hypot(ball.vx - kv.x, ball.vy - kv.y);
+  if (rel > (z.v || CATCH_V)*U) return -1;
+  return rel/U;
+}
+
+// A real kendama does not refuse to hold a ball just because you were
+// aiming somewhere else — it holds it, and you have not done the trick.
+// Seating the wrong cup too is what stops a ball coming to rest balanced on
+// a rim forever: anything seated is shaken loose by the same upward yank.
+function tryCatch(){
+  if (phase !== 'play' || seat.on || seat.cool > 0) return false;
+  var tr = curTrick();
+  var rel = zoneHit(tr.key);
+  if (rel >= 0){ landed(tr, rel); return true; }
+
+  var kinds = ['big','small','spike'], i;
+  for (i=0;i<kinds.length;i++){
+    if (kinds[i] === tr.key) continue;
+    if (zoneHit(kinds[i]) >= 0){ seatWrong(kinds[i], tr); return true; }
+  }
+  return false;
+}
+
+function seatBall(kind){
+  var sp0 = seatPoint(kind);
+  seat.on = true; seat.kind = kind; seat.t = now();
+  // remember where it actually met the cup and decay that offset away, so
+  // the ball is seen to roll into the cup instead of teleporting into it
+  seat.ox = ball.x - sp0.x; seat.oy = ball.y - sp0.y;
+  ball.vx = 0; ball.vy = 0;
+}
+
+function seatWrong(kind, tr){
+  seatBall(kind);
+  chain = 0;
+  var nm = kind==='big' ? '大皿' : kind==='small' ? '小皿' : 'けん先';
+  toast.text = 'そこは ' + nm + '　いまは ' + tr.name;
+  toast.t = now();
+  cupFlash[kind] = 0.7;
+  wood(190, 0.34, 0.5);
+}
+
+function landed(tr, relSpeed){
+  seatBall(tr.key);
+  chain = Math.min(chain+1, 99);
+  catches++;
+  var mult = Math.min(9, chain);
+  score += tr.score * mult;
+  timeLeft = Math.min(99, timeLeft + tr.time + Math.min(8, chain)*0.25);
+  cupFlash[tr.key] = 1;
+  shake = Math.min(1, 0.55 + (tr.key==='spike'?0.45:0));
+  var sp = seatPoint(tr.key);
+  burst(sp.x, sp.y, tr.key==='spike' ? 22 : 15);
+  ring(sp.x, sp.y, cupRadius(tr.key));
+  toast.text = tr.name + ' ' + (mult>1 ? ('×'+mult+' ') : '') + '+' + tr.time.toFixed(1) + 's';
+  toast.t = now();
+
+  var base = (tr.key==='big') ? 300 : (tr.key==='small') ? 400 : 545;
+  // a softer landing rings the wood longer; a hard one is a clack
+  var soft = Math.max(0, 1 - relSpeed/(tr.v || CATCH_V));
+  wood(base, 0.55 + soft*0.35, 0.8 + soft*0.7);
+
+  trickIx++;
+  if (trickIx % TRICKS.length === 0) tightenRounds++;
+}
+
+function missed(px, py, rel){
+  if (rel < HIT_V*U) return;
+  chain = 0;
+  shake = Math.max(shake, 0.3);
+  thud(0.5);
+  burst(px, py, 7);
+  // if they were close to a cup that just is not the one being asked for
+  var tr = curTrick();
+  var other = null, i;
+  var kinds = ['big','small','spike'];
+  for (i=0;i<kinds.length;i++){
+    if (kinds[i] === tr.key) continue;
+    var sp = seatPoint(kinds[i]);
+    if (Math.hypot(px-sp.x, py-sp.y) < cupRadius(kinds[i])*1.25) other = kinds[i];
+  }
+  if (other){
+    var nm = other==='big' ? '大皿' : other==='small' ? '小皿' : 'けん先';
+    toast.text = 'そこは ' + nm + '　いまは ' + tr.name;
+  } else {
+    toast.text = '弾かれた';
+  }
+  toast.t = now();
+}
+
+function stepBall(dt){
+  var a = anchorPt();
+
+  if (seat.on){
+    var sp = seatPoint(seat.kind);
+    var decay = Math.exp(-18*dt);
+    seat.ox = (seat.ox || 0)*decay;
+    seat.oy = (seat.oy || 0)*decay;
+    ball.x = sp.x + seat.ox; ball.y = sp.y + seat.oy;
+    var n = kenUp();
+    var spd = Math.hypot(ken.vx, ken.vy);
+    var tiltOff = (-n.y < 0.15);
+    if (spd > REL_V*U || tiltOff){
+      var kv = kenPointVel(sp.x, sp.y);
+      ball.vx = kv.x*RELEASE_KEEP; ball.vy = kv.y*RELEASE_KEEP;
+      seat.on = false; seat.kind = ''; seat.cool = CATCH_COOL;
+    }
+  } else {
+    if (seat.cool > 0) seat.cool = Math.max(0, seat.cool - dt);
+    var px = ball.x, py = ball.y;
+    ball.vy += G_ACC*U*dt;
+    var damp = Math.exp(-AIR*dt);
+    ball.vx *= damp; ball.vy *= damp;
+    ball.x += ball.vx*dt;
+    ball.y += ball.vy*dt;
+
+    // inextensible string, solved as a position constraint (2 passes)
+    var Lp = L_STR*U, i;
+    ball.taut = false; ball.tension = 0;
+    for (i=0;i<2;i++){
+      var dx = ball.x-a.x, dy = ball.y-a.y;
+      var d = Math.hypot(dx,dy);
+      if (d > Lp && d > 1e-6){
+        var f = Lp/d;
+        ball.x = a.x + dx*f;
+        ball.y = a.y + dy*f;
+        ball.taut = true;
+        ball.tension = Math.max(ball.tension, (d-Lp)/Math.max(1e-6,Lp));
+      }
+    }
+    if (dt > 1e-6){
+      var nvx = (ball.x-px)/dt, nvy = (ball.y-py)/dt;
+      if (isFinite(nvx) && isFinite(nvy)){ ball.vx = nvx; ball.vy = nvy; }
+    }
+    if (!isFinite(ball.x) || !isFinite(ball.y)){
+      ball.x = a.x; ball.y = a.y + Lp; ball.vx = 0; ball.vy = 0;
+    }
+
+    // String friction, applied only to the TANGENTIAL component while the
+    // string is taut.  Without it a yank leaves the ball whipping sideways
+    // at a thousand units a second and the toy is unplayable; with it the
+    // pendulum settles in about a second, while a straight pull — which is
+    // almost entirely radial — passes through untouched.  This is the one
+    // number that decides whether the piece feels like a toy or a tantrum.
+    if (ball.taut){
+      var ax2 = ball.x-a.x, ay2 = ball.y-a.y;
+      var ad = Math.hypot(ax2, ay2);
+      if (ad > 1e-6){
+        var nx2 = ax2/ad, ny2 = ay2/ad;
+        var vr = ball.vx*nx2 + ball.vy*ny2;
+        var tvx = ball.vx - vr*nx2, tvy = ball.vy - vr*ny2;
+        var kf = Math.exp(-SWING_DAMP*dt);
+        ball.vx = vr*nx2 + tvx*kf;
+        ball.vy = vr*ny2 + tvy*kf;
+      }
+    }
+
+    if (!tryCatch()){
+      var segs = bodySegments(), k;
+      for (k=0;k<segs.length;k++){
+        var s = segs[k];
+        var q = segDist(ball.x, ball.y, s.a.x, s.a.y, s.b.x, s.b.y);
+        var minD = s.r + BR*U;
+        if (q.d < minD && q.d > 1e-6){
+          var nx = (ball.x-q.x)/q.d, ny = (ball.y-q.y)/q.d;
+          ball.x = q.x + nx*minD;
+          ball.y = q.y + ny*minD;
+          var kv2 = kenPointVel(q.x, q.y);
+          var rvx = ball.vx-kv2.x, rvy = ball.vy-kv2.y;
+          var vn = rvx*nx + rvy*ny;
+          if (vn < 0){
+            ball.vx -= (1+0.42)*vn*nx;
+            ball.vy -= (1+0.42)*vn*ny;
+            missed(q.x, q.y, Math.abs(vn));
+          }
+        }
+      }
+    }
+  }
+
+  // the hole is sprung to the string direction and lags it, so a yank
+  // sets it wobbling and only a smooth pull lines it up for the spike
+  var tx = a.x-ball.x, ty = a.y-ball.y;
+  var target = (Math.abs(tx)+Math.abs(ty) > 1e-6) ? Math.atan2(ty,tx) : ball.hole;
+  var diff = target - ball.hole;
+  while (diff >  Math.PI) diff -= Math.PI*2;
+  while (diff < -Math.PI) diff += Math.PI*2;
+  ball.holeW += diff*90*dt - ball.holeW*7.5*dt;
+  if (!isFinite(ball.holeW)) ball.holeW = 0;
+  ball.holeW = Math.max(-40, Math.min(40, ball.holeW));
+  ball.hole += ball.holeW*dt;
+  if (!isFinite(ball.hole)) ball.hole = target;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  FX
+// ═══════════════════════════════════════════════════════════════════════
+function burst(x,y,n){
+  if (!isFinite(x) || !isFinite(y)) return;
+  for (var i=0;i<n;i++){
+    var a = Math.random()*Math.PI*2, s = (60+Math.random()*260)*U;
+    fx.push({ t:'p', x:x, y:y, vx:Math.cos(a)*s, vy:Math.sin(a)*s-40*U, life:0, max:0.42+Math.random()*0.3 });
+  }
+}
+function ring(x,y,r){
+  if (!isFinite(x) || !isFinite(y)) return;
+  fx.push({ t:'r', x:x, y:y, r0:r*0.6, life:0, max:0.5 });
+}
+function stepFx(dt){
+  for (var i=fx.length-1;i>=0;i--){
+    var f = fx[i];
+    f.life += dt;
+    if (f.t==='p'){
+      f.vy += 900*U*dt;
+      f.x += f.vx*dt; f.y += f.vy*dt;
+      f.vx *= Math.exp(-2.4*dt); f.vy *= Math.exp(-2.4*dt);
+    }
+    if (f.life >= f.max) fx.splice(i,1);
+  }
+  if (shake > 0) shake = Math.max(0, shake - dt*5.5);
+  var kk;
+  for (kk in cupFlash){
+    if (cupFlash[kk] > 0) cupFlash[kk] = Math.max(0, cupFlash[kk] - dt*4.2);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  DRAWING — everything is drafted line work.
+// ═══════════════════════════════════════════════════════════════════════
+// 45° section hatching, clipped to a path.  The line family is x+y = const,
+// and it is generated only across the caller's bounding box — sweeping the
+// whole sheet to fill a 27px circle cost six hundred strokes a frame.
+function hatch(pathFn, spacing, alpha, x0, y0, x1, y1){
+  ctx.save();
+  ctx.beginPath(); pathFn(); ctx.clip();
+  ctx.globalAlpha = alpha;
+  ctx.strokeStyle = C.ink; ctx.lineWidth = Math.max(0.6, 0.9*U);
+  var step = Math.max(2, spacing*U);
+  var cmin = x0+y0, cmax = x1+y1, c;
+  ctx.beginPath();
+  for (c = Math.floor(cmin/step)*step; c <= cmax; c += step){
+    ctx.moveTo(c-y0, y0); ctx.lineTo(c-y1, y1);
+  }
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawGhost(){
+  if (!camOK || !video || !video.videoWidth) return;
+  ctx.save();
+  ctx.globalAlpha = 0.09;
+  ctx.globalCompositeOperation = 'multiply';
+  try { ctx.filter = 'grayscale(1) contrast(1.35)'; } catch(e){}
+  var vw = video.videoWidth, vh = video.videoHeight;
+  var s = Math.max(W/vw, H/vh);
+  var dw = vw*s, dh = vh*s;
+  if (mirror){ ctx.translate(W,0); ctx.scale(-1,1); }
+  try { ctx.drawImage(video, (W-dw)/2, (H-dh)/2, dw, dh); } catch(e){}
+  try { ctx.filter = 'none'; } catch(e){}
+  ctx.restore();
+}
+
+var HAND_BONES = [[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],
+                  [9,13],[13,14],[14,15],[15,16],[13,17],[17,18],[18,19],[19,20],[0,17]];
+function drawHand(){
+  var c = Hn.lm;
+  if (!c || c.length < 21) return;
+  ctx.save();
+  ctx.globalAlpha = 0.55;
+  ctx.strokeStyle = C.pencil; ctx.lineWidth = Math.max(1, 1.2*U);
+  ctx.beginPath();
+  for (var i=0;i<HAND_BONES.length;i++){
+    var a = c[HAND_BONES[i][0]], b = c[HAND_BONES[i][1]];
+    if (!a || !b) continue;
+    var ax = (mirror?1-a.x:a.x), ay = a.y, bx = (mirror?1-b.x:b.x), by = b.y;
+    if (!isFinite(ax)||!isFinite(ay)||!isFinite(bx)||!isFinite(by)) continue;
+    ctx.moveTo(ax*W, ay*H); ctx.lineTo(bx*W, by*H);
+  }
+  ctx.stroke();
+  ctx.fillStyle = C.pencil;
+  for (var j=0;j<21;j++){
+    var p = c[j];
+    if (!p) continue;
+    var px = (mirror?1-p.x:p.x)*W, py = p.y*H;
+    if (!isFinite(px)||!isFinite(py)) continue;
+    ctx.beginPath(); ctx.arc(px, py, 1.9*U, 0, Math.PI*2); ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawLocus(){
+  if (locus.length < 2) return;
+  ctx.save();
+  ctx.fillStyle = C.pencil;
+  for (var i=0;i<locus.length;i++){
+    var p = locus[i];
+    var a = 1 - i/locus.length;
+    ctx.globalAlpha = a*0.55;
+    ctx.beginPath(); ctx.arc(p.x, p.y, 1.5*U, 0, Math.PI*2); ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawString(){
+  var a = anchorPt();
+  var dx = ball.x-a.x, dy = ball.y-a.y;
+  var d = Math.hypot(dx,dy);
+  var Lp = L_STR*U;
+  ctx.save();
+  ctx.strokeStyle = C.ink; ctx.lineWidth = Math.max(0.8, 1.1*U);
+  ctx.globalAlpha = 0.8;
+  ctx.beginPath();
+  ctx.moveTo(a.x, a.y);
+  if (d >= Lp*0.985 || d < 1e-6){
+    ctx.lineTo(ball.x, ball.y);
+  } else {
+    // slack: hang the surplus length as a sag on the mid-point
+    var slack = (Lp-d)/Lp;
+    var mx = (a.x+ball.x)/2, my = (a.y+ball.y)/2;
+    ctx.quadraticCurveTo(mx, my + slack*Lp*0.9, ball.x, ball.y);
+  }
+  ctx.stroke();
+  ctx.restore();
+}
+
+function arrow(x1,y1,x2,y2,col){
+  var a = Math.atan2(y2-y1, x2-x1);
+  var hs = 5.5*U;
+  ctx.strokeStyle = col; ctx.fillStyle = col;
+  ctx.lineWidth = Math.max(0.8, 1.1*U);
+  ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(x2,y2);
+  ctx.lineTo(x2-Math.cos(a-0.4)*hs, y2-Math.sin(a-0.4)*hs);
+  ctx.lineTo(x2-Math.cos(a+0.4)*hs, y2-Math.sin(a+0.4)*hs);
+  ctx.closePath(); ctx.fill();
+}
+
+function drawTension(){
+  if (!ball.taut || seat.on) return;
+  var a = anchorPt();
+  var dx = a.x-ball.x, dy = a.y-ball.y;
+  var d = Math.hypot(dx,dy);
+  if (d < 1e-6) return;
+  var mag = Math.min(1, ball.tension*26 + Math.hypot(ball.vx,ball.vy)/(1400*U));
+  if (mag < 0.16) return;
+  var len = (18 + mag*52)*U;
+  var ux = dx/d, uy = dy/d;
+  ctx.save();
+  ctx.globalAlpha = 0.42 + mag*0.4;
+  arrow(ball.x+ux*BR*U*1.05, ball.y+uy*BR*U*1.05,
+        ball.x+ux*(BR*U*1.05+len), ball.y+uy*(BR*U*1.05+len), C.ink);
+  ctx.globalAlpha = 0.55;
+  ctx.fillStyle = C.ink;
+  ctx.font = (9.5*U|0)+'px "Share Tech Mono", monospace';
+  ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+  ctx.fillText('T', ball.x+ux*(BR*U*1.05+len)+4*U, ball.y+uy*(BR*U*1.05+len));
+  ctx.restore();
+}
+
+function cupPath(cx, cy, r, n){
+  // an open cup: a shallow arc whose opening faces n
+  var a0 = Math.atan2(n.y, n.x);
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, a0+0.36, a0+Math.PI*2-0.36, false);
+}
+
+function drawKen(){
+  var tr = (phase==='play') ? curTrick() : null;
+  var n = kenUp();
+  var s1a = toWorld(0, GRIP_Y),  s1b = toWorld(0, TIP_Y);
+  var s2a = toWorld(-CROSS_HX, CROSS_Y), s2b = toWorld(CROSS_HX, CROSS_Y);
+  var tp  = tipPt();
+
+  ctx.save();
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+
+  // shaft
+  ctx.strokeStyle = C.paper; ctx.lineWidth = 14*U;
+  ctx.beginPath(); ctx.moveTo(s1a.x,s1a.y); ctx.lineTo(s1b.x,s1b.y); ctx.stroke();
+  ctx.strokeStyle = C.ink; ctx.lineWidth = Math.max(1.2, 1.7*U);
+  ctx.beginPath(); ctx.moveTo(s1a.x,s1a.y); ctx.lineTo(s1b.x,s1b.y); ctx.stroke();
+
+  // cross-piece
+  ctx.strokeStyle = C.paper; ctx.lineWidth = 20*U;
+  ctx.beginPath(); ctx.moveTo(s2a.x,s2a.y); ctx.lineTo(s2b.x,s2b.y); ctx.stroke();
+  ctx.strokeStyle = C.ink; ctx.lineWidth = Math.max(1.2, 1.7*U);
+  ctx.beginPath(); ctx.moveTo(s2a.x,s2a.y); ctx.lineTo(s2b.x,s2b.y); ctx.stroke();
+
+  // grip knurl
+  ctx.globalAlpha = 0.75;
+  for (var i=0;i<4;i++){
+    var p1 = toWorld(-7, GRIP_Y-4-i*7), p2 = toWorld(7, GRIP_Y-4-i*7);
+    ctx.strokeStyle = C.ink; ctx.lineWidth = Math.max(0.6,0.9*U);
+    ctx.beginPath(); ctx.moveTo(p1.x,p1.y); ctx.lineTo(p2.x,p2.y); ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+
+  // cups
+  var kinds = ['big','small'];
+  for (var k=0;k<kinds.length;k++){
+    var kind = kinds[k];
+    var c = cupCentre(kind);
+    var r = (kind==='big'?R_BIG:R_SML)*U;
+    var isT = tr && tr.key===kind;
+    var fl = cupFlash[kind];
+    ctx.save();
+    ctx.strokeStyle = C.paper; ctx.lineWidth = 8*U;
+    cupPath(c.x, c.y, r, {x:-n.x,y:-n.y}); ctx.stroke();
+    ctx.strokeStyle = isT ? C.shu : C.ink;
+    ctx.lineWidth = Math.max(1.4, (isT?2.4:1.7)*U*(1+fl*0.6));
+    cupPath(c.x, c.y, r, {x:-n.x,y:-n.y}); ctx.stroke();
+    if (isT){
+      // the acceptance zone itself, drawn as a dashed tolerance ellipse
+      ctx.globalAlpha = 0.28 + fl*0.5;
+      ctx.setLineDash([4*U, 4*U]);
+      ctx.strokeStyle = C.shu; ctx.lineWidth = Math.max(0.8,1*U);
+      var sp = seatPoint(kind);
+      var RR = cupRadius(kind);
+      var z  = zoneOf(kind);
+      var mid = (z.up - ZONE_DOWN)*0.5;
+      var cxz = sp.x + n.x*RR*mid, cyz = sp.y + n.y*RR*mid;
+      ctx.beginPath();
+      if (ctx.ellipse){
+        ctx.ellipse(cxz, cyz, RR*z.lat, RR*(z.up+ZONE_DOWN)*0.5,
+                    ken.ang, 0, Math.PI*2);
+      } else {
+        ctx.arc(sp.x, sp.y, RR*z.lat, 0, Math.PI*2);
+      }
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+    ctx.restore();
+  }
+
+  // spike
+  var spikeT = tr && tr.key==='spike';
+  var base = toWorld(0, TIP_Y+26);
+  ctx.strokeStyle = spikeT ? C.shu : C.ink;
+  ctx.lineWidth = Math.max(1.4, (spikeT?2.4:1.7)*U*(1+cupFlash.spike*0.6));
+  ctx.beginPath();
+  var l1 = toWorld(-6, TIP_Y+26), l2 = toWorld(6, TIP_Y+26);
+  ctx.moveTo(l1.x,l1.y); ctx.lineTo(tp.x,tp.y); ctx.lineTo(l2.x,l2.y);
+  ctx.stroke();
+  if (spikeT){
+    ctx.globalAlpha = 0.30 + cupFlash.spike*0.5;
+    ctx.setLineDash([4*U,4*U]);
+    ctx.strokeStyle = C.shu; ctx.lineWidth = Math.max(0.8,1*U);
+    var sp2 = seatPoint('spike');
+    ctx.beginPath(); ctx.arc(sp2.x, sp2.y, cupRadius('spike'), 0, Math.PI*2); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.globalAlpha = 1;
+  }
+
+  // centre line of the ken, a drafting axis
+  ctx.globalAlpha = 0.3;
+  ctx.setLineDash([9*U, 4*U, 2*U, 4*U]);
+  ctx.strokeStyle = C.omokei; ctx.lineWidth = 1;
+  var e1 = toWorld(0, GRIP_Y+28), e2 = toWorld(0, TIP_Y-22);
+  ctx.beginPath(); ctx.moveTo(e1.x,e1.y); ctx.lineTo(e2.x,e2.y); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.globalAlpha = 1;
+  ctx.restore();
+}
+
+function drawBall(){
+  var r = BR*U;
+  ctx.save();
+  ctx.fillStyle = C.paper;
+  ctx.beginPath(); ctx.arc(ball.x, ball.y, r, 0, Math.PI*2); ctx.fill();
+  hatch(function(){ ctx.arc(ball.x, ball.y, r, 0, Math.PI*2); }, 6, 0.22,
+        ball.x-r, ball.y-r, ball.x+r, ball.y+r);
+  ctx.strokeStyle = C.shu; ctx.lineWidth = Math.max(1.4, 2*U);
+  ctx.beginPath(); ctx.arc(ball.x, ball.y, r, 0, Math.PI*2); ctx.stroke();
+  // the hole
+  var hx = Math.cos(ball.hole), hy = Math.sin(ball.hole);
+  var ox = ball.x + hx*r*0.72, oy = ball.y + hy*r*0.72;
+  ctx.save();
+  ctx.translate(ox, oy);
+  ctx.rotate(ball.hole + Math.PI/2);
+  ctx.fillStyle = C.shu;
+  ctx.beginPath();
+  ctx.ellipse ? ctx.ellipse(0,0, r*0.34, r*0.15, 0, 0, Math.PI*2)
+              : ctx.arc(0,0, r*0.22, 0, Math.PI*2);
+  ctx.fill();
+  ctx.restore();
+  ctx.restore();
+}
+
+function drawFx(){
+  ctx.save();
+  for (var i=0;i<fx.length;i++){
+    var f = fx[i];
+    var k = 1 - f.life/f.max;
+    if (f.t==='p'){
+      ctx.globalAlpha = k*0.85;
+      ctx.fillStyle = C.shu;
+      var s = 2.4*U*k + 0.6*U;
+      ctx.fillRect(f.x-s/2, f.y-s/2, s, s);
+    } else {
+      var e = 1-Math.pow(k, 2);
+      ctx.globalAlpha = k*0.8;
+      ctx.strokeStyle = C.shu; ctx.lineWidth = Math.max(1, 1.6*U*k);
+      ctx.beginPath(); ctx.arc(f.x, f.y, f.r0 + e*70*U, 0, Math.PI*2); ctx.stroke();
+      // tick marks, like a compass sweep
+      ctx.globalAlpha = k*0.5;
+      var R = f.r0 + e*70*U;
+      for (var a=0;a<8;a++){
+        var ang = a*Math.PI/4;
+        ctx.beginPath();
+        ctx.moveTo(f.x+Math.cos(ang)*R, f.y+Math.sin(ang)*R);
+        ctx.lineTo(f.x+Math.cos(ang)*(R+6*U), f.y+Math.sin(ang)*(R+6*U));
+        ctx.stroke();
+      }
+    }
+  }
+  ctx.restore();
+}
+
+function rr(x,y,w,h){
+  ctx.beginPath();
+  ctx.moveTo(x,y); ctx.lineTo(x+w,y); ctx.lineTo(x+w,y+h); ctx.lineTo(x,y+h); ctx.closePath();
+}
+
+function drawTitleBlock(){
+  var narrow = W < 620;
+  var bw = narrow ? Math.min(W-24, 460) : 268*Math.max(1, U*0.9);
+  bw = Math.max(230, Math.min(bw, W-24));
+  var rowH = 21*Math.max(1, U*0.86);
+  var rows = narrow ? 3 : 5;
+  var bh = rowH*(rows+1);
+  var bx = narrow ? (W-bw)/2 : W - bw - 16;
+  var by = H - bh - Math.max(14, 16*U);
+
+  ctx.save();
+  ctx.fillStyle = 'rgba(238,243,248,0.93)';
+  rr(bx, by, bw, bh); ctx.fill();
+  ctx.strokeStyle = C.ink; ctx.lineWidth = Math.max(1.2, 1.6*U);
+  rr(bx, by, bw, bh); ctx.stroke();
+
+  ctx.strokeStyle = C.omokei; ctx.lineWidth = 1;
+  var i;
+  for (i=1;i<=rows;i++){
+    var y = by + rowH*i + 0.5;
+    ctx.beginPath(); ctx.moveTo(bx, y); ctx.lineTo(bx+bw, y); ctx.stroke();
+  }
+
+  var fsL = Math.max(9, 10*Math.max(1,U*0.85));
+  var fsV = Math.max(11, 13*Math.max(1,U*0.85));
+  var padL = 9, padR = 9;
+
+  ctx.textBaseline = 'middle';
+  // header row
+  ctx.fillStyle = C.ink;
+  ctx.font = '400 ' + (fsV*1.05|0) + 'px "Share Tech Mono", monospace';
+  ctx.textAlign = 'left';
+  ctx.fillText('KENDAMA', bx+padL, by+rowH*0.5);
+  ctx.font = '700 ' + (fsL|0) + 'px "Zen Kaku Gothic New", sans-serif';
+  ctx.textAlign = 'right';
+  ctx.fillStyle = C.pencil;
+  ctx.fillText('けん玉', bx+bw-padR, by+rowH*0.5);
+
+  var tr = curTrick();
+  var lines;
+  if (narrow){
+    lines = [
+      ['課題 TASK', tr.name, C.shu],
+      ['得点 SCORE', pad(shownScore|0, 6) + '   ×' + Math.min(9,Math.max(1,chain)), C.ink],
+      ['残時間 TIME', timeLeft.toFixed(1) + ' s', timeLeft<=8?C.shu:C.ink]
+    ];
+  } else {
+    lines = [
+      ['課題 TASK', tr.name + '  /  ' + tr.en, C.shu],
+      ['得点 SCORE', pad(shownScore|0, 6), C.ink],
+      ['連鎖 CHAIN', '×' + Math.min(9, Math.max(1,chain)), C.ink],
+      ['残時間 TIME', timeLeft.toFixed(1) + ' s', timeLeft<=8?C.shu:C.ink],
+      ['最高 BEST', pad(Math.max(best,score)|0, 6), C.pencil]
+    ];
+  }
+  for (i=0;i<lines.length;i++){
+    var cy = by + rowH*(i+1) + rowH*0.5;
+    ctx.font = '500 ' + (fsL|0) + 'px "Zen Kaku Gothic New", sans-serif';
+    ctx.fillStyle = C.pencil; ctx.textAlign = 'left';
+    ctx.fillText(lines[i][0], bx+padL, cy);
+    ctx.font = '400 ' + (fsV|0) + 'px "Share Tech Mono", monospace';
+    ctx.fillStyle = lines[i][2]; ctx.textAlign = 'right';
+    ctx.fillText(lines[i][1], bx+bw-padR, cy);
+  }
+  ctx.restore();
+}
+
+function pad(n, w){
+  var s = String(Math.max(0, n|0));
+  while (s.length < w) s = '0'+s;
+  return s;
+}
+
+function drawHeader(){
+  var m = Math.max(8, 10*U) + 12;
+  ctx.save();
+  ctx.fillStyle = C.pencil;
+  ctx.font = '400 ' + Math.max(9, 10*U|0) + 'px "Share Tech Mono", monospace';
+  ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+  ctx.fillText('OTO-II / 032   KENDAMA   SCALE 1:1', m, m);
+  ctx.restore();
+
+  if (phase !== 'play') return;
+  var tr = curTrick();
+  var t = now();
+  ctx.save();
+  ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+  var cy = m + 26*Math.max(1,U*0.9);
+  ctx.fillStyle = C.ink;
+  ctx.font = '700 ' + Math.max(22, 30*U|0) + 'px "Zen Kaku Gothic New", sans-serif';
+  ctx.fillText(tr.name, W/2, cy);
+  var tw = ctx.measureText(tr.name).width;
+  ctx.strokeStyle = C.shu; ctx.lineWidth = Math.max(2, 3*U);
+  var uy = cy + Math.max(26, 34*U);
+  ctx.beginPath(); ctx.moveTo(W/2-tw/2, uy); ctx.lineTo(W/2+tw/2, uy); ctx.stroke();
+
+  var age = (t - toast.t)/1000;
+  if (toast.text && age < 1.5){
+    var a = age < 1.1 ? 1 : (1.5-age)/0.4;
+    ctx.globalAlpha = Math.max(0, Math.min(1, a));
+    ctx.fillStyle = C.shu;
+    ctx.font = '500 ' + Math.max(12, 14*U|0) + 'px "Zen Kaku Gothic New", sans-serif';
+    ctx.fillText(toast.text, W/2, uy + 10*Math.max(1,U));
+  }
+  ctx.restore();
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  START-OVERLAY DIAGRAM.  Three seconds, on a loop: pull up fast, let it
+//  arc, then dip to meet it.  This is the whole game and it is easier to
+//  watch once than to read three times.
+// ═══════════════════════════════════════════════════════════════════════
+var demoT = 0;
+function drawDemo(dt){
+  if (!demoCtx) return;
+  demoT = (demoT + dt) % 3.0;
+  var d = demoCtx, w = demoCv.width, h = demoCv.height;
+  d.setTransform(1,0,0,1,0,0);
+  d.fillStyle = '#f6f9fc'; d.fillRect(0,0,w,h);
+  d.strokeStyle = C.kei; d.lineWidth = 1;
+  d.beginPath();
+  for (var g=0; g<w; g+=22){ d.moveTo(g+0.5,0); d.lineTo(g+0.5,h); }
+  for (var g2=0; g2<h; g2+=22){ d.moveTo(0,g2+0.5); d.lineTo(w,g2+0.5); }
+  d.stroke();
+
+  var p = demoT/3.0;
+  // ken height over the loop: rise fast, hang, dip to meet, hold
+  var ky;
+  if (p < 0.22)      ky = 250 - 150*ease(p/0.22);
+  else if (p < 0.46) ky = 100;
+  else if (p < 0.62) ky = 100 + 110*ease((p-0.46)/0.16);
+  else               ky = 210;
+  var kx = w*0.5;
+
+  // ball: hangs, gets whipped up, arcs, lands
+  var bx, by;
+  var Ld = 120;
+  if (p < 0.22){ var q = p/0.22; bx = kx - 60*(1-q); by = ky + Ld - 40*q; }
+  else if (p < 0.62){
+    var q2 = (p-0.22)/0.40;
+    var ang = Math.PI*0.9*q2 - Math.PI*0.5;
+    bx = kx - 60*Math.cos(ang*1.0)*(1-q2*0.6);
+    by = ky + Ld*Math.cos(q2*Math.PI*0.92);
+    if (p > 0.52){ var q3=(p-0.52)/0.10; by = by*(1-q3) + (ky-34)*q3; bx = bx*(1-q3)+ (kx-58)*q3; }
+  } else { bx = kx-58; by = ky-34; }
+
+  // ken glyph
+  d.strokeStyle = C.ink; d.lineWidth = 5; d.lineCap='round';
+  d.beginPath(); d.moveTo(kx, ky+40); d.lineTo(kx, ky-72); d.stroke();
+  d.beginPath(); d.moveTo(kx-76, ky-16); d.lineTo(kx+76, ky-16); d.stroke();
+  d.lineWidth = 4;
+  d.strokeStyle = (p>0.52 && p<0.90) ? C.shu : C.ink;
+  d.beginPath(); d.arc(kx-58, ky-16, 30, Math.PI*1.11, Math.PI*1.89, true); d.stroke();
+  d.strokeStyle = C.ink;
+  d.beginPath(); d.arc(kx+58, ky-16, 22, Math.PI*1.11, Math.PI*1.89, true); d.stroke();
+
+  // string + ball
+  d.strokeStyle = C.ink; d.lineWidth = 2; d.globalAlpha = 0.7;
+  d.beginPath(); d.moveTo(kx, ky-20); d.lineTo(bx, by); d.stroke();
+  d.globalAlpha = 1;
+  d.fillStyle = '#f6f9fc'; d.strokeStyle = C.shu; d.lineWidth = 4;
+  d.beginPath(); d.arc(bx, by, 22, 0, Math.PI*2); d.fill(); d.stroke();
+
+  // motion annotation
+  d.strokeStyle = C.pencil; d.fillStyle = C.pencil; d.lineWidth = 2;
+  d.font = '18px "Share Tech Mono", monospace';
+  if (p < 0.30){
+    demoArrow(d, kx+108, ky+60, kx+108, ky-30);
+    d.fillText('UP', kx+120, ky+16);
+  } else if (p >= 0.46 && p < 0.66){
+    demoArrow(d, kx+108, ky-70, kx+108, ky+30);
+    d.fillText('DIP', kx+120, ky-20);
+  }
+  if (p > 0.60 && p < 0.86){
+    d.strokeStyle = C.shu; d.globalAlpha = (0.86-p)/0.26;
+    d.lineWidth = 3;
+    d.beginPath(); d.arc(kx-58, ky-30, 34 + (p-0.60)*180, 0, Math.PI*2); d.stroke();
+    d.globalAlpha = 1;
+  }
+}
+function demoArrow(d, x1,y1,x2,y2){
+  var a = Math.atan2(y2-y1, x2-x1);
+  d.beginPath(); d.moveTo(x1,y1); d.lineTo(x2,y2); d.stroke();
+  d.beginPath();
+  d.moveTo(x2,y2);
+  d.lineTo(x2-Math.cos(a-0.4)*12, y2-Math.sin(a-0.4)*12);
+  d.lineTo(x2-Math.cos(a+0.4)*12, y2-Math.sin(a+0.4)*12);
+  d.closePath(); d.fill();
+}
+function ease(t){ t = Math.max(0,Math.min(1,t)); return 1-Math.pow(1-t,3); }
+
+// ═══════════════════════════════════════════════════════════════════════
+//  GAME OVER — guarded so it can only ever run once per round.
+// ═══════════════════════════════════════════════════════════════════════
+function gameOver(){
+  if (phase !== 'play') return;
+  phase = 'over';
+  overAt = now();
+  setSwish(0);
+  if (score > best){
+    best = score;
+    try { window.localStorage.setItem('oto2.kendama.best', String(best)); } catch(e){}
+  }
+  rScore.textContent = String(score);
+  rTricks.textContent = pad(catches,2) + ' CATCH';
+  rNote.textContent = (catches===0)
+    ? '一度も乗らなかった。速く上げて、落ちる速さに合わせて添える。'
+    : ('最高記録 ' + best + '　／　最長連鎖 ' + Math.max(1,bestChain) + ' 連');
+  overSheet.classList.remove('hide');
+  thud(0.7);
+}
+var bestChain = 0;
+
+// ═══════════════════════════════════════════════════════════════════════
+//  LOOP
+// ═══════════════════════════════════════════════════════════════════════
+var locusT = 0;
+function frame(){
+  var t = now();
+  var dt = (t - lastT)/1000;
+  if (!isFinite(dt) || dt < 0) dt = 0;
+  dt = Math.min(dt, 0.05);
+  lastT = t;
+
+  if (phase === 'idle') drawDemo(dt);
+
+  // ── simulate ────────────────────────────────────────────────────────
+  if (phase === 'play' || phase === 'over'){
+    var sub = 3, i;
+    for (i=0;i<sub;i++){
+      stepKen(dt/sub);
+      stepBall(dt/sub);
+    }
+    if (chain > bestChain) bestChain = chain;
+
+    locusT += dt;
+    if (locusT > 0.028){
+      locusT = 0;
+      locus.unshift({ x:ball.x, y:ball.y });
+      if (locus.length > 90) locus.pop();
+    }
+
+    var bs = Math.hypot(ball.vx, ball.vy)/(1500*U);
+    setSwish(seat.on ? 0 : Math.min(1, bs*bs));
+
+    if (phase === 'play'){
+      timeLeft -= dt;
+      var sec = Math.ceil(timeLeft);
+      if (timeLeft <= 5.5 && sec !== lastTickSec && sec >= 0){
+        lastTickSec = sec; tick(sec<=3);
+      }
+      if (timeLeft <= 0){ timeLeft = 0; gameOver(); }
+    }
+    if (shownScore !== score){
+      var step = Math.max(1, Math.ceil((score-shownScore)/6));
+      shownScore = Math.min(score, shownScore + step);
+    }
+  }
+  stepFx(dt);
+
+  // ── draw ────────────────────────────────────────────────────────────
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  if (paperCv) ctx.drawImage(paperCv, 0, 0, W, H);
+  else { ctx.fillStyle = C.paper; ctx.fillRect(0,0,W,H); }
+
+  drawGhost();
+
+  ctx.save();
+  if (shake > 0){
+    var s = shake*shake*7*U;
+    ctx.translate((Math.random()-0.5)*s, (Math.random()-0.5)*s);
+  }
+  drawHand();
+  if (phase !== 'idle'){
+    drawLocus();
+    drawString();
+    drawKen();
+    drawBall();
+    drawTension();
+    drawFx();
+  }
+  ctx.restore();
+
+  drawHeader();
+  if (phase !== 'idle') drawTitleBlock();
+
+  if (phase !== 'play' || Hn.live || !camOK){ /* nothing */ }
+  else {
+    ctx.save();
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillStyle = C.shu;
+    ctx.font = '500 ' + Math.max(12,14*U|0) + 'px "Zen Kaku Gothic New", sans-serif';
+    ctx.fillText('手が見えていません', W/2, H*0.74);
+    ctx.restore();
+  }
+
+  requestAnimationFrame(frame);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  BOOT
+// ═══════════════════════════════════════════════════════════════════════
+window.addEventListener('resize', resize);
+if (window.visualViewport && window.visualViewport.addEventListener){
+  window.visualViewport.addEventListener('resize', resize);
+}
+resize();
+resetToy();
+lastT = now();
+requestAnimationFrame(frame);
+
+function begin(){
+  initAudio(); resumeAudio();
+  startSheet.classList.add('hide');
+  overSheet.classList.add('hide');
+  resetGame();
+  if (!started){
+    started = true;
+    if (initHands()){
+      startStream().then(startMpCamera).catch(showError);
+    } else {
+      startStream().catch(showError);
+    }
+  } else {
+    resumeAudio();
+  }
+}
+startBtn.addEventListener('click', begin);
+retryBtn.addEventListener('click', function(){
+  if (now() - overAt < 300) return;
+  resumeAudio();
+  overSheet.classList.add('hide');
+  bestChain = 0;
+  resetGame();
+});
+
+// exposed only so the offline harness can assert on the real state
+window.__KENDAMA__ = {
+  s:function(){ return { phase:phase, score:score, chain:chain, catches:catches,
+                         time:timeLeft, ball:ball, ken:ken, seat:seat, trick:curTrick().key }; },
+  force:function(o){ if (o && typeof o.time==='number') timeLeft = o.time; },
+  seatOf:function(k){ return seatPoint(k); },
+  inv:function(px,py){ return { x:(px/W - MAP_X0)/MAP_XG, y:(py/H - MAP_Y0)/MAP_YG }; },
+  place:function(o){
+    if (!o) return;
+    seat.on = false; seat.kind = ''; seat.cool = 0;
+    if (typeof o.x === 'number') ball.x = o.x;
+    if (typeof o.y === 'number') ball.y = o.y;
+    ball.vx = o.vx || 0; ball.vy = o.vy || 0;
+    if (typeof o.hole === 'number'){ ball.hole = o.hole; ball.holeW = 0; }
+  },
+  probe:function(kind){ return zoneHit(kind); },
+  dims:function(){ return { W:W, H:H, U:U, L:L_STR*U, G:G_ACC*U,
+                            catchV:CATCH_V*U, relV:REL_V*U }; }
+};
+
+})();
+</script>
+</body>
+</html>
