@@ -1,0 +1,910 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>MASUME ─ 升目の線描</title>
+<meta name="description" content="カメラに映った人だけが升目に分解され、一マスずつ違う描線で塗られていく。横線・網目・走り書き・点描・蜘蛛の巣。どのマスがどの線かは位置で決まっていて一生変わらないので、明暗だけが呼吸して絵は崩れない。背景は白紙のまま。">
+<meta name="theme-color" content="#f7f4ec">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Klee+One:wght@400;600&family=Courier+Prime:wght@400;700&display=swap" rel="stylesheet">
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  MASUME ─ 升目の線描                           ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  PALETTE   紙 kami    #f7f4ec  the sheet, and almost the entire screen
+            墨 sumi    #16130f  the ink — the only mark-making colour there is
+            鉛 namari  #9a958a  the printed guide grid and every quiet label
+            朱 shu     #b4462f  ONE accent, and only ever on a UI value
+            MOOD: a sketchbook page under a desk lamp. Two colours do all the
+            work, which is the point — this is a pen exercise, not a picture.
+            High-key by request: the subject is cut out and the ground stays
+            blank paper, so the face reads instead of dissolving into texture.
+  BACKGROUND  Real paper: a laid fibre grain built from a few thousand short
+            strokes at very low contrast, plus the faint blue-grey printed
+            grid of a drawing pad — a quiet promise of the 升目 before any
+            ink lands on it. Drawn once into an offscreen canvas at resize.
+  TYPE      Klee One for the Japanese: a face drawn with a pen rather than
+            cut with a chisel, which is what a practice sheet is written in.
+            Courier Prime for the Latin and the numbers, so the readouts look
+            typed onto an art-supply label. Neither is used elsewhere here.
+  MOTION    Paper. Nothing slides and nothing eases across the screen; things
+            arrive by inking in and leave by fading out, always 400ms. The
+            only thing that moves is the drawing, and it moves because you do.
+  SIGNATURE Every square keeps its own handwriting for life. Which of the
+            twelve marks a cell uses is a hash of WHERE IT IS, not a per-frame
+            choice — so the mosaic of textures is fixed and only the tone
+            breathes. That single decision is what makes a face appear at all:
+            re-rolling the pattern each frame gives a boiling mess with no
+            features in it. On top of that the tile atlas quietly re-inks
+            itself one tile at a time, so the whole sheet is always being
+            redrawn by hand without any of it ever flickering.
+  ── performance ───────────────────────────────────────────────────────────
+  The marks are NOT drawn per cell per frame — that is thousands of strokes
+  a frame and it will not hold 30fps. Twelve patterns x six tones are
+  pre-rendered once into a single atlas at roughly one screen pixel per
+  texel, and a frame is then one drawImage per inked cell. Tone comes from
+  a cols x rows downsample the browser box-filters for us, so per-cell
+  averaging costs nothing, and levels are quantized through a 0.62 deadband
+  so a cell sitting between two tones cannot buzz between them.
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<style>
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;padding:0;height:100%;overflow:hidden;background:#f7f4ec}
+  body{
+    font-family:'Klee One','Hiragino Mincho ProN',serif;
+    color:#16130f;-webkit-user-select:none;user-select:none;touch-action:none;
+  }
+  #view{position:fixed;inset:0;width:100%;height:100%;display:block}
+  #video{position:fixed;width:2px;height:2px;opacity:0;pointer-events:none;left:-10px;top:-10px}
+
+  .hud{position:fixed;inset:0;pointer-events:none;display:flex;flex-direction:column;
+       padding:calc(13px + env(safe-area-inset-top)) 15px 15px}
+  .row{display:flex;align-items:flex-start;gap:12px}
+  .plate{background:rgba(247,244,236,.80);border:1px solid rgba(154,149,138,.42);
+         padding:7px 11px 8px}
+  .ttl{font-size:14px;font-weight:600;letter-spacing:.22em;line-height:1.5}
+  .sub{font-family:'Courier Prime',monospace;font-size:9.5px;letter-spacing:.2em;
+       color:#9a958a;margin-top:2px}
+  .read{font-family:'Courier Prime',monospace;font-size:10px;letter-spacing:.14em;
+        color:#9a958a;margin-top:7px;line-height:1.7}
+  .read b{color:#b4462f;font-weight:700}
+  .sp{flex:1}
+  .btns{display:flex;flex-direction:column;gap:6px;align-items:flex-end;pointer-events:auto}
+  button.tb{
+    font-family:'Klee One',serif;font-size:12px;color:#16130f;
+    background:rgba(247,244,236,.88);border:1px solid rgba(154,149,138,.5);
+    padding:6px 10px;cursor:pointer;letter-spacing:.14em;
+    transition:background .4s ease,border-color .4s ease;
+  }
+  button.tb:active{background:rgba(180,70,47,.16)}
+  button.tb .val{color:#b4462f;margin-left:6px;font-weight:600}
+  .foot{margin-top:auto;display:flex;justify-content:center}
+  .tip{font-size:12px;letter-spacing:.16em;color:#6d685e;
+       background:rgba(247,244,236,.82);padding:4px 13px;transition:opacity .4s ease}
+  .tip.dim{opacity:0}
+  .warn{color:#b4462f}
+
+  .sheet{
+    position:fixed;inset:0;z-index:20;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;gap:15px;padding:24px;
+    background:#f7f4ec;transition:opacity .4s ease,visibility .4s;
+  }
+  .sheet.off{opacity:0;visibility:hidden;pointer-events:none}
+  .sheet h1{margin:0;font-family:'Courier Prime',monospace;font-weight:700;
+            font-size:clamp(28px,8.5vw,44px);letter-spacing:.3em;text-indent:.3em}
+  .sheet .jp{margin:-2px 0 0;font-size:13px;letter-spacing:.5em;color:#9a958a;text-indent:.5em}
+  .rule{width:min(280px,68vw);height:1px;background:rgba(154,149,138,.5)}
+  #demo{width:min(300px,80vw);height:auto;aspect-ratio:300/180;display:block;
+        border:1px solid rgba(154,149,138,.42)}
+  .sheet p{margin:0;font-size:13px;line-height:2;text-align:center;color:#6d685e;
+           max-width:min(350px,88vw);letter-spacing:.04em}
+  .sheet p b{color:#16130f;font-weight:600}
+  .go{
+    font-family:'Klee One',serif;font-weight:600;font-size:15px;letter-spacing:.44em;
+    text-indent:.44em;color:#f7f4ec;background:#16130f;border:0;
+    padding:13px 38px;cursor:pointer;margin-top:2px;
+    transition:transform .4s cubic-bezier(.22,1,.36,1),background .4s;
+  }
+  .go:active{transform:scale(.97);background:#b4462f}
+  #err{
+    position:fixed;left:15px;right:15px;bottom:17px;z-index:40;display:none;
+    white-space:pre-line;font-size:12.5px;line-height:1.8;color:#f7f4ec;
+    background:#16130f;border-left:3px solid #b4462f;padding:12px 14px;
+  }
+  @media (orientation:landscape) and (max-height:520px){
+    .sheet{gap:9px;padding:12px} #demo{width:min(230px,36vw)}
+    .sheet p{font-size:11.5px;line-height:1.7}
+  }
+</style>
+</head>
+<body>
+
+<canvas id="view"></canvas>
+<video id="video" playsinline muted autoplay></video>
+
+<div class="hud">
+  <div class="row">
+    <div class="plate">
+      <div class="ttl" id="modeEl">混ぜ書き</div>
+      <div class="sub" id="modeEnEl">ALL MARKS</div>
+      <div class="read" id="readEl">CELLS ---- / INK --%</div>
+    </div>
+    <div class="sp"></div>
+    <div class="btns">
+      <button class="tb" id="modeBtn" type="button">線種<span class="val" id="modeLbl">混</span></button>
+      <button class="tb" id="denBtn" type="button">升目<span class="val" id="denLbl">並</span></button>
+      <button class="tb" id="flipBtn" type="button">⟲ カメラ</button>
+      <button class="tb" id="sndBtn" type="button">音<span class="val" id="sndLbl">ON</span></button>
+    </div>
+  </div>
+  <div class="foot"><div class="tip" id="tipEl">カメラの前に立ってください</div></div>
+</div>
+
+<div class="sheet" id="start">
+  <h1>MASUME</h1>
+  <p class="jp">升 目 の 線 描</p>
+  <div class="rule"></div>
+  <canvas id="demo" width="600" height="360"></canvas>
+  <p>映った人だけが升目に分かれ、<br>
+     一マスずつ<b>違う描線</b>で塗られます。<br>
+     背景は白いまま。</p>
+  <button class="go" id="go" type="button">描 き 始 め る</button>
+</div>
+
+<div id="err"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation/selfie_segmentation.js"></script>
+<script>
+(function(){
+'use strict';
+
+// ═══════════════════════════════════════════════════════════════════════
+//  DOM
+// ═══════════════════════════════════════════════════════════════════════
+var cv      = document.getElementById('view');
+var ctx     = cv.getContext('2d');
+var video   = document.getElementById('video');
+var errBox  = document.getElementById('err');
+var startSh = document.getElementById('start');
+var goBtn   = document.getElementById('go');
+var flipBtn = document.getElementById('flipBtn');
+var sndBtn  = document.getElementById('sndBtn');
+var sndLbl  = document.getElementById('sndLbl');
+var modeBtn = document.getElementById('modeBtn');
+var modeLbl = document.getElementById('modeLbl');
+var modeEl  = document.getElementById('modeEl');
+var modeEnEl= document.getElementById('modeEnEl');
+var denBtn  = document.getElementById('denBtn');
+var denLbl  = document.getElementById('denLbl');
+var readEl  = document.getElementById('readEl');
+var tipEl   = document.getElementById('tipEl');
+var demoCv  = document.getElementById('demo');
+var dctx    = demoCv.getContext('2d');
+
+function now(){
+  return (typeof performance !== 'undefined' && performance.now)
+    ? performance.now() : Date.now();
+}
+function clamp(v,a,b){ return v<a?a:(v>b?b:v); }
+
+var C_KAMI='#f7f4ec', C_SUMI='#16130f', C_NAMARI='#9a958a';
+
+// deterministic RNG, so a given tile is the same drawing every time it is
+// asked for and the sheet never boils
+function mulberry(a){
+  return function(){
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    var t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+// which mark a cell uses is a hash of WHERE IT IS — never a per-frame roll
+function cellHash(cx, cy){
+  var h = Math.imul(cx + 0x9E37, 0x85EBCA6B) ^ Math.imul(cy + 0x7F4A, 0xC2B2AE35);
+  h ^= h >>> 13; h = Math.imul(h, 0x27D4EB2F); h ^= h >>> 15;
+  return (h >>> 0);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  THE TWELVE MARKS
+//  Each fills a TILE-sized square at tone t (0..1). They are the marks off
+//  the reference sheet: straight hatching in four directions, broken and
+//  wavy rules, a scribble fill, a tangled nest, stipple, a spider web of
+//  triangulated points, nested boxes and contours.
+// ═══════════════════════════════════════════════════════════════════════
+function wob(c, x0, y0, x1, y1, amp, rng, segs){
+  segs = segs || 4;
+  c.beginPath();
+  for (var i=0;i<=segs;i++){
+    var u = i/segs;
+    var x = x0 + (x1-x0)*u + (rng()-0.5)*amp;
+    var y = y0 + (y1-y0)*u + (rng()-0.5)*amp;
+    if (i===0) c.moveTo(x,y); else c.lineTo(x,y);
+  }
+  c.stroke();
+}
+function pHatch(c, S, t, rng, ang){
+  var n = Math.round(2 + t*11);
+  c.lineWidth = 0.7 + t*1.0;
+  var ca = Math.cos(ang), sa = Math.sin(ang);
+  var D = S*1.45;
+  for (var i=0;i<n;i++){
+    var o = ((i+0.5)/n - 0.5)*D;
+    var mx = S*0.5 - sa*o, my = S*0.5 + ca*o;
+    wob(c, mx - ca*D*0.55, my - sa*D*0.55, mx + ca*D*0.55, my + sa*D*0.55,
+        S*0.055, rng, 4);
+  }
+}
+function pHatchH(c,S,t,r){ pHatch(c,S,t,r,0); }
+function pHatchV(c,S,t,r){ pHatch(c,S,t,r,Math.PI/2); }
+function pHatchD(c,S,t,r){ pHatch(c,S,t,r,-Math.PI/4); }
+function pHatchX(c,S,t,r){ pHatch(c,S,t*0.72,r,-Math.PI/4); pHatch(c,S,t*0.72,r,Math.PI/4); }
+function pDash(c,S,t,rng){
+  var n = Math.round(2 + t*10);
+  c.lineWidth = 0.7 + t*1.0;
+  for (var i=0;i<n;i++){
+    var y = (i+0.5)/n*S, x = -S*0.05;
+    while (x < S*1.02){
+      var w = S*(0.10 + rng()*0.26);
+      wob(c, x, y, Math.min(S*1.02, x+w), y, S*0.045, rng, 2);
+      x += w + S*(0.04 + rng()*0.10*(1.2-t));
+    }
+  }
+}
+function pWave(c,S,t,rng){
+  var n = Math.round(2 + t*9);
+  c.lineWidth = 0.7 + t*0.95;
+  for (var i=0;i<n;i++){
+    var y = (i+0.5)/n*S, ph = rng()*6.28, am = S*0.06;
+    c.beginPath();
+    for (var j=0;j<=10;j++){
+      var x = -S*0.03 + j/10*S*1.06;
+      var yy = y + Math.sin(ph + j*0.9)*am;
+      if (j===0) c.moveTo(x,yy); else c.lineTo(x,yy);
+    }
+    c.stroke();
+  }
+}
+function pScribble(c,S,t,rng){
+  var n = Math.round(4 + t*16);
+  c.lineWidth = 0.7 + t*1.1;
+  c.beginPath();
+  c.moveTo(rng()*S, 0);
+  for (var i=0;i<n;i++){
+    var y = (i+1)/n*S;
+    c.lineTo((i%2 ? 0.04 : 0.96)*S + (rng()-0.5)*S*0.12, y);
+  }
+  c.stroke();
+}
+function pNest(c,S,t,rng){
+  var loops = Math.round(2 + t*9);
+  c.lineWidth = 0.7 + t*0.85;
+  for (var i=0;i<loops;i++){
+    var cx = S*(0.18+rng()*0.64), cy = S*(0.18+rng()*0.64);
+    var r = S*(0.10 + rng()*0.28);
+    c.beginPath();
+    for (var j=0;j<=12;j++){
+      var a = j/12*6.2832;
+      var rr = r*(0.65 + rng()*0.7);
+      var x = cx + Math.cos(a)*rr, y = cy + Math.sin(a)*rr*0.8;
+      if (j===0) c.moveTo(x,y); else c.lineTo(x,y);
+    }
+    c.stroke();
+  }
+}
+function pStipple(c,S,t,rng){
+  var n = Math.round(6 + t*t*220);
+  for (var i=0;i<n;i++){
+    var r = 0.45 + rng()*(0.5 + t*0.7);
+    c.beginPath();
+    c.arc(rng()*S, rng()*S, r, 0, 6.2832);
+    c.fill();
+  }
+}
+function pWeb(c,S,t,rng){
+  var n = Math.round(4 + t*13), px = [], py = [], i, j;
+  for (i=0;i<n;i++){ px.push(S*(0.06+rng()*0.88)); py.push(S*(0.06+rng()*0.88)); }
+  c.lineWidth = 0.6 + t*0.7;
+  var link = 0.30 + t*0.36;
+  for (i=0;i<n;i++){
+    for (j=i+1;j<n;j++){
+      var dx = px[i]-px[j], dy = py[i]-py[j];
+      if (dx*dx+dy*dy > (S*link)*(S*link)) continue;
+      c.beginPath(); c.moveTo(px[i],py[i]); c.lineTo(px[j],py[j]); c.stroke();
+    }
+  }
+  for (i=0;i<n;i++){ c.beginPath(); c.arc(px[i],py[i], 0.7+t*0.5, 0, 6.2832); c.fill(); }
+}
+function pBox(c,S,t,rng){
+  var n = Math.round(1 + t*4);
+  c.lineWidth = 0.7 + t*0.9;
+  var k = n+1, cw = S/k;
+  for (var a=0;a<k;a++) for (var b=0;b<k;b++){
+    if (rng() > 0.30 + t*0.72) continue;
+    var x = a*cw, y = b*cw, m = cw*0.12;
+    c.beginPath();
+    c.rect(x+m+(rng()-0.5)*1.2, y+m+(rng()-0.5)*1.2, cw-m*2, cw-m*2);
+    c.stroke();
+  }
+}
+function pContour(c,S,t,rng){
+  var n = Math.round(1 + t*6);
+  c.lineWidth = 0.7 + t*0.9;
+  for (var i=0;i<n;i++){
+    var inset = (i+0.6)/(n+0.6)*S*0.46;
+    c.beginPath();
+    for (var j=0;j<=16;j++){
+      var a = j/16*6.2832;
+      var rr = (S*0.5 - inset)*(0.92 + rng()*0.16);
+      var x = S*0.5 + Math.cos(a)*rr, y = S*0.5 + Math.sin(a)*rr;
+      if (j===0) c.moveTo(x,y); else c.lineTo(x,y);
+    }
+    c.closePath(); c.stroke();
+  }
+}
+function pComb(c,S,t,rng){
+  // vertical teeth off a horizontal spine, the "hair" mark on the sheet
+  var n = Math.round(3 + t*14);
+  c.lineWidth = 0.65 + t*0.85;
+  for (var i=0;i<n;i++){
+    var x = (i+0.5)/n*S;
+    var h = S*(0.35 + rng()*0.6*(0.4+t));
+    var y0 = S*rng()*(1-h/S);
+    wob(c, x, y0, x + (rng()-0.5)*S*0.12, y0+h, S*0.05, rng, 3);
+  }
+}
+var PATS = [
+  { f:pHatchH,   fam:'line' }, { f:pHatchV,  fam:'line' },
+  { f:pHatchD,   fam:'line' }, { f:pHatchX,  fam:'line' },
+  { f:pDash,     fam:'line' }, { f:pWave,    fam:'line' },
+  { f:pScribble, fam:'wild' }, { f:pNest,    fam:'wild' },
+  { f:pWeb,      fam:'wild' }, { f:pComb,    fam:'wild' },
+  { f:pStipple,  fam:'grain'}, { f:pBox,     fam:'grain'},
+  { f:pContour,  fam:'grain'}
+];
+var TONES = 6;
+var MODES = [
+  { jp:'混ぜ書き', en:'ALL MARKS',  key:'混', fams:['line','wild','grain'] },
+  { jp:'線ばかり', en:'RULED ONLY', key:'線', fams:['line'] },
+  { jp:'乱れ書き', en:'UNRULED',    key:'乱', fams:['wild','grain'] }
+];
+var mode = 0, subset = [];
+function rebuildSubset(){
+  subset = [];
+  for (var i=0;i<PATS.length;i++)
+    if (MODES[mode].fams.indexOf(PATS[i].fam) >= 0) subset.push(i);
+  if (!subset.length) subset = [0];
+}
+
+var DENS = [ { key:'粗', n:20 }, { key:'並', n:30 }, { key:'細', n:42 } ];
+var den = 1;
+
+// ═══════════════════════════════════════════════════════════════════════
+//  CANVAS / GRID / ATLAS
+// ═══════════════════════════════════════════════════════════════════════
+var W=1,H=1,S=1,DPR=1;
+var cols=0, rows=0, cell=0, TILE=32, MAXCELLS=3600;
+var lumA=null, mskA=null, lvlA=null, patA=null, jitA=null, tonA=null;
+var paper = document.createElement('canvas'), pctx = paper.getContext('2d');
+var atlas = document.createElement('canvas'), actx = atlas.getContext('2d');
+var sampCv = document.createElement('canvas'), sctx = sampCv.getContext('2d');
+var maskCv = document.createElement('canvas'), mctx = maskCv.getContext('2d');
+var inkSeed = 1, reinkAt = 0;
+
+function allocGrid(){
+  var n = DENS[den].n;
+  var shortSide = Math.min(W, H);
+  cell = Math.max(6, shortSide / n);
+  var c = Math.ceil(W/cell), r = Math.ceil(H/cell);
+  // hard ceiling on the cell count, whatever the viewport
+  while (c*r > MAXCELLS){ cell *= 1.08; c = Math.ceil(W/cell); r = Math.ceil(H/cell); }
+  cols = Math.max(2, c); rows = Math.max(2, r);
+  var total = cols*rows;
+  lumA = new Uint8Array(total);
+  mskA = new Uint8Array(total);
+  lvlA = new Int8Array(total);
+  tonA = new Float32Array(total);
+  patA = new Uint8Array(total);
+  jitA = new Int8Array(total*2);
+  for (var y=0;y<rows;y++) for (var x=0;x<cols;x++){
+    var i = y*cols + x, h = cellHash(x,y);
+    patA[i] = h % PATS.length;
+    jitA[i*2]   = ((h >>> 8) % 5) - 2;
+    jitA[i*2+1] = ((h >>> 16) % 5) - 2;
+  }
+  sampCv.width = cols; sampCv.height = rows;
+  maskCv.width = cols; maskCv.height = rows;
+  buildAtlas();
+}
+function buildAtlas(){
+  TILE = Math.round(clamp(cell*DPR, 16, 72));
+  atlas.width  = PATS.length*TILE;
+  atlas.height = TONES*TILE;
+  actx.setTransform(1,0,0,1,0,0);
+  actx.clearRect(0,0,atlas.width,atlas.height);
+  for (var p=0;p<PATS.length;p++)
+    for (var l=1;l<=TONES;l++) inkTile(p, l);
+}
+function inkTile(p, l){
+  var x0 = p*TILE, y0 = (l-1)*TILE;
+  actx.save();
+  actx.setTransform(1,0,0,1,0,0);
+  actx.clearRect(x0, y0, TILE, TILE);
+  actx.beginPath(); actx.rect(x0, y0, TILE, TILE); actx.clip();
+  actx.translate(x0, y0);
+  actx.strokeStyle = C_SUMI; actx.fillStyle = C_SUMI;
+  actx.lineCap = 'round'; actx.lineJoin = 'round';
+  var t = l/TONES;
+  try { PATS[p].f(actx, TILE, t, mulberry(p*7919 + l*104729 + inkSeed*31), t); }
+  catch(e){ /* a mark that fails to draw is simply an empty square */ }
+  actx.restore();
+}
+
+function layout(){
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  var w = window.innerWidth, h = window.innerHeight;
+  cv.width = Math.max(2, Math.round(w*DPR));
+  cv.height = Math.max(2, Math.round(h*DPR));
+  cv.style.width = w+'px'; cv.style.height = h+'px';
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  W=w; H=h; S=Math.min(W,H)/720;
+  allocGrid();
+  drawPaper();
+}
+window.addEventListener('resize', layout);
+window.addEventListener('orientationchange', function(){ setTimeout(layout,220); });
+
+function drawPaper(){
+  var w = Math.max(2, Math.round(W)), h = Math.max(2, Math.round(H));
+  paper.width = w; paper.height = h;
+  pctx.setTransform(1,0,0,1,0,0);
+  pctx.fillStyle = C_KAMI; pctx.fillRect(0,0,w,h);
+  var rng = mulberry(20260906);
+  // laid fibre
+  for (var i=0;i<2600;i++){
+    var x = rng()*w, y = rng()*h, len = 2 + rng()*13;
+    pctx.strokeStyle = rng() > 0.5 ? 'rgba(120,112,96,.030)' : 'rgba(255,255,255,.35)';
+    pctx.lineWidth = 1;
+    pctx.beginPath(); pctx.moveTo(x,y); pctx.lineTo(x+len, y + (rng()-0.5)*1.6); pctx.stroke();
+  }
+  // the drawing pad's printed guide — a promise of the 升目
+  var g = Math.max(14, cell);
+  pctx.strokeStyle = 'rgba(154,149,138,.15)'; pctx.lineWidth = 1;
+  for (var x2=0;x2<=w;x2+=g){ pctx.beginPath(); pctx.moveTo(x2+.5,0); pctx.lineTo(x2+.5,h); pctx.stroke(); }
+  for (var y2=0;y2<=h;y2+=g){ pctx.beginPath(); pctx.moveTo(0,y2+.5); pctx.lineTo(w,y2+.5); pctx.stroke(); }
+  // lamp
+  var lg = pctx.createRadialGradient(w*0.38, h*0.30, 0, w*0.38, h*0.30, Math.max(w,h)*0.92);
+  lg.addColorStop(0,'rgba(255,252,240,.36)');
+  lg.addColorStop(1,'rgba(120,110,90,.10)');
+  pctx.fillStyle = lg; pctx.fillRect(0,0,w,h);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  AUDIO — a nib on paper. One noise band, and its level follows how much
+//  of the drawing is actually changing this instant, so standing still is
+//  silence and moving is the sound of the pen keeping up with you.
+// ═══════════════════════════════════════════════════════════════════════
+var ac=null, master=null, comp=null, scrSrc=null, scrBp=null, scrHp=null,
+    scrGain=null, noiseBuf=null, sound=true, changeRate=0, changeS=0;
+
+function initAudio(){
+  if (ac){ if (ac.state==='suspended' && ac.resume) ac.resume(); return; }
+  var AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) return;
+  try { ac = new AC(); } catch(e){ ac = null; return; }
+  comp = ac.createDynamicsCompressor();
+  try {
+    comp.threshold.value=-22; comp.knee.value=26; comp.ratio.value=6;
+    comp.attack.value=0.005; comp.release.value=0.25;
+  } catch(e){}
+  master = ac.createGain(); master.gain.value = 0.8;
+  master.connect(comp); comp.connect(ac.destination);
+  var n = Math.max(1, Math.floor(ac.sampleRate*2));
+  noiseBuf = ac.createBuffer(1, n, ac.sampleRate);
+  var d = noiseBuf.getChannelData(0);
+  for (var i=0;i<n;i++) d[i] = Math.random()*2-1;
+  scrSrc = ac.createBufferSource(); scrSrc.buffer = noiseBuf; scrSrc.loop = true;
+  scrHp = ac.createBiquadFilter(); scrHp.type='highpass'; scrHp.frequency.value = 1400;
+  scrBp = ac.createBiquadFilter(); scrBp.type='bandpass';
+  scrBp.frequency.value = 3000; scrBp.Q.value = 0.8;
+  scrGain = ac.createGain(); scrGain.gain.value = 0;
+  scrSrc.connect(scrHp); scrHp.connect(scrBp); scrBp.connect(scrGain);
+  scrGain.connect(master);
+  try { scrSrc.start(0); } catch(e){}
+  if (ac.state==='suspended' && ac.resume) ac.resume();
+}
+function updateScratch(){
+  if (!ac || !scrGain) return;
+  var t = ac.currentTime;
+  var target = sound ? clamp(changeS*2.6, 0, 1)*0.085 : 0;
+  try {
+    scrGain.gain.setTargetAtTime(target, t, 0.09);
+    scrBp.frequency.setTargetAtTime(clamp(2200 + changeS*9000, 400, 11000), t, 0.12);
+  } catch(e){}
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  CAMERA
+// ═══════════════════════════════════════════════════════════════════════
+var facing='user', mirror=true, stream=null, started=false, camOK=false;
+function showError(e){
+  var msg = (e && e.message) ? e.message : String(e || 'unknown');
+  errBox.style.display = 'block';
+  errBox.textContent = 'カメラを起動できませんでした：' + msg +
+    '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+}
+function startStream(){
+  var md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) return Promise.reject(new Error('getUserMedia is unavailable'));
+  if (stream && stream.getTracks) stream.getTracks().forEach(function(t){ t.stop(); });
+  return md.getUserMedia({
+    video:{ facingMode:{ ideal:facing }, width:{ ideal:960 }, height:{ ideal:720 } },
+    audio:false
+  }).then(function(st){
+    stream = st; video.srcObject = st; mirror = (facing==='user'); camOK = true;
+    var p = video.play();
+    return (p && p.then) ? p.catch(function(){}) : null;
+  });
+}
+flipBtn.addEventListener('click', function(){
+  facing = (facing==='user') ? 'environment' : 'user';
+  startStream().then(startMpCamera).catch(showError);
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+//  SEGMENTATION — this is what keeps the ground blank. Without it the
+//  piece still draws, but the whole frame gets hatched and the face has to
+//  compete with the wall behind it.
+// ═══════════════════════════════════════════════════════════════════════
+var seg=null, mpCamera=null, segReady=false, segOK=false, haveFrame=false;
+
+function initSeg(){
+  var Ctor = window.SelfieSegmentation;
+  if (typeof Ctor !== 'function') return false;
+  try {
+    seg = new Ctor({ locateFile:function(f){
+      return 'https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation/' + f;
+    }});
+    seg.setOptions({ modelSelection: 1 });
+    seg.onResults(onSeg);
+    segReady = true; return true;
+  } catch(e){ segReady = false; return false; }
+}
+function startMpCamera(){
+  if (!segReady || typeof window.Camera !== 'function') return;
+  try {
+    if (mpCamera && mpCamera.stop) mpCamera.stop();
+    mpCamera = new window.Camera(video, {
+      onFrame:function(){
+        if (!seg || !started) return Promise.resolve();
+        return seg.send({ image: video }).catch(function(){});
+      }, width:640, height:480
+    });
+    mpCamera.start();
+  } catch(e){ segReady = false; }
+}
+// cover-fit, so a 4:3 camera filling a tall phone is cropped, not squashed
+function coverInto(c, img, iw, ih){
+  var vr = iw/ih, cr = cols/rows, dw, dh;
+  if (vr > cr){ dh = rows; dw = rows*vr; } else { dw = cols; dh = cols/vr; }
+  c.drawImage(img, (cols-dw)/2, (rows-dh)/2, dw, dh);
+}
+function onSeg(res){
+  if (!res || cols < 2) return;
+  var img = res.image || video;
+  var iw = (img && (img.width || img.videoWidth)) | 0;
+  var ih = (img && (img.height || img.videoHeight)) | 0;
+  if (!iw || !ih) return;
+  try {
+    // tone: one cols x rows downsample, box-filtered by the browser, so a
+    // cell's average brightness costs us nothing to compute
+    sctx.setTransform(1,0,0,1,0,0);
+    sctx.fillStyle = '#808080'; sctx.fillRect(0,0,cols,rows);
+    if (mirror) sctx.setTransform(-1,0,0,1,cols,0);
+    coverInto(sctx, img, iw, ih);
+    sctx.setTransform(1,0,0,1,0,0);
+    var sd = sctx.getImageData(0,0,cols,rows).data;
+
+    var md = null;
+    if (res.segmentationMask){
+      mctx.setTransform(1,0,0,1,0,0);
+      mctx.clearRect(0,0,cols,rows);
+      mctx.fillStyle = '#000'; mctx.fillRect(0,0,cols,rows);
+      if (mirror) mctx.setTransform(-1,0,0,1,cols,0);
+      coverInto(mctx, res.segmentationMask, iw, ih);
+      mctx.setTransform(1,0,0,1,0,0);
+      md = mctx.getImageData(0,0,cols,rows).data;
+      segOK = true;
+    }
+    var n = cols*rows;
+    for (var i=0;i<n;i++){
+      var o = i<<2;
+      var l = (sd[o]*77 + sd[o+1]*150 + sd[o+2]*29) >> 8;
+      lumA[i] = l < 0 ? 0 : (l > 255 ? 255 : l);
+      mskA[i] = md ? md[o+3] : 255;
+    }
+    haveFrame = true;
+    updateCells();
+  } catch(e){ /* one unreadable frame is survivable; keep the last drawing */ }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  TONE — auto-levelled inside the subject only, so the face keeps a full
+//  range of marks whatever the room is doing, and quantized through a
+//  deadband so a cell between two tones cannot buzz.
+// ═══════════════════════════════════════════════════════════════════════
+var MASK_T = 128;
+var loS = 40, hiS = 210, subjCells = 0, inkCells = 0;
+var hist = new Uint32Array(32);
+
+function updateCells(){
+  var n = cols*rows, i, cnt = 0;
+  hist.fill(0);
+  for (i=0;i<n;i++){
+    if (mskA[i] < MASK_T) continue;
+    hist[lumA[i] >> 3]++; cnt++;
+  }
+  subjCells = cnt;
+  if (cnt >= 8){
+    var loT = 0, hiT = 255, acc = 0;
+    var loN = cnt*0.06, hiN = cnt*0.94;
+    for (i=0;i<32;i++){
+      var prev = acc; acc += hist[i];
+      if (prev < loN && acc >= loN) loT = i*8 + 4;
+      if (prev < hiN && acc >= hiN){ hiT = i*8 + 4; break; }
+    }
+    if (hiT - loT < 26){ var mid = (hiT+loT)*0.5; loT = mid-13; hiT = mid+13; }
+    loS += (loT - loS)*0.10;
+    hiS += (hiT - hiS)*0.10;
+  }
+  var span = Math.max(12, hiS - loS);
+  var changed = 0, inked = 0;
+  for (i=0;i<n;i++){
+    var want = 0;
+    if (mskA[i] >= MASK_T){
+      var v = (hiS - lumA[i]) / span;
+      v = v < 0 ? 0 : (v > 1 ? 1 : v);
+      v = Math.pow(v, 0.85);
+      // the very edge of the cut-out is drawn a touch lighter, so the
+      // silhouette reads as marks running out rather than a stamped border
+      var m = mskA[i];
+      if (m < MASK_T + 64) v *= 0.55 + 0.45*((m - MASK_T)/64);
+      want = v*TONES;
+    }
+    // Smooth the tone BEFORE quantizing. The deadband alone is not enough:
+    // a cell sitting near a boundary rides sensor noise straight across it
+    // and back, and 6% of the sheet twitching per frame reads as a boiling
+    // mess. Three frames of averaging costs no visible lag and cuts the
+    // noise that reaches the quantizer by well over half.
+    var sm = tonA[i] + (want - tonA[i])*0.32;
+    if (!isFinite(sm)) sm = want;
+    tonA[i] = sm;
+    var cur = lvlA[i];
+    if (Math.abs(sm - cur) > 0.70){
+      var q = Math.round(sm);
+      lvlA[i] = q < 0 ? 0 : (q > TONES ? TONES : q);
+      changed++;
+    }
+    if (lvlA[i] > 0) inked++;
+  }
+  inkCells = inked;
+  changeRate = n ? changed/n : 0;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  DRAW — one drawImage per inked cell, nothing else
+// ═══════════════════════════════════════════════════════════════════════
+var strays = [];
+function rollStrays(){
+  strays.length = 0;
+  var rng = mulberry((now()|0) ^ 0x5bf03635);
+  var k = 3 + ((rng()*4)|0);
+  for (var i=0;i<k;i++){
+    strays.push({ x: rng(), y: rng(),
+                  p: (rng()*PATS.length)|0,
+                  l: 1 + ((rng()*2)|0),
+                  s: 0.5 + rng()*0.7 });
+  }
+}
+function drawSheet(){
+  if (paper.width > 1) ctx.drawImage(paper, 0, 0, W, H);
+  if (!haveFrame || !lvlA) return;
+  var sub = subset.length ? subset : [0];
+  var inset = cell*0.055;
+  var w = cell - inset*2;
+  if (w < 1) w = 1;
+  for (var y=0;y<rows;y++){
+    var row = y*cols;
+    for (var x=0;x<cols;x++){
+      var i = row + x;
+      var l = lvlA[i];
+      if (l <= 0) continue;
+      // the mark is chosen by position, then folded into the active family
+      var p = sub[patA[i] % sub.length];
+      ctx.drawImage(atlas,
+        p*TILE, (l-1)*TILE, TILE, TILE,
+        x*cell + inset + jitA[i*2]*0.28,
+        y*cell + inset + jitA[i*2+1]*0.28,
+        w, w);
+    }
+  }
+  // a few practice marks off to the side of the figure, as on the sheet
+  for (var s=0;s<strays.length;s++){
+    var st = strays[s];
+    var sp = sub[st.p % sub.length], sw = cell*st.s;
+    ctx.globalAlpha = 0.5;
+    ctx.drawImage(atlas, sp*TILE, (st.l-1)*TILE, TILE, TILE,
+                  st.x*(W-sw), st.y*(H-sw), sw, sw);
+    ctx.globalAlpha = 1;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  START-SHEET DEMO — a head inking itself in, square by square
+// ═══════════════════════════════════════════════════════════════════════
+var demoT = 0, demoTiles = null;
+function buildDemoTiles(){
+  demoTiles = document.createElement('canvas');
+  var T = 26;
+  demoTiles.width = PATS.length*T; demoTiles.height = 3*T;
+  var c = demoTiles.getContext('2d');
+  for (var p=0;p<PATS.length;p++) for (var l=1;l<=3;l++){
+    c.save();
+    c.beginPath(); c.rect(p*T,(l-1)*T,T,T); c.clip();
+    c.translate(p*T,(l-1)*T);
+    c.strokeStyle = C_SUMI; c.fillStyle = C_SUMI;
+    c.lineCap='round'; c.lineJoin='round';
+    try { PATS[p].f(c, T, l/3.2, mulberry(p*131 + l*977)); } catch(e){}
+    c.restore();
+  }
+}
+function drawDemo(dt){
+  var w = demoCv.width, h = demoCv.height;
+  demoT = (demoT + dt) % 5.0;
+  dctx.setTransform(1,0,0,1,0,0);
+  dctx.fillStyle = C_KAMI; dctx.fillRect(0,0,w,h);
+  dctx.strokeStyle = 'rgba(154,149,138,.18)'; dctx.lineWidth = 1;
+  var g = 24;
+  for (var x=0;x<=w;x+=g){ dctx.beginPath(); dctx.moveTo(x+.5,0); dctx.lineTo(x+.5,h); dctx.stroke(); }
+  for (var y=0;y<=h;y+=g){ dctx.beginPath(); dctx.moveTo(0,y+.5); dctx.lineTo(w,y+.5); dctx.stroke(); }
+  if (!demoTiles) buildDemoTiles();
+  var cxx = w*0.5, cyy = h*0.60, rr = h*0.40;
+  var prog = clamp(demoT/2.6, 0, 1);
+  var fade = demoT > 4.4 ? clamp((5.0-demoT)/0.6, 0, 1) : 1;
+  dctx.globalAlpha = fade;
+  var cw = 24, cols2 = Math.ceil(w/cw), rows2 = Math.ceil(h/cw);
+  for (var gy=0;gy<rows2;gy++) for (var gx=0;gx<cols2;gx++){
+    var px = gx*cw + cw*0.5, py = gy*cw + cw*0.5;
+    // a head: an ellipse with shoulders
+    var dxn = (px-cxx)/(rr*0.72), dyn = (py-cyy)/rr;
+    var inHead = dxn*dxn + dyn*dyn < 1;
+    var inShoulder = py > cyy + rr*0.72 &&
+                     Math.abs(px-cxx) < rr*(0.75 + (py-cyy-rr*0.72)/(h*0.3));
+    if (!inHead && !inShoulder) continue;
+    // reveal top to bottom
+    if (gy/rows2 > prog*1.15) continue;
+    var hsh = cellHash(gx,gy);
+    var p2 = hsh % PATS.length;
+    // simple shading: darker to the lower left
+    var sh = clamp(0.25 + (px < cxx ? 0.5 : 0.05) + (py-cyy)/(rr*2.6), 0, 1);
+    var l2 = 1 + Math.min(2, Math.floor(sh*3));
+    dctx.drawImage(demoTiles, p2*26, (l2-1)*26, 26, 26,
+                   gx*cw+1.5, gy*cw+1.5, cw-3, cw-3);
+  }
+  dctx.globalAlpha = 1;
+  dctx.fillStyle = 'rgba(109,104,94,.9)';
+  dctx.font = '600 15px "Klee One", serif'; dctx.textAlign = 'center';
+  dctx.fillText('一マスに一種類', w*0.5, 26);
+  dctx.textAlign = 'start';
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  LOOP
+// ═══════════════════════════════════════════════════════════════════════
+var lastT = now(), hudT = 0, tipMsg = '', strayT = 0, goodT = 0;
+function tick(){
+  var t = now();
+  var dt = clamp((t-lastT)/1000, 0, 0.05);
+  lastT = t;
+
+  if (!started){ drawDemo(dt); requestAnimationFrame(tick); return; }
+
+  changeS += (changeRate - changeS) * clamp(dt*7, 0, 1);
+  updateScratch();
+
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  ctx.clearRect(0,0,W,H);
+  drawSheet();
+
+  // the sheet quietly re-inks itself, one tile at a time, so the drawing is
+  // always being redrawn by hand without anything ever flickering
+  if (t > reinkAt){
+    reinkAt = t + 160;
+    inkSeed++;
+    inkTile(inkSeed % PATS.length, 1 + (((inkSeed/PATS.length)|0) % TONES));
+  }
+  strayT += dt;
+  if (strayT > 6){ strayT = 0; rollStrays(); }
+  // how long the drawing has been working, so the instruction can get out
+  // of the way once it plainly is
+  if (segOK && subjCells >= 12) goodT += dt; else goodT = 0;
+
+  hudT += dt;
+  if (hudT > 0.25){
+    hudT = 0;
+    var pct = subjCells ? Math.round(inkCells/Math.max(1,subjCells)*100) : 0;
+    readEl.innerHTML = 'CELLS ' + (cols*rows) + ' / INK <b>' + pct + '%</b>';
+    var m;
+    if (!camOK) m = 'カメラの前に立ってください';
+    else if (!haveFrame) m = '読み込み中…';
+    else if (subjCells < 12) m = 'カメラの前に立ってください';
+    else if (!segOK) m = '人物の切り抜きが使えません 全面に描きます';
+    else m = '明るいところで 顔を大きく';
+    if (m !== tipMsg){ tipMsg = m; tipEl.textContent = m; }
+    tipEl.classList.toggle('warn', !!camOK && haveFrame && !segOK);
+    tipEl.classList.toggle('dim', goodT > 2.5);
+  }
+  requestAnimationFrame(tick);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  CONTROLS / BOOT
+// ═══════════════════════════════════════════════════════════════════════
+function applyMode(){
+  rebuildSubset();
+  modeEl.textContent = MODES[mode].jp;
+  modeEnEl.textContent = MODES[mode].en;
+  modeLbl.textContent = MODES[mode].key;
+}
+modeBtn.addEventListener('click', function(){
+  mode = (mode+1) % MODES.length; applyMode();
+});
+denBtn.addEventListener('click', function(){
+  den = (den+1) % DENS.length;
+  denLbl.textContent = DENS[den].key;
+  allocGrid(); drawPaper();
+  haveFrame = false;
+});
+sndBtn.addEventListener('click', function(){
+  sound = !sound; sndLbl.textContent = sound ? 'ON' : 'OFF';
+  if (sound) initAudio();
+});
+goBtn.addEventListener('click', function(){
+  if (started) return;
+  started = true;
+  initAudio();
+  startSh.classList.add('off');
+  startStream().then(function(){
+    if (initSeg()) startMpCamera();
+  }).catch(showError);
+});
+
+applyMode();
+denLbl.textContent = DENS[den].key;
+layout();
+rollStrays();
+requestAnimationFrame(tick);
+
+// exposed for the headless harness
+window.__masume = {
+  state:function(){ return { started:started, mode:mode, den:den,
+                             cols:cols, rows:rows, cell:cell, TILE:TILE,
+                             subjCells:subjCells, inkCells:inkCells,
+                             changeRate:changeRate, segOK:segOK,
+                             lo:loS, hi:hiS, patCount:PATS.length,
+                             subset:subset.slice() }; },
+  feed:onSeg, update:updateCells, draw:drawSheet,
+  arrays:function(){ return { lum:lumA, msk:mskA, lvl:lvlA, pat:patA }; },
+  atlas:function(){ return atlas; },
+  hash:cellHash, pats:PATS, tones:TONES, ink:inkTile, alloc:allocGrid
+};
+
+})();
+</script>
+</body>
+</html>
