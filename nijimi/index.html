@@ -1,0 +1,1326 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>NIJIMI ─ 紙の上でにじませる</title>
+<meta name="description" content="カメラに映るものを、白い紙に置いた透明水彩に変えるエフェクト。絵の具は重なるほど濃くなるだけで白くはならないので、明るい所には何も塗られず紙が残る。乾き際の縁には顔料が溜まって輪郭が濃くなる。手は水を含んだ筆で、通った所は紙が濡れて滲む。顔料も色相も濃さも滲みも、その場で調整できる。">
+<meta name="theme-color" content="#fbf7ee">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Klee+One:wght@400;600&display=swap" rel="stylesheet">
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  NIJIMI ─ 紙の上でにじませる                     ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  PALETTE   紙   kami      #fbf7ee  cold-press paper, warm white, never #fff
+            鉛筆 enpitsu   #6f6a60  every word on screen, and the hairlines
+            縹   hanada    #4fbfc4  the default pigment family's turquoise
+            珊瑚 sango     #f2856d  its warm counterweight
+            藤   fuji      #a58fd0  the violet that keeps it from going minty
+            MOOD: a sheet of watercolour paper on a table by a window at
+            midday. High key, low contrast, almost nothing saturated except
+            where the pigment has pooled. Every other effect in the gallery
+            paints ONTO a dark ground; this one is the only piece where the
+            brightest thing on screen is bare paper, and the whole look
+            depends on defending that.
+  BACKGROUND  The paper itself and nothing else: a warm off-white with a
+            cold-press tooth, a few pulp flecks, and the faintest cockle.
+            Drawn once at resize into an offscreen canvas. The camera image
+            is never composited as video — only pigment is laid on the
+            sheet, in multiply, so the paper always shows through.
+  TYPE      Klee One throughout, 400 and 600 — a Japanese pen hand that
+            belongs on a sketchbook margin, and the only handwriting face
+            in the gallery. Labels are small, grey, and get out of the way.
+  MOTION    Wet. The warp field drifts at about a fiftieth of a hertz, so
+            the wash boundaries breathe rather than crawl; wetness dries
+            over roughly four seconds with an exponential tail; the control
+            panel slides on 420ms. Nothing in this piece is quick — a
+            flicked splatter is the one exception and it lands in 120ms.
+  SIGNATURE Real subtractive pigment: out = 1 − density·(1 − pigment), so
+            washes can only ever darken the paper and white is not a colour
+            that gets painted — it is the sheet, left alone. Three things
+            follow from that and none of them are available to a blur-and-
+            saturate filter. One: the highlights are genuinely unpainted,
+            which is what makes it read as watercolour and not as a photo
+            with a texture over it. Two: 縁だまり — pigment is carried to
+            the edge of a wash as it dries and settles there, so every
+            boundary between two levels gets a darker rim on the heavier
+            side. That rim is the entire reason a watercolour looks like a
+            watercolour, and it is computed from the quantised level field,
+            not drawn as an outline. Three: the wash boundary is displaced
+            by a slow noise field, so it does NOT follow the photograph —
+            paint goes where the water went, not where the edge was.
+            On top of that the hand is a brush loaded with water: it wets
+            the paper, and wet paper bleeds further, loses its hard rim,
+            and dilutes. As it dries the rim comes back. Flick it and the
+            brush throws real splatter.
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<style>
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;padding:0;height:100%;overflow:hidden;background:#fbf7ee}
+  body{
+    font-family:'Klee One','Hiragino Sans',serif;color:#6f6a60;
+    -webkit-user-select:none;user-select:none;touch-action:none;
+  }
+  #view{position:fixed;inset:0;width:100%;height:100%;display:block}
+  #video{position:fixed;width:2px;height:2px;opacity:0;pointer-events:none;left:-10px;top:-10px}
+
+  .btn{
+    position:fixed;z-index:6;cursor:pointer;
+    font:400 12px/1 'Klee One',serif;letter-spacing:.12em;
+    color:#6f6a60;background:rgba(251,247,238,.86);
+    border:1px solid rgba(111,106,96,.4);border-radius:2px;padding:9px 13px;
+    transition:color .3s ease,border-color .3s ease;
+  }
+  .btn:active{color:#3f8f96;border-color:#3f8f96}
+  #flip{top:calc(env(safe-area-inset-top,0px) + 12px);right:12px}
+  #save{top:calc(env(safe-area-inset-top,0px) + 12px);right:96px}
+  #tune{left:12px;bottom:calc(env(safe-area-inset-bottom,0px) + 12px);z-index:7}
+
+  #err{
+    display:none;position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);
+    z-index:9;max-width:min(88vw,460px);white-space:pre-wrap;line-height:1.9;
+    background:#fbf7ee;border:1px solid #c86a55;padding:20px 22px;
+    font:400 13px/1.9 'Klee One',serif;color:#6f6a60;
+  }
+
+  /* ── 調整パネル ─────────────────────────────────────── */
+  #panel{
+    position:fixed;z-index:7;left:0;right:0;bottom:0;
+    background:rgba(251,247,238,.965);
+    border-top:1px solid rgba(111,106,96,.28);
+    padding:14px 16px calc(env(safe-area-inset-bottom,0px) + 62px);
+    transform:translateY(105%);transition:transform .42s cubic-bezier(.22,.9,.3,1);
+    touch-action:manipulation;max-height:78vh;overflow-y:auto;
+  }
+  #panel.open{transform:translateY(0)}
+  .grp{margin:0 0 12px}
+  .grp:last-child{margin-bottom:0}
+  .gh{
+    font:600 10.5px/1 'Klee One',serif;letter-spacing:.26em;color:#a39c90;
+    margin:0 0 8px;display:flex;align-items:center;gap:9px;
+  }
+  .gh:after{content:'';flex:1;height:1px;background:rgba(111,106,96,.18)}
+
+  .pills{display:flex;flex-wrap:wrap;gap:6px}
+  .pill{
+    cursor:pointer;font:400 12px/1 'Klee One',serif;letter-spacing:.08em;
+    color:#6f6a60;background:transparent;border:1px solid rgba(111,106,96,.32);
+    border-radius:100px;padding:7px 13px;display:flex;align-items:center;gap:7px;
+    transition:border-color .3s ease,color .3s ease;
+  }
+  .pill .dots{display:flex;gap:2px}
+  .pill i{width:7px;height:7px;border-radius:50%;display:block}
+  .pill[aria-pressed="true"]{border-color:#6f6a60;color:#332f29;background:rgba(111,106,96,.07)}
+
+  .ctl{display:flex;align-items:center;gap:10px;margin:0 0 7px}
+  .ctl:last-child{margin-bottom:0}
+  .cl{font:400 12px/1 'Klee One',serif;color:#6f6a60;width:4.6em;flex:none;letter-spacing:.06em}
+  .cv{font:400 11px/1 'Klee One',serif;color:#a39c90;width:3.1em;flex:none;text-align:right;
+      font-variant-numeric:tabular-nums}
+  input[type=range]{
+    flex:1;-webkit-appearance:none;appearance:none;background:transparent;
+    height:22px;margin:0;cursor:pointer;
+  }
+  input[type=range]::-webkit-slider-runnable-track{
+    height:1px;background:rgba(111,106,96,.36);border-radius:1px;
+  }
+  input[type=range]::-moz-range-track{height:1px;background:rgba(111,106,96,.36)}
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none;appearance:none;width:15px;height:15px;border-radius:50%;
+    background:#fbf7ee;border:1.5px solid #6f6a60;margin-top:-7px;
+  }
+  input[type=range]::-moz-range-thumb{
+    width:15px;height:15px;border-radius:50%;background:#fbf7ee;border:1.5px solid #6f6a60;
+  }
+  input[type=range]:focus-visible{outline:2px solid #3f8f96;outline-offset:3px}
+  #reset{
+    margin-top:11px;cursor:pointer;background:transparent;
+    font:400 11.5px/1 'Klee One',serif;letter-spacing:.14em;color:#a39c90;
+    border:1px solid rgba(111,106,96,.28);border-radius:2px;padding:8px 14px;
+  }
+
+  /* ── 開始 ─────────────────────────────────────────── */
+  #veil{
+    position:fixed;inset:0;z-index:8;display:flex;align-items:center;justify-content:center;
+    background:rgba(251,247,238,.97);padding:22px;transition:opacity .6s ease;
+  }
+  #veil.hide{opacity:0;pointer-events:none}
+  .panel2{width:min(92vw,430px);text-align:center}
+  h1{margin:0;font:600 34px/1 'Klee One',serif;letter-spacing:.2em;color:#332f29;text-indent:.2em}
+  h1 b{display:block;margin-top:12px;font:400 13.5px/1.7 'Klee One',serif;
+       letter-spacing:.2em;color:#8d867b}
+  #demo{display:block;width:100%;height:auto;margin:18px 0 4px}
+  .lead{font:400 13px/2.05 'Klee One',serif;color:#8d867b;margin:12px 0 0}
+  .lead em{font-style:normal;color:#3f8f96}
+  button.go{
+    margin-top:22px;cursor:pointer;background:transparent;
+    font:400 14px/1 'Klee One',serif;letter-spacing:.42em;text-indent:.42em;color:#6f6a60;
+    border:1px solid rgba(111,106,96,.4);border-radius:2px;padding:15px 32px;
+    transition:color .5s ease,border-color .5s ease,letter-spacing .5s ease;
+  }
+  button.go:active{color:#3f8f96;border-color:#3f8f96;letter-spacing:.56em}
+</style>
+</head>
+<body>
+
+<canvas id="view"></canvas>
+<video id="video" playsinline muted autoplay></video>
+<button class="btn" id="save">保存</button>
+<button class="btn" id="flip">⟲ カメラ</button>
+<button class="btn" id="tune">調整</button>
+<div id="err"></div>
+
+<div id="panel">
+  <div class="grp">
+    <p class="gh">顔料</p>
+    <div class="pills" id="pills"></div>
+  </div>
+  <div class="grp">
+    <p class="gh">色</p>
+    <label class="ctl"><span class="cl">色相</span>
+      <input id="rHue" type="range" min="-180" max="180" step="1" value="0" aria-label="色相">
+      <span class="cv" id="vHue">0°</span></label>
+    <label class="ctl"><span class="cl">彩度</span>
+      <input id="rSat" type="range" min="0" max="200" step="1" value="118" aria-label="彩度">
+      <span class="cv" id="vSat">118</span></label>
+    <label class="ctl"><span class="cl">濃さ</span>
+      <input id="rDen" type="range" min="30" max="200" step="1" value="100" aria-label="絵の具の濃さ">
+      <span class="cv" id="vDen">100</span></label>
+  </div>
+  <div class="grp">
+    <p class="gh">水</p>
+    <label class="ctl"><span class="cl">にじみ</span>
+      <input id="rBle" type="range" min="0" max="100" step="1" value="42" aria-label="にじみ">
+      <span class="cv" id="vBle">42</span></label>
+    <label class="ctl"><span class="cl">縁だまり</span>
+      <input id="rEdg" type="range" min="0" max="100" step="1" value="62" aria-label="縁だまり">
+      <span class="cv" id="vEdg">62</span></label>
+    <label class="ctl"><span class="cl">階調</span>
+      <input id="rLev" type="range" min="3" max="10" step="1" value="6" aria-label="階調の数">
+      <span class="cv" id="vLev">6</span></label>
+  </div>
+  <div class="grp">
+    <p class="gh">紙</p>
+    <label class="ctl"><span class="cl">粒状</span>
+      <input id="rGrn" type="range" min="0" max="100" step="1" value="45" aria-label="粒状">
+      <span class="cv" id="vGrn">45</span></label>
+    <button id="reset" type="button">はじめに戻す</button>
+  </div>
+</div>
+
+<div id="veil">
+  <div class="panel2">
+    <h1>NIJIMI<b>紙の上でにじませる</b></h1>
+    <canvas id="demo" width="640" height="260"></canvas>
+    <p class="lead">映るものが、白い紙に置いた<em>透明水彩</em>になる。<br>
+      絵の具は重ねるほど濃くなるだけなので、<em>明るい所には何も塗られない</em>。<br>
+      手は<em>水を含んだ筆</em>。通った所は紙が濡れて、にじむ。</p>
+    <button class="go" id="startBtn">紙をひらく</button>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+<script>
+(function(){
+'use strict';
+
+// ═══════════════════════════════════════════════════════════════════════
+//  DOM
+// ═══════════════════════════════════════════════════════════════════════
+var view    = document.getElementById('view');
+var ctx     = view.getContext('2d');
+var video   = document.getElementById('video');
+var flipBtn = document.getElementById('flip');
+var saveBtn = document.getElementById('save');
+var tuneBtn = document.getElementById('tune');
+var panel   = document.getElementById('panel');
+var pills   = document.getElementById('pills');
+var errBox  = document.getElementById('err');
+var veil    = document.getElementById('veil');
+var startBtn= document.getElementById('startBtn');
+var demoCv  = document.getElementById('demo');
+var demoCtx = demoCv.getContext('2d');
+var resetBtn= document.getElementById('reset');
+
+function now(){
+  return (window.performance && window.performance.now) ? window.performance.now() : Date.now();
+}
+function clamp(v,a,b){ return v<a?a:(v>b?b:v); }
+
+// ═══════════════════════════════════════════════════════════════════════
+//  顔料 — PIGMENTS
+//
+//  Watercolour is subtractive: a wash can only take light away from the
+//  paper.  So a palette here is a set of PIGMENTS, and the picture is made
+//  by choosing which pigment and how much of it, never by painting white.
+//
+//  mode 'live'  — the pigment is the pixel's own hue at full strength
+//  mode 'hue'   — the nearest of N pigments by chroma direction
+//  mode 'value' — one pigment, the whole picture in its tints
+// ═══════════════════════════════════════════════════════════════════════
+var PALETTES = [
+  { key:'live', name:'写生', mode:'live',
+    swatch:['#5aa9c9','#e0a05a','#8fbf5f'] },
+  { key:'haru', name:'春霞', mode:'hue',
+    cols:['#4fbfc4','#a3cf62','#f2c94c','#f2856d','#a58fd0','#3f6fbf'] },
+  { key:'gunjo', name:'群青', mode:'hue',
+    cols:['#3550a8','#2f7fb5','#2f9c8a','#7d5fb0','#c85a86','#d2a24c'] },
+  { key:'aki', name:'秋', mode:'hue',
+    cols:['#c98a2e','#b5502f','#7d8a35','#a83f52','#6f5230','#3f7d78'] },
+  { key:'ai', name:'藍', mode:'value',
+    cols:['#1b3a6b'] },
+  { key:'sumi', name:'墨', mode:'value',
+    cols:['#2b2724'] }
+];
+var palIx = 1;
+function PAL(){ return PALETTES[palIx]; }
+
+// precomputed per palette: rgb 0..1 and normalised chroma direction
+var palRGB = [], palDir = [];
+function prepPalette(){
+  palRGB = []; palDir = [];
+  var p = PAL();
+  var cols = p.cols || [];
+  for (var i=0;i<cols.length;i++){
+    var c = hex2rgb(cols[i]);
+    palRGB.push(c);
+    var y = 0.299*c[0] + 0.587*c[1] + 0.114*c[2];
+    var dx = c[0]-y, dy = c[1]-y, dz = c[2]-y;
+    var m = Math.sqrt(dx*dx+dy*dy+dz*dz) || 1;
+    palDir.push([dx/m, dy/m, dz/m]);
+  }
+}
+function hex2rgb(h){
+  return [ parseInt(h.slice(1,3),16)/255,
+           parseInt(h.slice(3,5),16)/255,
+           parseInt(h.slice(5,7),16)/255 ];
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  CONTROLS
+// ═══════════════════════════════════════════════════════════════════════
+var DEF = { hue:0, sat:118, den:100, ble:42, edg:62, lev:6, grn:45, pal:1 };
+var P = { hue:0, sat:1.18, den:1.0, ble:0.42, edg:0.62, lev:6, grn:0.45 };
+
+var SLIDERS = [
+  { id:'rHue', lbl:'vHue', key:'hue', fmt:function(v){ return v+'°'; },  map:function(v){ return v; } },
+  { id:'rSat', lbl:'vSat', key:'sat', fmt:function(v){ return ''+v; },   map:function(v){ return v/100; } },
+  { id:'rDen', lbl:'vDen', key:'den', fmt:function(v){ return ''+v; },   map:function(v){ return v/100; } },
+  { id:'rBle', lbl:'vBle', key:'ble', fmt:function(v){ return ''+v; },   map:function(v){ return v/100; } },
+  { id:'rEdg', lbl:'vEdg', key:'edg', fmt:function(v){ return ''+v; },   map:function(v){ return v/100; } },
+  { id:'rLev', lbl:'vLev', key:'lev', fmt:function(v){ return ''+v; },   map:function(v){ return v; } },
+  { id:'rGrn', lbl:'vGrn', key:'grn', fmt:function(v){ return ''+v; },   map:function(v){ return v/100; } }
+];
+
+function readSlider(s){
+  var el = document.getElementById(s.id);
+  var lb = document.getElementById(s.lbl);
+  if (!el) return;
+  var raw = parseFloat(el.value);
+  if (!isFinite(raw)) raw = 0;
+  P[s.key] = s.map(raw);
+  if (lb) lb.textContent = s.fmt(raw);
+}
+function bindSliders(){
+  for (var i=0;i<SLIDERS.length;i++){
+    (function(s){
+      var el = document.getElementById(s.id);
+      if (!el) return;
+      el.addEventListener('input', function(){ readSlider(s); });
+      readSlider(s);
+    })(SLIDERS[i]);
+  }
+}
+function resetSliders(){
+  var map = { rHue:DEF.hue, rSat:DEF.sat, rDen:DEF.den, rBle:DEF.ble,
+              rEdg:DEF.edg, rLev:DEF.lev, rGrn:DEF.grn };
+  for (var i=0;i<SLIDERS.length;i++){
+    var el = document.getElementById(SLIDERS[i].id);
+    if (el) el.value = map[SLIDERS[i].id];
+    readSlider(SLIDERS[i]);
+  }
+  palIx = DEF.pal; prepPalette(); renderPills();
+}
+
+function renderPills(){
+  var html = '', i, j;
+  for (i=0;i<PALETTES.length;i++){
+    var p = PALETTES[i];
+    var sw = p.swatch || p.cols || [];
+    var dots = '';
+    for (j=0;j<Math.min(3, sw.length);j++){
+      dots += '<i style="background:' + sw[j] + '"></i>';
+    }
+    if (p.mode === 'value' && sw.length === 1){
+      dots = '<i style="background:' + sw[0] + '"></i>' +
+             '<i style="background:' + tint(sw[0], 0.45) + '"></i>' +
+             '<i style="background:' + tint(sw[0], 0.15) + '"></i>';
+    }
+    html += '<button class="pill" type="button" data-i="' + i + '" aria-pressed="' +
+            (i === palIx) + '"><span class="dots">' + dots + '</span>' + p.name + '</button>';
+  }
+  pills.innerHTML = html;
+}
+function tint(hex, d){
+  var c = hex2rgb(hex), i, o = '#';
+  for (i=0;i<3;i++){
+    var v = Math.round((1 - d*(1-c[i]))*255);
+    o += ('0' + clamp(v,0,255).toString(16)).slice(-2);
+  }
+  return o;
+}
+pills.addEventListener('click', function(e){
+  var b = e.target && e.target.closest ? e.target.closest('.pill') : null;
+  if (!b) return;
+  var i = parseInt(b.getAttribute('data-i'), 10);
+  if (!isFinite(i) || i < 0 || i >= PALETTES.length) return;
+  palIx = i; prepPalette(); renderPills(); drip();
+});
+tuneBtn.addEventListener('click', function(){
+  var open = panel.classList.toggle('open');
+  tuneBtn.textContent = open ? '閉じる' : '調整';
+});
+resetBtn.addEventListener('click', function(){ resetSliders(); drip(); });
+
+// ═══════════════════════════════════════════════════════════════════════
+//  SIZE + BUFFERS.  Allocated once per resize; the per-frame path
+//  allocates nothing but the ImageData getImageData is obliged to return.
+// ═══════════════════════════════════════════════════════════════════════
+var W=1, H=1, DPR=1, U=1;
+var SW=1, SH=1, N=1;
+var sr,sg,sb, tr,tg,tb, pr,pg,pb, dq, lev, wet, wetT, grain;
+var srcCv=null, srcCtx=null, washCv=null, washCtx=null, outImg=null;
+var paperCv=null, paperCtx=null, grainCv=null, grainCtx=null;
+var NW=26, NH=20, nsA=null, nsB=null;
+var pixelsWritten = 0;
+
+function resize(){
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  W = Math.max(1, window.innerWidth|0);
+  H = Math.max(1, window.innerHeight|0);
+  view.width  = Math.round(W*DPR);
+  view.height = Math.round(H*DPR);
+  view.style.width = W+'px';
+  view.style.height = H+'px';
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  U = Math.min(W,H)/640;
+
+  // A wash is a broad thing; sampling it finely only costs time and makes
+  // the boundaries photographic.  ~5 screen pixels per sample is plenty,
+  // and the upscale is what softens the edges.
+  SW = clamp(Math.round(W/5), 88, 200);
+  SH = clamp(Math.round(SW * H / Math.max(1,W)), 66, 260);
+  N  = SW*SH;
+
+  sr = new Float32Array(N); sg = new Float32Array(N); sb = new Float32Array(N);
+  tr = new Float32Array(N); tg = new Float32Array(N); tb = new Float32Array(N);
+  pr = new Float32Array(N); pg = new Float32Array(N); pb = new Float32Array(N);
+  dq = new Float32Array(N);
+  lev = new Int16Array(N);
+  wet = new Float32Array(N); wetT = new Float32Array(N);
+
+  // paper tooth, fixed per pixel so pigment settles in the same hollows
+  // every frame instead of boiling
+  grain = new Float32Array(N);
+  for (var i=0;i<N;i++) grain[i] = Math.random();
+
+  if (!srcCv){ srcCv = document.createElement('canvas'); srcCtx = srcCv.getContext('2d'); }
+  srcCv.width = SW; srcCv.height = SH;
+  if (!washCv){ washCv = document.createElement('canvas'); washCtx = washCv.getContext('2d'); }
+  washCv.width = SW; washCv.height = SH;
+  if (washCtx) outImg = washCtx.createImageData(SW, SH);
+
+  buildNoise();
+  buildPaper();
+  buildGrain();
+}
+
+// two smooth, tileable fields — one for each axis of the warp
+function buildNoise(){
+  nsA = smoothField(NW, NH);
+  nsB = smoothField(NW, NH);
+}
+function smoothField(w, h){
+  var a = new Float32Array(w*h), b = new Float32Array(w*h), i, x, y, pass;
+  for (i=0;i<w*h;i++) a[i] = Math.random()*2-1;
+  for (pass=0; pass<2; pass++){
+    for (y=0;y<h;y++){
+      for (x=0;x<w;x++){
+        var s = 0, dx, dy;
+        for (dy=-1; dy<=1; dy++){
+          for (dx=-1; dx<=1; dx++){
+            s += a[((y+dy+h)%h)*w + ((x+dx+w)%w)];
+          }
+        }
+        b[y*w+x] = s/9;
+      }
+    }
+    a.set(b);
+  }
+  // renormalise so the warp amplitude means something
+  var mx = 0;
+  for (i=0;i<w*h;i++) mx = Math.max(mx, Math.abs(a[i]));
+  if (mx > 1e-6) for (i=0;i<w*h;i++) a[i] /= mx;
+  return a;
+}
+function sampleField(f, u, v){
+  // u,v in field cells, wrapped, bilinear
+  var x0 = Math.floor(u), y0 = Math.floor(v);
+  var fx = u - x0, fy = v - y0;
+  var xa = ((x0 % NW) + NW) % NW, xb = (xa + 1) % NW;
+  var ya = ((y0 % NH) + NH) % NH, yb = (ya + 1) % NH;
+  var a = f[ya*NW+xa], b = f[ya*NW+xb], c = f[yb*NW+xa], d = f[yb*NW+xb];
+  return (a + (b-a)*fx) + ((c + (d-c)*fx) - (a + (b-a)*fx))*fy;
+}
+
+function buildPaper(){
+  if (!paperCv){ paperCv = document.createElement('canvas'); paperCtx = paperCv.getContext('2d'); }
+  if (!paperCtx) return;
+  paperCv.width = Math.round(W*DPR); paperCv.height = Math.round(H*DPR);
+  var p = paperCtx;
+  p.setTransform(DPR,0,0,DPR,0,0);
+  p.fillStyle = '#fbf7ee'; p.fillRect(0,0,W,H);
+  // the faintest cockle, so the sheet is not perfectly flat
+  var i, n = 7;
+  for (i=0;i<n;i++){
+    var g = p.createRadialGradient(Math.random()*W, Math.random()*H, 0,
+                                   Math.random()*W, Math.random()*H, Math.max(W,H)*0.5);
+    g.addColorStop(0, 'rgba(214,204,184,0.05)');
+    g.addColorStop(1, 'rgba(214,204,184,0)');
+    p.fillStyle = g; p.fillRect(0,0,W,H);
+  }
+  // pulp flecks
+  var m = Math.min(900, Math.round(W*H/2400));
+  for (i=0;i<m;i++){
+    p.fillStyle = 'rgba(150,138,116,' + (0.03 + Math.random()*0.05).toFixed(3) + ')';
+    var s = Math.random()*1.7 + 0.5;
+    p.fillRect(Math.random()*W, Math.random()*H, s, s*(Math.random()*1.6+0.4));
+  }
+}
+
+// cold-press tooth, at full resolution and multiplied over the finished
+// wash — putting it in the low-res buffer would blur the grain away
+function buildGrain(){
+  if (!grainCv){ grainCv = document.createElement('canvas'); grainCtx = grainCv.getContext('2d'); }
+  if (!grainCtx) return;
+  var gw = Math.min(512, Math.max(128, Math.round(W/2)));
+  var gh = Math.min(512, Math.max(128, Math.round(H/2)));
+  grainCv.width = gw; grainCv.height = gh;
+  var img = grainCtx.createImageData(gw, gh);
+  var d = img.data, i;
+  for (i=0;i<gw*gh;i++){
+    // two frequencies: fine tooth plus a coarser weave
+    var x = i % gw, y = (i / gw)|0;
+    var coarse = Math.sin(x*0.21 + Math.sin(y*0.13)*2.0) * Math.sin(y*0.19);
+    var v = 236 + coarse*7 + (Math.random()*2-1)*11;
+    var c = clamp(v, 190, 255)|0;
+    var o = i*4;
+    d[o] = c; d[o+1] = c; d[o+2] = c; d[o+3] = 255;
+  }
+  grainCtx.putImageData(img, 0, 0);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  AUDIO — almost nothing.  A sheet of paper is quiet.  What is here is
+//  the sound of water in a jar: a narrow band of noise that opens only
+//  while the paper is actually wet, and a single drip when a control is
+//  moved so the panel has a voice.
+// ═══════════════════════════════════════════════════════════════════════
+var AC = window.AudioContext || window.webkitAudioContext;
+var ac=null, master=null, comp=null, wetGain=null, wetFilt=null, noiseBuf=null;
+
+function initAudio(){
+  if (ac || !AC) return;
+  try { ac = new AC(); } catch(e){ ac = null; return; }
+  comp = ac.createDynamicsCompressor();
+  try {
+    comp.threshold.value = -24; comp.knee.value = 20;
+    comp.ratio.value = 6; comp.attack.value = 0.01; comp.release.value = 0.35;
+  } catch(e){}
+  master = ac.createGain(); master.gain.value = 0.5;
+  master.connect(comp); comp.connect(ac.destination);
+
+  var len = Math.floor(ac.sampleRate*2);
+  noiseBuf = ac.createBuffer(1, len, ac.sampleRate);
+  var d = noiseBuf.getChannelData(0), i;
+  for (i=0;i<len;i++) d[i] = Math.random()*2-1;
+
+  var s = ac.createBufferSource();
+  s.buffer = noiseBuf; s.loop = true;
+  wetFilt = ac.createBiquadFilter();
+  wetFilt.type = 'bandpass'; wetFilt.frequency.value = 1400; wetFilt.Q.value = 1.4;
+  wetGain = ac.createGain(); wetGain.gain.value = 0.0001;
+  s.connect(wetFilt); wetFilt.connect(wetGain); wetGain.connect(master);
+  try { s.start(); } catch(e){}
+}
+function resumeAudio(){ if (ac && ac.state === 'suspended'){ try{ ac.resume(); }catch(e){} } }
+
+function setWetSound(x){
+  if (!ac || !wetGain || !wetFilt) return;
+  var v = clamp(x, 0, 1);
+  if (!isFinite(v)) v = 0;
+  try {
+    wetGain.gain.setTargetAtTime(0.0001 + v*0.024, ac.currentTime, 0.35);
+    wetFilt.frequency.setTargetAtTime(900 + v*1700, ac.currentTime, 0.4);
+  } catch(e){}
+}
+// a drop into a water jar: a rising resonant blip
+function drip(){
+  if (!ac || !master) return;
+  var t = ac.currentTime;
+  var o = ac.createOscillator(), g = ac.createGain();
+  o.type = 'sine';
+  o.frequency.setValueAtTime(560, t);
+  o.frequency.exponentialRampToValueAtTime(1150, t+0.055);
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.055, t+0.006);
+  g.gain.exponentialRampToValueAtTime(0.0001, t+0.16);
+  o.connect(g); g.connect(master);
+  o.start(t); o.stop(t+0.2);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  CAMERA
+// ═══════════════════════════════════════════════════════════════════════
+var facing='user', mirror=true, stream=null, camOK=false;
+
+function showError(e){
+  var msg = (e && e.message) ? e.message : String(e || 'unknown');
+  errBox.style.display = 'block';
+  errBox.textContent = 'カメラを起動できませんでした：' + msg +
+    '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+}
+function startStream(){
+  var md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) return Promise.reject(new Error('getUserMedia is unavailable'));
+  if (stream && stream.getTracks) stream.getTracks().forEach(function(t){ t.stop(); });
+  return md.getUserMedia({
+    video:{ facingMode:{ ideal:facing }, width:{ ideal:960 }, height:{ ideal:720 } },
+    audio:false
+  }).then(function(st){
+    stream = st; video.srcObject = st; mirror = (facing === 'user'); camOK = true;
+    var p = video.play();
+    return (p && p.then) ? p.catch(function(){}) : null;
+  });
+}
+flipBtn.addEventListener('click', function(){
+  facing = (facing === 'user') ? 'environment' : 'user';
+  loseHands();
+  startStream().then(startMpCamera).catch(showError);
+});
+saveBtn.addEventListener('click', function(){
+  try {
+    var url = view.toDataURL('image/png');
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = 'nijimi-' + Date.now() + '.png';
+    a.click();
+    drip();
+  } catch(e){ /* a tainted canvas cannot be saved; nothing to do but skip */ }
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+//  HANDS — a brush loaded with water.  Not a cursor: what it leaves behind
+//  is wetness on the paper, and wetness is what changes how the paint
+//  behaves there.
+// ═══════════════════════════════════════════════════════════════════════
+var hands=null, mpCamera=null, mpReady=false;
+var TRACK_GAP = 0.14, TRACK_JUMP = 0.34, LOST_MS = 380;
+var FLICK_V = 1.5;              // normalised units/s — well above tracker jitter
+var HANDS = [ newHand(), newHand() ];
+function newHand(){
+  return { live:false, t:-1e9, x:0.5, y:0.5, px:0.5, py:0.5, vx:0, vy:0, sp:0, lastFlick:-1e9 };
+}
+function loseHand(h){ h.live = false; h.vx = 0; h.vy = 0; h.sp = 0; }
+function loseHands(){ loseHand(HANDS[0]); loseHand(HANDS[1]); }
+
+function initHands(){
+  if (typeof window.Hands !== 'function') return false;
+  try {
+    hands = new window.Hands({ locateFile:function(f){
+      return 'https://cdn.jsdelivr.net/npm/@mediapipe/hands/' + f;
+    }});
+    hands.setOptions({ maxNumHands:2, modelComplexity:0,
+                       minDetectionConfidence:0.6, minTrackingConfidence:0.5 });
+    hands.onResults(onHands);
+    mpReady = true; return true;
+  } catch(e){ return false; }
+}
+function startMpCamera(){
+  if (!mpReady || !hands) return;
+  if (mpCamera) return;
+  if (typeof window.Camera !== 'function') return;
+  try {
+    mpCamera = new window.Camera(video, {
+      onFrame: function(){
+        if (!hands) return Promise.resolve();
+        return hands.send({ image: video }).catch(function(){});
+      },
+      width:480, height:360
+    });
+    mpCamera.start();
+  } catch(e){ mpCamera = null; }
+}
+function validLm(c){
+  if (!c || c.length < 21) return null;
+  for (var i=0;i<21;i++){
+    var p = c[i];
+    if (!p || typeof p.x !== 'number' || typeof p.y !== 'number' ||
+        !isFinite(p.x) || !isFinite(p.y)) return null;
+  }
+  return c;
+}
+function readHand(h, c, t){
+  var ids=[0,5,9,13,17], cx=0, cy=0, i;
+  for (i=0;i<ids.length;i++){
+    var p = c[ids[i]];
+    if (!p) return;
+    cx += p.x; cy += p.y;
+  }
+  cx/=ids.length; cy/=ids.length;
+  if (!isFinite(cx) || !isFinite(cy)) return;
+  var x = mirror ? (1-cx) : cx, y = cy;
+  if (!isFinite(x) || !isFinite(y)) return;
+
+  var dt = h.live ? (t - h.t)/1000 : 0;
+  var jump = h.live ? Math.hypot(x-h.x, y-h.y) : 0;
+  // Differentiating across a dropout or a re-acquisition invents an
+  // enormous velocity from nothing, and here that would fling splatter
+  // across the sheet the instant tracking blinked.
+  var cont = (h.live && dt > 0.004 && dt < TRACK_GAP && jump < TRACK_JUMP);
+  h.px = h.live ? h.x : x;
+  h.py = h.live ? h.y : y;
+  if (cont){
+    var nvx = (x-h.x)/dt, nvy = (y-h.y)/dt;
+    if (isFinite(nvx) && isFinite(nvy)){
+      h.vx += (nvx-h.vx)*0.5;
+      h.vy += (nvy-h.vy)*0.5;
+    }
+  } else {
+    h.px = x; h.py = y; h.vx = 0; h.vy = 0;
+  }
+  h.sp = Math.hypot(h.vx, h.vy);
+  if (!isFinite(h.sp)) h.sp = 0;
+  h.x = x; h.y = y; h.t = t; h.live = true;
+}
+function onHands(res){
+  var t = now();
+  var list = (res && res.multiHandLandmarks) ? res.multiHandLandmarks : null;
+  var n = list ? Math.min(list.length, 2) : 0;
+  for (var i=0;i<2;i++){
+    var c = (i < n) ? validLm(list[i]) : null;
+    if (c) readHand(HANDS[i], c, t);
+    else if (HANDS[i].live && t - HANDS[i].t > LOST_MS) loseHand(HANDS[i]);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  WATER — the wet map lives on the sample grid and drives everything the
+//  hand does to the paint.
+// ═══════════════════════════════════════════════════════════════════════
+var DRY = 3.6;                  // seconds for wetness to fall by 1/e
+var wetMean = 0;
+var drops = [];
+
+function stampWet(nx, ny, radius, amount){
+  if (!wet) return;
+  var cx = nx*SW, cy = ny*SH;
+  if (!isFinite(cx) || !isFinite(cy)) return;
+  var r = Math.max(1.5, radius);
+  var x0 = Math.max(0, Math.floor(cx-r)), x1 = Math.min(SW-1, Math.ceil(cx+r));
+  var y0 = Math.max(0, Math.floor(cy-r)), y1 = Math.min(SH-1, Math.ceil(cy+r));
+  var x, y, r2 = r*r;
+  for (y=y0; y<=y1; y++){
+    for (x=x0; x<=x1; x++){
+      var dx = x-cx, dy = y-cy;
+      var q = (dx*dx+dy*dy)/r2;
+      if (q >= 1) continue;
+      var f = (1-q)*(1-q);
+      var i = y*SW+x;
+      var v = wet[i] + amount*f;
+      wet[i] = v > 1 ? 1 : v;
+    }
+  }
+}
+
+function stepWater(dt){
+  if (!wet) return;
+  var i, k = Math.exp(-dt/DRY);
+  for (i=0;i<N;i++) wet[i] *= k;
+
+  // the brush
+  var h, j;
+  for (j=0;j<HANDS.length;j++){
+    h = HANDS[j];
+    if (!h.live) continue;
+    var rad = SW*0.085;
+    // stamp along the path so a quick sweep leaves a stroke, not dots
+    var steps = Math.min(6, 1 + Math.floor(Math.hypot(h.x-h.px, h.y-h.py)*SW/rad));
+    for (i=0;i<steps;i++){
+      var f = steps > 1 ? i/(steps-1) : 1;
+      stampWet(h.px + (h.x-h.px)*f, h.py + (h.y-h.py)*f, rad, 0.30*dt*60/steps);
+    }
+    // a flick throws the brush's load onto the paper
+    if (h.sp > FLICK_V && now() - h.lastFlick > 420){
+      h.lastFlick = now();
+      spatter(h.x, h.y, h.vx, h.vy);
+    }
+  }
+
+  // water spreads a little on the sheet
+  for (i=0;i<N;i++) wetT[i] = wet[i];
+  var x, y;
+  for (y=0;y<SH;y++){
+    var row = y*SW;
+    for (x=0;x<SW;x++){
+      var a = wetT[x>0 ? row+x-1 : row+x];
+      var b = wetT[row+x];
+      var c = wetT[x<SW-1 ? row+x+1 : row+x];
+      wet[row+x] = (a + b*2 + c)*0.25;
+    }
+  }
+  for (x=0;x<SW;x++){
+    for (y=0;y<SH;y++){
+      var idx = y*SW+x;
+      var a2 = wet[y>0 ? idx-SW : idx];
+      var b2 = wet[idx];
+      var c2 = wet[y<SH-1 ? idx+SW : idx];
+      wetT[idx] = (a2 + b2*2 + c2)*0.25;
+    }
+  }
+  var s = 0;
+  for (i=0;i<N;i++){
+    var v = wetT[i];
+    if (!isFinite(v) || v < 0) v = 0; else if (v > 1) v = 1;
+    wet[i] = v; s += v;
+  }
+  wetMean = N > 0 ? s/N : 0;
+
+  // drops dry out
+  for (i=drops.length-1; i>=0; i--){
+    drops[i].life += dt;
+    if (drops[i].life > drops[i].max) drops.splice(i,1);
+  }
+}
+
+function spatter(nx, ny, vx, vy){
+  var n = 4 + (Math.random()*6|0), i;
+  var sp = Math.hypot(vx, vy) || 1;
+  for (i=0;i<n;i++){
+    var spread = 0.10 + Math.random()*0.20;
+    var jitter = (Math.random()-0.5)*0.5;
+    var dx = (vx/sp)*spread + jitter*0.12;
+    var dy = (vy/sp)*spread + (Math.random()-0.5)*0.12;
+    var x = clamp(nx + dx, 0.02, 0.98), y = clamp(ny + dy, 0.02, 0.98);
+    drops.push({
+      x:x, y:y, r: (2.2 + Math.random()*7.5),
+      life:0, max: 5 + Math.random()*4,
+      c: pigmentForDrop()
+    });
+    stampWet(x, y, SW*0.02, 0.5);
+  }
+  if (drops.length > 70) drops.splice(0, drops.length-70);
+}
+function pigmentForDrop(){
+  if (palRGB.length){
+    var c = palRGB[(Math.random()*palRGB.length)|0];
+    return 'rgb(' + Math.round(c[0]*255) + ',' + Math.round(c[1]*255) + ',' + Math.round(c[2]*255) + ')';
+  }
+  return 'rgb(90,140,170)';
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  THE WASH
+// ═══════════════════════════════════════════════════════════════════════
+var haveSrc = false, srcFrozen = false;
+var warpT = 0;
+
+function readSource(){
+  if (srcFrozen) return true;
+  if (!camOK || !video || !video.videoWidth || !srcCtx || !sr) return false;
+  var vw = video.videoWidth, vh = video.videoHeight;
+  if (!vw || !vh) return false;
+
+  var s = Math.max(SW/vw, SH/vh);
+  var dw = vw*s, dh = vh*s;
+  srcCtx.save();
+  if (mirror){ srcCtx.translate(SW, 0); srcCtx.scale(-1, 1); }
+  try { srcCtx.drawImage(video, (SW-dw)/2, (SH-dh)/2, dw, dh); }
+  catch(e){ srcCtx.restore(); return false; }
+  srcCtx.restore();
+
+  var img;
+  try { img = srcCtx.getImageData(0, 0, SW, SH); }
+  catch(e){ return false; }
+  if (!img || !img.data || img.data.length < N*4) return false;
+  var d = img.data, i;
+  for (i=0;i<N;i++){
+    var o = i*4;
+    sr[i] = d[o]/255; sg[i] = d[o+1]/255; sb[i] = d[o+2]/255;
+  }
+  blur3(sr, tr); blur3(sg, tg); blur3(sb, tb);
+  blur3(sr, tr); blur3(sg, tg); blur3(sb, tb);
+  haveSrc = true;
+  return true;
+}
+
+// separable 1-2-1, in place through the scratch buffer.  Two passes of
+// this is what flattens photographic detail into something a wash can
+// actually be; without it the quantiser produces confetti.
+function blur3(a, t){
+  var x, y, idx;
+  for (y=0;y<SH;y++){
+    var row = y*SW;
+    for (x=0;x<SW;x++){
+      idx = row+x;
+      t[idx] = (a[x>0?idx-1:idx] + a[idx]*2 + a[x<SW-1?idx+1:idx])*0.25;
+    }
+  }
+  for (x=0;x<SW;x++){
+    for (y=0;y<SH;y++){
+      idx = y*SW+x;
+      a[idx] = (t[y>0?idx-SW:idx] + t[idx]*2 + t[y<SH-1?idx+SW:idx])*0.25;
+    }
+  }
+}
+
+function bilin(a, u, v){
+  var x0 = u|0, y0 = v|0;
+  if (x0 < 0) x0 = 0; else if (x0 > SW-2) x0 = SW-2;
+  if (y0 < 0) y0 = 0; else if (y0 > SH-2) y0 = SH-2;
+  var fx = u-x0, fy = v-y0;
+  if (fx < 0) fx = 0; else if (fx > 1) fx = 1;
+  if (fy < 0) fy = 0; else if (fy > 1) fy = 1;
+  var i = y0*SW+x0;
+  var p = a[i]     + (a[i+1]     - a[i])*fx;
+  var q = a[i+SW]  + (a[i+SW+1]  - a[i+SW])*fx;
+  return p + (q-p)*fy;
+}
+
+// hue rotation matrix, rebuilt once per frame rather than per pixel
+var HM = new Float32Array(9);
+function hueMatrix(deg){
+  var a = deg*Math.PI/180, c = Math.cos(a), s = Math.sin(a);
+  HM[0] = 0.213 + c*0.787 - s*0.213;
+  HM[1] = 0.715 - c*0.715 - s*0.715;
+  HM[2] = 0.072 - c*0.072 + s*0.928;
+  HM[3] = 0.213 - c*0.213 + s*0.143;
+  HM[4] = 0.715 + c*0.285 + s*0.140;
+  HM[5] = 0.072 - c*0.072 - s*0.283;
+  HM[6] = 0.213 - c*0.213 - s*0.787;
+  HM[7] = 0.715 - c*0.715 + s*0.715;
+  HM[8] = 0.072 + c*0.928 + s*0.072;
+}
+
+// ── pass A: warp, colour, choose a pigment, quantise into washes ───────
+function layWash(){
+  var mode = PAL().mode;
+  var LEV = Math.max(2, Math.round(P.lev));
+  var amp = P.ble * SW * 0.085;
+  var fx = NW/SW, fy = NH/SH;
+  var tA = warpT*0.021, tB = warpT*0.017;
+  var sat = P.sat, den = P.den;
+  hueMatrix(P.hue);
+  var np = palRGB.length;
+
+  var x, y, i, k;
+  for (y=0;y<SH;y++){
+    for (x=0;x<SW;x++){
+      i = y*SW+x;
+      var w = wet[i];
+
+      // Paint goes where the water went, not where the photograph's edge
+      // was.  Wet paper carries it further.
+      var a2 = amp*(1 + w*2.6);
+      var u = x + sampleField(nsA, x*fx + tA*NW, y*fy + tB*NH)*a2;
+      var v = y + sampleField(nsB, x*fx - tB*NW, y*fy + tA*NH)*a2;
+
+      var r = bilin(sr, u, v), g = bilin(sg, u, v), b = bilin(sb, u, v);
+
+      var Y0 = 0.299*r + 0.587*g + 0.114*b;
+      r = Y0 + (r-Y0)*sat; g = Y0 + (g-Y0)*sat; b = Y0 + (b-Y0)*sat;
+      var r2 = HM[0]*r + HM[1]*g + HM[2]*b;
+      var g2 = HM[3]*r + HM[4]*g + HM[5]*b;
+      var b2 = HM[6]*r + HM[7]*g + HM[8]*b;
+      r = r2 < 0 ? 0 : (r2 > 1 ? 1 : r2);
+      g = g2 < 0 ? 0 : (g2 > 1 ? 1 : g2);
+      b = b2 < 0 ? 0 : (b2 > 1 ? 1 : b2);
+
+      var Y = 0.299*r + 0.587*g + 0.114*b;
+      var mx = r>g ? (r>b?r:b) : (g>b?g:b);
+      var mn = r<g ? (r<b?r:b) : (g<b?g:b);
+      var chroma = mx - mn;
+
+      var Pr, Pg, Pb;
+      if (mode === 'live'){
+        // the pixel's own hue at full strength — the pigment you would
+        // have squeezed out of the tube to make this colour
+        if (mx > 0.004){ Pr = r/mx; Pg = g/mx; Pb = b/mx; }
+        else { Pr = 0.55; Pg = 0.58; Pb = 0.62; }
+      } else if (mode === 'value' || np === 1){
+        Pr = palRGB[0][0]; Pg = palRGB[0][1]; Pb = palRGB[0][2];
+      } else {
+        // nearest pigment by chroma DIRECTION, so the picture keeps its
+        // colour relationships while being repainted in six tubes
+        var dr = r-Y, dg = g-Y, db = b-Y;
+        var m = Math.sqrt(dr*dr+dg*dg+db*db);
+        var best = 0;
+        if (m > 0.012){
+          dr /= m; dg /= m; db /= m;
+          var bd = -2;
+          for (k=0;k<np;k++){
+            var pd = palDir[k];
+            var dot = dr*pd[0] + dg*pd[1] + db*pd[2];
+            if (dot > bd){ bd = dot; best = k; }
+          }
+        } else {
+          // a neutral pixel takes whichever pigment is coolest, faintly
+          best = np-1;
+        }
+        Pr = palRGB[best][0]; Pg = palRGB[best][1]; Pb = palRGB[best][2];
+      }
+
+      // How much pigment.  Dark and saturated both mean "more paint"; the
+      // bright end has to reach a clean zero or the paper never shows.
+      var dens = ((1-Y)*0.78 + chroma*0.52) * den;
+      dens = (dens - 0.06) * 1.16;
+      if (dens < 0) dens = 0; else if (dens > 1) dens = 1;
+      dens *= (1 - w*0.30);            // wet paper dilutes
+
+      var L = Math.round(dens*(LEV-1));
+      if (L < 0) L = 0; else if (L > LEV-1) L = LEV-1;
+      lev[i] = L;
+      dq[i]  = L/(LEV-1);              // level 0 is bare paper, exactly
+      pr[i] = Pr; pg[i] = Pg; pb[i] = Pb;
+    }
+  }
+}
+
+// ── pass B: 縁だまり, granulation, and the pigment laid over paper ─────
+function dryWash(){
+  if (!outImg) return;
+  var d = outImg.data;
+  var edge = P.edg, grn = P.grn;
+  var x, y, i;
+  pixelsWritten = 0;
+
+  for (y=0;y<SH;y++){
+    for (x=0;x<SW;x++){
+      i = y*SW+x;
+      var L = lev[i];
+
+      // As a wash dries its water retreats to the rim and leaves the
+      // pigment there.  So the rim belongs to the HEAVIER side of a
+      // boundary: count the neighbours that carry less paint than this
+      // pixel does.  This is the whole reason it reads as watercolour.
+      var e = 0;
+      if (x > 0    && lev[i-1]  < L) e++;
+      if (x < SW-1 && lev[i+1]  < L) e++;
+      if (y > 0    && lev[i-SW] < L) e++;
+      if (y < SH-1 && lev[i+SW] < L) e++;
+
+      var w = wet[i];
+      var pool = (e*0.25) * edge * (1 - w*0.75);
+
+      // …and a pool also forms at the edge of a puddle, which is the
+      // hard ring you get when water lands on a drying wash
+      var we = 0;
+      if (x > 0)    we += Math.abs(w - wet[i-1]);
+      if (x < SW-1) we += Math.abs(w - wet[i+1]);
+      if (y > 0)    we += Math.abs(w - wet[i-SW]);
+      if (y < SH-1) we += Math.abs(w - wet[i+SW]);
+      pool += Math.min(0.55, we*1.5) * edge;
+
+      // pigment settles into the tooth of the paper
+      var gr = 1 + (grain[i]-0.5)*grn*0.85;
+
+      var dens = dq[i] * (1 + pool*1.45) * gr;
+      if (dens < 0) dens = 0; else if (dens > 2.2) dens = 2.2;
+
+      // Subtractive: a wash can only take light away from the sheet.
+      //
+      // Up to one full-strength coat the tint is linear, which is what
+      // gives exact bare paper at zero.  Past that — which is where a
+      // pooled rim lives — the linear form runs each channel negative
+      // INDEPENDENTLY, and clamping them separately twists the hue: a rim
+      // of one pigment came out a measurably different colour from its own
+      // wash.  Beyond one coat this is a second coat of the same paint, so
+      // the honest model is Beer–Lambert, out = P^d.  The two agree exactly
+      // at d = 1, it can never clip, and stacked paint keeps its colour.
+      var R, G, B;
+      if (dens <= 1){
+        R = 1 - dens*(1-pr[i]);
+        G = 1 - dens*(1-pg[i]);
+        B = 1 - dens*(1-pb[i]);
+      } else {
+        R = Math.pow(pr[i], dens);
+        G = Math.pow(pg[i], dens);
+        B = Math.pow(pb[i], dens);
+      }
+
+      var o = i*4;
+      d[o]   = R < 0 ? 0 : (R > 1 ? 255 : (R*255)|0);
+      d[o+1] = G < 0 ? 0 : (G > 1 ? 255 : (G*255)|0);
+      d[o+2] = B < 0 ? 0 : (B > 1 ? 255 : (B*255)|0);
+      d[o+3] = 255;
+      pixelsWritten++;
+    }
+  }
+  washCtx.putImageData(outImg, 0, 0);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  COMPOSITING
+// ═══════════════════════════════════════════════════════════════════════
+function drawDrops(){
+  if (!drops.length) return;
+  var i;
+  ctx.save();
+  ctx.globalCompositeOperation = 'multiply';
+  for (i=0;i<drops.length;i++){
+    var dp = drops[i];
+    var k = 1 - dp.life/dp.max;
+    if (k <= 0) continue;
+    var x = dp.x*W, y = dp.y*H, r = dp.r*U;
+    if (!isFinite(x) || !isFinite(y) || !(r > 0)) continue;
+    // wet at first, then a hard-rimmed dry mark
+    var dryness = clamp(dp.life/1.2, 0, 1);
+    ctx.globalAlpha = k*0.5;
+    ctx.fillStyle = dp.c;
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI*2); ctx.fill();
+    if (dryness > 0.25){
+      ctx.globalAlpha = k*0.42*dryness;
+      ctx.strokeStyle = dp.c;
+      ctx.lineWidth = Math.max(0.7, r*0.20);
+      ctx.beginPath(); ctx.arc(x, y, r*0.94, 0, Math.PI*2); ctx.stroke();
+    }
+  }
+  ctx.restore();
+}
+
+function drawBrush(){
+  var i;
+  ctx.save();
+  for (i=0;i<HANDS.length;i++){
+    var h = HANDS[i];
+    if (!h.live) continue;
+    var x = h.x*W, y = h.y*H;
+    if (!isFinite(x) || !isFinite(y)) continue;
+    var r = SW ? (SW*0.085)*(W/SW) : 40;
+    ctx.globalAlpha = 0.30;
+    ctx.strokeStyle = '#6f6a60';
+    ctx.lineWidth = Math.max(1, 1.2*U);
+    ctx.beginPath(); ctx.arc(x, y, r*0.92, 0, Math.PI*2); ctx.stroke();
+    ctx.globalAlpha = 0.55;
+    ctx.beginPath(); ctx.arc(x, y, 2.6*U, 0, Math.PI*2);
+    ctx.fillStyle = '#6f6a60'; ctx.fill();
+    if (h.sp > FLICK_V){
+      ctx.globalAlpha = 0.5;
+      ctx.beginPath(); ctx.arc(x, y, r*1.22, 0, Math.PI*2); ctx.stroke();
+    }
+  }
+  ctx.restore();
+}
+
+function drawHud(){
+  var m = Math.max(12, 15*U);
+  ctx.save();
+  ctx.globalAlpha = 0.62;
+  ctx.fillStyle = '#a39c90';
+  ctx.font = '400 ' + Math.max(10, 11*U|0) + 'px "Klee One", serif';
+  ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+  ctx.fillText('NIJIMI　' + PAL().name + '　階調 ' + Math.round(P.lev), m, m + 2);
+
+  if (!HANDS[0].live && !HANDS[1].live){
+    ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+    ctx.font = '400 ' + Math.max(11, 12*U|0) + 'px "Klee One", serif';
+    ctx.fillText(camOK ? '手をかざすと、そこが濡れてにじみます' : 'カメラを待っています',
+                 W/2, H - m - 44*U);
+  }
+  ctx.restore();
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  THE WAITING DIAGRAM — a stroke is laid, the water retreats, and the
+//  pigment is left at the rim.  That is the whole piece in three seconds.
+// ═══════════════════════════════════════════════════════════════════════
+var demoT = 0;
+function drawDemo(dt){
+  if (!demoCtx) return;
+  demoT = (demoT + dt) % 5.0;
+  var d = demoCtx, w = demoCv.width, h = demoCv.height;
+  d.setTransform(1,0,0,1,0,0);
+  d.fillStyle = '#fdfaf3'; d.fillRect(0,0,w,h);
+
+  var p = demoT/5.0;
+  var lay = clamp(p/0.28, 0, 1);          // the stroke goes down
+  var dry = clamp((p-0.34)/0.42, 0, 1);   // and then dries
+
+  var cx = w*0.5, cy = h*0.46, rw = w*0.30, rh = h*0.26;
+  var i;
+
+  // the wash, spreading then holding
+  d.save();
+  d.globalCompositeOperation = 'multiply';
+  d.globalAlpha = 0.5*lay;
+  d.fillStyle = '#4fbfc4';
+  d.beginPath();
+  for (i=0;i<=48;i++){
+    var a = i/48*Math.PI*2;
+    var wob = 1 + Math.sin(a*3 + demoT*0.6)*0.055 + Math.cos(a*5 - demoT*0.4)*0.035;
+    var rr = (0.55 + lay*0.45)*wob;
+    var x = cx + Math.cos(a)*rw*rr, y = cy + Math.sin(a)*rh*rr;
+    if (i === 0) d.moveTo(x,y); else d.lineTo(x,y);
+  }
+  d.closePath(); d.fill();
+
+  // 縁だまり: the rim darkens as it dries
+  if (dry > 0){
+    d.globalAlpha = 0.55*dry;
+    d.strokeStyle = '#2f8f96';
+    d.lineWidth = 3 + dry*4;
+    d.beginPath();
+    for (i=0;i<=48;i++){
+      var a2 = i/48*Math.PI*2;
+      var wob2 = 1 + Math.sin(a2*3 + demoT*0.6)*0.055 + Math.cos(a2*5 - demoT*0.4)*0.035;
+      var x2 = cx + Math.cos(a2)*rw*wob2, y2 = cy + Math.sin(a2)*rh*wob2;
+      if (i === 0) d.moveTo(x2,y2); else d.lineTo(x2,y2);
+    }
+    d.closePath(); d.stroke();
+  }
+  d.restore();
+
+  // the brush, sweeping in and away
+  var bx = lay < 1 ? (w*0.08 + lay*(cx - w*0.08)) : cx + (p-0.28)*w*0.9;
+  d.globalAlpha = 0.5;
+  d.strokeStyle = '#6f6a60'; d.lineWidth = 2;
+  d.beginPath(); d.arc(clamp(bx, 0, w), cy, 26, 0, Math.PI*2); d.stroke();
+  d.globalAlpha = 1;
+
+  d.fillStyle = '#8d867b';
+  d.font = '400 20px "Klee One", serif';
+  d.textAlign = 'center';
+  d.fillText(dry < 0.4 ? '水をふくんだ筆でおく' : '乾き際、縁に絵の具が溜まる', cx, h - 16);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  LOOP
+// ═══════════════════════════════════════════════════════════════════════
+var lastT = 0, running = false, started = false;
+
+function frame(){
+  var t = now();
+  var dt = (t - lastT)/1000;
+  if (!isFinite(dt) || dt < 0) dt = 0;
+  dt = Math.min(dt, 0.05);
+  lastT = t;
+  warpT += dt;
+
+  if (!running){
+    drawDemo(dt);
+  } else {
+    stepWater(dt);
+    if (readSource()){ layWash(); dryWash(); }
+    setWetSound(Math.min(1, wetMean*9));
+  }
+
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  if (paperCv) ctx.drawImage(paperCv, 0, 0, W, H);
+  else { ctx.fillStyle = '#fbf7ee'; ctx.fillRect(0,0,W,H); }
+
+  if (running && haveSrc){
+    var sm = ctx.imageSmoothingEnabled;
+    ctx.imageSmoothingEnabled = true;
+    ctx.globalCompositeOperation = 'multiply';
+    try { ctx.drawImage(washCv, 0, 0, SW, SH, 0, 0, W, H); } catch(e){}
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.imageSmoothingEnabled = sm;
+    drawDrops();
+    // the sheet's tooth, at full resolution and over everything
+    if (grainCv && P.grn > 0.01){
+      ctx.save();
+      ctx.globalCompositeOperation = 'multiply';
+      ctx.globalAlpha = 0.30 + P.grn*0.42;
+      try { ctx.drawImage(grainCv, 0, 0, grainCv.width, grainCv.height, 0, 0, W, H); } catch(e){}
+      ctx.restore();
+    }
+    drawBrush();
+    drawHud();
+  }
+
+  requestAnimationFrame(frame);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  BOOT
+// ═══════════════════════════════════════════════════════════════════════
+window.addEventListener('resize', resize);
+if (window.visualViewport && window.visualViewport.addEventListener){
+  window.visualViewport.addEventListener('resize', resize);
+}
+prepPalette();
+bindSliders();
+// The defaults live in DEF and nowhere else.  Driving the inputs from it at
+// boot means the markup's value="" attributes can never silently drift out
+// of step with what the code thinks the default is.
+resetSliders();
+resize();
+lastT = now();
+requestAnimationFrame(frame);
+
+startBtn.addEventListener('click', function(){
+  initAudio(); resumeAudio();
+  veil.classList.add('hide');
+  running = true;
+  if (!started){
+    started = true;
+    if (initHands()) startStream().then(startMpCamera).catch(showError);
+    else startStream().catch(showError);
+  }
+});
+
+// exposed only so the offline harness can assert on the real state
+window.__NIJIMI__ = {
+  s:function(){
+    return { running:running, pal:PAL().key, mode:PAL().mode,
+             sw:SW, sh:SH, n:N, pixels:pixelsWritten, haveSrc:haveSrc,
+             wetMean:wetMean, drops:drops.length, levels:Math.round(P.lev),
+             params:{ hue:P.hue, sat:P.sat, den:P.den, ble:P.ble,
+                      edg:P.edg, lev:P.lev, grn:P.grn },
+             hands:[HANDS[0].live, HANDS[1].live],
+             panelOpen: panel.classList.contains('open') };
+  },
+  out:function(){ return outImg; },
+  levels:function(){ return lev; },
+  wet:function(){ return wet; },
+  setSlider:function(id, v){
+    var el = document.getElementById(id);
+    if (!el) return;
+    el.value = v;
+    for (var i=0;i<SLIDERS.length;i++) if (SLIDERS[i].id === id) readSlider(SLIDERS[i]);
+  },
+  setPal:function(i){ palIx = i % PALETTES.length; prepPalette(); renderPills(); },
+  // feed a known picture instead of the camera, so the wash can be checked
+  // against an image whose correct output is knowable
+  poke:function(fn){
+    if (!sr) return;
+    var x, y;
+    for (y=0;y<SH;y++){
+      for (x=0;x<SW;x++){
+        var c = fn(x/(SW-1), y/(SH-1));
+        var i = y*SW+x;
+        sr[i] = clamp(c[0],0,1); sg[i] = clamp(c[1],0,1); sb[i] = clamp(c[2],0,1);
+      }
+    }
+    srcFrozen = true; haveSrc = true;
+  }
+};
+
+})();
+</script>
+</body>
+</html>
