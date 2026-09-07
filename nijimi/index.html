@@ -67,8 +67,12 @@
   #view{position:fixed;inset:0;width:100%;height:100%;display:block}
   #video{position:fixed;width:2px;height:2px;opacity:0;pointer-events:none;left:-10px;top:-10px}
 
+  /* Every button sits ABOVE the sliding panel.  It used to share z-index 7
+     with it and lose, because the panel comes later in the DOM — so opening
+     the panel put its own bottom padding straight over the 調整 button and
+     swallowed every click on it.  There was no way back out. */
   .btn{
-    position:fixed;z-index:6;cursor:pointer;
+    position:fixed;z-index:8;cursor:pointer;
     font:400 12px/1 'Klee One',serif;letter-spacing:.12em;
     color:#6f6a60;background:rgba(251,247,238,.86);
     border:1px solid rgba(111,106,96,.4);border-radius:2px;padding:9px 13px;
@@ -77,11 +81,11 @@
   .btn:active{color:#3f8f96;border-color:#3f8f96}
   #flip{top:calc(env(safe-area-inset-top,0px) + 12px);right:12px}
   #save{top:calc(env(safe-area-inset-top,0px) + 12px);right:96px}
-  #tune{left:12px;bottom:calc(env(safe-area-inset-bottom,0px) + 12px);z-index:7}
+  #tune{left:12px;bottom:calc(env(safe-area-inset-bottom,0px) + 12px)}
 
   #err{
     display:none;position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);
-    z-index:9;max-width:min(88vw,460px);white-space:pre-wrap;line-height:1.9;
+    z-index:11;max-width:min(88vw,460px);white-space:pre-wrap;line-height:1.9;
     background:#fbf7ee;border:1px solid #c86a55;padding:20px 22px;
     font:400 13px/1.9 'Klee One',serif;color:#6f6a60;
   }
@@ -91,11 +95,27 @@
     position:fixed;z-index:7;left:0;right:0;bottom:0;
     background:rgba(251,247,238,.965);
     border-top:1px solid rgba(111,106,96,.28);
-    padding:14px 16px calc(env(safe-area-inset-bottom,0px) + 62px);
+    padding:0 16px calc(env(safe-area-inset-bottom,0px) + 62px);
     transform:translateY(105%);transition:transform .42s cubic-bezier(.22,.9,.3,1);
     touch-action:manipulation;max-height:78vh;overflow-y:auto;
   }
   #panel.open{transform:translateY(0)}
+  /* A close control that belongs to the panel itself, and stays put while
+     the panel scrolls — the floating 調整 button is a convenience, not the
+     only way out. */
+  .phead{
+    position:sticky;top:0;z-index:2;margin:0 -16px 12px;padding:12px 16px 10px;
+    background:rgba(251,247,238,.985);
+    border-bottom:1px solid rgba(111,106,96,.18);
+    display:flex;align-items:center;justify-content:space-between;gap:12px;
+  }
+  .ptitle{font:600 11px/1 'Klee One',serif;letter-spacing:.32em;color:#a39c90}
+  #close{
+    cursor:pointer;background:transparent;border:1px solid rgba(111,106,96,.35);
+    border-radius:2px;padding:9px 14px;font:400 12px/1 'Klee One',serif;
+    letter-spacing:.1em;color:#6f6a60;
+  }
+  #close:active{color:#3f8f96;border-color:#3f8f96}
   .grp{margin:0 0 12px}
   .grp:last-child{margin-bottom:0}
   .gh{
@@ -144,7 +164,7 @@
 
   /* ── 開始 ─────────────────────────────────────────── */
   #veil{
-    position:fixed;inset:0;z-index:8;display:flex;align-items:center;justify-content:center;
+    position:fixed;inset:0;z-index:10;display:flex;align-items:center;justify-content:center;
     background:rgba(251,247,238,.97);padding:22px;transition:opacity .6s ease;
   }
   #veil.hide{opacity:0;pointer-events:none}
@@ -174,6 +194,10 @@
 <div id="err"></div>
 
 <div id="panel">
+  <div class="phead">
+    <span class="ptitle">調整</span>
+    <button id="close" type="button" aria-label="調整パネルを閉じる">閉じる ✕</button>
+  </div>
   <div class="grp">
     <p class="gh">顔料</p>
     <div class="pills" id="pills"></div>
@@ -245,6 +269,7 @@ var startBtn= document.getElementById('startBtn');
 var demoCv  = document.getElementById('demo');
 var demoCtx = demoCv.getContext('2d');
 var resetBtn= document.getElementById('reset');
+var closeBtn= document.getElementById('close');
 
 function now(){
   return (window.performance && window.performance.now) ? window.performance.now() : Date.now();
@@ -380,10 +405,18 @@ pills.addEventListener('click', function(e){
   if (!isFinite(i) || i < 0 || i >= PALETTES.length) return;
   palIx = i; prepPalette(); renderPills(); drip();
 });
-tuneBtn.addEventListener('click', function(){
-  var open = panel.classList.toggle('open');
+// One place decides whether the panel is open, and three things can close
+// it: the 調整 button, the panel's own 閉じる, and tapping the paper.
+function setPanel(open){
+  if (open) panel.classList.add('open');
+  else panel.classList.remove('open');
   tuneBtn.textContent = open ? '閉じる' : '調整';
-});
+  tuneBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+}
+function panelOpen(){ return panel.classList.contains('open'); }
+tuneBtn.addEventListener('click', function(){ setPanel(!panelOpen()); });
+closeBtn.addEventListener('click', function(){ setPanel(false); });
+view.addEventListener('click', function(){ if (panelOpen()) setPanel(false); });
 resetBtn.addEventListener('click', function(){ resetSliders(); drip(); });
 
 // ═══════════════════════════════════════════════════════════════════════
