@@ -1,0 +1,734 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>TAMAMUSHI ─ 玉虫色になる体</title>
+<meta name="description" content="カメラに映った人の輪郭の中だけが玉虫色に光るエフェクト。色はパレットではなく本物の薄膜干渉の式で、膜の厚さをナノメートル単位で決めている。画面に触れると輪郭が波打つ。">
+<meta name="theme-color" content="#05060a">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Michroma&display=swap" rel="stylesheet">
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  TAMAMUSHI ─ 玉虫                            ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  PALETTE   漆黒 shikkoku #05060a  the dark the body floats in
+            白鼠 shironezu #cfd3da  chrome and type
+            鈍色 nibiiro  #4a5260  inactive chrome
+            ── and then nothing else, because every colour inside the
+            silhouette is COMPUTED, not chosen. Teal, blue, violet, magenta
+            and gold arrive in that order because that is the order Newton's
+            series puts them in; there is no palette in this file to edit.
+            MOOD: a jewel beetle's wing case, or petrol on a wet road, seen
+            in a room with the lights off.
+
+  BACKGROUND  Near black, and deliberately empty. The body is the only lit
+            thing on screen, so the silhouette does all the composition —
+            which is why the camera image outside it is off by default.
+
+  TYPE      Michroma. Wide, optical, slightly instrument-like — the only
+            face in the collection with that geometry, against KIRIE's
+            handwriting, ROKUGA's bitmap, KAGEE's mincho and MINAMO's
+            rounded gothic. It is set at one size and one weight throughout,
+            because an instrument panel does not use two.
+
+  MOTION    Everything drifts. The folds never stop and never accelerate —
+            there is no easing anywhere in the flow, only constant velocity,
+            because a film on water does not start and stop. The single fast
+            thing in the piece is the ripple your touch sends across the
+            outline, and it decays rather than bounces.
+
+  SIGNATURE THE COLOUR IS AN ACTUAL INTERFERENCE CALCULATION. A domain-warped
+            field of folds is read as a FILM THICKNESS IN NANOMETRES, and the
+            red, green and blue channels are the two-beam interference
+            intensities 1/2 - 1/2·cos(4πnd/λ) evaluated at 610, 545 and
+            465 nm against that thickness. Because the three wavelengths go
+            out of step at different rates, thin film gives silver, then
+            gold, then magenta, then cyan — the real Newton sequence — and
+            the slider is not a hue control but the thickness of the film,
+            in nanometres, which is also what the readout reports.
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<style>
+  *{ margin:0; padding:0; box-sizing:border-box; }
+  html,body{
+    width:100%; height:100%; overflow:hidden; background:#05060a; color:#cfd3da;
+    font-family:'Hiragino Kaku Gothic ProN',system-ui,sans-serif;
+    -webkit-user-select:none; user-select:none; touch-action:none;
+    overscroll-behavior:none; -webkit-tap-highlight-color:transparent;
+  }
+  #view{ position:fixed; inset:0; width:100%; height:100%; display:block; }
+
+  .chrome{ position:fixed; left:0; right:0; z-index:10; pointer-events:none; }
+  #top{ top:0; padding:calc(env(safe-area-inset-top,0px) + 12px) 14px 0;
+        display:flex; justify-content:space-between; align-items:flex-start; gap:10px; }
+  .plate{ background:rgba(5,6,10,0.6); border:1px solid rgba(207,211,218,0.20);
+          padding:6px 9px; font-size:11px; line-height:1.5; letter-spacing:0.06em;
+          backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px); }
+  #name{ font-family:'Michroma',sans-serif; font-size:10px; letter-spacing:0.2em; }
+  #name i{ font-style:normal; opacity:0.5; display:block; font-family:inherit;
+           font-size:8.5px; letter-spacing:0.24em; margin-top:3px; }
+  #read{ text-align:right; font-family:'Michroma',sans-serif; font-size:10px;
+         letter-spacing:0.1em; font-variant-numeric:tabular-nums; }
+  #read b{ font-weight:400; color:#fff; }
+  #swatch{ display:inline-block; width:9px; height:9px; margin-left:5px;
+           border:1px solid rgba(255,255,255,0.45); vertical-align:-1px; background:#000; }
+
+  #bottom{ bottom:0; padding:0 10px calc(env(safe-area-inset-bottom,0px) + 12px);
+           display:flex; flex-direction:column; align-items:center; gap:9px; }
+  #slideRow{ pointer-events:auto; display:flex; align-items:center; gap:9px;
+             width:min(430px,94vw);
+             background:rgba(5,6,10,0.6); border:1px solid rgba(207,211,218,0.18);
+             padding:7px 11px; backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px); }
+  #slideRow label{ font-family:'Michroma',sans-serif; font-size:8.5px;
+                   letter-spacing:0.16em; opacity:0.66; white-space:nowrap; }
+  #thick{ -webkit-appearance:none; appearance:none; flex:1; height:2px;
+          background:linear-gradient(90deg,#7fe6d0,#6a8cff,#c76 aff,#ff6ab0,#ffc46a);
+          background:linear-gradient(90deg,#7fe6d0,#6a8cff,#b06aff,#ff6ab0,#ffc46a);
+          border-radius:2px; outline:none; }
+  #thick::-webkit-slider-thumb{ -webkit-appearance:none; width:17px; height:17px;
+          border-radius:50%; background:#eef1f6; border:2px solid #05060a;
+          box-shadow:0 0 10px rgba(255,255,255,0.5); cursor:pointer; }
+  #thick::-moz-range-thumb{ width:15px; height:15px; border-radius:50%;
+          background:#eef1f6; border:2px solid #05060a; cursor:pointer; }
+
+  #btns{ display:flex; justify-content:center; gap:6px; flex-wrap:wrap; }
+  .btn{ pointer-events:auto; cursor:pointer;
+        background:rgba(5,6,10,0.66); border:1px solid rgba(207,211,218,0.26);
+        color:#cfd3da; padding:8px 10px; min-height:36px;
+        font-family:inherit; font-size:11.5px; letter-spacing:0.05em;
+        backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px);
+        display:inline-flex; align-items:center; gap:5px; }
+  .btn small{ font-size:10px; opacity:0.6; }
+  .btn:active{ background:#cfd3da; color:#05060a; border-color:#cfd3da; }
+
+  #hint{ position:fixed; left:0; right:0; z-index:10; pointer-events:none;
+         bottom:calc(env(safe-area-inset-bottom,0px) + 118px); text-align:center;
+         font-size:12px; line-height:1.9; color:rgba(207,211,218,0.6);
+         transition:opacity .6s ease; }
+
+  #start{ position:fixed; inset:0; z-index:30; background:#05060a;
+          display:flex; flex-direction:column; align-items:center; justify-content:center;
+          gap:15px; padding:30px 26px; text-align:center; }
+  #start.gone{ display:none; }
+  #start h1{ font-family:'Michroma',sans-serif; font-size:clamp(21px,6.6vw,34px);
+             font-weight:400; letter-spacing:0.19em; margin-right:-0.19em;
+             background:linear-gradient(96deg,#7fe6d0,#6a8cff,#b06aff,#ff6ab0,#ffc46a);
+             -webkit-background-clip:text; background-clip:text; color:transparent; }
+  #start .jp{ font-size:13px; letter-spacing:0.42em; margin-right:-0.42em; opacity:0.62; }
+  #start .rule{ width:min(240px,62vw); height:1px;
+                background:linear-gradient(90deg,transparent,rgba(207,211,218,.45),transparent); }
+  #start p{ font-size:12.5px; line-height:2.1; max-width:23em; color:rgba(207,211,218,0.78); }
+  #go{ pointer-events:auto; cursor:pointer; margin-top:4px; border:none;
+       background:linear-gradient(96deg,#7fe6d0,#6a8cff,#b06aff,#ff6ab0);
+       color:#05060a; padding:14px 32px; font-family:'Michroma',sans-serif;
+       font-size:13px; letter-spacing:0.2em; margin-right:-0.2em; }
+  #err{ position:fixed; left:50%; top:50%; transform:translate(-50%,-50%); z-index:40;
+        display:none; white-space:pre-line; max-width:82vw; background:#c8324b; color:#fff;
+        padding:14px 16px; font-size:12.5px; line-height:1.85; }
+</style>
+</head>
+<body>
+
+<canvas id="view"></canvas>
+
+<div class="chrome" id="top">
+  <div class="plate" id="name">TAMAMUSHI<i>玉虫色になる体</i></div>
+  <div class="plate" id="read"><b id="nmv">--</b> nm<span id="swatch"></span></div>
+</div>
+
+<div id="hint">画面にさわると輪郭が波打ちます<br>下のつまみは膜の厚さです</div>
+
+<div class="chrome" id="bottom">
+  <div id="slideRow">
+    <label>FILM</label>
+    <input id="thick" type="range" min="120" max="1500" step="5" value="520" aria-label="膜の厚さ">
+    <label id="thickLbl">520nm</label>
+  </div>
+  <div id="btns">
+    <button class="btn" id="flipBtn" type="button">⟲ カメラ</button>
+    <button class="btn" id="matBtn" type="button">材<small id="matLbl">玉虫</small></button>
+    <button class="btn" id="flowBtn" type="button">流れ<small id="flowLbl">並</small></button>
+    <button class="btn" id="bgBtn" type="button">背景<small id="bgLbl">なし</small></button>
+    <button class="btn" id="saveBtn" type="button">保存</button>
+    <button class="btn" id="sndBtn" type="button">♪<small id="sndLbl">on</small></button>
+  </div>
+</div>
+
+<div id="start">
+  <h1>TAMAMUSHI</h1>
+  <div class="jp">玉虫色になる体</div>
+  <div class="rule"></div>
+  <p>カメラに映ったあなたの輪郭の中だけが、玉虫色に光ります。<br>
+     色はパレットではなく<b>本物の薄膜干渉</b>で、つまみは膜の厚さ（ナノメートル）。<br>
+     <b>画面にさわると輪郭が波打ちます。</b></p>
+  <button id="go" type="button">START</button>
+  <div style="font-size:11px;opacity:.45">カメラを使います・全身が入ると綺麗です</div>
+</div>
+
+<div id="err"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation/selfie_segmentation.js"></script>
+<script>
+(function(){
+'use strict';
+
+var view = document.getElementById('view'), ctx = view.getContext('2d');
+var startEl = document.getElementById('start'), goBtn = document.getElementById('go');
+var errBox = document.getElementById('err'), hintEl = document.getElementById('hint');
+var readEl = document.getElementById('read'), swatch = document.getElementById('swatch');
+var nmv = document.getElementById('nmv');
+var thickEl = document.getElementById('thick'), thickLbl = document.getElementById('thickLbl');
+var flipBtn = document.getElementById('flipBtn');
+var matBtn = document.getElementById('matBtn'), matLbl = document.getElementById('matLbl');
+var flowBtn = document.getElementById('flowBtn'), flowLbl = document.getElementById('flowLbl');
+var bgBtn = document.getElementById('bgBtn'), bgLbl = document.getElementById('bgLbl');
+var saveBtn = document.getElementById('saveBtn');
+var sndBtn = document.getElementById('sndBtn'), sndLbl = document.getElementById('sndLbl');
+
+var video = document.createElement('video');
+video.playsInline = true; video.muted = true;
+video.setAttribute('playsinline',''); video.autoplay = true;
+function now(){ return performance.now(); }
+
+// ═══════════════════════════════════════════════════════════════════════
+//  TABLES — every sine and cosine in the frame comes from here
+// ═══════════════════════════════════════════════════════════════════════
+var LN = 4096, LM = 4095, LS = LN / (Math.PI * 2);
+var SINT = new Float32Array(LN);
+(function(){ for (var i = 0; i < LN; i++) SINT[i] = Math.sin(i / LS); })();
+function S(v){ return SINT[((v * LS) | 0) & LM]; }
+function C(v){ return SINT[(((v * LS) | 0) + 1024) & LM]; }
+
+// ═══════════════════════════════════════════════════════════════════════
+//  MATERIALS — a refractive index and where in Newton's series to sit
+// ═══════════════════════════════════════════════════════════════════════
+var MATS = [
+  { name:'玉虫', n:1.60, span:170, sat:1.00, lift:0.040, gain:0.98 },  // beetle chitin
+  { name:'シャボン', n:1.33, span:240, sat:1.00, lift:0.020, gain:1.00 },  // soap
+  { name:'油膜', n:1.47, span:110, sat:0.96, lift:0.045, gain:1.02 },  // petrol on water
+  { name:'真珠', n:1.53, span: 55, sat:0.50, lift:0.240, gain:0.96 },  // nacre
+  { name:'鋼',   n:2.30, span:130, sat:0.72, lift:0.015, gain:0.90 }   // tempered steel
+];
+var mi = 0;
+function M(){ return MATS[mi]; }
+
+// A cone does not sample one wavelength, it integrates a band about 80nm
+// wide, and that integration is the whole reason real iridescence looks like
+// satin instead of poster paint: the higher the order, the more the band
+// smears the fringes together, until a thick film goes pearly white. Three
+// samples per channel across +-35nm is enough to get that washout honestly.
+var BANDS = [[575, 610, 645], [510, 545, 580], [430, 465, 500]];
+
+var FLOWS = [{ name:'静', k:0.35 }, { name:'並', k:1.0 }, { name:'速', k:2.2 }];
+var fi = 1;
+
+var thick = 520;          // nm, from the slider
+var showBg = false;
+
+// ═══════════════════════════════════════════════════════════════════════
+//  BUFFERS
+// ═══════════════════════════════════════════════════════════════════════
+var W = 0, H = 0, dpr = 1, sw = 0, sh = 0;
+var small = document.createElement('canvas'), sctx = small.getContext('2d', { willReadFrequently:true });
+var maskC = document.createElement('canvas'), mctx = maskC.getContext('2d', { willReadFrequently:true });
+var out = document.createElement('canvas'), octx = out.getContext('2d');
+var outImg = null, maskA = null, maskB = null, dispX = null, dispY = null;
+
+var QUALS = [{n:'オート'},{n:'高'},{n:'低'}];
+var qual = 0, autoLong = 400, lastAdapt = 0, frameMs = 16;
+function procLong(){ return qual === 1 ? 620 : qual === 2 ? 260 : autoLong; }
+
+function resize(){
+  dpr = Math.min(window.devicePixelRatio || 1, 2);
+  W = Math.max(1, Math.round(window.innerWidth * dpr));
+  H = Math.max(1, Math.round(window.innerHeight * dpr));
+  view.width = W; view.height = H;
+  view.style.width = window.innerWidth + 'px';
+  view.style.height = window.innerHeight + 'px';
+
+  var L = procLong();
+  if (W >= H){ sw = L; sh = Math.max(2, Math.round(L * H / W)); }
+  else       { sh = L; sw = Math.max(2, Math.round(L * W / H)); }
+  small.width = sw; small.height = sh;
+  maskC.width = sw; maskC.height = sh;
+  out.width = sw; out.height = sh;
+  outImg = octx.createImageData(sw, sh);
+  maskA = new Float32Array(sw * sh);
+  maskB = new Float32Array(sw * sh);
+  dispX = new Float32Array(sw * sh);
+  dispY = new Float32Array(sw * sh);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  SOUND
+// ═══════════════════════════════════════════════════════════════════════
+var ac = null, master = null, muted = false;
+function initAudio(){
+  if (ac) return;
+  var AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) return;
+  ac = new AC();
+  master = ac.createGain(); master.gain.value = muted ? 0 : 0.5;
+  master.connect(ac.destination);
+  // a thin glassy shimmer, two fifths apart and slightly detuned
+  [329.6, 493.9, 659.3].forEach(function(f, i){
+    var o = ac.createOscillator(); o.type = 'sine';
+    o.frequency.value = f * (1 + (i - 1) * 0.0016);
+    var lfo = ac.createOscillator(); lfo.type = 'sine';
+    lfo.frequency.value = 0.05 + i * 0.021;
+    var lg = ac.createGain(); lg.gain.value = 0.016;
+    lfo.connect(lg); lg.connect(o.frequency); lfo.start();
+    var g = ac.createGain(); g.gain.value = 0.020;
+    o.connect(g); g.connect(master); o.start();
+  });
+}
+function chime(u){
+  if (!ac || muted) return;
+  var t = ac.currentTime;
+  var steps = [0, 3, 7, 10, 12], st = steps[(u * steps.length) | 0] || 0;
+  var f = 880 * Math.pow(2, st / 12);
+  [1, 2.01].forEach(function(mu, i){
+    var o = ac.createOscillator(); o.type = 'sine'; o.frequency.value = f * mu;
+    var g = ac.createGain();
+    g.gain.setValueAtTime(i ? 0.05 : 0.11, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + (i ? 0.7 : 1.5));
+    o.connect(g); g.connect(master); o.start(t); o.stop(t + 1.6);
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  CAMERA
+// ═══════════════════════════════════════════════════════════════════════
+var facing = 'user', mirror = true, stream = null;
+function showError(e){
+  var msg = (e && e.message) ? e.message : String(e || 'unknown');
+  errBox.style.display = 'block';
+  errBox.textContent = 'カメラを起動できませんでした：' + msg +
+    '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+}
+function startStream(){
+  var md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) return Promise.reject(new Error('getUserMedia is unavailable'));
+  if (stream && stream.getTracks) stream.getTracks().forEach(function(t){ t.stop(); });
+  return md.getUserMedia({
+    video:{ facingMode:{ ideal:facing }, width:{ ideal:1280 }, height:{ ideal:720 } },
+    audio:false
+  }).then(function(st){
+    stream = st; video.srcObject = st; mirror = (facing === 'user');
+    var p = video.play();
+    return (p && p.then) ? p.catch(function(){}) : null;
+  });
+}
+flipBtn.addEventListener('click', function(){
+  facing = (facing === 'user') ? 'environment' : 'user';
+  haveMask = false;
+  startStream().then(startMpCamera).catch(showError);
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+//  SEGMENTATION — the outline is the whole composition
+// ═══════════════════════════════════════════════════════════════════════
+var seg = null, mpCamera = null, segReady = false, haveMask = false, maskDirty = false;
+function initSeg(){
+  var Ctor = window.SelfieSegmentation;
+  if (typeof Ctor !== 'function') return false;
+  try {
+    seg = new Ctor({ locateFile: function(f){
+      return 'https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation/' + f;
+    }});
+    seg.setOptions({ modelSelection: 1 });
+    seg.onResults(onSeg);
+    segReady = true; return true;
+  } catch(e){ segReady = false; return false; }
+}
+function onSeg(res){
+  if (!res || !res.segmentationMask || sw < 4) return;
+  try {
+    mctx.save();
+    mctx.setTransform(1, 0, 0, 1, 0, 0);
+    mctx.clearRect(0, 0, sw, sh);
+    if (mirror){ mctx.translate(sw, 0); mctx.scale(-1, 1); }
+    mctx.drawImage(res.segmentationMask, 0, 0, sw, sh);
+    mctx.restore();
+    maskDirty = true; haveMask = true;
+  } catch(e){ /* a frame without a mask is survivable */ }
+}
+function startMpCamera(){
+  if (!segReady || typeof window.Camera !== 'function') return;
+  try {
+    if (mpCamera && mpCamera.stop) mpCamera.stop();
+    mpCamera = new window.Camera(video, {
+      onFrame: function(){
+        if (!seg || !running) return Promise.resolve();
+        return seg.send({ image: video }).catch(function(){});
+      },
+      width: 640, height: 480
+    });
+    mpCamera.start();
+  } catch(e){ segReady = false; }
+}
+
+// the raw mask is blocky; a separable box blur gives an edge worth rippling
+function readMask(){
+  if (!maskDirty) return;
+  maskDirty = false;
+  var img;
+  try { img = mctx.getImageData(0, 0, sw, sh); } catch(e){ return; }
+  var d = img.data, n = sw * sh, i;
+  for (i = 0; i < n; i++) maskA[i] = d[i << 2] / 255;
+  var R = 2, inv = 1 / (R * 2 + 1), x, y, acc;
+  for (y = 0; y < sh; y++){
+    var row = y * sw;
+    acc = 0;
+    for (x = -R; x <= R; x++) acc += maskA[row + Math.min(sw - 1, Math.max(0, x))];
+    for (x = 0; x < sw; x++){
+      maskB[row + x] = acc * inv;
+      acc += maskA[row + Math.min(sw - 1, x + R + 1)] - maskA[row + Math.max(0, x - R)];
+    }
+  }
+  for (x = 0; x < sw; x++){
+    acc = 0;
+    for (y = -R; y <= R; y++) acc += maskB[Math.min(sh - 1, Math.max(0, y)) * sw + x];
+    for (y = 0; y < sh; y++){
+      maskA[y * sw + x] = acc * inv;
+      acc += maskB[Math.min(sh - 1, y + R + 1) * sw + x] - maskB[Math.max(0, y - R) * sw + x];
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  RIPPLES — a touch runs a wave across the outline
+// ═══════════════════════════════════════════════════════════════════════
+var ripples = [];
+function addRipple(nx, ny){
+  ripples.push({ x:nx, y:ny, t0:now(), amp:1 });
+  if (ripples.length > 6) ripples.shift();
+  chime(nx);
+}
+function buildDisp(t){
+  dispX.fill(0); dispY.fill(0);
+  var u = Math.min(sw, sh);
+  for (var r = ripples.length - 1; r >= 0; r--){
+    var p = ripples[r];
+    var age = (t - p.t0) / 1000;
+    if (age > 2.4){ ripples.splice(r, 1); continue; }
+    var R = age * u * 0.62;                       // the front, in pixels
+    var wdt = u * 0.17;
+    var amp = u * 0.040 * Math.exp(-age * 1.5);
+    if (amp < 0.25) continue;
+    var cx = p.x * sw, cy = p.y * sh;
+    // only the annulus can move, so only the annulus is visited
+    var x0 = Math.max(0, (cx - R - wdt) | 0), x1 = Math.min(sw - 1, (cx + R + wdt) | 0);
+    var y0 = Math.max(0, (cy - R - wdt) | 0), y1 = Math.min(sh - 1, (cy + R + wdt) | 0);
+    for (var y = y0; y <= y1; y++){
+      var dy = y - cy, row = y * sw;
+      for (var x = x0; x <= x1; x++){
+        var dx = x - cx;
+        var d = Math.sqrt(dx * dx + dy * dy);
+        var off = d - R;
+        if (off < -wdt || off > wdt) continue;
+        var f = off / wdt;
+        var prof = S(f * Math.PI) * (1 - f * f);   // one lobe, zero at the rim
+        var k = amp * prof / (d + 12);
+        dispX[row + x] += dx * k;
+        dispY[row + x] += dy * k;
+      }
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  THE FILM
+// ═══════════════════════════════════════════════════════════════════════
+var flowT = 0;
+var pickX = -1, pickY = -1, pickNm = 0, pickRGB = null;
+
+function render(dt, t){
+  var m = M();
+  flowT += dt * 0.001 * FLOWS[fi].k;
+  var T = flowT;
+  var o = outImg.data;
+  var asp = sw / sh;
+  var fourPiN = 4 * Math.PI * m.n;
+  var kR0 = fourPiN / BANDS[0][0], kR1 = fourPiN / BANDS[0][1], kR2 = fourPiN / BANDS[0][2];
+  var kG0 = fourPiN / BANDS[1][0], kG1 = fourPiN / BANDS[1][1], kG2 = fourPiN / BANDS[1][2];
+  var kB0 = fourPiN / BANDS[2][0], kB1 = fourPiN / BANDS[2][1], kB2 = fourPiN / BANDS[2][2];
+  var span = m.span, lift = m.lift, sat = m.sat, gain = m.gain;
+  var haveAny = haveMask;
+  var px = -1, py = -1;
+  if (pickX >= 0){ px = (pickX * sw) | 0; py = (pickY * sh) | 0; }
+
+  for (var y = 0; y < sh; y++){
+    var row = y * sw;
+    var vy = y / sh - 0.5;
+    var prevD = 0, havePrev = false;
+    for (var x = 0; x < sw; x++){
+      var i = row + x;
+      var mk = haveAny ? maskA[i] : 0;
+
+      // the ripple moves where we look, so both the outline and the folds bend
+      var ddx = dispX[i], ddy = dispY[i];
+      if ((ddx !== 0 || ddy !== 0) && haveAny){
+        var sxp = x + ddx, syp = y + ddy;
+        if (sxp < 0) sxp = 0; else if (sxp > sw - 1.001) sxp = sw - 1.001;
+        if (syp < 0) syp = 0; else if (syp > sh - 1.001) syp = sh - 1.001;
+        var ix = sxp | 0, iy = syp | 0, tx = sxp - ix, ty = syp - iy;
+        var r0 = iy * sw + ix, r1 = r0 + sw;
+        var m00 = maskA[r0], m10 = maskA[r0 + 1];
+        var m01 = maskA[r1], m11 = maskA[r1 + 1];
+        mk = (m00 + (m10 - m00) * tx) * (1 - ty) + (m01 + (m11 - m01) * tx) * ty;
+      }
+
+      var q4 = i << 2;
+      if (mk <= 0.02){
+        o[q4] = 0; o[q4+1] = 0; o[q4+2] = 0; o[q4+3] = 255;
+        havePrev = false;
+        if (x === px && y === py){ pickRGB = null; pickNm = thick; }
+        continue;
+      }
+
+      var vx = (x / sw - 0.5) * asp + ddx / sw;
+      var vv = vy + ddy / sh;
+
+      // folds: a fan bent by two quadratic terms, then warped twice over
+      var q = vx + vv * vv * 0.85 - vx * vv * 0.55;
+      var pp = vv - vx * vx * 0.65;
+      var w1 = S(pp * 12.0 + T * 0.9);
+      var w2 = S(q * 9.5 - T * 0.7 + w1 * 1.1);
+      var w3 = S((q * 1.7 + pp) * 6.0 + T * 0.45 + w2 * 0.6);
+      var w4 = S((q - pp * 0.6) * 21.0 + T * 1.3 + w1 * 0.9);
+      var field = q * 2.6 + pp * 0.9 + w1 * 0.42 + w2 * 0.34 + w3 * 0.20 + w4 * 0.10;
+
+      // ── that field is a thickness, in nanometres ──────────────────────
+      var d = thick + span * field;
+      if (d < 40) d = 40;
+
+      var r = 0.5 - (C(d * kR0) + C(d * kR1) + C(d * kR2)) * 0.16667;
+      var g = 0.5 - (C(d * kG0) + C(d * kG1) + C(d * kG2)) * 0.16667;
+      var b = 0.5 - (C(d * kB0) + C(d * kB1) + C(d * kB2)) * 0.16667;
+
+      // the crease: where the film thins fastest it throws a specular line
+      var slope = havePrev ? d - prevD : 0;
+      prevD = d; havePrev = true;
+      if (slope < 0) slope = -slope;
+      var trig = span * 0.011;
+      var spec = slope > trig ? (slope - trig) / (span * 0.020) : 0;
+      if (spec > 0.85) spec = 0.85;
+
+      var lum = r * 0.299 + g * 0.587 + b * 0.114;
+      r = lum + (r - lum) * sat; g = lum + (g - lum) * sat; b = lum + (b - lum) * sat;
+      r = (r * gain + lift + spec) * 255;
+      g = (g * gain + lift + spec) * 255;
+      b = (b * gain + lift + spec) * 255;
+
+      // the rim of the silhouette catches the light
+      if (mk < 0.62){
+        var rim = (0.62 - mk) * 1.7;
+        var e = rim * rim * 150;
+        r += e; g += e; b += e;
+      }
+      var a = mk < 0.5 ? mk * 2 : 1;
+      r *= a; g *= a; b *= a;
+
+      o[q4]   = r < 0 ? 0 : r > 255 ? 255 : r;
+      o[q4+1] = g < 0 ? 0 : g > 255 ? 255 : g;
+      o[q4+2] = b < 0 ? 0 : b > 255 ? 255 : b;
+      o[q4+3] = 255;
+
+      if (x === px && y === py){
+        pickNm = d;
+        pickRGB = [o[q4], o[q4+1], o[q4+2]];
+      }
+    }
+  }
+  octx.putImageData(outImg, 0, 0);
+}
+
+function draw(){
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.fillStyle = '#05060a';
+  ctx.fillRect(0, 0, W, H);
+
+  if (showBg && video.readyState >= 2 && video.videoWidth){
+    var vw = video.videoWidth, vh = video.videoHeight;
+    var sc = Math.max(W / vw, H / vh), dw = vw * sc, dh = vh * sc;
+    ctx.save();
+    ctx.globalAlpha = 0.16;
+    if (mirror){ ctx.translate(W, 0); ctx.scale(-1, 1); }
+    ctx.drawImage(video, (W - dw) / 2, (H - dh) / 2, dw, dh);
+    ctx.restore();
+  }
+
+  ctx.imageSmoothingEnabled = true;
+  ctx.drawImage(out, 0, 0, W, H);
+  ctx.save();
+  // only the halo adds; the body keeps its own values
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.globalAlpha = 0.30;
+  if (canFilter) ctx.filter = 'blur(' + (Math.min(W, H) * 0.022).toFixed(1) + 'px)';
+  ctx.drawImage(out, 0, 0, W, H);
+  if (canFilter) ctx.filter = 'none';
+  ctx.restore();
+}
+
+var canFilter = (function(){
+  var c = document.createElement('canvas').getContext('2d');
+  try { c.filter = 'blur(2px)'; return c.filter !== 'none' && c.filter !== ''; }
+  catch(e){ return false; }
+})();
+
+// ═══════════════════════════════════════════════════════════════════════
+//  LOOP
+// ═══════════════════════════════════════════════════════════════════════
+var running = false, lastFrame = 0, lastRead = 0, startedAt = 0;
+function adapt(){
+  if (qual !== 0 || now() - lastAdapt < 1600) return;
+  lastAdapt = now();
+  var want = autoLong;
+  if (frameMs > 40 && autoLong > 250) want = autoLong - 70;
+  else if (frameMs < 22 && autoLong < 620) want = autoLong + 70;
+  if (want !== autoLong){ autoLong = want; resize(); }
+}
+function loop(){
+  requestAnimationFrame(loop);
+  if (!running) return;
+  var t = now();
+  var dt = lastFrame ? Math.min(80, t - lastFrame) : 16;
+  if (lastFrame && dt < 400) frameMs = frameMs * 0.9 + dt * 0.1;
+  lastFrame = t;
+
+  readMask();
+  buildDisp(t);
+  render(dt, t);
+  draw();
+  adapt();
+
+  if (t - lastRead > 200){
+    lastRead = t;
+    if (!haveMask && t - startedAt > 2600){
+      nmv.textContent = '--';
+      swatch.style.background = '#000';
+    } else {
+      nmv.textContent = String(Math.round(pickRGB ? pickNm : thick));
+      swatch.style.background = pickRGB ? 'rgb(' + pickRGB.join(',') + ')' : '#000';
+    }
+  }
+  if (haveMask && t - startedAt > 9000 && hintEl.style.opacity !== '0') hintEl.style.opacity = '0';
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  INPUT
+// ═══════════════════════════════════════════════════════════════════════
+function pt(e){
+  return { x: Math.max(0, Math.min(1, e.clientX / window.innerWidth)),
+           y: Math.max(0, Math.min(1, e.clientY / window.innerHeight)) };
+}
+view.addEventListener('pointerdown', function(e){
+  if (!running) return;
+  var p = pt(e);
+  addRipple(p.x, p.y);
+  pickX = p.x; pickY = p.y;
+});
+view.addEventListener('pointermove', function(e){
+  if (!running || e.buttons === 0) return;
+  var p = pt(e);
+  pickX = p.x; pickY = p.y;
+  if (Math.random() < 0.14) addRipple(p.x, p.y);
+});
+
+thickEl.addEventListener('input', function(){
+  thick = parseFloat(thickEl.value) || 520;
+  thickLbl.textContent = Math.round(thick) + 'nm';
+});
+matBtn.addEventListener('click', function(){
+  mi = (mi + 1) % MATS.length;
+  matLbl.textContent = M().name;
+});
+flowBtn.addEventListener('click', function(){
+  fi = (fi + 1) % FLOWS.length;
+  flowLbl.textContent = FLOWS[fi].name;
+});
+bgBtn.addEventListener('click', function(){
+  showBg = !showBg;
+  bgLbl.textContent = showBg ? 'あり' : 'なし';
+});
+sndBtn.addEventListener('click', function(){
+  muted = !muted; sndLbl.textContent = muted ? 'off' : 'on';
+  if (master) master.gain.setTargetAtTime(muted ? 0 : 0.5, ac.currentTime, 0.2);
+});
+saveBtn.addEventListener('click', function(){
+  if (!running) return;
+  try {
+    view.toBlob(function(blob){
+      if (!blob) return;
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'tamamushi_' + Math.round(thick) + 'nm_' + Date.now() + '.png';
+      a.click();
+      setTimeout(function(){ URL.revokeObjectURL(a.href); }, 4000);
+    }, 'image/png');
+  } catch(e){ showError(e); }
+});
+window.addEventListener('resize', resize);
+window.addEventListener('orientationchange', function(){ setTimeout(resize, 250); });
+
+goBtn.addEventListener('click', function(){
+  goBtn.textContent = 'LOADING';
+  initAudio();
+  if (ac && ac.state === 'suspended') ac.resume();
+  startStream().then(function(){
+    if (initSeg()) startMpCamera();
+    else {
+      errBox.style.display = 'block';
+      errBox.textContent = '人物の切り抜きを読み込めませんでした。\n通信環境を確認して、ページを再読み込みしてください。';
+    }
+    startEl.classList.add('gone');
+    running = true; startedAt = now();
+    goBtn.textContent = 'START';
+  }).catch(function(e){ goBtn.textContent = 'START'; showError(e); });
+});
+
+resize();
+requestAnimationFrame(loop);
+
+// a headless harness can drive this without a camera or a model
+window.__TAMAMUSHI__ = {
+  feedMask: function(fn){
+    mctx.setTransform(1, 0, 0, 1, 0, 0);
+    mctx.clearRect(0, 0, sw, sh);
+    fn(mctx, sw, sh);
+    maskDirty = true; haveMask = true;
+  },
+  touch: function(nx, ny){ addRipple(nx, ny); pickX = nx; pickY = ny; },
+  setThick: function(v){ thick = v; thickEl.value = String(v); thickLbl.textContent = Math.round(v)+'nm'; },
+  state: function(){
+    var inside = 0, lit = 0, n = sw * sh;
+    var d = octx.getImageData(0, 0, sw, sh).data;
+    for (var i = 0; i < n; i++){
+      if (maskA[i] > 0.5) inside++;
+      var q = i << 2;
+      if (d[q] + d[q+1] + d[q+2] > 40) lit++;
+    }
+    return { running:running, haveMask:haveMask, sw:sw, sh:sh, frameMs:frameMs,
+             mat:M().name, thick:thick, flow:FLOWS[fi].name,
+             inside:inside, lit:lit, ripples:ripples.length,
+             pickNm:pickNm, pickRGB:pickRGB };
+  },
+  sampleRow: function(y, n){
+    var d = octx.getImageData(0, 0, sw, sh).data, o = [];
+    for (var k = 0; k < n; k++){
+      var x = ((k + 0.5) / n * sw) | 0;
+      var q = (((y * sh) | 0) * sw + x) << 2;
+      o.push([d[q], d[q+1], d[q+2]]);
+    }
+    return o;
+  }
+};
+
+})();
+</script>
+</body>
+</html>
