@@ -1,0 +1,1410 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>KARUTA ─ 一字で払う</title>
+<meta name="description" content="畳に並んだ十二枚のいろはかるた。読み札が一字ずつ現れた瞬間、開いた手で札を払って取る。読まれた札が場に無い「空札」もまざるので、早いだけでは勝てない。お手つき三度で終わり。">
+<meta name="theme-color" content="#c3b884">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Zen+Antique&family=Cormorant+Garamond:wght@300;500&display=swap" rel="stylesheet">
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  KARUTA ─ 一字で払う                              ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  PALETTE   畳 tatami    #c3b884  dry igusa straw, yellow-green, sun-faded
+            陰 kage      #a89a68  the shaded half of every woven rib
+            縁 heri      #1f3a2e  the brocade mat border, deep pine green
+            札 washi     #f6f1e2  card stock, warm and slightly uneven
+            墨 sumi      #17140f  the printed kana, and the hand's shadow
+            朱 shu       #c8321f  exactly one red: the reciter, and the seal
+            MOOD: a 座敷 on a bright winter afternoon. Straw, paper, ink and
+            one vermilion. Nothing glows, nothing is neon — this is the only
+            piece in the gallery lit by a paper window instead of by itself.
+  BACKGROUND  Real tatami: six mats laid in an alternating grain pattern,
+            each woven from ~200 individual straw ribs with a lit and a
+            shaded side, bound on two edges by a green-and-gold 縁. A single
+            radial wash from the upper left is the shoji window, and every
+            shadow in the piece falls down-right from it. The camera video
+            is never drawn: your hand arrives as a shadow cast on the mats.
+  TYPE      Zen Antique for every Japanese glyph — a letterpress 明朝 with
+            worn corners, which is what a printed 取り札 actually looks like.
+            Cormorant Garamond 300 for the numerals, set large and thin so
+            the score reads as an engraved record card, not a HUD.
+  MOTION    Snappy and mechanical, the tempo of a hand hitting a mat. Cards
+            settle with a 90ms overshoot; each recited character stamps in
+            from 1.35× scale in 110ms; the taken card leaves along the exact
+            vector of your sweep. The only slow thing is the ink shadow,
+            which is soft and has no easing at all because it is you.
+  SIGNATURE 札が飛ぶ — a taken card is not deleted, it is launched: it keeps
+            the speed and direction of the palm that swept it, tumbles on
+            its own axis, and behind it the mat shows a rectangle of straw
+            that never faded because a card sat on it. Take it on the very
+            first character and a vermilion 落款 stamps the screen.
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<style>
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;padding:0;height:100%;overflow:hidden;background:#c3b884}
+  body{
+    font-family:'Zen Antique','Hiragino Mincho ProN',serif;color:#17140f;
+    -webkit-user-select:none;user-select:none;touch-action:none;
+  }
+  #view{position:fixed;inset:0;width:100%;height:100%;display:block}
+  #video{position:fixed;width:2px;height:2px;opacity:0;pointer-events:none;left:-10px;top:-10px}
+
+  .btn{
+    position:fixed;z-index:6;font-family:inherit;font-size:13px;letter-spacing:.18em;
+    background:rgba(246,241,226,.86);color:#3d3524;border:1px solid rgba(31,58,46,.45);
+    border-radius:2px;padding:9px 15px;cursor:pointer;
+    box-shadow:2px 3px 0 rgba(40,34,18,.16);
+  }
+  .btn:active{transform:translate(1px,2px);box-shadow:1px 1px 0 rgba(40,34,18,.16)}
+  #flip{right:14px;top:calc(14px + env(safe-area-inset-top))}
+
+  #err{
+    position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:9;
+    display:none;white-space:pre-line;text-align:center;max-width:82%;
+    background:rgba(246,241,226,.96);border:1px solid #c8321f;color:#5a2016;
+    padding:20px 24px;font-size:14px;line-height:2;border-radius:2px;
+  }
+
+  #again{
+    display:none;left:50%;bottom:14%;transform:translateX(-50%);
+    font-size:17px;letter-spacing:.34em;padding:14px 34px;
+    background:#c8321f;color:#f6f1e2;border-color:#8e2314;
+  }
+  #again:active{transform:translateX(-50%) translate(1px,2px)}
+
+  #veil{
+    position:fixed;inset:0;z-index:12;display:flex;align-items:center;justify-content:center;
+    background:
+      radial-gradient(120% 90% at 22% 4%, rgba(255,250,225,.5), rgba(0,0,0,0) 60%),
+      #b7ab76;
+    transition:opacity .5s ease,visibility .5s ease;
+  }
+  #veil.hide{opacity:0;visibility:hidden;pointer-events:none}
+  .panel{
+    width:min(560px,88vw);padding:30px 28px 26px;text-align:center;
+    background:#f6f1e2;border:1px solid rgba(31,58,46,.5);
+    box-shadow:6px 9px 0 rgba(40,34,18,.2);
+  }
+  .panel h1{
+    margin:0 0 2px;font-size:clamp(30px,7vw,44px);letter-spacing:.3em;
+    font-weight:400;color:#17140f;
+  }
+  .panel h1 b{
+    display:block;font-size:13px;letter-spacing:.5em;font-weight:400;
+    color:#8b6a2e;margin-top:8px;
+  }
+  #demo{display:block;width:100%;height:auto;margin:16px 0 12px;background:#efe8d3;border:1px solid rgba(31,58,46,.22)}
+  .lead{font-size:13.5px;line-height:2.05;color:#4a4130;margin:0 0 20px}
+  .lead em{font-style:normal;color:#c8321f}
+  button.go{
+    font-family:inherit;font-size:17px;letter-spacing:.5em;cursor:pointer;
+    background:#1f3a2e;color:#f6f1e2;border:none;padding:15px 34px;border-radius:2px;
+    transition:letter-spacing .35s ease,background .35s ease;
+  }
+  button.go:active{background:#c8321f;letter-spacing:.66em}
+</style>
+</head>
+<body>
+
+<canvas id="view"></canvas>
+<video id="video" playsinline muted autoplay></video>
+<button class="btn" id="flip">⟲ カメラ</button>
+<button class="btn" id="again">も う 一 度</button>
+<div id="err"></div>
+
+<div id="veil">
+  <div class="panel">
+    <h1>かるた<b>I C H I J I ・ 一 字 で 払 う</b></h1>
+    <canvas id="demo" width="660" height="230"></canvas>
+    <p class="lead">畳の上に十二枚。読み札が<em>一字ずつ</em>現れる。<br>
+      その一字の札を、<em>開いた手で払って</em>取る。<br>
+      場に無い札＝<em>空札</em>もまざる。払えばお手つき。</p>
+    <button class="go" id="startBtn">は じ め る</button>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+<script>
+(function(){
+'use strict';
+
+// ═══════════════════════════════════════════════════════════════════════
+//  DOM
+// ═══════════════════════════════════════════════════════════════════════
+var view    = document.getElementById('view');
+var ctx     = view.getContext('2d');
+var video   = document.getElementById('video');
+var flipBtn = document.getElementById('flip');
+var againBtn= document.getElementById('again');
+var errBox  = document.getElementById('err');
+var veil    = document.getElementById('veil');
+var startBtn= document.getElementById('startBtn');
+var demoCv  = document.getElementById('demo');
+var demoCtx = demoCv.getContext('2d');
+
+var C = {
+  tatami:'#c3b884', kage:'#a89a68', heri:'#1f3a2e', gold:'#9c8034',
+  washi:'#f6f1e2', sumi:'#17140f', shu:'#c8321f', ash:'#7d7458'
+};
+var JP = "'Zen Antique','Hiragino Mincho ProN',serif";
+var LT = "'Cormorant Garamond',Georgia,serif";
+
+function now(){
+  return (window.performance && window.performance.now) ? window.performance.now() : Date.now();
+}
+function clamp(v,a,b){ return v<a?a:(v>b?b:v); }
+function ease(t){ return 1-Math.pow(1-t,3); }
+
+// ═══════════════════════════════════════════════════════════════════════
+//  THE DECK — 江戸いろはかるた
+//  Every entry's yomi begins with exactly the character printed on its card,
+//  which is what makes "take it on the first character" a fair rule. The
+//  proverbs whose reading drifts off their own kana (を=おいては, れ=りょう,
+//  ひ=びんぼう, け=げいは) are deliberately absent for that reason.
+// ═══════════════════════════════════════════════════════════════════════
+var POOL = [
+  {k:'い',y:'いぬもあるけばぼうにあたる',t:'犬も歩けば棒に当たる'},
+  {k:'ろ',y:'ろんよりしょうこ',t:'論より証拠'},
+  {k:'は',y:'はなよりだんご',t:'花より団子'},
+  {k:'に',y:'にくまれっこよにはばかる',t:'憎まれっ子世にはばかる'},
+  {k:'ほ',y:'ほねおりぞんのくたびれもうけ',t:'骨折り損の草臥れ儲け'},
+  {k:'と',y:'としよりのひやみず',t:'年寄りの冷や水'},
+  {k:'ち',y:'ちりもつもればやまとなる',t:'塵も積もれば山となる'},
+  {k:'り',y:'りちぎもののこだくさん',t:'律義者の子沢山'},
+  {k:'ぬ',y:'ぬすびとのひるね',t:'盗人の昼寝'},
+  {k:'る',y:'るりもはりもてらせばひかる',t:'瑠璃も玻璃も照らせば光る'},
+  {k:'わ',y:'われなべにとじぶた',t:'割れ鍋に綴じ蓋'},
+  {k:'か',y:'かえるのつらにみず',t:'蛙の面に水'},
+  {k:'よ',y:'よしのずいからてんじょうをのぞく',t:'葦の髄から天井を覗く'},
+  {k:'た',y:'たびはみちづれよはなさけ',t:'旅は道連れ世は情け'},
+  {k:'そ',y:'そうりょうのじんろく',t:'総領の甚六'},
+  {k:'つ',y:'つきとすっぽん',t:'月と鼈'},
+  {k:'ね',y:'ねんにはねんをいれよ',t:'念には念を入れよ'},
+  {k:'な',y:'なさけはひとのためならず',t:'情けは人の為ならず'},
+  {k:'ら',y:'らくあればくあり',t:'楽あれば苦あり'},
+  {k:'む',y:'むりがとおればどうりひっこむ',t:'無理が通れば道理引っ込む'},
+  {k:'う',y:'うそからでたまこと',t:'嘘から出た真'},
+  {k:'の',y:'のどもとすぎればあつさをわすれる',t:'喉元過ぎれば熱さを忘れる'},
+  {k:'お',y:'おににかなぼう',t:'鬼に金棒'},
+  {k:'く',y:'くさいものにふたをする',t:'臭い物に蓋をする'},
+  {k:'や',y:'やすものがいのぜにうしない',t:'安物買いの銭失い'},
+  {k:'ま',y:'まけるがかち',t:'負けるが勝ち'},
+  {k:'ふ',y:'ふみはやりたしかくてはもたぬ',t:'文はやりたし書く手は持たぬ'},
+  {k:'こ',y:'こはさんがいのくびかせ',t:'子は三界の首枷'},
+  {k:'え',y:'えてにほをあげる',t:'得手に帆を上げる'},
+  {k:'て',y:'ていしゅのすきなあかえぼし',t:'亭主の好きな赤烏帽子'},
+  {k:'あ',y:'あたまかくしてしりかくさず',t:'頭隠して尻隠さず'},
+  {k:'さ',y:'さんべんまわってたばこにしょ',t:'三遍回って煙草にしょ'},
+  {k:'き',y:'きいてごくらくみてじごく',t:'聞いて極楽見て地獄'},
+  {k:'ゆ',y:'ゆだんたいてき',t:'油断大敵'},
+  {k:'め',y:'めのうえのたんこぶ',t:'目の上の瘤'},
+  {k:'み',y:'みからでたさび',t:'身から出た錆'},
+  {k:'し',y:'しらぬがほとけ',t:'知らぬが仏'},
+  {k:'も',y:'もんぜんのこぞうならわぬきょうをよむ',t:'門前の小僧習わぬ経を読む'},
+  {k:'せ',y:'せにはらはかえられぬ',t:'背に腹は代えられぬ'},
+  {k:'す',y:'すいはみをくう',t:'粋は身を食う'}
+];
+
+var FIELD_N = 12;     // 場に並ぶ札
+var READ_N  = 24;     // 読み上げる札 (半分は空札)
+
+// ═══════════════════════════════════════════════════════════════════════
+//  TUNING
+//  SWIPE_ON is the whole game. MediaPipe's palm centre jitters by roughly
+//  0.004 normalised units between frames when a hand is held still, which
+//  at 30fps differentiates to about 0.12 u/s; a deliberate sweep across a
+//  third of the screen in 0.18s is about 1.9 u/s. 1.55 sits an order of
+//  magnitude above the noise and well under a real 払い. Verified against
+//  the offline harness with jittered stationary hands: zero false takes.
+// ═══════════════════════════════════════════════════════════════════════
+var SWIPE_ON   = 1.55;
+var SWIPE_OFF  = 0.70;
+var TRACK_GAP  = 0.28;
+var TRACK_JUMP = 0.34;
+var MEMO_MS    = 8000;
+var POISE_MS   = 380;
+var TAIL_MS    = 700;
+// The answer is the first character, so a sixteen-kana proverb spends four
+// seconds saying nothing the player still needs. The reciter gets eight and
+// then trails off — long enough to hear the phrase, short enough that a
+// missed card does not stall the match.
+var MAX_CHARS  = 8;
+var MAX_MISS   = 3;
+
+// ═══════════════════════════════════════════════════════════════════════
+//  AUDIO — four attacks that never collide:
+//    拍子木 a hardwood click, all transient, gone in 60ms
+//    払い   a bandpassed noise sweep, paper leaving straw
+//    お手つき a sine that falls an octave into the floor, no top end at all
+//    鈴     an FM bell, the only sustained thing in the piece
+//  Under it a 詠み voice: a formant-filtered saw re-articulated per kana,
+//  quiet enough to read as someone reciting in the next room.
+// ═══════════════════════════════════════════════════════════════════════
+var AC = window.AudioContext || window.webkitAudioContext;
+var ac=null, master=null, comp=null, noiseBuf=null, roomIn=null;
+var chant=null, chantGain=null, chantFilt=null;
+
+function makeNoise(){
+  if (!ac) return null;
+  var len = Math.floor(ac.sampleRate*2);
+  var b = ac.createBuffer(1, len, ac.sampleRate);
+  var d = b.getChannelData(0);
+  for (var i=0;i<len;i++) d[i] = Math.random()*2-1;
+  return b;
+}
+function initAudio(){
+  if (ac || !AC) return;
+  try { ac = new AC(); } catch(e){ ac = null; return; }
+
+  comp = ac.createDynamicsCompressor();
+  try {
+    comp.threshold.value = -18; comp.knee.value = 24;
+    comp.ratio.value = 8; comp.attack.value = 0.004; comp.release.value = 0.26;
+  } catch(e){}
+  master = ac.createGain(); master.gain.value = 0.85;
+  master.connect(comp); comp.connect(ac.destination);
+
+  // a tatami room: two short taps, almost no tail. Straw does not ring.
+  roomIn = ac.createGain(); roomIn.gain.value = 0.22;
+  var taps = [0.021, 0.037];
+  for (var i=0;i<taps.length;i++){
+    var dl = ac.createDelay(0.2); dl.delayTime.value = taps[i];
+    var lp = ac.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value = 2600;
+    var g  = ac.createGain(); g.gain.value = 0.5 - i*0.18;
+    roomIn.connect(dl); dl.connect(lp); lp.connect(g); g.connect(master);
+  }
+  noiseBuf = makeNoise();
+}
+function resumeAudio(){
+  if (ac && ac.state === 'suspended' && ac.resume) { try{ ac.resume(); }catch(e){} }
+}
+function noiseSrc(){
+  if (!ac || !noiseBuf) return null;
+  var s = ac.createBufferSource();
+  s.buffer = noiseBuf; s.loop = true;
+  s.playbackRate.value = 1;
+  return s;
+}
+function env(g, t0, peak, atk, dec){
+  var p = g.gain;
+  p.setValueAtTime(0.0001, t0);
+  p.exponentialRampToValueAtTime(Math.max(0.0002, peak), t0+atk);
+  p.exponentialRampToValueAtTime(0.0001, t0+atk+dec);
+}
+// 拍子木
+function sfxClack(vol){
+  if (!ac) return;
+  var t0 = ac.currentTime, v = (vol===undefined?1:vol);
+  var s = noiseSrc(); if (!s) return;
+  var bp = ac.createBiquadFilter(); bp.type='bandpass';
+  bp.frequency.value = 2150; bp.Q.value = 3.2;
+  var g = ac.createGain();
+  s.connect(bp); bp.connect(g); g.connect(master); g.connect(roomIn);
+  env(g, t0, 0.42*v, 0.001, 0.052);
+  s.start(t0); s.stop(t0+0.09);
+  var o = ac.createOscillator(); o.type='triangle';
+  o.frequency.setValueAtTime(1180, t0);
+  o.frequency.exponentialRampToValueAtTime(880, t0+0.05);
+  var og = ac.createGain(); o.connect(og); og.connect(master);
+  env(og, t0, 0.20*v, 0.001, 0.045);
+  o.start(t0); o.stop(t0+0.08);
+}
+// 札を払う
+function sfxSweep(vol){
+  if (!ac) return;
+  var t0 = ac.currentTime, v = (vol===undefined?1:vol);
+  var s = noiseSrc(); if (!s) return;
+  var hp = ac.createBiquadFilter(); hp.type='highpass';
+  hp.frequency.setValueAtTime(900, t0);
+  hp.frequency.exponentialRampToValueAtTime(5200, t0+0.12);
+  var bp = ac.createBiquadFilter(); bp.type='bandpass';
+  bp.frequency.value = 3200; bp.Q.value = 0.7;
+  var g = ac.createGain();
+  s.connect(hp); hp.connect(bp); bp.connect(g); g.connect(master); g.connect(roomIn);
+  env(g, t0, 0.34*v, 0.004, 0.15);
+  s.start(t0); s.stop(t0+0.20);
+}
+// お手つき
+function sfxThud(){
+  if (!ac) return;
+  var t0 = ac.currentTime;
+  var o = ac.createOscillator(); o.type='sine';
+  o.frequency.setValueAtTime(104, t0);
+  o.frequency.exponentialRampToValueAtTime(48, t0+0.30);
+  var g = ac.createGain(); o.connect(g); g.connect(master);
+  env(g, t0, 0.50, 0.003, 0.34);
+  o.start(t0); o.stop(t0+0.42);
+  var s = noiseSrc();
+  if (s){
+    var lp = ac.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value = 420;
+    var ng = ac.createGain();
+    s.connect(lp); lp.connect(ng); ng.connect(master);
+    env(ng, t0, 0.26, 0.001, 0.09);
+    s.start(t0); s.stop(t0+0.14);
+  }
+}
+// 鈴 (FM bell)
+function sfxBell(f, vol, dec){
+  if (!ac) return;
+  var t0 = ac.currentTime, v=(vol===undefined?1:vol), d=(dec===undefined?1.6:dec);
+  var car = ac.createOscillator(); car.type='sine'; car.frequency.value = f;
+  var mod = ac.createOscillator(); mod.type='sine'; mod.frequency.value = f*3.47;
+  var mg  = ac.createGain();
+  mg.gain.setValueAtTime(f*3.1, t0);
+  mg.gain.exponentialRampToValueAtTime(f*0.05, t0+d*0.5);
+  mod.connect(mg); mg.connect(car.frequency);
+  var g = ac.createGain(); car.connect(g); g.connect(master); g.connect(roomIn);
+  env(g, t0, 0.30*v, 0.002, d);
+  car.start(t0); mod.start(t0);
+  car.stop(t0+d+0.1); mod.stop(t0+d+0.1);
+}
+// 詠み — started per reading, re-articulated per kana
+var CHANT_NOTES = [174.6, 196.0, 233.1, 261.6];
+function chantOn(note){
+  if (!ac || chant) return;
+  chant = ac.createOscillator(); chant.type='sawtooth';
+  chant.frequency.value = note;
+  chantFilt = ac.createBiquadFilter(); chantFilt.type='bandpass';
+  chantFilt.frequency.value = 620; chantFilt.Q.value = 3.6;
+  var lp = ac.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value = 1500;
+  chantGain = ac.createGain(); chantGain.gain.value = 0.0001;
+  chant.connect(chantFilt); chantFilt.connect(lp); lp.connect(chantGain);
+  chantGain.connect(master); chantGain.connect(roomIn);
+  try { chant.start(ac.currentTime); } catch(e){}
+}
+function chantSyllable(i){
+  if (!ac || !chantGain) return;
+  var t0 = ac.currentTime;
+  var p = chantGain.gain;
+  p.cancelScheduledValues(t0);
+  p.setValueAtTime(Math.max(0.0001, p.value), t0);
+  p.exponentialRampToValueAtTime(0.055, t0+0.028);
+  p.exponentialRampToValueAtTime(0.016, t0+0.16);
+  if (chantFilt) chantFilt.frequency.setTargetAtTime(520 + (i%3)*190, t0, 0.05);
+}
+function chantOff(){
+  if (!ac || !chant) return;
+  var t0 = ac.currentTime;
+  try {
+    chantGain.gain.cancelScheduledValues(t0);
+    chantGain.gain.setValueAtTime(Math.max(0.0001, chantGain.gain.value), t0);
+    chantGain.gain.exponentialRampToValueAtTime(0.0001, t0+0.22);
+    chant.stop(t0+0.3);
+  } catch(e){}
+  chant = null; chantGain = null; chantFilt = null;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  SIZE + TATAMI
+// ═══════════════════════════════════════════════════════════════════════
+var W=1,H=1,DPR=1,portrait=false,U=1;
+var bgCv=null,bgCtx=null;
+
+function drawMat(g,x,y,w,h,vert){
+  g.save();
+  g.beginPath(); g.rect(x,y,w,h); g.clip();
+  g.fillStyle = C.tatami; g.fillRect(x,y,w,h);
+  var i,n,step;
+  if (vert){
+    step = Math.max(3, w/90); n = Math.ceil(w/step);
+    for (i=0;i<n;i++){
+      var px = x + i*step;
+      g.fillStyle = (i%2) ? 'rgba(140,126,78,.30)' : 'rgba(226,214,166,.26)';
+      g.fillRect(px, y, step*0.5, h);
+    }
+    g.fillStyle='rgba(120,108,66,.10)';
+    for (i=0;i*step*7<h;i++) g.fillRect(x, y+i*step*7, w, 1);
+  } else {
+    step = Math.max(3, h/90); n = Math.ceil(h/step);
+    for (i=0;i<n;i++){
+      var py = y + i*step;
+      g.fillStyle = (i%2) ? 'rgba(140,126,78,.30)' : 'rgba(226,214,166,.26)';
+      g.fillRect(x, py, w, step*0.5);
+    }
+    g.fillStyle='rgba(120,108,66,.10)';
+    for (i=0;i*step*7<w;i++) g.fillRect(x+i*step*7, y, 1, h);
+  }
+  // 縁 on the two long edges
+  var hw = Math.max(4, Math.min(w,h)*0.035);
+  g.fillStyle = C.heri;
+  if (vert){ g.fillRect(x,y,hw,h); g.fillRect(x+w-hw,y,hw,h); }
+  else     { g.fillRect(x,y,w,hw); g.fillRect(x,y+h-hw,w,hw); }
+  g.fillStyle = 'rgba(156,128,52,.55)';
+  if (vert){ g.fillRect(x+hw*0.34,y,1.2,h); g.fillRect(x+w-hw*0.34,y,1.2,h); }
+  else     { g.fillRect(x,y+hw*0.34,w,1.2); g.fillRect(x,y+h-hw*0.34,w,1.2); }
+  g.restore();
+}
+function buildBg(){
+  if (!bgCv){
+    bgCv = document.createElement('canvas');
+    bgCtx = bgCv.getContext('2d');
+  }
+  bgCv.width = Math.max(1, Math.round(W*DPR));
+  bgCv.height= Math.max(1, Math.round(H*DPR));
+  var g = bgCtx;
+  g.setTransform(DPR,0,0,DPR,0,0);
+  g.clearRect(0,0,W,H);
+  var cols = portrait?2:3, rows = portrait?3:2;
+  var mw = W/cols, mh = H/rows, r, c;
+  for (r=0;r<rows;r++) for (c=0;c<cols;c++){
+    drawMat(g, c*mw, r*mh, mw, mh, ((r+c)%2)===0);
+  }
+  var lg = g.createRadialGradient(W*0.20,-H*0.10,10, W*0.30,H*0.15, Math.max(W,H)*1.15);
+  lg.addColorStop(0,'rgba(255,251,228,.46)');
+  lg.addColorStop(0.55,'rgba(255,246,210,.06)');
+  lg.addColorStop(1,'rgba(52,44,18,.26)');
+  g.fillStyle = lg; g.fillRect(0,0,W,H);
+}
+function resize(){
+  DPR = Math.min(2, window.devicePixelRatio || 1);
+  W = Math.max(1, window.innerWidth);
+  H = Math.max(1, window.innerHeight);
+  portrait = H > W;
+  U = Math.min(W,H);
+  view.width = Math.round(W*DPR);
+  view.height= Math.round(H*DPR);
+  view.style.width = W+'px';
+  view.style.height= H+'px';
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  buildBg();
+  layout();
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  FIELD
+// ═══════════════════════════════════════════════════════════════════════
+var cards = [];       // {k,y,t,col,row,x,y0,w,h,taken,born}
+var flying = [];      // launched cards
+var COLS=4, ROWS=3;
+
+function layout(){
+  COLS = portrait?3:4; ROWS = portrait?4:3;
+  var fx = W*0.055, fw = W*0.89;
+  var fy = portrait ? H*0.255 : H*0.285;
+  var fh = (portrait ? H*0.955 : H*0.955) - fy;
+  var cw = fw/COLS, ch = fh/ROWS;
+  var w = Math.min(cw*0.90, ch*0.86*1.38);
+  var h = w/1.38;
+  for (var i=0;i<cards.length;i++){
+    var cd = cards[i];
+    cd.w = w; cd.h = h;
+    cd.x  = fx + cd.col*cw + (cw-w)/2;
+    cd.y0 = fy + cd.row*ch + (ch-h)/2;
+  }
+}
+function shuffled(arr){
+  var a = arr.slice(), i, j, t;
+  for (i=a.length-1;i>0;i--){
+    j = Math.floor(Math.random()*(i+1));
+    t = a[i]; a[i] = a[j]; a[j] = t;
+  }
+  return a;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  MATCH STATE
+// ═══════════════════════════════════════════════════════════════════════
+var phase = 'idle';   // idle | memorize | reading | gap | over
+var phaseT = 0;
+var deck = [], deckIx = 0;
+var cur = null;       // {e, live, t0, shown, charMs, done}
+var takenN = 0, missN = 0, score = 0, streak = 0, bestChain = 0;
+var running = false, started = false;
+var flashT = -1e9, flashCol = null;
+var shake = 0;
+var seal = null;      // 落款 stamp {t, x, y, label}
+var toast = null;
+var parts = [];
+var overInfo = null;
+
+function deal(){
+  var pick = shuffled(POOL).slice(0, READ_N);
+  var field = pick.slice(0, FIELD_N);
+  cards = [];
+  for (var i=0;i<FIELD_N;i++){
+    var e = field[i];
+    cards.push({ k:e.k, y:e.y, t:e.t, col:i%COLS, row:Math.floor(i/COLS),
+                 x:0, y0:0, w:0, h:0, taken:false, born:i*38 });
+  }
+  // scatter the layout so the same kana is never in the same seat twice
+  var seats = shuffled(cards.slice());
+  for (i=0;i<seats.length;i++){ seats[i].col = i%COLS; seats[i].row = Math.floor(i/COLS); }
+  deck = shuffled(pick);
+  deckIx = 0;
+  layout();
+}
+function newMatch(){
+  deal();
+  takenN=0; missN=0; score=0; streak=0; bestChain=0;
+  flying.length=0; parts.length=0;
+  cur=null; seal=null; toast=null; overInfo=null;
+  againBtn.style.display='none';
+  phase='memorize'; phaseT=now();
+}
+function liveOnField(k){
+  for (var i=0;i<cards.length;i++) if (!cards[i].taken && cards[i].k===k) return cards[i];
+  return null;
+}
+function readingPace(){
+  // the reciter speeds up as the field empties
+  var p = takenN/FIELD_N;
+  return { charMs: 250 - 95*p, gapMs: 1500 - 560*p };
+}
+function nextReading(){
+  if (phase === 'over') return;
+  if (takenN >= FIELD_N || deckIx >= deck.length){ endMatch(); return; }
+  var e = deck[deckIx++];
+  var pace = readingPace();
+  cur = { e:e, live: !!liveOnField(e.k), t0: now(), shown: -1,
+          charMs: pace.charMs, gapMs: pace.gapMs, done:false, answered:false };
+  phase = 'reading'; phaseT = now();
+  sfxClack(1);
+  chantOn(CHANT_NOTES[deckIx % CHANT_NOTES.length]);
+}
+function endMatch(){
+  if (phase === 'over') return;           // idempotent: only ever fires once
+  phase = 'over'; phaseT = now();
+  chantOff();
+  cur = null;
+  var rank;
+  if (takenN >= FIELD_N && missN === 0) rank = '名 人';
+  else if (score >= 1700) rank = '五 段';
+  else if (score >= 1250) rank = '四 段';
+  else if (score >= 800)  rank = '三 段';
+  else if (score >= 420)  rank = '初 段';
+  else rank = '級 外';
+  overInfo = { taken:takenN, miss:missN, score:score, chain:bestChain, rank:rank,
+               cleared: (takenN >= FIELD_N) };
+  sfxBell(147, 1.0, 3.2);
+  setTimeout(function(){ sfxBell(98, 0.7, 3.6); }, 260);
+  againBtn.style.display = 'block';
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  PARTICLES
+// ═══════════════════════════════════════════════════════════════════════
+function burst(x,y,n,col,spd,life){
+  for (var i=0;i<n;i++){
+    var a = Math.random()*Math.PI*2, s = spd*(0.35+Math.random()*0.9);
+    parts.push({ x:x, y:y, vx:Math.cos(a)*s, vy:Math.sin(a)*s-spd*0.25,
+                 r:U*0.004*(0.4+Math.random()), life:life*(0.6+Math.random()*0.7),
+                 age:0, col:col });
+  }
+}
+function stepParts(dt){
+  for (var i=parts.length-1;i>=0;i--){
+    var p = parts[i];
+    p.age += dt;
+    if (p.age >= p.life){ parts.splice(i,1); continue; }
+    p.x += p.vx*dt; p.y += p.vy*dt;
+    p.vy += U*1.6*dt;
+    p.vx *= 0.985;
+  }
+  if (parts.length > 460) parts.splice(0, parts.length-460);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  TAKING
+// ═══════════════════════════════════════════════════════════════════════
+function launch(cd, vx, vy){
+  cd.taken = true;
+  var sp = Math.hypot(vx,vy);
+  var n = sp>0.0001 ? 1/sp : 0;
+  var base = U*1.9;
+  flying.push({
+    x: cd.x, y: cd.y0, w: cd.w, h: cd.h, k: cd.k, t: cd.t,
+    vx: (sp>0.0001? vx*n : 1) * base * (0.7+Math.min(1.2, sp/3)),
+    vy: (sp>0.0001? vy*n : -0.4) * base * (0.7+Math.min(1.2, sp/3)) - U*0.35,
+    rot: 0, rv: (Math.random()<0.5?-1:1)*(5+Math.random()*7), age:0
+  });
+}
+function takeCard(cd, hx, hy, vx, vy){
+  var correct = !!(cur && cur.live && cur.e.k === cd.k && cur.shown >= 0);
+  if (correct){
+    var dtms = now() - (cur.t0 + POISE_MS);
+    // Two tiers, both legible on screen: taking it while only the 決まり字
+    // itself is showing is the rare one; taking it inside three kana is the
+    // one a good player can actually chase. Both windows shrink on their own
+    // as the field empties, because the reciter speeds up.
+    var tier = (cur.shown === 0) ? 2 : ((cur.shown <= 2) ? 1 : 0);
+    var bonus = Math.round(clamp(110 - dtms/14, 0, 110));
+    var pts = 100 + bonus + (tier===2 ? 120 : (tier===1 ? 60 : 0));
+    score += pts; takenN++; streak++;
+    if (streak > bestChain) bestChain = streak;
+    cur.answered = true;
+    launch(cd, vx, vy);
+    sfxSweep(1);
+    burst(hx, hy, 22, 'washi', U*1.1, 0.55);
+    flashT = now(); flashCol = 'rgba(255,252,238,';
+    shake = Math.min(1, 0.35 + bonus/220);
+    if (tier===2){
+      sfxBell(1046, 0.85, 1.5);
+      seal = { t: now(), x: W*0.5, y: H*0.5, label:'一字' };
+      burst(hx, hy, 16, 'shu', U*1.5, 0.6);
+    } else if (tier===1){
+      sfxBell(880, 0.58, 1.1);
+      seal = { t: now(), x: W*0.5, y: H*0.5, label:'早取' };
+    } else {
+      sfxBell(784, 0.42, 0.9);
+    }
+    toast = { t: now(), text: (tier===2?'一字決まり ＋':(tier===1?'早取り ＋':'＋')) + pts };
+    chantOff();
+    phase = 'gap'; phaseT = now();
+    if (takenN >= FIELD_N) { endMatch(); return; }
+  } else {
+    missN++; streak = 0;
+    score = Math.max(0, score - 60);
+    sfxThud();
+    burst(hx, hy, 26, 'sumi', U*0.95, 0.7);
+    flashT = now(); flashCol = 'rgba(200,50,31,';
+    shake = 1;
+    var why = (!cur || cur.shown < 0) ? 'お手つき・早い'
+            : (!cur.live ? 'お手つき・空札' : 'お手つき');
+    toast = { t: now(), text: why };
+    if (missN >= MAX_MISS){ endMatch(); return; }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  HANDS
+// ═══════════════════════════════════════════════════════════════════════
+var hands=null, mpCamera=null, mpReady=false;
+function blankHand(){
+  return { live:false, t:-1e9, x:0.5, y:0.5, px:0.5, py:0.5,
+           vx:0, vy:0, sp:0, open:0, lm:null, sweeping:false, swept:false,
+           hover:null, lockT:-1e9, trail:[] };
+}
+var HANDS = [blankHand(), blankHand()];
+function loseHand(h){
+  h.live=false; h.lm=null; h.vx=0; h.vy=0; h.sp=0;
+  h.sweeping=false; h.swept=false; h.hover=null; h.trail.length=0;
+}
+function loseHands(){ loseHand(HANDS[0]); loseHand(HANDS[1]); }
+
+function initHands(){
+  if (typeof window.Hands !== 'function') return false;
+  try {
+    hands = new window.Hands({ locateFile:function(f){
+      return 'https://cdn.jsdelivr.net/npm/@mediapipe/hands/' + f;
+    }});
+    hands.setOptions({ maxNumHands:2, modelComplexity:0,
+                       minDetectionConfidence:0.6, minTrackingConfidence:0.5 });
+    hands.onResults(onHands);
+    mpReady = true; return true;
+  } catch(e){ return false; }
+}
+function startMpCamera(){
+  if (!mpReady || !hands || mpCamera) return;
+  if (typeof window.Camera !== 'function') return;
+  try {
+    mpCamera = new window.Camera(video, {
+      onFrame: function(){
+        if (!hands) return Promise.resolve();
+        return hands.send({ image: video }).catch(function(){});
+      },
+      width:480, height:360
+    });
+    mpCamera.start();
+  } catch(e){ mpCamera = null; }
+}
+function validLm(c){
+  if (!c || c.length < 21) return null;
+  for (var i=0;i<21;i++){
+    var p = c[i];
+    if (!p || typeof p.x !== 'number' || typeof p.y !== 'number' ||
+        !isFinite(p.x) || !isFinite(p.y)) return null;
+  }
+  return c;
+}
+var TIPS=[8,12,16,20], PIPS=[6,10,14,18];
+
+function readHand(h, c, t){
+  var ids=[0,5,9,13,17], cx=0, cy=0, i, p;
+  for (i=0;i<ids.length;i++){
+    p = c[ids[i]]; if (!p) return;
+    cx += p.x; cy += p.y;
+  }
+  cx/=ids.length; cy/=ids.length;
+  if (!isFinite(cx)||!isFinite(cy)) return;
+  var x = mirror ? (1-cx) : cx, y = cy;
+  if (!isFinite(x)||!isFinite(y)) return;
+
+  var wr = c[0], ext = 0;
+  for (i=0;i<4;i++){
+    var a = c[TIPS[i]], b = c[PIPS[i]];
+    if (!a || !b || !wr) continue;
+    if (Math.hypot(a.x-wr.x, a.y-wr.y) > Math.hypot(b.x-wr.x, b.y-wr.y)*1.06) ext++;
+  }
+
+  var dt = h.live ? (t-h.t)/1000 : 0;
+  var jump = h.live ? Math.hypot(x-h.x, y-h.y) : 0;
+  // Differentiating across a dropout invents a huge velocity from nothing —
+  // here that would sweep a card the player never touched.
+  var cont = (h.live && dt > 0.004 && dt < TRACK_GAP && jump < TRACK_JUMP);
+  h.px = h.live ? h.x : x;
+  h.py = h.live ? h.y : y;
+  if (cont){
+    var nvx=(x-h.x)/dt, nvy=(y-h.y)/dt;
+    if (isFinite(nvx)&&isFinite(nvy)){
+      h.vx += (nvx-h.vx)*0.6;
+      h.vy += (nvy-h.vy)*0.6;
+    }
+  } else {
+    h.px = x; h.py = y; h.vx=0; h.vy=0; h.sweeping=false; h.swept=false; h.hover=null;
+  }
+  h.sp = Math.hypot(h.vx,h.vy);
+  if (!isFinite(h.sp)) h.sp = 0;
+  h.x=x; h.y=y; h.t=t; h.live=true; h.lm=c;
+  h.open += (ext/4 - h.open)*0.34;
+  if (!isFinite(h.open)) h.open = 0;
+  h.trail.unshift({x:x,y:y});
+  if (h.trail.length > 14) h.trail.pop();
+
+  if (cont) trySweep(h, t);
+}
+function cardAt(x,y){
+  for (var i=0;i<cards.length;i++){
+    var cd = cards[i];
+    if (cd.taken) continue;
+    if (x >= cd.x && x <= cd.x+cd.w && y >= cd.y0 && y <= cd.y0+cd.h) return cd;
+  }
+  return null;
+}
+// segment (px,py)->(x,y) against every un-taken card
+function hitCard(x0,y0,x1,y1){
+  var best=null, bd=1e18, i, steps=6, s, x, y;
+  for (i=0;i<cards.length;i++){
+    var cd = cards[i];
+    if (cd.taken) continue;
+    for (s=0;s<=steps;s++){
+      x = x0 + (x1-x0)*(s/steps);
+      y = y0 + (y1-y0)*(s/steps);
+      if (x >= cd.x && x <= cd.x+cd.w && y >= cd.y0 && y <= cd.y0+cd.h){
+        var dx = x-(cd.x+cd.w/2), dy = y-(cd.y0+cd.h/2);
+        var d = dx*dx+dy*dy;
+        if (d < bd){ bd = d; best = cd; }
+        break;
+      }
+    }
+  }
+  return best;
+}
+// A 払い is an arm swing, so it is already at full speed well before it
+// reaches the card. Latching on the first fast frame and testing only there
+// means a sweep that starts off to the side crosses the whole field without
+// touching anything. The latch is therefore "one card per sweep", and the
+// path keeps being tested for as long as the hand is still travelling.
+function trySweep(h, t){
+  if (!running) return;
+  if (phase !== 'reading' && phase !== 'gap') return;
+  // While the palm is travelling slowly it is aiming, not playing, so the
+  // card under it is remembered. A flick then takes THAT card rather than
+  // whichever one happened to be first along the path — otherwise a swing
+  // in from the edge of a 4x3 field carries off a card you never chose.
+  if (!h.sweeping && h.sp < SWIPE_ON) h.hover = cardAt(h.x*W, h.y*H);
+  if (h.sweeping){
+    if (h.sp < SWIPE_OFF){ h.sweeping = false; h.swept = false; return; }
+  } else {
+    if (h.sp < SWIPE_ON) return;
+    if (t - h.lockT < 380) return;
+    h.sweeping = true; h.swept = false; h.lockT = t;
+  }
+  if (h.swept) return;
+  var cd = (h.hover && !h.hover.taken) ? h.hover
+         : hitCard(h.px*W, h.py*H, h.x*W, h.y*H);
+  if (!cd) return;
+  h.swept = true; h.lockT = t; h.hover = null;
+  takeCard(cd, h.x*W, h.y*H, h.vx, h.vy);
+}
+function onHands(res){
+  var t = now(), i;
+  var list = (res && res.multiHandLandmarks) ? res.multiHandLandmarks : [];
+  var seen = [false,false];
+  for (i=0;i<list.length && i<2;i++){
+    var c = validLm(list[i]);
+    if (!c) continue;
+    readHand(HANDS[i], c, t);
+    seen[i] = true;
+  }
+  for (i=0;i<2;i++){
+    if (!seen[i] && HANDS[i].live && (t - HANDS[i].t) > 260) loseHand(HANDS[i]);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  CAMERA
+// ═══════════════════════════════════════════════════════════════════════
+var facing='user', mirror=true, stream=null, camOK=false;
+function showError(e){
+  var msg = (e && e.message) ? e.message : String(e || 'unknown');
+  errBox.style.display='block';
+  errBox.textContent = 'カメラを起動できませんでした：' + msg +
+    '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+}
+function startStream(){
+  var md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) return Promise.reject(new Error('getUserMedia is unavailable'));
+  if (stream && stream.getTracks) stream.getTracks().forEach(function(t){ t.stop(); });
+  return md.getUserMedia({
+    video:{ facingMode:{ ideal:facing }, width:{ ideal:960 }, height:{ ideal:720 } },
+    audio:false
+  }).then(function(st){
+    stream = st; video.srcObject = st; mirror = (facing==='user'); camOK = true;
+    var p = video.play();
+    return (p && p.then) ? p.catch(function(){}) : null;
+  });
+}
+flipBtn.addEventListener('click', function(){
+  facing = (facing==='user') ? 'environment' : 'user';
+  loseHands();
+  startStream().then(startMpCamera).catch(showError);
+});
+againBtn.addEventListener('click', function(){
+  resumeAudio();
+  newMatch();
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+//  DRAW — card
+// ═══════════════════════════════════════════════════════════════════════
+function vertText(g, s, x, y, size, lh, max){
+  var n = Math.min(s.length, max);
+  for (var i=0;i<n;i++) g.fillText(s.charAt(i), x, y + i*lh);
+}
+function paintCard(g, x, y, w, h, k, tail, hi){
+  g.save();
+  g.translate(x,y);
+  // shadow, always down-right: the window is up-left
+  g.fillStyle='rgba(46,38,16,.26)';
+  g.fillRect(w*0.018, h*0.05, w, h);
+  g.fillStyle = C.washi;
+  g.fillRect(0,0,w,h);
+  // uneven washi tone
+  var gr = g.createLinearGradient(0,0,w,h);
+  gr.addColorStop(0,'rgba(255,255,246,.55)');
+  gr.addColorStop(1,'rgba(206,192,158,.30)');
+  g.fillStyle = gr; g.fillRect(0,0,w,h);
+  g.strokeStyle='rgba(31,58,46,.45)'; g.lineWidth=1;
+  g.strokeRect(0.5,0.5,w-1,h-1);
+  g.strokeStyle='rgba(31,58,46,.20)';
+  g.strokeRect(w*0.035+0.5, h*0.05+0.5, w*0.93-1, h*0.90-1);
+  if (hi > 0){
+    g.fillStyle = 'rgba(255,244,190,'+(hi*0.55)+')';
+    g.fillRect(0,0,w,h);
+  }
+  // the kana
+  g.fillStyle = C.sumi;
+  g.font = Math.round(h*0.56)+'px '+JP;
+  g.textAlign='center'; g.textBaseline='middle';
+  g.fillText(k, w*0.36, h*0.52);
+  // the proverb, vertical, at the right edge
+  var fs = Math.min(h*0.115, w*0.085);
+  if (fs >= 6.5){
+    g.font = Math.round(fs)+'px '+JP;
+    g.textAlign='center'; g.textBaseline='top';
+    g.fillStyle='rgba(23,20,15,.62)';
+    var lh = fs*1.06;
+    var maxN = Math.floor((h*0.86)/lh);
+    vertText(g, tail, w*0.775, h*0.08, fs, lh, maxN);
+  }
+  g.restore();
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  DRAW — the hand, as a shadow on the mats
+// ═══════════════════════════════════════════════════════════════════════
+var PALM = [0,1,2,5,9,13,17];
+var CHAINS = [[1,2,3,4],[5,6,7,8],[9,10,11,12],[13,14,15,16],[17,18,19,20]];
+function drawHand(g, h){
+  var c = h.lm;
+  if (!h.live || !c) return;
+  var ox = U*0.018, oy = U*0.026;
+  function P(i){
+    var p = c[i];
+    if (!p) return null;
+    var x = (mirror ? 1-p.x : p.x)*W, y = p.y*H;
+    if (!isFinite(x)||!isFinite(y)) return null;
+    return {x:x+ox, y:y+oy};
+  }
+  var i,j,pass,a,b,pts;
+  g.save();
+  for (pass=0;pass<2;pass++){
+    var wide = (pass===0);
+    g.globalAlpha = wide ? 0.16 : 0.30;
+    g.fillStyle = '#241f14';
+    g.strokeStyle = '#241f14';
+    g.lineCap='round'; g.lineJoin='round';
+    // palm
+    pts = [];
+    for (i=0;i<PALM.length;i++){ var q=P(PALM[i]); if (q) pts.push(q); }
+    if (pts.length >= 3){
+      g.beginPath();
+      g.moveTo(pts[0].x, pts[0].y);
+      for (i=1;i<pts.length;i++) g.lineTo(pts[i].x, pts[i].y);
+      g.closePath();
+      g.lineWidth = U*(wide?0.075:0.048);
+      g.stroke(); g.fill();
+    }
+    // fingers
+    for (i=0;i<CHAINS.length;i++){
+      var ch = CHAINS[i];
+      for (j=0;j<ch.length-1;j++){
+        a = P(ch[j]); b = P(ch[j+1]);
+        if (!a || !b) continue;
+        g.lineWidth = U*(wide?0.052:0.032)*(1 - j*0.16);
+        g.beginPath(); g.moveTo(a.x,a.y); g.lineTo(b.x,b.y); g.stroke();
+      }
+    }
+  }
+  g.globalAlpha = 1;
+  // the taking point
+  var px = h.x*W, py = h.y*H;
+  var hot = clamp((h.sp - SWIPE_OFF)/(SWIPE_ON - SWIPE_OFF), 0, 1);
+  g.beginPath();
+  g.arc(px, py, U*0.011 + U*0.010*hot, 0, Math.PI*2);
+  g.fillStyle = C.shu; g.fill();
+  g.beginPath();
+  g.arc(px, py, U*0.020 + U*0.030*hot, 0, Math.PI*2);
+  g.strokeStyle = 'rgba(200,50,31,'+(0.20+0.5*hot)+')';
+  g.lineWidth = 1.4; g.stroke();
+  // sweep streak
+  if (h.trail.length > 2 && h.sp > SWIPE_OFF){
+    g.beginPath();
+    g.moveTo(h.trail[0].x*W, h.trail[0].y*H);
+    for (i=1;i<h.trail.length;i++) g.lineTo(h.trail[i].x*W, h.trail[i].y*H);
+    g.strokeStyle = 'rgba(200,50,31,'+(0.30*hot)+')';
+    g.lineWidth = U*0.012; g.lineCap='round';
+    g.stroke();
+  }
+  g.restore();
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  DRAW — HUD, reciter, results
+// ═══════════════════════════════════════════════════════════════════════
+function drawRecite(g, t){
+  if (!cur) return;
+  var y = portrait ? H*0.135 : H*0.155;
+  var s = cur.e.y;
+  var n = cur.shown + 1;
+  if (n <= 0) {
+    // 構え: the clack has sounded, the first kana has not come
+    g.save();
+    g.globalAlpha = 0.5 + 0.5*Math.sin(t*0.012);
+    g.fillStyle = C.shu;
+    g.font = Math.round(U*0.030)+'px '+JP;
+    g.textAlign='center'; g.textBaseline='middle';
+    g.fillText('・ ・ ・', W*0.5, y);
+    g.restore();
+    return;
+  }
+  var full = s.length;
+  s = s.slice(0, MAX_CHARS);
+  var more = full > s.length;
+  var fs = Math.min(U*0.072, W*0.92/Math.max(6, s.length + (more?1:0)));
+  g.save();
+  g.textAlign='center'; g.textBaseline='middle';
+  var total = 0, i, ws = [];
+  var tail = (more && n >= s.length);
+  g.font = Math.round(fs)+'px '+JP;
+  for (i=0;i<n;i++){ var w = fs*1.02; ws.push(w); total += w; }
+  if (tail) total += fs*1.02;
+  var x = W*0.5 - total/2;
+  for (i=0;i<n;i++){
+    var age = (t - (cur.t0 + POISE_MS + i*cur.charMs));
+    var k = clamp(age/110, 0, 1);
+    var sc = 1 + 0.35*(1-ease(k));
+    g.save();
+    g.translate(x + ws[i]/2, y);
+    g.scale(sc, sc);
+    g.globalAlpha = 0.25 + 0.75*ease(k);
+    g.fillStyle = (i===0) ? C.shu : C.sumi;
+    g.font = Math.round(fs)+'px '+JP;
+    g.fillText(s.charAt(i), 0, 0);
+    g.restore();
+    x += ws[i];
+  }
+  if (tail){
+    g.globalAlpha = 0.45;
+    g.fillStyle = C.sumi;
+    g.font = Math.round(fs)+'px '+JP;
+    g.fillText('…', x + fs*0.51, y);
+  }
+  g.restore();
+}
+function drawHud(g, t){
+  var pad = U*0.030;
+  var top = pad + 4;
+  g.save();
+  g.textAlign='left'; g.textBaseline='top';
+  // 記録紙
+  var bw = U*0.30, bh = U*0.115;
+  g.fillStyle='rgba(246,241,226,.80)';
+  g.fillRect(pad, top, bw, bh);
+  g.strokeStyle='rgba(31,58,46,.35)'; g.lineWidth=1;
+  g.strokeRect(pad+0.5, top+0.5, bw-1, bh-1);
+
+  g.fillStyle='#6b6046';
+  g.font = Math.round(U*0.019)+'px '+JP;
+  g.fillText('取', pad+U*0.020, top+U*0.018);
+  g.fillText('点', pad+U*0.130, top+U*0.018);
+
+  g.fillStyle = C.sumi;
+  g.font = '500 '+Math.round(U*0.048)+'px '+LT;
+  g.fillText(takenN+'/'+FIELD_N, pad+U*0.020, top+U*0.043);
+  g.fillStyle = C.heri;
+  g.fillText(String(score), pad+U*0.130, top+U*0.043);
+
+  // お手つき
+  var dx = pad + bw + U*0.026, r = U*0.011;
+  g.font = Math.round(U*0.017)+'px '+JP;
+  g.fillStyle='#6b6046';
+  g.fillText('お手つき', dx, top+U*0.018);
+  for (var i=0;i<MAX_MISS;i++){
+    g.beginPath();
+    g.arc(dx + r + i*r*2.7, top+U*0.062, r, 0, Math.PI*2);
+    if (i < missN){ g.fillStyle = C.shu; g.fill(); }
+    else { g.strokeStyle='rgba(31,58,46,.45)'; g.lineWidth=1.4; g.stroke(); }
+  }
+  g.restore();
+}
+function drawMemorize(g, t){
+  var left = MEMO_MS - (t - phaseT);
+  if (left < 0) left = 0;
+  g.save();
+  g.textAlign='center'; g.textBaseline='middle';
+  var y = portrait ? H*0.145 : H*0.16;
+  g.fillStyle = C.heri;
+  g.font = Math.round(U*0.040)+'px '+JP;
+  g.fillText('暗 記 時 間', W*0.5, y - U*0.030);
+  g.fillStyle = C.shu;
+  g.font = '300 '+Math.round(U*0.085)+'px '+LT;
+  g.fillText(Math.ceil(left/1000)+'', W*0.5, y + U*0.038);
+  g.restore();
+}
+function drawOver(g, t){
+  if (!overInfo) return;
+  var k = clamp((t-phaseT)/420, 0, 1), e = ease(k);
+  g.save();
+  g.globalAlpha = 0.55*e;
+  g.fillStyle = '#b7ab76'; g.fillRect(0,0,W,H);
+  g.globalAlpha = e;
+  var pw = Math.min(U*0.86, W*0.86), ph = U*0.50;
+  var px = (W-pw)/2, py = H*0.20;
+  g.fillStyle='rgba(46,38,16,.28)'; g.fillRect(px+8, py+11, pw, ph);
+  g.fillStyle = C.washi; g.fillRect(px,py,pw,ph);
+  g.strokeStyle=C.heri; g.lineWidth=1.5; g.strokeRect(px+0.5,py+0.5,pw-1,ph-1);
+
+  g.textAlign='center'; g.textBaseline='middle';
+  g.fillStyle='#6b6046';
+  g.font = Math.round(U*0.021)+'px '+JP;
+  g.fillText(overInfo.cleared ? '十二枚 取り切り' : '手 仕 舞 い', W*0.5, py+ph*0.14);
+
+  g.fillStyle = C.shu;
+  g.font = Math.round(U*0.088)+'px '+JP;
+  g.fillText(overInfo.rank, W*0.5, py+ph*0.36);
+
+  g.fillStyle = C.sumi;
+  g.font = '300 '+Math.round(U*0.070)+'px '+LT;
+  g.fillText(String(overInfo.score), W*0.5, py+ph*0.60);
+
+  g.fillStyle='#6b6046';
+  g.font = Math.round(U*0.020)+'px '+JP;
+  g.fillText('取 ' + overInfo.taken + ' 枚 ・ お手つき ' + overInfo.miss +
+             ' ・ 連取 ' + overInfo.chain, W*0.5, py+ph*0.80);
+  g.restore();
+}
+function drawSeal(g, t){
+  if (!seal) return;
+  var age = t - seal.t;
+  if (age > 1500){ seal = null; return; }
+  var k = clamp(age/180, 0, 1), e = ease(k);
+  var out = clamp((age-1000)/500, 0, 1);
+  var sc = 2.2 - 1.2*e;
+  g.save();
+  g.globalAlpha = (1-out) * (0.35 + 0.65*e);
+  g.translate(seal.x, seal.y);
+  g.rotate(-0.07);
+  g.scale(sc, sc);
+  var s = U*0.115;
+  g.fillStyle = C.shu;
+  g.fillRect(-s/2, -s/2, s, s);
+  g.fillStyle = C.washi;
+  g.font = Math.round(s*0.40)+'px '+JP;
+  g.textAlign='center'; g.textBaseline='middle';
+  g.fillText(seal.label.charAt(0), 0, -s*0.21);
+  g.fillText(seal.label.charAt(1), 0,  s*0.21);
+  g.restore();
+}
+function drawToast(g, t){
+  if (!toast) return;
+  var age = t - toast.t;
+  if (age > 1100){ toast = null; return; }
+  var k = clamp(age/160,0,1);
+  g.save();
+  g.globalAlpha = ease(k) * (1 - clamp((age-750)/350,0,1));
+  g.textAlign='center'; g.textBaseline='middle';
+  g.fillStyle = (toast.text.indexOf('お手つき')===0) ? C.shu : C.heri;
+  g.font = Math.round(U*0.036)+'px '+JP;
+  g.fillText(toast.text, W*0.5, portrait?H*0.215:H*0.235);
+  g.restore();
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  FRAME
+// ═══════════════════════════════════════════════════════════════════════
+var lastT = 0;
+function update(t, dt){
+  // reciter
+  if (phase === 'memorize'){
+    if (t - phaseT >= MEMO_MS) nextReading();
+  } else if (phase === 'reading' && cur){
+    var el = t - cur.t0 - POISE_MS;
+    var last = Math.min(cur.e.y.length, MAX_CHARS) - 1;
+    var want = (el < 0) ? -1 : Math.min(last, Math.floor(el/cur.charMs));
+    while (cur.shown < want){
+      cur.shown++;
+      chantSyllable(cur.shown);
+    }
+    if (cur.shown >= last && el > last*cur.charMs + TAIL_MS){
+      chantOff();
+      phase = 'gap'; phaseT = t;
+    }
+  } else if (phase === 'gap'){
+    var g = cur ? cur.gapMs : 1200;
+    if (cur && cur.answered) g = 620;
+    if (t - phaseT >= g) nextReading();
+  }
+
+  // flying cards
+  for (var i=flying.length-1;i>=0;i--){
+    var f = flying[i];
+    f.age += dt;
+    f.x += f.vx*dt; f.y += f.vy*dt;
+    f.vy += U*2.4*dt;
+    f.rot += f.rv*dt;
+    if (f.age > 1.5) flying.splice(i,1);
+  }
+  stepParts(dt);
+  shake *= Math.pow(0.0025, dt);
+  if (shake < 0.002) shake = 0;
+}
+function render(t){
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  var sh = shake*U*0.012;
+  if (sh > 0.2){
+    ctx.translate((Math.random()*2-1)*sh, (Math.random()*2-1)*sh);
+  }
+  if (bgCv) ctx.drawImage(bgCv, 0, 0, W, H);
+  else { ctx.fillStyle = C.tatami; ctx.fillRect(0,0,W,H); }
+
+  var i;
+  // the un-faded rectangles under cards that have gone
+  for (i=0;i<cards.length;i++){
+    var cd = cards[i];
+    if (!cd.taken) continue;
+    ctx.fillStyle = 'rgba(214,203,158,.42)';
+    ctx.fillRect(cd.x, cd.y0, cd.w, cd.h);
+    ctx.strokeStyle = 'rgba(140,126,78,.30)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(cd.x+0.5, cd.y0+0.5, cd.w-1, cd.h-1);
+  }
+  // the field
+  var settle = (phase==='idle') ? 0 : 1;
+  for (i=0;i<cards.length;i++){
+    var c2 = cards[i];
+    if (c2.taken) continue;
+    var hi = 0;
+    if (c2 === HANDS[0].hover || c2 === HANDS[1].hover) hi = 0.34;
+    if (phase==='memorize'){
+      var a = (t - phaseT) - c2.born;
+      var kk = clamp(a/260, 0, 1);
+      hi = (a>0 && a<600) ? (1-ease(kk))*0.8 : 0;
+    }
+    paintCard(ctx, c2.x, c2.y0, c2.w, c2.h, c2.k, c2.t, hi*settle);
+  }
+  // launched cards
+  for (i=0;i<flying.length;i++){
+    var f = flying[i];
+    ctx.save();
+    ctx.globalAlpha = 1 - clamp((f.age-0.9)/0.6, 0, 1);
+    ctx.translate(f.x + f.w/2, f.y + f.h/2);
+    ctx.rotate(f.rot);
+    paintCard(ctx, -f.w/2, -f.h/2, f.w, f.h, f.k, f.t, 0);
+    ctx.restore();
+  }
+  // particles
+  for (i=0;i<parts.length;i++){
+    var p = parts[i];
+    var lf = 1 - p.age/p.life;
+    ctx.globalAlpha = lf*0.85;
+    ctx.fillStyle = p.col==='shu' ? C.shu : (p.col==='sumi' ? '#2c2519' : C.washi);
+    ctx.fillRect(p.x, p.y, p.r*2, p.r*2);
+  }
+  ctx.globalAlpha = 1;
+
+  // hands
+  for (i=0;i<2;i++) drawHand(ctx, HANDS[i]);
+
+  // reciter + hud
+  if (phase==='memorize') drawMemorize(ctx, t);
+  else if (phase==='reading' || phase==='gap') drawRecite(ctx, t);
+  if (phase!=='idle') drawHud(ctx, t);
+  drawToast(ctx, t);
+  drawSeal(ctx, t);
+
+  // impact flash
+  var fa = 1 - clamp((t-flashT)/170, 0, 1);
+  if (fa > 0 && flashCol){
+    ctx.fillStyle = flashCol + (fa*0.34) + ')';
+    ctx.fillRect(0,0,W,H);
+  }
+  if (phase==='over') drawOver(ctx, t);
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+}
+function frame(){
+  var t = now();
+  var dt = Math.min(0.05, (t-lastT)/1000);
+  if (!(dt > 0)) dt = 0.016;
+  lastT = t;
+  if (running) update(t, dt);
+  render(t);
+  drawDemo(t);
+  requestAnimationFrame(frame);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  START-OVERLAY DIAGRAM — a 2.4s loop: a kana lights, a hand sweeps in,
+//  the card leaves. No words needed.
+// ═══════════════════════════════════════════════════════════════════════
+function drawDemo(t){
+  if (veil.classList.contains('hide')) return;
+  var g = demoCtx, w = demoCv.width, h = demoCv.height;
+  var loop = 2400, k = (t % loop)/loop;
+  g.fillStyle = '#efe8d3'; g.fillRect(0,0,w,h);
+  // three cards
+  var cw = w*0.17, ch = cw/1.38, gap = w*0.055;
+  var x0 = (w - (cw*3 + gap*2))/2, y0 = h*0.42;
+  var kanas = ['は','ち','ぬ'], target = 1;
+  var swept = k > 0.62;
+  var i;
+  // reading line
+  g.textAlign='center'; g.textBaseline='middle';
+  var show = k < 0.34 ? 0 : (k < 0.46 ? 1 : 2);
+  g.font = Math.round(h*0.15)+'px '+JP;
+  if (show >= 1){
+    g.fillStyle = '#c8321f';
+    g.fillText('ち', w*0.46, h*0.17);
+  }
+  if (show >= 2){
+    g.fillStyle = '#17140f';
+    g.fillText('り', w*0.54, h*0.17);
+  }
+  if (show === 0){
+    g.fillStyle='rgba(107,96,70,.6)';
+    g.font = Math.round(h*0.09)+'px '+JP;
+    g.fillText('・ ・ ・', w*0.5, h*0.17);
+  }
+  for (i=0;i<3;i++){
+    if (i===target && swept) continue;
+    var cx = x0 + i*(cw+gap);
+    g.fillStyle='rgba(46,38,16,.20)'; g.fillRect(cx+3, y0+4, cw, ch);
+    g.fillStyle='#f6f1e2'; g.fillRect(cx, y0, cw, ch);
+    g.strokeStyle='rgba(31,58,46,.45)'; g.lineWidth=1;
+    g.strokeRect(cx+0.5, y0+0.5, cw-1, ch-1);
+    g.fillStyle='#17140f';
+    g.font = Math.round(ch*0.55)+'px '+JP;
+    g.fillText(kanas[i], cx+cw*0.40, y0+ch*0.52);
+  }
+  // the swept card leaves
+  if (swept){
+    var a = clamp((k-0.62)/0.30, 0, 1);
+    var fx = x0 + target*(cw+gap) + a*w*0.62;
+    var fy = y0 - a*h*0.34 + a*a*h*0.5;
+    g.save();
+    g.globalAlpha = 1-a*0.9;
+    g.translate(fx+cw/2, fy+ch/2); g.rotate(a*2.4);
+    g.fillStyle='#f6f1e2'; g.fillRect(-cw/2,-ch/2,cw,ch);
+    g.strokeStyle='rgba(31,58,46,.45)'; g.strokeRect(-cw/2+0.5,-ch/2+0.5,cw-1,ch-1);
+    g.fillStyle='#17140f'; g.font = Math.round(ch*0.55)+'px '+JP;
+    g.fillText('ち', -cw*0.10, 0);
+    g.restore();
+  }
+  // the hand: a shadow that crosses the target
+  var hk = clamp((k-0.44)/0.26, 0, 1);
+  if (k > 0.40 && k < 0.86){
+    var hx = w*0.14 + ease(hk)*w*0.72;
+    var hy = y0 + ch*0.5;
+    g.save();
+    g.globalAlpha = 0.30;
+    g.fillStyle = '#241f14';
+    g.beginPath();
+    g.ellipse(hx+6, hy+8, w*0.055, h*0.13, -0.25, 0, Math.PI*2);
+    g.fill();
+    for (i=0;i<4;i++){
+      g.beginPath();
+      g.ellipse(hx+6 + (i-1.5)*w*0.022, hy - h*0.10, w*0.012, h*0.055, (i-1.5)*0.18, 0, Math.PI*2);
+      g.fill();
+    }
+    g.restore();
+    g.beginPath();
+    g.arc(hx, hy, 5, 0, Math.PI*2);
+    g.fillStyle='#c8321f'; g.fill();
+  }
+  g.textAlign='left'; g.textBaseline='alphabetic';
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  BOOT
+// ═══════════════════════════════════════════════════════════════════════
+window.addEventListener('resize', resize);
+window.addEventListener('orientationchange', function(){ setTimeout(resize, 260); });
+if (window.visualViewport && window.visualViewport.addEventListener){
+  window.visualViewport.addEventListener('resize', resize);
+}
+deal();
+resize();
+lastT = now();
+requestAnimationFrame(frame);
+
+startBtn.addEventListener('click', function(){
+  initAudio(); resumeAudio();
+  veil.classList.add('hide');
+  running = true;
+  newMatch();
+  if (!started){
+    started = true;
+    if (initHands()) startStream().then(startMpCamera).catch(showError);
+    else startStream().catch(showError);
+  }
+});
+
+// exposed only so the offline harness can assert on the real state
+window.__KARUTA__ = {
+  s:function(){
+    var out=[], i;
+    for (i=0;i<cards.length;i++) out.push({ k:cards[i].k, taken:cards[i].taken,
+      x:cards[i].x, y:cards[i].y0, w:cards[i].w, h:cards[i].h });
+    return { phase:phase, taken:takenN, miss:missN, score:score, chain:bestChain,
+             cards:out, flying:flying.length, parts:parts.length,
+             cur: cur ? { k:cur.e.k, live:cur.live, shown:cur.shown, len:cur.e.y.length,
+                          answered:cur.answered } : null,
+             hands:[HANDS[0].live, HANDS[1].live],
+             over: overInfo, W:W, H:H };
+  },
+  answerCard:function(){ return cur ? liveOnField(cur.e.k) : null; },
+  setPhaseT:function(v){ phaseT = v; },
+  hand:function(i){ return HANDS[i]; },
+  pool:POOL
+};
+
+})();
+</script>
+</body>
+</html>
