@@ -1,0 +1,820 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>MADARA ─ カメラが種になる反応拡散</title>
+<meta name="description" content="カメラに映るものを化学反応の種にして、斑・迷路・波が本当に育っていくエフェクト。フィルターではないので、カメラから顔をそむけても模様は勝手に成長を続ける。指先から菌を撒き、握った手で拭える。">
+<meta name="theme-color" content="#070a09">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=M+PLUS+1+Code:wght@200;400;700&display=swap" rel="stylesheet">
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  MADARA ─ カメラが種になる反応拡散                ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  PALETTE   培地 baiji  #070a09  the ground, black with a green cast
+            珊瑚 sango  #ff6b4a  斑 mode: living coral
+            燐  rin     #7ff0c0  迷路 mode: phosphor green
+            藍  ai      #6f9fe8  波 mode: cold indigo
+            白磁 hakuji #eef6ee  the rim light on every membrane
+            MOOD: dark-field microscopy. The gallery's one dark piece
+            tonight, and it earns it — a culture is only visible against
+            black, and every colour in the frame is emitted, not reflected.
+  BACKGROUND  Not a vignette. A petri dish: a circular rim with a specular
+            arc, and a faint reticle graticule ruled across the field at
+            full resolution so the soft simulation always has something
+            crisp sitting on top of it, the way an eyepiece does.
+  TYPE      M PLUS 1 Code at three weights, latin and Japanese in one
+            monospace face — an instrument readout, not a title card. The
+            live iteration count and cell count are on screen because this
+            is a measurement, and it should say so.
+  MOTION    Biological. Nothing in this piece snaps, eases or tweens; the
+            only motion is the reaction itself, which takes seconds to
+            spread and never stops. Switching mode does NOT reset the
+            culture — the two rate constants cross-fade over 1.2s, so the
+            pattern MORPHS from spots into maze while staying alive.
+  SIGNATURE This is not a filter. It is Gray-Scott reaction-diffusion, run
+            for real on a 9-point isotropic Laplacian, and the camera does
+            not supply pixels — it supplies the two rate constants F and k
+            per cell. So your face is not drawn, it is a REGION OF
+            PARAMETER SPACE: bright cheeks land in the spotted regime and
+            shadow lands in the maze regime, and the pattern that grows
+            there is a consequence of you rather than a picture of you.
+            Turn away from the camera and it keeps growing without you.
+            Fingertips inject live culture; a closed fist wipes it away.
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<style>
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;padding:0;height:100%;overflow:hidden;background:#070a09}
+  body{
+    font-family:'M PLUS 1 Code',ui-monospace,monospace;color:#9fb8a8;
+    -webkit-user-select:none;user-select:none;touch-action:none;
+  }
+  #view{position:fixed;inset:0;width:100%;height:100%;display:block}
+  #video{position:fixed;width:2px;height:2px;opacity:0;pointer-events:none;left:-10px;top:-10px}
+
+  .btn{
+    position:fixed;z-index:6;font-family:inherit;font-size:12px;font-weight:400;
+    letter-spacing:.20em;background:rgba(12,20,17,.72);color:#8fd8b4;
+    border:1px solid rgba(143,216,180,.34);border-radius:3px;padding:9px 15px;cursor:pointer;
+    transition:color .5s ease,border-color .5s ease,background .5s ease;
+  }
+  .btn:active{background:rgba(143,216,180,.18);color:#e8fff4}
+  #flip{right:14px;top:calc(14px + env(safe-area-inset-top))}
+  #mode{left:14px;top:calc(14px + env(safe-area-inset-top));min-width:104px}
+
+  #mixwrap{
+    position:fixed;z-index:6;left:14px;bottom:calc(16px + env(safe-area-inset-bottom));
+    display:flex;align-items:center;gap:10px;
+    background:rgba(12,20,17,.64);border:1px solid rgba(143,216,180,.22);
+    border-radius:3px;padding:9px 13px;
+  }
+  #mixwrap span{font-size:11px;letter-spacing:.18em;color:#6f9280;white-space:nowrap}
+  #mix{
+    -webkit-appearance:none;appearance:none;width:min(190px,34vw);height:2px;
+    background:rgba(143,216,180,.30);outline:none;border-radius:2px;
+  }
+  #mix::-webkit-slider-thumb{
+    -webkit-appearance:none;width:15px;height:15px;border-radius:50%;
+    background:#8fd8b4;cursor:pointer;box-shadow:0 0 9px rgba(143,216,180,.55);
+  }
+  #mix::-moz-range-thumb{
+    width:15px;height:15px;border:none;border-radius:50%;background:#8fd8b4;cursor:pointer;
+  }
+
+  #err{
+    position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:9;
+    display:none;white-space:pre-line;text-align:center;max-width:82%;
+    background:rgba(8,14,12,.96);border:1px solid #8fd8b4;color:#bfe8d4;
+    padding:20px 24px;font-size:13px;line-height:2;border-radius:4px;
+  }
+
+  #veil{
+    position:fixed;inset:0;z-index:12;display:flex;align-items:center;justify-content:center;
+    background:radial-gradient(90% 70% at 50% 42%, #101a16 0%, #070a09 72%);
+    transition:opacity .8s ease,visibility .8s ease;
+  }
+  #veil.hide{opacity:0;visibility:hidden;pointer-events:none}
+  .panel{
+    width:min(560px,88vw);padding:30px 28px 26px;text-align:center;
+    border:1px solid rgba(143,216,180,.26);border-radius:4px;
+    background:rgba(9,15,13,.86);
+  }
+  .panel h1{
+    margin:0 0 2px;font-size:clamp(28px,6.6vw,42px);letter-spacing:.30em;
+    font-weight:700;color:#d8f3e4;
+  }
+  .panel h1 b{
+    display:block;font-size:10.5px;letter-spacing:.44em;font-weight:200;
+    color:#6f9280;margin-top:10px;
+  }
+  #demo{display:block;width:100%;height:auto;margin:16px 0 12px;border:1px solid rgba(143,216,180,.18);background:#070a09}
+  .lead{font-size:13px;line-height:2.05;color:#9fb8a8;margin:0 0 20px;font-weight:200}
+  .lead em{font-style:normal;color:#ff8a6a;font-weight:400}
+  button.go{
+    font-family:inherit;font-size:15px;letter-spacing:.44em;font-weight:400;cursor:pointer;
+    background:transparent;color:#8fd8b4;border:1px solid rgba(143,216,180,.5);
+    padding:14px 32px;border-radius:3px;
+    transition:letter-spacing .6s ease,color .6s ease,border-color .6s ease;
+  }
+  button.go:active{color:#ff8a6a;border-color:#ff8a6a;letter-spacing:.6em}
+</style>
+</head>
+<body>
+
+<canvas id="view"></canvas>
+<video id="video" playsinline muted autoplay></video>
+<button class="btn" id="mode">模様・斑</button>
+<button class="btn" id="flip">⟲ カメラ</button>
+<div id="mixwrap"><span>撹拌</span><input id="mix" type="range" min="0" max="100" value="62"></div>
+<div id="err"></div>
+
+<div id="veil">
+  <div class="panel">
+    <h1>斑<b>M A D A R A ・ 反 応 拡 散</b></h1>
+    <canvas id="demo" width="660" height="240"></canvas>
+    <p class="lead">カメラは絵ではなく、<em>反応の速さ</em>を配っている。<br>
+      明るい所は斑に、暗い所は迷路に育つ。<br>
+      指先から<em>撒き</em>、握った手で<em>拭える</em>。</p>
+    <button class="go" id="startBtn">は じ め る</button>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+<script>
+(function(){
+'use strict';
+
+var view    = document.getElementById('view');
+var ctx     = view.getContext('2d');
+var video   = document.getElementById('video');
+var flipBtn = document.getElementById('flip');
+var modeBtn = document.getElementById('mode');
+var mixEl   = document.getElementById('mix');
+var errBox  = document.getElementById('err');
+var veil    = document.getElementById('veil');
+var startBtn= document.getElementById('startBtn');
+var demoCv  = document.getElementById('demo');
+var demoCtx = demoCv.getContext('2d');
+
+var MONO = "'M PLUS 1 Code',ui-monospace,monospace";
+
+function now(){
+  return (window.performance && window.performance.now) ? window.performance.now() : Date.now();
+}
+function clamp(v,a,b){ return v<a?a:(v>b?b:v); }
+
+// ═══════════════════════════════════════════════════════════════════════
+//  GRAY-SCOTT
+//    u' = u + Du*∇²u - u v² + F(1-u)
+//    v' = v + Dv*∇²v + u v² - (F+k)v
+//  Du/Dv and dt=1 are the standard stable pair. The Laplacian is the
+//  9-point isotropic stencil (0.2 orthogonal, 0.05 diagonal) rather than
+//  the 5-point one, because the 5-point version puts a visible square
+//  anisotropy into every growing front and the whole piece is fronts.
+// ═══════════════════════════════════════════════════════════════════════
+var DU = 0.16, DV = 0.08;
+
+var PATTERNS = [
+  { name:'斑',   F:0.0300, K:0.0620, dF: 0.0075, dK:-0.0028,
+    ar:255, ag:107, ab: 74,  rr:255, rg:214, rb:160 },
+  { name:'迷路', F:0.0290, K:0.0570, dF: 0.0060, dK:-0.0022,
+    ar:127, ag:240, ab:192,  rr:217, rg:255, rb:240 },
+  { name:'波',   F:0.0140, K:0.0450, dF: 0.0055, dK:-0.0030,
+    ar:111, ag:159, ab:232,  rr:191, rg:228, rb:255 }
+];
+var patIx = 0;
+// what is actually in force this frame; morphs toward the target
+var cur = { F:PATTERNS[0].F, K:PATTERNS[0].K, dF:PATTERNS[0].dF, dK:PATTERNS[0].dK,
+            ar:PATTERNS[0].ar, ag:PATTERNS[0].ag, ab:PATTERNS[0].ab,
+            rr:PATTERNS[0].rr, rg:PATTERNS[0].rg, rb:PATTERNS[0].rb };
+
+var GW=0, GH=0, N=0;
+var u=null, v=null, u2=null, v2=null, Ff=null, Kk=null;
+var XM=null, XP=null, YM=null, YP=null;
+var out=null, outCv=null, outCtx=null;
+var camCv=null, camCtx=null, camData=null, haveCam=false;
+
+var mix = 0.62;            // how hard the camera drives the rate constants
+var iters = 6;             // simulation steps per frame, adapted to the device
+var emaMs = 16;
+var tuneCd = 0;
+var seeded = 0, wiped = 0;
+var aliveN = 0, inocCd = -1e9, inoculations = 0;
+var running=false, started=false;
+var toast=null;
+
+function allocGrid(w, h){
+  GW = Math.max(24, w|0); GH = Math.max(24, h|0); N = GW*GH;
+  u  = new Float32Array(N); v  = new Float32Array(N);
+  u2 = new Float32Array(N); v2 = new Float32Array(N);
+  Ff = new Float32Array(N); Kk = new Float32Array(N);
+  XM = new Int32Array(GW);  XP = new Int32Array(GW);
+  YM = new Int32Array(GH);  YP = new Int32Array(GH);
+  var i;
+  for (i=0;i<GW;i++){ XM[i] = (i-1+GW)%GW; XP[i] = (i+1)%GW; }
+  for (i=0;i<GH;i++){ YM[i] = (i-1+GH)%GH; YP[i] = (i+1)%GH; }
+  if (!outCv){ outCv = document.createElement('canvas'); outCtx = outCv.getContext('2d'); }
+  outCv.width = GW; outCv.height = GH;
+  out = outCtx.createImageData(GW, GH);
+  if (!camCv){ camCv = document.createElement('canvas'); camCtx = camCv.getContext('2d'); }
+  camCv.width = GW; camCv.height = GH;
+  camData = null; haveCam = false;
+  reseed();
+}
+// A dozen colonies take thousands of steps to reach the far side of the
+// dish, and the first minute of the piece is then mostly empty black. So
+// the dish is inoculated everywhere at once — sparse noise, which is what
+// Gray-Scott wants — and then warmed so that frame one already has
+// structure in it rather than a countdown to structure.
+function reseed(){
+  var i, x, y;
+  for (i=0;i<N;i++){ u[i] = 1; v[i] = 0; }
+  for (i=0;i<N;i++){
+    if (Math.random() < 0.055){ u[i] = 0.50; v[i] = 0.25; }
+  }
+  for (var b=0;b<10;b++){
+    var cx = Math.floor(Math.random()*GW), cy = Math.floor(Math.random()*GH);
+    var r = 3 + Math.floor(Math.random()*4);
+    for (y=-r;y<=r;y++) for (x=-r;x<=r;x++){
+      if (x*x+y*y > r*r) continue;
+      i = ((cy+y+GH)%GH)*GW + ((cx+x+GW)%GW);
+      u[i] = 0.42; v[i] = 0.30;
+    }
+  }
+  warm(140);
+}
+function warm(n){
+  if (!Ff || !u) return;
+  loadRates();
+  for (var i=0;i<n;i++) step();
+}
+function inject(gx, gy, rad, alive){
+  if (!v || !u) return;
+  var r = Math.max(1, rad|0), x, y, i;
+  for (y=-r;y<=r;y++) for (x=-r;x<=r;x++){
+    var d2 = x*x+y*y;
+    if (d2 > r*r) continue;
+    var fall = 1 - Math.sqrt(d2)/r;
+    var px = ((gx+x)%GW+GW)%GW, py = ((gy+y)%GH+GH)%GH;
+    i = py*GW+px;
+    if (alive){
+      v[i] = clamp(v[i] + 0.55*fall, 0, 1);
+      u[i] = clamp(u[i] - 0.30*fall, 0, 1);
+    } else {
+      // Wiping removes the activator. It must NOT also top the substrate
+      // back up to 1 — u is the food, and handing a cleared disc a full
+      // larder makes the surrounding culture invade it faster than the
+      // wipe removes it, so the eraser reads as a fertiliser.
+      v[i] = clamp(v[i]*(1-0.96*fall), 0, 1);
+      u[i] = clamp(u[i] + 0.12*fall, 0, 1);
+    }
+  }
+}
+
+// The camera hands over the two rate constants, one pair per cell. This is
+// the whole idea: brightness selects a REGION OF PARAMETER SPACE, not a
+// colour, so what grows on your face is a consequence of you.
+function loadRates(){
+  var i, lum, m = mix;
+  var F0 = cur.F, K0 = cur.K, dF = cur.dF, dK = cur.dK;
+  if (haveCam && camData){
+    var d = camData;
+    for (i=0;i<N;i++){
+      var j = i<<2;
+      lum = (d[j]*0.299 + d[j+1]*0.587 + d[j+2]*0.114)/255;
+      Ff[i] = F0 + dF*(lum-0.45)*2*m;
+      Kk[i] = K0 + dK*(lum-0.45)*2*m;
+    }
+  } else {
+    for (i=0;i<N;i++){ Ff[i] = F0; Kk[i] = K0; }
+  }
+}
+function step(){
+  var w=GW, h=GH, x, y;
+  for (y=0;y<h;y++){
+    var yo = y*w, yn = YM[y]*w, ys = YP[y]*w;
+    for (x=0;x<w;x++){
+      var i = yo+x, wl = XM[x], er = XP[x];
+      var uc = u[i], vc = v[i];
+      var lu = (u[yo+wl] + u[yo+er] + u[yn+x] + u[ys+x])*0.2
+             + (u[yn+wl] + u[yn+er] + u[ys+wl] + u[ys+er])*0.05 - uc;
+      var lv = (v[yo+wl] + v[yo+er] + v[yn+x] + v[ys+x])*0.2
+             + (v[yn+wl] + v[yn+er] + v[ys+wl] + v[ys+er])*0.05 - vc;
+      var uvv = uc*vc*vc;
+      var f = Ff[i], k = Kk[i];
+      var nu = uc + (DU*lu - uvv + f*(1-uc));
+      var nv = vc + (DV*lv + uvv - (f+k)*vc);
+      // the reaction is unconditionally stable in [0,1]; clamping is here
+      // so that one bad camera frame can never poison the whole culture
+      u2[i] = nu < 0 ? 0 : (nu > 1 ? 1 : nu);
+      v2[i] = nv < 0 ? 0 : (nv > 1 ? 1 : nv);
+    }
+  }
+  var t;
+  t = u; u = u2; u2 = t;
+  t = v; v = v2; v2 = t;
+}
+function paint(){
+  var d = out.data, i, j, an = 0;
+  var ar=cur.ar, ag=cur.ag, ab=cur.ab, rr=cur.rr, rg=cur.rg, rb=cur.rb;
+  var cd = (haveCam && camData) ? camData : null;
+  for (i=0;i<N;i++){
+    j = i<<2;
+    var vv = v[i];
+    if (vv > 0.10) an++;
+    var tt = (vv - 0.06)*3.6;
+    if (tt < 0) tt = 0; else if (tt > 1) tt = 1;
+    // a rim that peaks on the membrane between phases, which is where the
+    // structure actually is
+    var rim = tt*(1-tt)*4;
+    rim = rim*rim;
+    var t2 = tt*tt;
+    var br, bg, bb;
+    if (cd){
+      // the culture grows in your own colours, dimmed to a ground
+      br = cd[j]*0.13; bg = cd[j+1]*0.145; bb = cd[j+2]*0.135;
+    } else { br = 7; bg = 10; bb = 9; }
+    var r = br + ar*t2*0.86 + rr*rim*0.52;
+    var g = bg + ag*t2*0.86 + rg*rim*0.52;
+    var b = bb + ab*t2*0.86 + rb*rim*0.52;
+    d[j]   = r > 255 ? 255 : r;
+    d[j+1] = g > 255 ? 255 : g;
+    d[j+2] = b > 255 ? 255 : b;
+    d[j+3] = 255;
+  }
+  aliveN = an;
+  outCtx.putImageData(out, 0, 0);
+}
+
+// v = 0 everywhere is a fixed point, and it is absorbing: once the dish is
+// sterile nothing in the equations can ever bring it back. Two ordinary
+// things get you there — crossing between two presets passes through rate
+// constants that sustain nothing, and a patient enough fist wipes the whole
+// field — and both would leave the piece permanently black with no way out
+// but a reload. So the dish re-inoculates itself, which is also just what
+// happens to a real culture left open in a room.
+function inoculate(){
+  var i;
+  for (i=0;i<N;i++){
+    if (Math.random() < 0.028){ u[i] = 0.50; v[i] = 0.27; }
+  }
+  inoculations++;
+  toast = { t:now(), text:'再接種' };
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  SIZE
+// ═══════════════════════════════════════════════════════════════════════
+var W=1,H=1,DPR=1,U=1;
+var MAX_CELLS = 26000;
+function resize(){
+  DPR = Math.min(2, window.devicePixelRatio || 1);
+  W = Math.max(1, window.innerWidth);
+  H = Math.max(1, window.innerHeight);
+  U = Math.min(W,H);
+  view.width = Math.round(W*DPR);
+  view.height= Math.round(H*DPR);
+  view.style.width = W+'px'; view.style.height = H+'px';
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  var aspect = W/H;
+  var gw = Math.round(Math.sqrt(MAX_CELLS*aspect));
+  var gh = Math.round(MAX_CELLS/Math.max(1,gw));
+  gw = clamp(gw, 40, 320); gh = clamp(gh, 40, 320);
+  if (gw !== GW || gh !== GH) allocGrid(gw, gh);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  HANDS
+// ═══════════════════════════════════════════════════════════════════════
+var hands=null, mpCamera=null, mpReady=false;
+function blankHand(){ return { live:false, t:-1e9, x:0.5, y:0.5, open:0, lm:null }; }
+var HANDS=[blankHand(), blankHand()];
+function loseHand(h){ h.live=false; h.lm=null; h.open=0; }
+function loseHands(){ loseHand(HANDS[0]); loseHand(HANDS[1]); }
+
+function initHands(){
+  if (typeof window.Hands !== 'function') return false;
+  try {
+    hands = new window.Hands({ locateFile:function(f){
+      return 'https://cdn.jsdelivr.net/npm/@mediapipe/hands/' + f;
+    }});
+    hands.setOptions({ maxNumHands:2, modelComplexity:0,
+                       minDetectionConfidence:0.6, minTrackingConfidence:0.5 });
+    hands.onResults(onHands);
+    mpReady = true; return true;
+  } catch(e){ return false; }
+}
+function startMpCamera(){
+  if (!mpReady || !hands || mpCamera) return;
+  if (typeof window.Camera !== 'function') return;
+  try {
+    mpCamera = new window.Camera(video, {
+      onFrame:function(){
+        if (!hands) return Promise.resolve();
+        return hands.send({ image: video }).catch(function(){});
+      }, width:480, height:360
+    });
+    mpCamera.start();
+  } catch(e){ mpCamera = null; }
+}
+function validLm(c){
+  if (!c || c.length < 21) return null;
+  for (var i=0;i<21;i++){
+    var p = c[i];
+    if (!p || typeof p.x !== 'number' || typeof p.y !== 'number' ||
+        !isFinite(p.x) || !isFinite(p.y)) return null;
+  }
+  return c;
+}
+var TIPS=[8,12,16,20], PIPS=[6,10,14,18];
+function readHand(h, c, t){
+  var ids=[0,5,9,13,17], cx=0, cy=0, i, p;
+  for (i=0;i<ids.length;i++){ p=c[ids[i]]; if(!p) return; cx+=p.x; cy+=p.y; }
+  cx/=ids.length; cy/=ids.length;
+  if (!isFinite(cx)||!isFinite(cy)) return;
+  var x = mirror ? (1-cx) : cx, y = cy;
+  if (!isFinite(x)||!isFinite(y)) return;
+  var wr=c[0], ext=0;
+  for (i=0;i<4;i++){
+    var a=c[TIPS[i]], b=c[PIPS[i]];
+    if (!a||!b||!wr) continue;
+    if (Math.hypot(a.x-wr.x,a.y-wr.y) > Math.hypot(b.x-wr.x,b.y-wr.y)*1.06) ext++;
+  }
+  h.open += (ext/4 - h.open)*0.22;
+  if (!isFinite(h.open)) h.open = 0;
+  h.x=x; h.y=y; h.t=t; h.live=true; h.lm=c;
+}
+function onHands(res){
+  var t = now(), i;
+  var list = (res && res.multiHandLandmarks) ? res.multiHandLandmarks : [];
+  var seen=[false,false];
+  for (i=0;i<list.length && i<2;i++){
+    var c = validLm(list[i]);
+    if (!c) continue;
+    readHand(HANDS[i], c, t);
+    seen[i]=true;
+  }
+  for (i=0;i<2;i++){
+    if (!seen[i] && HANDS[i].live && (t-HANDS[i].t) > 260) loseHand(HANDS[i]);
+  }
+}
+// Same latched hysteresis the rest of the gallery learned the hard way: a
+// fist rarely reads a clean 0-of-4, and a flickering finger count must not
+// flip between sowing and wiping every other frame.
+var SOW_MIN = 0.50, WIPE_MAX = 0.34;
+function handTip(h, i){
+  var c = h.lm; if (!c) return null;
+  var p = c[TIPS[i]];
+  if (!p || !isFinite(p.x) || !isFinite(p.y)) return null;
+  return { x:(mirror?1-p.x:p.x), y:p.y };
+}
+function applyHands(){
+  for (var n=0;n<2;n++){
+    var h = HANDS[n];
+    if (!h.live || !h.lm) continue;
+    if (h.open > SOW_MIN){
+      for (var i=0;i<TIPS.length;i++){
+        var tp = handTip(h, i);
+        if (!tp) continue;
+        var gx = Math.round(clamp(tp.x,0,1)*(GW-1));
+        var gy = Math.round(clamp(tp.y,0,1)*(GH-1));
+        inject(gx, gy, Math.max(2, Math.round(GW*0.016)), true);
+        seeded++;
+      }
+    } else if (h.open < WIPE_MAX){
+      var px = Math.round(clamp(h.x,0,1)*(GW-1));
+      var py = Math.round(clamp(h.y,0,1)*(GH-1));
+      inject(px, py, Math.max(3, Math.round(GW*0.055)), false);
+      wiped++;
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  CAMERA
+// ═══════════════════════════════════════════════════════════════════════
+var facing='user', mirror=true, stream=null, camOK=false;
+function showError(e){
+  var msg = (e && e.message) ? e.message : String(e || 'unknown');
+  errBox.style.display='block';
+  errBox.textContent = 'カメラを起動できませんでした：' + msg +
+    '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+}
+function startStream(){
+  var md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) return Promise.reject(new Error('getUserMedia is unavailable'));
+  if (stream && stream.getTracks) stream.getTracks().forEach(function(t){ t.stop(); });
+  return md.getUserMedia({
+    video:{ facingMode:{ ideal:facing }, width:{ ideal:640 }, height:{ ideal:480 } },
+    audio:false
+  }).then(function(st){
+    stream=st; video.srcObject=st; mirror=(facing==='user'); camOK=true;
+    var p = video.play();
+    return (p && p.then) ? p.catch(function(){}) : null;
+  });
+}
+function grabCam(){
+  if (!camOK || !camCtx || !video) { haveCam = false; return; }
+  var vw = video.videoWidth || 0, vh = video.videoHeight || 0;
+  if (!vw || !vh){ haveCam = false; return; }
+  try {
+    camCtx.save();
+    if (mirror){ camCtx.translate(GW, 0); camCtx.scale(-1, 1); }
+    camCtx.drawImage(video, 0, 0, GW, GH);
+    camCtx.restore();
+    var im = camCtx.getImageData(0, 0, GW, GH);
+    camData = im.data;
+    haveCam = !!(camData && camData.length === N*4);
+  } catch(e){ haveCam = false; camData = null; }
+}
+flipBtn.addEventListener('click', function(){
+  facing = (facing==='user')?'environment':'user';
+  loseHands();
+  startStream().then(startMpCamera).catch(showError);
+});
+modeBtn.addEventListener('click', function(){
+  patIx = (patIx+1) % PATTERNS.length;
+  modeBtn.textContent = '模様・' + PATTERNS[patIx].name;
+  toast = { t:now(), text:PATTERNS[patIx].name };
+});
+mixEl.addEventListener('input', function(){
+  var val = parseFloat(mixEl.value);
+  if (!isFinite(val)) val = 62;
+  mix = clamp(val/100, 0, 1);
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+//  DRAW
+// ═══════════════════════════════════════════════════════════════════════
+function morph(dt){
+  var P = PATTERNS[patIx];
+  // 1.2s to cross the parameter space, so the culture reorganises instead
+  // of being thrown away and restarted
+  var a = 1 - Math.pow(0.0001, dt/1.2);
+  var keys = ['F','K','dF','dK','ar','ag','ab','rr','rg','rb'];
+  for (var i=0;i<keys.length;i++){
+    var k = keys[i];
+    cur[k] += (P[k]-cur[k])*a;
+    if (!isFinite(cur[k])) cur[k] = P[k];
+  }
+}
+function drawDish(g){
+  var cx = W*0.5, cy = H*0.5, R = Math.max(W,H)*0.62;
+  g.save();
+  // graticule, ruled at full resolution so something in the frame is sharp
+  g.strokeStyle='rgba(143,216,180,.055)'; g.lineWidth=1;
+  var stepP = U*0.062, x, y;
+  g.beginPath();
+  for (x=cx%stepP; x<W; x+=stepP){ g.moveTo(x,0); g.lineTo(x,H); }
+  for (y=cy%stepP; y<H; y+=stepP){ g.moveTo(0,y); g.lineTo(W,y); }
+  g.stroke();
+  g.strokeStyle='rgba(143,216,180,.14)'; g.lineWidth=1.4;
+  g.beginPath(); g.moveTo(cx-U*0.03,cy); g.lineTo(cx+U*0.03,cy);
+  g.moveTo(cx,cy-U*0.03); g.lineTo(cx,cy+U*0.03); g.stroke();
+  // the dish rim
+  var rg2 = g.createRadialGradient(cx,cy,R*0.72,cx,cy,R);
+  rg2.addColorStop(0,'rgba(0,0,0,0)');
+  rg2.addColorStop(1,'rgba(0,0,0,.72)');
+  g.fillStyle = rg2; g.fillRect(0,0,W,H);
+  g.strokeStyle='rgba(180,230,206,.16)'; g.lineWidth=U*0.004;
+  g.beginPath(); g.arc(cx,cy,R*0.94,0,Math.PI*2); g.stroke();
+  g.strokeStyle='rgba(220,255,236,.26)'; g.lineWidth=U*0.0026;
+  g.beginPath(); g.arc(cx,cy,R*0.94,Math.PI*1.10,Math.PI*1.52); g.stroke();
+  g.restore();
+}
+function drawHands(g){
+  for (var n=0;n<2;n++){
+    var h = HANDS[n];
+    if (!h.live || !h.lm) continue;
+    var sow = h.open > SOW_MIN, wipe = h.open < WIPE_MAX;
+    g.save();
+    if (sow){
+      for (var i=0;i<TIPS.length;i++){
+        var tp = handTip(h, i);
+        if (!tp) continue;
+        var x = tp.x*W, y = tp.y*H;
+        var r = U*0.016;
+        var gd = g.createRadialGradient(x,y,0,x,y,r);
+        gd.addColorStop(0,'rgba(255,255,255,.80)');
+        gd.addColorStop(0.4,'rgba('+Math.round(cur.ar)+','+Math.round(cur.ag)+','+Math.round(cur.ab)+',.55)');
+        gd.addColorStop(1,'rgba(0,0,0,0)');
+        g.fillStyle = gd;
+        g.beginPath(); g.arc(x,y,r,0,Math.PI*2); g.fill();
+      }
+    } else {
+      var px = h.x*W, py = h.y*H;
+      var rr2 = U*0.055;
+      g.strokeStyle = wipe ? 'rgba(230,246,238,.42)' : 'rgba(143,216,180,.22)';
+      g.lineWidth = U*0.003;
+      g.beginPath(); g.arc(px,py,rr2,0,Math.PI*2); g.stroke();
+      if (wipe){
+        g.beginPath(); g.arc(px,py,rr2*0.62,0,Math.PI*2);
+        g.strokeStyle='rgba(230,246,238,.20)'; g.stroke();
+      }
+    }
+    g.restore();
+  }
+}
+function drawHud(g){
+  var pad = U*0.030, top = pad + U*0.078;
+  g.save();
+  g.textAlign='left'; g.textBaseline='top';
+  g.font='200 '+Math.round(U*0.0165)+'px '+MONO;
+  g.fillStyle='rgba(143,216,180,.42)';
+  g.fillText('F ' + cur.F.toFixed(4) + '   k ' + cur.K.toFixed(4), pad, top);
+  g.fillText(GW + '×' + GH + ' cells   ' + iters + ' it/f   ' +
+             (1000/Math.max(1,emaMs)).toFixed(0) + ' fps', pad, top+U*0.026);
+  g.fillText('撒 ' + seeded + '   拭 ' + wiped +
+             '   生 ' + (N ? (aliveN/N*100).toFixed(1) : '0.0') + '%', pad, top+U*0.052);
+  g.restore();
+}
+function drawToast(g, t){
+  if (!toast) return;
+  var age = t - toast.t;
+  if (age > 1400){ toast = null; return; }
+  g.save();
+  g.globalAlpha = clamp(age/220,0,1) * (1-clamp((age-950)/450,0,1));
+  g.textAlign='center'; g.textBaseline='middle';
+  g.font='700 '+Math.round(U*0.070)+'px '+MONO;
+  g.fillStyle='rgba('+Math.round(cur.ar)+','+Math.round(cur.ag)+','+Math.round(cur.ab)+',.80)';
+  g.fillText(toast.text, W*0.5, H*0.5);
+  g.restore();
+}
+
+var lastT=0, frameN=0;
+function frame(){
+  var t = now();
+  var dt = Math.min(0.05,(t-lastT)/1000);
+  if (!(dt>0)) dt = 0.016;
+  emaMs += ((t-lastT) - emaMs)*0.08;
+  if (!isFinite(emaMs) || emaMs <= 0) emaMs = 16;
+  lastT = t;
+  frameN++;
+
+  if (running){
+    morph(dt);
+    grabCam();
+    loadRates();
+    applyHands();
+    for (var s=0;s<iters;s++) step();
+    // Keep it real-time on whatever this is running on: hold ~30fps by
+    // trading simulation steps, never resolution, so the look never changes.
+    if (frameN - tuneCd > 24){
+      if (emaMs > 32 && iters > 2){ iters--; tuneCd = frameN; }
+      else if (emaMs < 19 && iters < 10){ iters++; tuneCd = frameN; }
+    }
+    paint();
+    if (aliveN < N*0.004 && frameN - inocCd > 40){ inoculate(); inocCd = frameN; }
+  }
+
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  ctx.fillStyle = '#070a09';
+  ctx.fillRect(0,0,W,H);
+  if (running && outCv && outCv.width > 0){
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(outCv, 0, 0, W, H);
+  }
+  drawDish(ctx);
+  drawHands(ctx);
+  drawHud(ctx);
+  drawToast(ctx, t);
+  drawDemo(t);
+  requestAnimationFrame(frame);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  START-OVERLAY DIAGRAM
+//  The honest one: a real, tiny Gray-Scott culture running live, with a
+//  fingertip that sows into it every couple of seconds. What you see on
+//  the overlay is exactly what the piece does, at 1/40 the scale.
+// ═══════════════════════════════════════════════════════════════════════
+var dW=84, dH=32, dN=dW*dH;
+var du=new Float32Array(dN), dv=new Float32Array(dN);
+var du2=new Float32Array(dN), dv2=new Float32Array(dN);
+var dIm=null;
+function demoSeed(){
+  for (var i=0;i<dN;i++){ du[i]=1; dv[i]=0; }
+  for (var b=0;b<5;b++){
+    var cx=Math.floor(Math.random()*dW), cy=Math.floor(Math.random()*dH);
+    for (var y=-2;y<=2;y++) for (var x=-2;x<=2;x++){
+      var i2=(((cy+y)%dH+dH)%dH)*dW + ((cx+x)%dW+dW)%dW;
+      du[i2]=0.42; dv[i2]=0.28;
+    }
+  }
+}
+demoSeed();
+function demoStep(){
+  var F=0.0367, K=0.0649, x, y;
+  for (y=0;y<dH;y++){
+    var yo=y*dW, yn=((y-1+dH)%dH)*dW, ys=((y+1)%dH)*dW;
+    for (x=0;x<dW;x++){
+      var i=yo+x, wl=(x-1+dW)%dW, er=(x+1)%dW;
+      var uc=du[i], vc=dv[i];
+      var lu=(du[yo+wl]+du[yo+er]+du[yn+x]+du[ys+x])*0.2
+            +(du[yn+wl]+du[yn+er]+du[ys+wl]+du[ys+er])*0.05-uc;
+      var lv=(dv[yo+wl]+dv[yo+er]+dv[yn+x]+dv[ys+x])*0.2
+            +(dv[yn+wl]+dv[yn+er]+dv[ys+wl]+dv[ys+er])*0.05-vc;
+      var uvv=uc*vc*vc;
+      var nu=uc+(DU*lu-uvv+F*(1-uc));
+      var nv=vc+(DV*lv+uvv-(F+K)*vc);
+      du2[i]=nu<0?0:(nu>1?1:nu);
+      dv2[i]=nv<0?0:(nv>1?1:nv);
+    }
+  }
+  var t; t=du; du=du2; du2=t; t=dv; dv=dv2; dv2=t;
+}
+function drawDemo(t){
+  if (veil.classList.contains('hide')) return;
+  var g = demoCtx, w = demoCv.width, h = demoCv.height, i;
+  for (i=0;i<5;i++) demoStep();
+  var loop = 2600, k = (t % loop)/loop;
+  var fx = 0.18 + 0.64*k;
+  if (k < 0.72){
+    var gx = Math.round(fx*(dW-1)), gy = Math.round(dH*0.5);
+    for (var yy=-2;yy<=2;yy++) for (var xx=-2;xx<=2;xx++){
+      if (xx*xx+yy*yy>4) continue;
+      var ii=(((gy+yy)%dH+dH)%dH)*dW + ((gx+xx)%dW+dW)%dW;
+      dv[ii]=Math.min(1,dv[ii]+0.42); du[ii]=Math.max(0,du[ii]-0.24);
+    }
+  }
+  if (!dIm) dIm = g.createImageData(dW, dH);
+  var d = dIm.data;
+  for (i=0;i<dN;i++){
+    var j=i<<2, vv=dv[i];
+    var tt=(vv-0.06)*3.6; tt = tt<0?0:(tt>1?1:tt);
+    var rim=tt*(1-tt)*4; rim*=rim;
+    d[j]   = Math.min(255, 7  + 255*tt*tt*0.86 + 255*rim*0.5);
+    d[j+1] = Math.min(255, 10 + 107*tt*tt*0.86 + 214*rim*0.5);
+    d[j+2] = Math.min(255, 9  +  74*tt*tt*0.86 + 160*rim*0.5);
+    d[j+3] = 255;
+  }
+  if (!demoCv.__tmp){
+    demoCv.__tmp = document.createElement('canvas');
+    demoCv.__tmp.width = dW; demoCv.__tmp.height = dH;
+  }
+  var tc = demoCv.__tmp.getContext('2d');
+  tc.putImageData(dIm, 0, 0);
+  g.imageSmoothingEnabled = true;
+  g.clearRect(0,0,w,h);
+  g.drawImage(demoCv.__tmp, 0, 0, w, h);
+  if (k < 0.72){
+    var px = fx*w, py = h*0.5;
+    g.beginPath(); g.arc(px, py, 11, 0, Math.PI*2);
+    g.strokeStyle='rgba(255,255,255,.75)'; g.lineWidth=2; g.stroke();
+    g.beginPath(); g.arc(px, py, 3.4, 0, Math.PI*2);
+    g.fillStyle='rgba(255,255,255,.9)'; g.fill();
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  BOOT
+// ═══════════════════════════════════════════════════════════════════════
+window.addEventListener('resize', resize);
+window.addEventListener('orientationchange', function(){ setTimeout(resize, 260); });
+if (window.visualViewport && window.visualViewport.addEventListener){
+  window.visualViewport.addEventListener('resize', resize);
+}
+resize();
+lastT = now();
+requestAnimationFrame(frame);
+
+startBtn.addEventListener('click', function(){
+  veil.classList.add('hide');
+  running = true;
+  if (!started){
+    started = true;
+    if (initHands()) startStream().then(startMpCamera).catch(showError);
+    else startStream().catch(showError);
+  }
+});
+
+// exposed only so the offline harness can assert on the real state
+window.__MADARA__ = {
+  s:function(){
+    var i, sum=0, mx=0, alive=0, nan=0;
+    for (i=0;i<N;i++){
+      var vv = v[i];
+      if (!isFinite(vv) || !isFinite(u[i])) nan++;
+      sum += vv; if (vv > mx) mx = vv;
+      if (vv > 0.12) alive++;
+    }
+    return { running:running, GW:GW, GH:GH, N:N, iters:iters, mix:mix,
+             pattern:PATTERNS[patIx].name, F:cur.F, K:cur.K,
+             vSum:sum, vMax:mx, vMean:N?sum/N:0, alive:alive, nan:nan,
+             seeded:seeded, wiped:wiped, haveCam:haveCam,
+             aliveN:aliveN, inoculations:inoculations,
+             hands:[HANDS[0].live, HANDS[1].live], W:W, H:H };
+  },
+  vAt:function(gx,gy){ return v[gy*GW+gx]; },
+  setCam:function(on){ camOK = on; },
+  reseed:reseed
+};
+
+})();
+</script>
+</body>
+</html>
