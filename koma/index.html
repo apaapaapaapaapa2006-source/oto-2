@@ -1,0 +1,1186 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>KOMA ─ 独楽の土俵</title>
+<meta name="description" content="手をぐるぐる回すと、その速さがそのまま独楽の勢いになり、回した場所へ独楽が寄っていく。土俵の上で相手の独楽とぶつけ合い、勢いを削られたら倒れ、押し出されたら土俵割り。番を追うごとに相手が増える。">
+<meta name="theme-color" content="#1e3352">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@300;500&family=Shippori+Mincho+B1:wght@700;800&display=swap" rel="stylesheet">
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  KOMA ─ 独楽の土俵                                ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  PALETTE   藍   ai      #1e3352  the cloth beyond the ring. deep indigo,
+                                  the only cool colour in the piece
+            土   tsuchi  #d9c9a8  the clay of the ring. warm, dusty, matte
+            俵   tawara  #b08a52  the straw bales laid round the edge
+            朱   shu     #d0402a  YOUR top, and nothing else is this colour
+            白   haku    #f2ece0  the opponents, and the chalk of the calls
+            金   kin     #c8963c  sparks, the win mark, the 勢い gauge
+            MOOD: overhead, mid-afternoon, warm bounced light on packed
+            clay. This is emphatically NOT a night piece — the gallery is
+            full of dusk and phosphor; this one is daylight on dirt. No
+            glow, no bloom, no gradient sky. Colour comes from pigment,
+            never from light.
+  BACKGROUND  Indigo cloth with a woven weft ruled into it (drawn once to an
+            offscreen canvas on resize, then blitted). The camera feed is
+            composited over the cloth ONLY outside the ring, in 'overlay' at
+            low alpha, so your room is the hall the ring sits in — you can
+            always see the camera is live without the ring becoming a
+            window. The clay ring itself is opaque and sits on top.
+  TYPE      Shippori Mincho B1 800 for every Japanese call — 仕切り,
+            はっけよい, 残った, 勝ち, 負け — set enormous and tracked tight,
+            the way a banner is brushed. Oswald 300/500 for every numeral
+            and latin label, tracked +0.22em and kept small. Nothing in
+            between the two sizes; the calls shout, the data whispers.
+  MOTION    Heavy and grounded. Nothing floats, nothing eases out slowly.
+            The calls slam in over 90ms with a back-out and then hold dead
+            still. Impacts are a 4-frame shake on the whole ring plus a
+            sand burst. Tops do not tween — they are integrated, so all
+            their motion is real momentum.
+  SIGNATURE THE SAND REMEMBERS. The clay surface is its own canvas that is
+            never cleared during a bout: every top ploughs a groove into it
+            as it travels, dark on the trailing side and light on the
+            leading rim. By the end of a long round the ring is a drawing of
+            the whole fight — every charge, every circle, every skid before
+            somebody went over the bales. It clears only when the next
+            round is laid.
+  AUDIO     A spun top rings. Two detuned triangles through a narrow
+            bandpass, pitch riding the spin (a top slowing down glissandos
+            down), plus a filtered-noise hiss riding ground speed. Impacts
+            are clay: a short noise burst plus a sine dropping 420→180Hz in
+            60ms. Round calls are 拍子木 — two hard bright clacks — over a
+            low taiko thud. Everything into one compressor.
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;overflow:hidden;background:#1e3352;
+    -webkit-text-size-adjust:100%;-webkit-tap-highlight-color:transparent}
+  body{font-family:'Oswald','Zen Kaku Gothic New',system-ui,sans-serif;color:#f2ece0}
+  #view{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+  #video{position:fixed;width:2px;height:2px;opacity:.001;pointer-events:none;left:0;top:0}
+
+  #flip{
+    position:fixed;right:calc(env(safe-area-inset-right,0px) + .8rem);
+    top:calc(env(safe-area-inset-top,0px) + .8rem);z-index:30;
+    background:rgba(30,51,82,.78);color:#e6dcc8;border:1px solid rgba(200,150,60,.45);
+    border-radius:2px;padding:.42rem .7rem;font:500 .64rem/1 'Oswald',sans-serif;
+    letter-spacing:.2em;cursor:pointer;backdrop-filter:blur(6px)
+  }
+  #flip:active{background:rgba(200,150,60,.3)}
+  #err{
+    position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:40;
+    display:none;max-width:22rem;white-space:pre-wrap;text-align:center;
+    background:#1a2b45;border:1px solid #b0492f;border-radius:3px;
+    padding:1rem 1.1rem;font:400 .78rem/1.85 'Zen Kaku Gothic New',system-ui,sans-serif;
+    color:#f0d8c8;letter-spacing:.02em
+  }
+
+  /* ── sheets ─────────────────────────────────────── */
+  .sheet{
+    position:fixed;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;
+    background:#1e3352;padding:1.2rem;overflow:auto
+  }
+  .sheet.hide{display:none}
+  .panel{
+    width:min(30rem,100%);background:#d9c9a8;color:#2a2015;
+    border:1px solid #a98d5e;box-shadow:0 24px 60px rgba(0,0,0,.45);
+    padding:1.5rem 1.4rem 1.6rem;position:relative
+  }
+  .panel::after{content:'';position:absolute;inset:5px;border:1px solid rgba(120,95,55,.32);pointer-events:none}
+  .stamp{
+    display:flex;justify-content:space-between;font:300 .58rem/1 'Oswald',sans-serif;
+    letter-spacing:.26em;color:#8a7248;margin-bottom:1.1rem
+  }
+  .panel h1{
+    font-family:'Shippori Mincho B1',serif;font-weight:800;
+    font-size:clamp(2.3rem,11vw,3.1rem);line-height:.9;letter-spacing:-.01em;color:#20180f
+  }
+  .panel h1 b{display:block;font-size:.31em;font-weight:700;letter-spacing:.4em;color:#9a7f4f;margin-top:.75rem}
+  #demo{display:block;width:100%;height:auto;margin:1.15rem 0 1rem;background:#c9b791;border:1px solid #a98d5e}
+  .lead{font:400 .82rem/1.95 'Zen Kaku Gothic New',system-ui,sans-serif;color:#4a3a26}
+  .lead em{font-style:normal;font-weight:700;color:#b3371f;border-bottom:2px solid rgba(179,55,31,.3)}
+  .rules{list-style:none;margin:.95rem 0 1.3rem;border-top:1px solid rgba(120,95,55,.3)}
+  .rules li{
+    font:400 .71rem/1.7 'Zen Kaku Gothic New',system-ui,sans-serif;color:#6b573a;
+    padding:.5rem 0 .5rem .95rem;border-bottom:1px solid rgba(120,95,55,.18);position:relative
+  }
+  .rules li::before{content:'';position:absolute;left:0;top:1.02em;width:5px;height:5px;background:#b08a52}
+  .go{
+    display:block;width:100%;padding:.85rem;background:#c0301c;color:#f6ece0;border:none;
+    font:500 .82rem/1 'Oswald',sans-serif;letter-spacing:.42em;text-indent:.42em;cursor:pointer;
+    transition:transform .12s cubic-bezier(.3,1.5,.5,1),background .12s
+  }
+  .go:active{transform:scale(.975);background:#a4270f}
+  .res{font:300 .6rem/1 'Oswald',sans-serif;letter-spacing:.3em;color:#8a7248;margin-top:.4rem}
+  .big{font-family:'Oswald',sans-serif;font-weight:300;font-size:4.2rem;line-height:1;color:#20180f;margin:.15rem 0 .1rem}
+  .sub{font:400 .74rem/1.8 'Zen Kaku Gothic New',system-ui,sans-serif;color:#6b573a;margin-bottom:1.25rem;min-height:2.6em}
+</style>
+</head>
+<body>
+
+<canvas id="view"></canvas>
+<video id="video" playsinline muted autoplay></video>
+<button id="flip">⟲ カメラ</button>
+<div id="err"></div>
+
+<div class="sheet" id="startSheet">
+  <div class="panel">
+    <div class="stamp"><span>OTO-II / KOMA</span><span>独楽相撲</span></div>
+    <h1>KOMA<b>こまずもう</b></h1>
+    <canvas id="demo" width="600" height="300"></canvas>
+    <p class="lead">手を<em>ぐるぐる回す</em>だけ。回した<em>速さ</em>がそのまま独楽の勢いになり、回した<em>場所</em>へ独楽が寄っていく。</p>
+    <ul class="rules">
+      <li>勢いが尽きると倒れる。回し続けて勢いを足すこと</li>
+      <li>俵の外へ出たら土俵割り。押し込まれたら戻す</li>
+      <li>勢いの多い方が当たり勝つ。番ごとに相手が増える</li>
+    </ul>
+    <button class="go" id="startBtn">START</button>
+  </div>
+</div>
+
+<div class="sheet hide" id="overSheet">
+  <div class="panel">
+    <div class="stamp"><span>結果</span><span id="rRound">第 0 番</span></div>
+    <p class="res">SCORE</p>
+    <p class="big" id="rScore">0</p>
+    <p class="sub" id="rNote">—</p>
+    <button class="go" id="retryBtn">RETRY</button>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+<script>
+'use strict';
+// ═══════════════════════════════════════════════════════════════════════
+//  KOMA ─ 独楽の土俵
+//  All top positions live in RING SPACE: the ring is the unit circle
+//  centred on 0,0, so a resize costs nothing and every constant below is
+//  a real fraction of the ring rather than a pixel count.
+// ═══════════════════════════════════════════════════════════════════════
+var view = document.getElementById('view');
+var g    = view.getContext('2d');
+var video= document.getElementById('video');
+var errBox     = document.getElementById('err');
+var flipBtn    = document.getElementById('flip');
+var startSheet = document.getElementById('startSheet');
+var overSheet  = document.getElementById('overSheet');
+var startBtn   = document.getElementById('startBtn');
+var retryBtn   = document.getElementById('retryBtn');
+var demoCv     = document.getElementById('demo');
+var rScore     = document.getElementById('rScore');
+var rRound     = document.getElementById('rRound');
+var rNote      = document.getElementById('rNote');
+
+var now = (typeof performance !== 'undefined' && performance.now)
+  ? function(){ return performance.now()/1000; }
+  : function(){ return Date.now()/1000; };
+
+function num(v, d){ return (typeof v === 'number' && isFinite(v)) ? v : d; }
+function clamp(v,a,b){ return v<a?a:(v>b?b:v); }
+function lerp(a,b,t){ return a+(b-a)*t; }
+function easeOutBack(t){ var c=1.9; return 1 + (c+1)*Math.pow(t-1,3) + c*Math.pow(t-1,2); }
+
+// ── palette ────────────────────────────────────────────────────────────
+var C_AI='#1e3352', C_AI_D='#16263e', C_TSUCHI='#d9c9a8', C_TAWARA='#b08a52',
+    C_SHU='#d0402a', C_HAKU='#f2ece0', C_KIN='#c8963c', C_SUMI='#3a2c1a';
+
+// ═══════════════════════════════════════════════════════════════════════
+//  LAYOUT
+// ═══════════════════════════════════════════════════════════════════════
+var W=1, H=1, DPR=1, CX=0, CY=0, R=1;
+var bgCv=null, bgG=null;             // indigo cloth + ring, redrawn on resize
+var sandCv=null, sandG=null, sandPx=1; // the clay surface, ploughed by the tops
+
+function resize(){
+  DPR = Math.min(2, (window.devicePixelRatio || 1));
+  W = Math.max(1, window.innerWidth|0);
+  H = Math.max(1, window.innerHeight|0);
+  view.width  = Math.max(1, (W*DPR)|0);
+  view.height = Math.max(1, (H*DPR)|0);
+  view.style.width = W+'px'; view.style.height = H+'px';
+  g.setTransform(DPR,0,0,DPR,0,0);
+  CX = W/2; CY = H*0.5;
+  R  = Math.min(W, H) * 0.40;
+  if (H > W*1.25) { CY = H*0.47; R = Math.min(W*0.44, H*0.34); }
+  buildBg();
+  buildSand();
+}
+
+function buildBg(){
+  if (!bgCv){ bgCv = document.createElement('canvas'); }
+  bgCv.width  = Math.max(1,(W*DPR)|0);
+  bgCv.height = Math.max(1,(H*DPR)|0);
+  bgG = bgCv.getContext('2d');
+  if (!bgG) return;
+  bgG.setTransform(DPR,0,0,DPR,0,0);
+  bgG.fillStyle = C_AI; bgG.fillRect(0,0,W,H);
+  // woven weft: two sets of hairlines, offset, never animated
+  bgG.lineWidth = 1;
+  var i;
+  bgG.strokeStyle = 'rgba(255,255,255,.030)';
+  for (i=0;i<H;i+=4){ bgG.beginPath(); bgG.moveTo(0,i+0.5); bgG.lineTo(W,i+0.5); bgG.stroke(); }
+  bgG.strokeStyle = 'rgba(0,0,0,.055)';
+  for (i=0;i<W;i+=4){ bgG.beginPath(); bgG.moveTo(i+0.5,0); bgG.lineTo(i+0.5,H); bgG.stroke(); }
+  // a slow vignette of dye, painted not lit
+  var vg = bgG.createRadialGradient(CX,CY,R*0.5, CX,CY, Math.max(W,H)*0.78);
+  vg.addColorStop(0,'rgba(0,0,0,0)'); vg.addColorStop(1,'rgba(8,16,28,.55)');
+  bgG.fillStyle = vg; bgG.fillRect(0,0,W,H);
+}
+
+function buildSand(){
+  sandPx = Math.max(64, ((R*2.24)*DPR)|0);
+  if (!sandCv) sandCv = document.createElement('canvas');
+  sandCv.width = sandPx; sandCv.height = sandPx;
+  sandG = sandCv.getContext('2d');
+  layClay();
+}
+// Rake the ring flat again.  Called at the head of every round.
+function layClay(){
+  if (!sandG) return;
+  var s = sandPx;
+  sandG.setTransform(1,0,0,1,0,0);
+  sandG.clearRect(0,0,s,s);
+  sandG.fillStyle = C_TSUCHI; sandG.beginPath();
+  sandG.arc(s/2,s/2,s/2*0.893,0,6.2832); sandG.fill();
+  // raked radial streaks in the clay, laid fresh
+  sandG.save(); sandG.beginPath(); sandG.arc(s/2,s/2,s/2*0.893,0,6.2832); sandG.clip();
+  var i,a;
+  for (i=0;i<220;i++){
+    a = (i/220)*6.2832 + (i%7)*0.11;
+    var rr = s/2*(0.10 + ((i*37)%100)/100*0.78);
+    var ln = s*0.012 + ((i*13)%50)/50*s*0.05;
+    sandG.strokeStyle = (i%2) ? 'rgba(160,132,88,.16)' : 'rgba(246,238,220,.13)';
+    sandG.lineWidth = Math.max(1, s*0.0022);
+    sandG.beginPath();
+    sandG.moveTo(s/2+Math.cos(a)*rr, s/2+Math.sin(a)*rr);
+    sandG.lineTo(s/2+Math.cos(a)*(rr+ln), s/2+Math.sin(a)*(rr+ln));
+    sandG.stroke();
+  }
+  // grit
+  for (i=0;i<900;i++){
+    a = ((i*97)%628)/100; var rr2 = s/2*Math.sqrt(((i*53)%100)/100)*0.89;
+    sandG.fillStyle = (i%3) ? 'rgba(120,96,60,.10)' : 'rgba(255,250,236,.09)';
+    sandG.fillRect((s/2+Math.cos(a)*rr2)|0,(s/2+Math.sin(a)*rr2)|0, Math.max(1,(s*0.003)|0), Math.max(1,(s*0.003)|0));
+  }
+  sandG.restore();
+}
+// Plough a groove.  u,v in ring space; rad in ring units.
+function plough(u,v,rad,heavy){
+  if (!sandG) return;
+  var s = sandPx, k = s/2/1.12;   // ring radius 1.0 maps to this many px
+  var px = s/2 + u*k, py = s/2 + v*k, pr = Math.max(0.7, rad*k*0.46);
+  sandG.globalCompositeOperation = 'source-over';
+  sandG.fillStyle = heavy ? 'rgba(86,66,40,.075)' : 'rgba(96,74,46,.055)';
+  sandG.beginPath(); sandG.arc(px,py,pr,0,6.2832); sandG.fill();
+  sandG.fillStyle = 'rgba(255,248,230,.045)';
+  sandG.beginPath(); sandG.arc(px - pr*0.42, py - pr*0.42, pr*0.62, 0, 6.2832); sandG.fill();
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  AUDIO ─ a spun top rings; clay does not
+// ═══════════════════════════════════════════════════════════════════════
+var A=null, master=null, comp=null, noiseBuf=null;
+var droneA=null, droneB=null, droneG=null, droneF=null;
+var hissS=null, hissG=null, hissF=null;
+var foeO=null, foeG=null, foeF=null;
+var audioOn=false;
+
+function mkNoise(){
+  if (!A) return null;
+  var n = A.sampleRate*2, b = A.createBuffer(1,n,A.sampleRate), d = b.getChannelData(0), i;
+  for (i=0;i<n;i++) d[i] = Math.random()*2-1;
+  return b;
+}
+function initAudio(){
+  if (audioOn) return;
+  var AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) return;
+  try { A = new AC(); } catch(e){ A=null; return; }
+  comp = A.createDynamicsCompressor();
+  try {
+    comp.threshold.value=-16; comp.knee.value=22; comp.ratio.value=7;
+    comp.attack.value=0.004; comp.release.value=0.18;
+  } catch(e){}
+  master = A.createGain(); master.gain.value = 0.9;
+  comp.connect(master); master.connect(A.destination);
+  noiseBuf = mkNoise();
+
+  // your top's ring — two detuned triangles through a narrow band
+  droneF = A.createBiquadFilter(); droneF.type='bandpass';
+  droneF.frequency.value=340; droneF.Q.value=3.2;
+  droneG = A.createGain(); droneG.gain.value=0;
+  droneA = A.createOscillator(); droneA.type='triangle'; droneA.frequency.value=150;
+  droneB = A.createOscillator(); droneB.type='triangle'; droneB.frequency.value=150.9;
+  droneA.connect(droneG); droneB.connect(droneG);
+  droneG.connect(droneF); droneF.connect(comp);
+  try{ droneA.start(); droneB.start(); }catch(e){}
+
+  // ground hiss
+  if (noiseBuf){
+    hissF = A.createBiquadFilter(); hissF.type='bandpass'; hissF.frequency.value=1400; hissF.Q.value=0.8;
+    hissG = A.createGain(); hissG.gain.value=0;
+    hissS = A.createBufferSource(); hissS.buffer=noiseBuf; hissS.loop=true;
+    hissS.connect(hissF); hissF.connect(hissG); hissG.connect(comp);
+    try{ hissS.start(); }catch(e){}
+  }
+  // the opponents, as one darker hum
+  foeF = A.createBiquadFilter(); foeF.type='lowpass'; foeF.frequency.value=520; foeF.Q.value=1;
+  foeG = A.createGain(); foeG.gain.value=0;
+  foeO = A.createOscillator(); foeO.type='sawtooth'; foeO.frequency.value=96;
+  foeO.connect(foeF); foeF.connect(foeG); foeG.connect(comp);
+  try{ foeO.start(); }catch(e){}
+  audioOn = true;
+}
+function setP(p, v, t, glide){
+  if (!p) return;
+  var x = num(v, 0);
+  try { p.setTargetAtTime(x, num(t, A?A.currentTime:0), num(glide,0.05)); }
+  catch(e){ try{ p.value = x; }catch(e2){} }
+}
+// the ring of a top: pitch rides spin, so a top slowing down glissandos down
+function audioFrame(mySpin, mySpeed, foeSpin){
+  if (!audioOn || !A) return;
+  var t = A.currentTime;
+  var s = clamp(num(mySpin,0),0,1.4);
+  var f = 132 + s*168;
+  setP(droneA.frequency, f, t, 0.06);
+  setP(droneB.frequency, f*1.0055, t, 0.06);
+  setP(droneF.frequency, f*2.02, t, 0.07);
+  setP(droneG.gain, running? s*0.085 : 0, t, 0.08);
+  if (hissG){
+    var sp = clamp(num(mySpeed,0),0,2.5);
+    setP(hissG.gain, running? Math.min(0.030, sp*0.020) : 0, t, 0.06);
+    setP(hissF.frequency, 900 + sp*900, t, 0.08);
+  }
+  var fs = clamp(num(foeSpin,0),0,1.4);
+  setP(foeG.gain, running? fs*0.042 : 0, t, 0.10);
+  setP(foeO.frequency, 84 + fs*54, t, 0.10);
+}
+// clay on clay
+function clack(strength, bright){
+  if (!audioOn || !A) return;
+  var t = A.currentTime, k = clamp(num(strength,0.5),0.06,1.4), br = num(bright,1);
+  if (noiseBuf){
+    var n = A.createBufferSource(); n.buffer = noiseBuf;
+    var bf = A.createBiquadFilter(); bf.type='bandpass';
+    bf.frequency.value = clamp(760*br + k*900, 120, 9000); bf.Q.value = 1.4;
+    var ng = A.createGain(); ng.gain.value = 0;
+    n.connect(bf); bf.connect(ng); ng.connect(comp);
+    try{
+      ng.gain.setValueAtTime(0.0001,t);
+      ng.gain.exponentialRampToValueAtTime(Math.max(0.001,0.30*k), t+0.004);
+      ng.gain.exponentialRampToValueAtTime(0.0001, t+0.075);
+      n.start(t); n.stop(t+0.11);
+    }catch(e){}
+  }
+  var o = A.createOscillator(); o.type='sine';
+  var og = A.createGain(); og.gain.value=0;
+  o.connect(og); og.connect(comp);
+  try{
+    o.frequency.setValueAtTime(clamp(430*br,60,4000), t);
+    o.frequency.exponentialRampToValueAtTime(clamp(180*br,40,4000), t+0.06);
+    og.gain.setValueAtTime(0.0001,t);
+    og.gain.exponentialRampToValueAtTime(Math.max(0.001,0.24*k), t+0.005);
+    og.gain.exponentialRampToValueAtTime(0.0001, t+0.13);
+    o.start(t); o.stop(t+0.16);
+  }catch(e){}
+}
+function thud(){
+  if (!audioOn || !A) return;
+  var t=A.currentTime;
+  var o=A.createOscillator(); o.type='sine';
+  var og=A.createGain(); og.gain.value=0;
+  o.connect(og); og.connect(comp);
+  try{
+    o.frequency.setValueAtTime(74,t); o.frequency.exponentialRampToValueAtTime(43,t+0.32);
+    og.gain.setValueAtTime(0.0001,t);
+    og.gain.exponentialRampToValueAtTime(0.34,t+0.008);
+    og.gain.exponentialRampToValueAtTime(0.0001,t+0.42);
+    o.start(t); o.stop(t+0.46);
+  }catch(e){}
+}
+// 拍子木 — two hard bright clacks
+function hyoshigi(){
+  if (!audioOn || !A) return;
+  clack(0.85, 3.0);
+  var tm = setTimeout(function(){ clack(0.95, 3.1); }, 105);
+  if (tm && tm.unref) tm.unref();
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  CAMERA
+// ═══════════════════════════════════════════════════════════════════════
+var facing='user', mirror=true, stream=null, camOK=false;
+
+function showError(e){
+  var msg = (e && e.message) ? e.message : String(e || 'unknown');
+  errBox.style.display='block';
+  errBox.textContent = 'カメラを起動できませんでした：' + msg +
+    '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+}
+function startStream(){
+  var md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) return Promise.reject(new Error('getUserMedia is unavailable'));
+  if (stream && stream.getTracks) stream.getTracks().forEach(function(t){ t.stop(); });
+  return md.getUserMedia({
+    video:{ facingMode:{ ideal:facing }, width:{ ideal:960 }, height:{ ideal:720 } },
+    audio:false
+  }).then(function(st){
+    stream=st; video.srcObject=st; mirror=(facing==='user'); camOK=true;
+    var p = video.play();
+    return (p && p.then) ? p.catch(function(){}) : null;
+  });
+}
+flipBtn.addEventListener('click', function(){
+  facing = (facing==='user') ? 'environment' : 'user';
+  loseHand();
+  startStream().then(startMpCamera).catch(showError);
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+//  HAND ─ position is where the top wants to go; the SIGNED angular sweep
+//  of the palm about its own recent centroid is the spin you are feeding
+//  it.  Signed is the whole trick: tracker jitter has no preferred
+//  direction, so it sums to ~0 over a window, while a real circle
+//  accumulates.  Two further gates kill the remaining false positive —
+//  a straight sweep past the centroid, which does turn through an angle:
+//    · every sample in the window must sit outside RMIN, and
+//    · the smallest radius must be at least RRATIO of the largest.
+//  A straight pass has its centroid ON the line, so its inner samples
+//  collapse to r≈0 and both gates reject it.
+// ═══════════════════════════════════════════════════════════════════════
+var hands=null, mpCamera=null, mpReady=false;
+var LOST_MS = 0.34;      // s of silence before we call the hand gone
+var WIN     = 0.46;      // s of history the sweep is measured over
+var RMIN    = 0.042;     // normalised — jitter is an order below this
+var RRATIO  = 0.44;      // roundness gate
+var HIST_N  = 48;
+
+var Hn = { live:false, t:-1e9, x:0.5, y:0.5, sweep:0, dir:0, phase:0 };
+var hist = [];           // {t,x,y}
+var trail= [];           // {x,y,t} for drawing
+
+function loseHand(){
+  Hn.live=false; Hn.sweep=0; Hn.dir=0;
+  hist.length=0; trail.length=0;
+}
+function initHands(){
+  if (typeof window.Hands !== 'function') return false;
+  try{
+    hands = new window.Hands({ locateFile:function(f){
+      return 'https://cdn.jsdelivr.net/npm/@mediapipe/hands/' + f;
+    }});
+    hands.setOptions({ maxNumHands:1, modelComplexity:0,
+                       minDetectionConfidence:0.6, minTrackingConfidence:0.5 });
+    hands.onResults(onHands);
+    mpReady=true; return true;
+  }catch(e){ return false; }
+}
+function startMpCamera(){
+  if (!mpReady || !hands || mpCamera) return;
+  if (typeof window.Camera !== 'function') return;
+  try{
+    mpCamera = new window.Camera(video, {
+      onFrame:function(){
+        if (!hands) return Promise.resolve();
+        return hands.send({ image: video }).catch(function(){});
+      },
+      width:480, height:360
+    });
+    mpCamera.start();
+  }catch(e){ mpCamera=null; }
+}
+function validLm(c){
+  if (!c || c.length < 21) return null;
+  for (var i=0;i<21;i++){
+    var p=c[i];
+    if (!p || typeof p.x!=='number' || typeof p.y!=='number' ||
+        !isFinite(p.x) || !isFinite(p.y)) return null;
+  }
+  return c;
+}
+function onHands(res){
+  var t = now();
+  var list = (res && res.multiHandLandmarks) ? res.multiHandLandmarks : null;
+  var c = (list && list.length) ? validLm(list[0]) : null;
+  if (!c){ if (Hn.live && t - Hn.t > LOST_MS) loseHand(); return; }
+
+  var ids=[0,5,9,13,17], cx=0, cy=0, i, p;
+  for (i=0;i<ids.length;i++){
+    p = c[ids[i]];
+    if (!p) return;
+    cx += p.x; cy += p.y;
+  }
+  cx/=ids.length; cy/=ids.length;
+  if (!isFinite(cx) || !isFinite(cy)) return;
+
+  var x = mirror ? (1-cx) : cx, y = cy;
+  x = clamp(x,0,1); y = clamp(y,0,1);
+
+  // a gap in tracking must not be read as a giant sweep
+  if (!Hn.live || (t - Hn.t) > LOST_MS) { hist.length=0; trail.length=0; Hn.sweep=0; Hn.dir=0; }
+  Hn.live=true; Hn.t=t; Hn.x=x; Hn.y=y;
+
+  hist.push({t:t,x:x,y:y});
+  while (hist.length > HIST_N) hist.shift();
+  while (hist.length && t - hist[0].t > WIN) hist.shift();
+  trail.push({x:x,y:y,t:t});
+  while (trail.length > 40) trail.shift();
+
+  measureSweep(t);
+}
+function measureSweep(t){
+  var n = hist.length;
+  if (n < 6){ Hn.sweep = 0; return; }
+  var span = hist[n-1].t - hist[0].t;
+  if (!(span > 0.18)){ Hn.sweep = 0; return; }
+  var i, mx=0, my=0;
+  for (i=0;i<n;i++){ mx += hist[i].x; my += hist[i].y; }
+  mx/=n; my/=n;
+  var rmin=1e9, rmax=0, dx, dy, r;
+  for (i=0;i<n;i++){
+    dx = hist[i].x-mx; dy = hist[i].y-my; r = Math.sqrt(dx*dx+dy*dy);
+    if (r<rmin) rmin=r; if (r>rmax) rmax=r;
+  }
+  if (rmin < RMIN || rmax <= 0 || rmin < rmax*RRATIO){ Hn.sweep = 0; return; }
+  var sum=0, a0=Math.atan2(hist[0].y-my, hist[0].x-mx), a1, d;
+  for (i=1;i<n;i++){
+    a1 = Math.atan2(hist[i].y-my, hist[i].x-mx);
+    d = a1-a0;
+    while (d >  Math.PI) d -= 6.2831853;
+    while (d < -Math.PI) d += 6.2831853;
+    sum += d; a0 = a1;
+  }
+  if (!isFinite(sum)){ Hn.sweep=0; return; }
+  Hn.dir = sum >= 0 ? 1 : -1;
+  Hn.sweep = Math.abs(sum)/span;      // rad/s of honest circling
+  if (!isFinite(Hn.sweep)) Hn.sweep = 0;
+  Hn.sweep = Math.min(Hn.sweep, 26);
+}
+// hand → guide point in ring space
+function guide(){
+  var gx = (Hn.x-0.5)*2.65, gy = (Hn.y-0.5)*2.65;
+  var m = Math.sqrt(gx*gx+gy*gy);
+  if (m > 1.06){ gx = gx/m*1.06; gy = gy/m*1.06; }
+  return {x:num(gx,0), y:num(gy,0)};
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  TOPS
+// ═══════════════════════════════════════════════════════════════════════
+var SPIN_MAX   = 1.0;
+var SPIN_DEAD  = 0.055;
+var DECAY_BASE = 0.0335;    // per second at rest
+var DECAY_MOVE = 0.052;     // extra, per unit of ground speed
+var GUIDE_K    = 4.6;
+var DRAG       = 1.35;
+var BALE_IN    = 1.0;       // ring line
+var OUT_AT     = 1.155;     // centre past here and it is 土俵割り
+var FEED_REV   = 2.3;       // revolutions/s of hand that saturates the feed
+var FEED_RATE  = 0.62;      // spin gained per second at saturation
+
+function Top(team, u, v, spin, rad, mass, heavy){
+  this.team=team; this.x=u; this.y=v; this.vx=0; this.vy=0;
+  this.spin=spin; this.r=rad; this.m=mass; this.heavy=!!heavy;
+  this.alive=true; this.ang=Math.random()*6.28; this.prec=Math.random()*6.28;
+  this.dying=0; this.outT=0; this.hitFlash=0; this.deathKind='';
+}
+Top.prototype.speed=function(){ return Math.sqrt(this.vx*this.vx+this.vy*this.vy); };
+
+var me=null, foes=[], parts=[], shake=0, shakeT=0;
+
+function spawnRound(n){
+  foes.length=0; parts.length=0;
+  me = new Top('me', 0, 0.52, 0.16, 0.108, 1.0, false);
+  var mk = function(u,v,sp,rad,mass,hv){ foes.push(new Top('foe',u,v,sp,rad,mass,hv)); };
+  var base = 0.50 + Math.min(0.30, (n-1)*0.052);
+  if (n===1){ mk(0,-0.52, base, 0.104, 0.98,false); }
+  else if (n===2){ mk(-0.46,-0.42, base,0.104,0.98,false); mk(0.46,-0.42, base,0.104,0.98,false); }
+  else if (n===3){ mk(0,-0.55, base+0.10, 0.142, 1.62, true); mk(0.52,-0.10, base,0.104,0.98,false); }
+  else if (n===4){ mk(-0.52,-0.40,base,0.104,0.98,false); mk(0.52,-0.40,base,0.104,0.98,false); mk(0,-0.62,base,0.104,0.98,false); }
+  else if (n===5){ mk(0,-0.58,base+0.10,0.142,1.62,true); mk(-0.55,-0.16,base,0.104,0.98,false); mk(0.55,-0.16,base,0.104,0.98,false); }
+  else {
+    mk(0,-0.58, Math.min(0.98, base+0.16), 0.150, 1.78, true);
+    mk(-0.56,-0.20,base,0.104,0.98,false); mk(0.56,-0.20,base,0.104,0.98,false);
+    if (n>=8) mk(0, 0.62, base, 0.104,0.98,false);
+  }
+  layClay();
+}
+
+function burst(u,v,k,col){
+  var n = Math.min(26, 5 + (k*20)|0), i, a, sp;
+  for (i=0;i<n;i++){
+    a = Math.random()*6.2832; sp = (0.25 + Math.random()*1.0)*(0.4+k);
+    parts.push({ x:u, y:v, vx:Math.cos(a)*sp, vy:Math.sin(a)*sp,
+                 life:0.30+Math.random()*0.45, age:0,
+                 s:0.006+Math.random()*0.013, c:col||'#c9b48a' });
+  }
+}
+function doShake(k){ shake = Math.min(16, shake + k*13); shakeT = 0.16; }
+
+function killTop(tp, kind){
+  if (!tp || !tp.alive) return;
+  tp.alive=false; tp.dying=0; tp.deathKind=kind;
+  burst(tp.x, tp.y, 1.0, kind==='out' ? '#d8c49a' : (tp.team==='me' ? '#e08a70' : '#efe6d4'));
+  clack(1.0, 0.72); thud(); doShake(0.9);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  ROUND / PHASE MACHINE
+//    shikiri → tachiai → bout → (won | lost) → …
+//  Every terminal transition is guarded on `phase` so it fires once.
+// ═══════════════════════════════════════════════════════════════════════
+var running=false, phase='idle', pt=0, round=1, score=0, best=0;
+var callTxt='', callT=0, callHold=0;
+var SHIKIRI_T = 3.6, TACHIAI_T = 0.85, WON_T = 1.9, LOST_T = 1.6;
+
+function call(txt, hold){ callTxt=txt; callT=0; callHold=num(hold,1.1); }
+
+function beginRound(n){
+  round = n;
+  spawnRound(n);
+  phase='shikiri'; pt=0;
+  call('仕切り', SHIKIRI_T);
+}
+function startGame(){
+  score=0; round=1; running=true;
+  overSheet.classList.add('hide');
+  beginRound(1);
+}
+function endGame(reason){
+  if (phase==='over') return;      // idempotent: exactly once
+  phase='over'; running=false;
+  if (score>best) best=score;
+  rScore.textContent = String(score|0);
+  rRound.textContent = '第 ' + (round|0) + ' 番';
+  rNote.textContent = reason + '　最高 ' + (best|0);
+  overSheet.classList.remove('hide');
+  audioFrame(0,0,0);
+}
+
+function phaseStep(dt){
+  pt += dt;
+  if (phase==='shikiri'){
+    if (pt >= SHIKIRI_T){ phase='tachiai'; pt=0; call('はっけよい', 0.8); hyoshigi(); }
+  } else if (phase==='tachiai'){
+    if (pt >= TACHIAI_T){ phase='bout'; pt=0; call('残った', 0.7); }
+  } else if (phase==='bout'){
+    var anyFoe=false, i;
+    for (i=0;i<foes.length;i++) if (foes[i].alive) { anyFoe=true; break; }
+    if (!me.alive){ phase='lost'; pt=0; call('負け', 1.4); }
+    else if (!anyFoe){
+      phase='won'; pt=0;
+      score += 120*round + Math.round(clamp(me.spin,0,1.4)*260);
+      call('勝ち', 1.5); hyoshigi(); thud();
+    }
+  } else if (phase==='won'){
+    if (pt >= WON_T) beginRound(round+1);
+  } else if (phase==='lost'){
+    if (pt >= LOST_T) endGame(me.deathKind==='out' ? '土俵を割った。' : '勢いが尽きた。');
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  PHYSICS
+// ═══════════════════════════════════════════════════════════════════════
+function integrate(tp, dt, live){
+  if (!tp.alive){ tp.dying += dt; return; }
+  // spin bleeds with time and faster with ground speed
+  var sp = tp.speed();
+  var dec = DECAY_BASE + DECAY_MOVE*sp;
+  if (tp.heavy) dec *= 0.80;
+  tp.spin -= dec*dt;
+
+  if (tp.spin <= SPIN_DEAD){ tp.spin = 0; killTop(tp, 'stop'); return; }
+
+  // drive
+  if (tp.team==='me'){
+    if (live){
+      var gpt = guide();
+      var ax = (gpt.x - tp.x)*GUIDE_K, ay = (gpt.y - tp.y)*GUIDE_K;
+      var am = Math.sqrt(ax*ax+ay*ay), CAP=5.4;
+      if (am > CAP){ ax = ax/am*CAP; ay = ay/am*CAP; }
+      tp.vx += ax*dt; tp.vy += ay*dt;
+    }
+  } else {
+    // seek the player, with a personal wobble so two foes do not stack
+    var tx = me.alive ? me.x : 0, ty = me.alive ? me.y : 0;
+    tp.prec += dt*1.7;
+    tx += Math.cos(tp.prec)*0.16; ty += Math.sin(tp.prec*1.3)*0.16;
+    var bx = tx-tp.x, by = ty-tp.y, bm = Math.sqrt(bx*bx+by*by) || 1;
+    var K = tp.heavy ? 1.85 : 2.45;
+    tp.vx += (bx/bm)*K*dt; tp.vy += (by/bm)*K*dt;
+  }
+
+  // drag
+  var dg = Math.exp(-DRAG*dt);
+  tp.vx *= dg; tp.vy *= dg;
+
+  tp.x += tp.vx*dt; tp.y += tp.vy*dt;
+  if (!isFinite(tp.x) || !isFinite(tp.y)){ tp.x=0; tp.y=0; tp.vx=0; tp.vy=0; }
+
+  // the straw bales: a lip that pushes back, and can be gone over
+  var d = Math.sqrt(tp.x*tp.x+tp.y*tp.y);
+  if (d > BALE_IN - tp.r*0.5){
+    var over = d - (BALE_IN - tp.r*0.5);
+    var nx = tp.x/(d||1), ny = tp.y/(d||1);
+    var push = 16.0*over;
+    tp.vx -= nx*push*dt; tp.vy -= ny*push*dt;
+    tp.spin -= over*0.55*dt;          // scuffing the bales costs you
+    if (over > 0.02 && Math.random() < 0.35) burst(tp.x,tp.y,0.16,'#c19a5e');
+  }
+  if (d > OUT_AT){ killTop(tp, 'out'); return; }
+
+  // spin visual
+  tp.ang += (2.4 + tp.spin*11)*dt;
+  tp.prec += dt*(2.0 + (1-clamp(tp.spin,0,1))*7.5);
+  if (tp.hitFlash>0) tp.hitFlash = Math.max(0, tp.hitFlash - dt*4.2);
+  plough(tp.x, tp.y, tp.r, tp.heavy);
+}
+
+function collide(a,b){
+  if (!a.alive || !b.alive) return;
+  var dx=b.x-a.x, dy=b.y-a.y, d=Math.sqrt(dx*dx+dy*dy);
+  var minD = a.r+b.r;
+  if (d >= minD || d <= 1e-6) return;
+  var nx=dx/d, ny=dy/d;
+  // separate
+  var pen = (minD-d);
+  var ma=a.m, mb=b.m, tot=ma+mb;
+  a.x -= nx*pen*(mb/tot); a.y -= ny*pen*(mb/tot);
+  b.x += nx*pen*(ma/tot); b.y += ny*pen*(ma/tot);
+  // normal impulse, restitution scaled by the combined spin — a fast top hits hard
+  var rvx=b.vx-a.vx, rvy=b.vy-a.vy;
+  var vn = rvx*nx + rvy*ny;
+  var kick = 0.34 + 0.55*clamp((a.spin+b.spin)*0.5,0,1.2);
+  if (vn < 0){
+    var e = 0.55 + kick;
+    var j = -(1+e)*vn / (1/ma + 1/mb);
+    a.vx -= (j/ma)*nx; a.vy -= (j/ma)*ny;
+    b.vx += (j/mb)*nx; b.vy += (j/mb)*ny;
+  }
+  // always give a minimum shove so tops never fuse
+  a.vx -= nx*0.22; a.vy -= ny*0.22;
+  b.vx += nx*0.22; b.vy += ny*0.22;
+
+  var impact = Math.min(3.2, Math.abs(vn) + 0.35);
+  // both scuff; the slower-spinning one is bitten
+  var wear = impact*0.030;
+  var diff = a.spin - b.spin;
+  a.spin -= wear + (diff<0 ? Math.min(0.20, -diff*impact*0.115) : 0);
+  b.spin -= wear + (diff>0 ? Math.min(0.20,  diff*impact*0.115) : 0);
+  a.hitFlash = 1; b.hitFlash = 1;
+
+  var mx=(a.x+b.x)/2, my=(a.y+b.y)/2;
+  burst(mx,my, clamp(impact*0.42,0.1,1), '#d8b878');
+  clack(clamp(impact*0.42,0.10,1.1), 1.0);
+  doShake(clamp(impact*0.24,0.05,0.85));
+}
+
+function physics(dt){
+  var live = Hn.live && phase==='bout';
+  var i,j;
+  // feeding spin: only during 仕切り and the bout, and only for you
+  if (me && me.alive && Hn.live && (phase==='shikiri' || phase==='bout')){
+    var rev = Hn.sweep/6.2831853;
+    var feed = clamp(rev/FEED_REV, 0, 1)*FEED_RATE;
+    me.spin = Math.min(SPIN_MAX*1.18, me.spin + feed*dt);
+  }
+  if (phase==='shikiri'){
+    // nobody moves at 仕切り; you are just winding up
+    if (me) { me.ang += (2.4 + me.spin*11)*dt; me.vx=0; me.vy=0; }
+    for (i=0;i<foes.length;i++){ foes[i].ang += (2.4+foes[i].spin*11)*dt; }
+    return;
+  }
+  if (phase!=='bout' && phase!=='tachiai' && phase!=='won' && phase!=='lost') return;
+
+  var SUB=2, h=dt/SUB, s;
+  for (s=0;s<SUB;s++){
+    if (me) integrate(me, h, live);
+    for (i=0;i<foes.length;i++) integrate(foes[i], h, false);
+    for (i=0;i<foes.length;i++){
+      if (me && me.alive) collide(me, foes[i]);
+      for (j=i+1;j<foes.length;j++) collide(foes[i], foes[j]);
+    }
+  }
+}
+function stepParts(dt){
+  var i, p;
+  for (i=parts.length-1;i>=0;i--){
+    p=parts[i]; p.age+=dt;
+    if (p.age>=p.life){ parts.splice(i,1); continue; }
+    p.x+=p.vx*dt; p.y+=p.vy*dt;
+    p.vx*=Math.exp(-3.4*dt); p.vy*=Math.exp(-3.4*dt);
+  }
+  if (shakeT>0){ shakeT-=dt; if (shakeT<=0) shakeT=0; }
+  shake *= Math.exp(-11*dt);
+  if (shake < 0.05) shake = 0;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  DRAW
+// ═══════════════════════════════════════════════════════════════════════
+function toPx(u,v){ return { x: CX + u*R, y: CY + v*R }; }
+
+function drawTop(tp){
+  var pos = toPx(tp.x, tp.y), rr = tp.r*R;
+  var s = clamp(tp.spin,0,1.2);
+  var mine = tp.team==='me';
+  var body = mine ? C_SHU : C_HAKU;
+  var trim = mine ? '#7d1f11' : '#a0917a';
+
+  var tilt, fade=1;
+  if (!tp.alive){
+    var k = clamp(tp.dying/0.55, 0, 1);
+    tilt = 0.30 + k*0.55;
+    fade = 1 - k*0.85;
+    if (fade <= 0.02) return;
+  } else {
+    tilt = (1-clamp(s,0,1))*0.34;
+  }
+  var ox = Math.cos(tp.prec)*tilt*rr*0.62;
+  var oy = Math.sin(tp.prec)*tilt*rr*0.62;
+
+  g.save();
+  g.globalAlpha = fade;
+  // cast shadow on the clay, opposite the lean
+  g.fillStyle='rgba(70,52,30,.30)';
+  g.beginPath(); g.ellipse(pos.x-ox*0.8+rr*0.10, pos.y-oy*0.8+rr*0.16, rr*0.94, rr*0.80, 0,0,6.2832); g.fill();
+
+  var bx=pos.x+ox, by=pos.y+oy;
+  // body
+  g.fillStyle=body; g.beginPath(); g.arc(bx,by,rr,0,6.2832); g.fill();
+  // rotating quarters — the pattern that shows it is spinning
+  g.save(); g.beginPath(); g.arc(bx,by,rr,0,6.2832); g.clip();
+  g.translate(bx,by); g.rotate(tp.ang);
+  g.fillStyle = mine ? 'rgba(255,238,214,.90)' : 'rgba(46,58,80,.80)';
+  var q;
+  for (q=0;q<3;q++){
+    g.beginPath(); g.moveTo(0,0);
+    g.arc(0,0, rr, q*2.0944, q*2.0944+0.62);
+    g.closePath(); g.fill();
+  }
+  // inner disc
+  g.fillStyle = mine ? '#8f2313' : '#cfc4ad';
+  g.beginPath(); g.arc(0,0,rr*0.46,0,6.2832); g.fill();
+  g.restore();
+  // rim
+  g.strokeStyle=trim; g.lineWidth=Math.max(1, rr*0.10);
+  g.beginPath(); g.arc(bx,by,rr*0.95,0,6.2832); g.stroke();
+  // the spike
+  g.fillStyle = C_SUMI;
+  g.beginPath(); g.arc(bx,by,Math.max(1.2, rr*0.11),0,6.2832); g.fill();
+  // hit flash
+  if (tp.hitFlash>0.01){
+    g.strokeStyle='rgba(255,236,190,'+(tp.hitFlash*0.9).toFixed(3)+')';
+    g.lineWidth=Math.max(1.5, rr*0.16);
+    g.beginPath(); g.arc(bx,by,rr*1.10,0,6.2832); g.stroke();
+  }
+  // heavy tops wear a band
+  if (tp.heavy){
+    g.strokeStyle='rgba(60,72,96,.75)'; g.lineWidth=Math.max(1,rr*0.07);
+    g.beginPath(); g.arc(bx,by,rr*0.70,0,6.2832); g.stroke();
+  }
+  // your top carries its 勢い as an arc of gold around it
+  if (mine && tp.alive){
+    var a0=-Math.PI/2, a1=a0 + clamp(s,0,1.18)*6.2832/1.18;
+    g.strokeStyle=C_KIN; g.lineWidth=Math.max(1.6, rr*0.16); g.lineCap='butt';
+    g.beginPath(); g.arc(bx,by,rr*1.30,a0,a1); g.stroke();
+  }
+  g.restore();
+}
+
+function drawHand(){
+  if (!Hn.live) return;
+  var gp = guide(), pos = toPx(gp.x, gp.y);
+  var rev = Hn.sweep/6.2831853;
+  var hot = clamp(rev/FEED_REV, 0, 1);
+  // the path your hand has actually taken, in ring space
+  var i, n=trail.length;
+  if (n>1){
+    g.save(); g.lineWidth=2; g.lineCap='round';
+    for (i=1;i<n;i++){
+      var a = trail[i-1], b = trail[i];
+      var pa = toPx(clamp((a.x-0.5)*2.65,-1.3,1.3), clamp((a.y-0.5)*2.65,-1.3,1.3));
+      var pb = toPx(clamp((b.x-0.5)*2.65,-1.3,1.3), clamp((b.y-0.5)*2.65,-1.3,1.3));
+      g.strokeStyle='rgba(200,150,60,'+(0.05 + 0.34*(i/n)*(0.35+hot*0.65)).toFixed(3)+')';
+      g.beginPath(); g.moveTo(pa.x,pa.y); g.lineTo(pb.x,pb.y); g.stroke();
+    }
+    g.restore();
+  }
+  var rr = R*0.062;
+  g.save();
+  g.strokeStyle = 'rgba(242,236,224,'+(0.30+hot*0.55).toFixed(3)+')';
+  g.lineWidth = 1.5;
+  g.beginPath(); g.arc(pos.x,pos.y,rr,0,6.2832); g.stroke();
+  // ticks that turn with your circling, so you can see it is counting
+  Hn.phase += hot*0.30 + 0.01;
+  var k;
+  for (k=0;k<6;k++){
+    var a = Hn.phase*(Hn.dir||1) + k*1.0472;
+    g.strokeStyle = 'rgba(200,150,60,'+(0.25+hot*0.7).toFixed(3)+')';
+    g.lineWidth = 2;
+    g.beginPath();
+    g.moveTo(pos.x+Math.cos(a)*rr*1.22, pos.y+Math.sin(a)*rr*1.22);
+    g.lineTo(pos.x+Math.cos(a)*rr*(1.22+0.40*hot+0.12), pos.y+Math.sin(a)*rr*(1.22+0.40*hot+0.12));
+    g.stroke();
+  }
+  g.restore();
+}
+
+function drawRing(){
+  // clay
+  g.save();
+  g.beginPath(); g.arc(CX,CY,R*1.0,0,6.2832); g.clip();
+  if (sandCv) g.drawImage(sandCv, CX-R*1.12, CY-R*1.12, R*2.24, R*2.24);
+  g.restore();
+  // straw bales — short overlapping arcs, laid round the line
+  var i, n=44;
+  g.save();
+  for (i=0;i<n;i++){
+    var a0 = (i/n)*6.2832, a1 = a0 + 6.2832/n*0.86;
+    g.strokeStyle = (i%2) ? C_TAWARA : '#9c7844';
+    g.lineWidth = Math.max(3, R*0.045); g.lineCap='round';
+    g.beginPath(); g.arc(CX,CY,R*1.012,a0,a1); g.stroke();
+  }
+  g.strokeStyle='rgba(60,44,22,.35)'; g.lineWidth=Math.max(1,R*0.008);
+  g.beginPath(); g.arc(CX,CY,R*0.985,0,6.2832); g.stroke();
+  g.restore();
+}
+
+function drawParts(){
+  var i,p,pos,al;
+  for (i=0;i<parts.length;i++){
+    p=parts[i]; al = 1 - p.age/p.life;
+    pos = toPx(p.x,p.y);
+    g.fillStyle = p.c;
+    g.globalAlpha = clamp(al,0,1)*0.85;
+    var sz = Math.max(1, p.s*R*(0.4+al));
+    g.fillRect(pos.x-sz/2, pos.y-sz/2, sz, sz);
+  }
+  g.globalAlpha=1;
+}
+
+function drawHud(){
+  var top = 14, pad = 16;
+  g.save();
+  g.font='500 12px Oswald, sans-serif'; g.textBaseline='top';
+  g.fillStyle='rgba(242,236,224,.55)';
+  g.save(); g.translate(pad, top);
+  var lbl = '第 ' + (round|0) + ' 番';
+  g.font='700 15px "Shippori Mincho B1", serif'; g.fillStyle='rgba(242,236,224,.86)';
+  g.fillText(lbl, 0, 0);
+  g.restore();
+
+  g.textAlign='right';
+  g.font='300 11px Oswald, sans-serif'; g.fillStyle='rgba(242,236,224,.42)';
+  g.fillText('SCORE', W-pad-58, top+2);
+  g.font='500 22px Oswald, sans-serif'; g.fillStyle='rgba(242,236,224,.92)';
+  g.fillText(String(score|0), W-pad-58, top-4);
+  g.textAlign='left';
+  g.restore();
+
+  // 勢い gauge, along the bottom
+  var gw = Math.min(W-40, R*1.5), gx = CX-gw/2, gy = H - 34 - (window.innerHeight>700?10:0);
+  var s = me ? clamp(me.spin,0,1.18) : 0;
+  g.save();
+  g.fillStyle='rgba(0,0,0,.28)'; g.fillRect(gx, gy, gw, 7);
+  g.fillStyle = s < 0.22 ? '#d0402a' : C_KIN;
+  g.fillRect(gx, gy, gw*(s/1.18), 7);
+  g.strokeStyle='rgba(242,236,224,.28)'; g.lineWidth=1;
+  g.strokeRect(gx+0.5, gy+0.5, gw-1, 6);
+  g.font='300 9.5px Oswald, sans-serif'; g.fillStyle='rgba(242,236,224,.5)';
+  g.fillText('勢い', gx, gy-14);
+  if (!Hn.live){
+    g.textAlign='right';
+    g.fillStyle='rgba(242,236,224,.42)';
+    g.fillText('手が見えません', gx+gw, gy-14);
+    g.textAlign='left';
+  }
+  g.restore();
+}
+
+function drawCall(){
+  if (!callTxt) return;
+  var t = callT;
+  if (t > callHold + 0.45){ callTxt=''; return; }
+  var a;
+  if (t < 0.09) a = easeOutBack(clamp(t/0.09,0,1));
+  else a = 1;
+  var fade = t > callHold ? clamp(1-(t-callHold)/0.45,0,1) : 1;
+  var sz = Math.min(W*0.26, R*0.62);
+  g.save();
+  g.globalAlpha = fade;
+  g.translate(CX, CY);
+  g.scale(clamp(a,0.2,1.25), clamp(a,0.2,1.25));
+  g.font = '800 '+sz.toFixed(0)+'px "Shippori Mincho B1", serif';
+  g.textAlign='center'; g.textBaseline='middle';
+  g.lineWidth = sz*0.10; g.strokeStyle='rgba(30,51,82,.55)';
+  g.strokeText(callTxt, 0, 0);
+  g.fillStyle = (callTxt==='負け') ? '#d0402a' : C_HAKU;
+  g.fillText(callTxt, 0, 0);
+  g.restore();
+  g.textAlign='left'; g.textBaseline='alphabetic';
+}
+
+function drawFrame(){
+  var sx=0, sy=0;
+  if (shake>0.05){ sx=(Math.random()-0.5)*shake; sy=(Math.random()-0.5)*shake; }
+  g.setTransform(DPR,0,0,DPR,0,0);
+  g.clearRect(0,0,W,H);
+  g.save();
+  g.translate(sx,sy);
+
+  if (bgCv) g.drawImage(bgCv, 0,0, W,H);
+  // your room, outside the ring only, so the camera is visibly live
+  if (camOK && video.readyState>=2 && video.videoWidth>0){
+    g.save();
+    g.beginPath(); g.rect(0,0,W,H);
+    g.arc(CX,CY,R*1.06,0,6.2832,true);
+    g.clip();
+    g.globalCompositeOperation='overlay'; g.globalAlpha=0.24;
+    var vw=video.videoWidth, vh=video.videoHeight, sc=Math.max(W/vw,H/vh);
+    var dw=vw*sc, dh=vh*sc;
+    if (mirror){ g.translate(W,0); g.scale(-1,1); }
+    g.drawImage(video, (W-dw)/2, (H-dh)/2, dw, dh);
+    g.restore();
+  }
+  drawRing();
+  drawParts();
+  var i;
+  for (i=0;i<foes.length;i++) drawTop(foes[i]);
+  if (me) drawTop(me);
+  drawHand();
+  g.restore();
+  drawHud();
+  drawCall();
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  LOOP
+// ═══════════════════════════════════════════════════════════════════════
+var last = now(), rafId=0;
+function loop(){
+  rafId = requestAnimationFrame(loop);
+  var t = now(), dt = t-last; last = t;
+  if (!(dt>0)) dt = 0.016;
+  if (dt > 0.05) dt = 0.05;
+
+  if (Hn.live && t - Hn.t > LOST_MS) loseHand();
+  if (callTxt) callT += dt;
+
+  if (running){
+    physics(dt);
+    stepParts(dt);
+    phaseStep(dt);
+  } else {
+    stepParts(dt);
+  }
+  var foeMax=0, i;
+  for (i=0;i<foes.length;i++) if (foes[i].alive && foes[i].spin>foeMax) foeMax=foes[i].spin;
+  audioFrame(me && me.alive ? me.spin : 0, me && me.alive ? me.speed() : 0, foeMax);
+  drawFrame();
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  THE TEACHING DIAGRAM — a hand going round, a top winding up
+// ═══════════════════════════════════════════════════════════════════════
+var dg = demoCv ? demoCv.getContext('2d') : null;
+var demoT = 0, demoRaf = 0;
+function drawDemo(){
+  if (!dg) return;
+  var w=600,h=300;
+  demoT += 1/60;
+  var loopT = 3.0, tt = (demoT % loopT)/loopT;
+  dg.clearRect(0,0,w,h);
+  dg.fillStyle='#c9b791'; dg.fillRect(0,0,w,h);
+  // ring
+  dg.strokeStyle='#a1834f'; dg.lineWidth=6;
+  dg.beginPath(); dg.arc(420,150,96,0,6.2832); dg.stroke();
+  dg.fillStyle='rgba(217,201,168,.85)'; dg.beginPath(); dg.arc(420,150,93,0,6.2832); dg.fill();
+
+  // hand circling on the left
+  var a = tt*6.2832*2.2;
+  var hx = 175 + Math.cos(a)*52, hy = 150 + Math.sin(a)*52;
+  var i;
+  dg.lineWidth=3; dg.lineCap='round';
+  for (i=0;i<26;i++){
+    var a2 = a - i*0.10;
+    dg.strokeStyle = 'rgba(192,48,28,'+(0.34*(1-i/26)).toFixed(3)+')';
+    dg.beginPath();
+    dg.moveTo(175+Math.cos(a2)*52, 150+Math.sin(a2)*52);
+    dg.lineTo(175+Math.cos(a2-0.10)*52, 150+Math.sin(a2-0.10)*52);
+    dg.stroke();
+  }
+  dg.fillStyle='#c0301c'; dg.beginPath(); dg.arc(hx,hy,13,0,6.2832); dg.fill();
+  dg.strokeStyle='rgba(32,24,15,.5)'; dg.lineWidth=2;
+  dg.beginPath(); dg.arc(hx,hy,19,0,6.2832); dg.stroke();
+
+  // arrow
+  dg.strokeStyle='rgba(60,44,22,.42)'; dg.lineWidth=2; dg.setLineDash([7,7]);
+  dg.beginPath(); dg.moveTo(248,150); dg.lineTo(305,150); dg.stroke();
+  dg.setLineDash([]);
+  dg.beginPath(); dg.moveTo(305,150); dg.lineTo(294,144); dg.lineTo(294,156); dg.closePath();
+  dg.fillStyle='rgba(60,44,22,.42)'; dg.fill();
+
+  // the top, winding up in time with the hand
+  var spin = 0.25 + tt*0.72;
+  var tx = 420 + Math.cos(a*0.5)*30, ty = 150 + Math.sin(a*0.5)*30;
+  var tilt = (1-spin)*16;
+  var bx = tx + Math.cos(a*3.1)*tilt, by = ty + Math.sin(a*3.1)*tilt;
+  dg.fillStyle='rgba(70,52,30,.28)';
+  dg.beginPath(); dg.ellipse(tx+3,ty+5,30,26,0,0,6.2832); dg.fill();
+  dg.save(); dg.translate(bx,by); dg.rotate(a*3.4);
+  dg.fillStyle='#d0402a'; dg.beginPath(); dg.arc(0,0,30,0,6.2832); dg.fill();
+  dg.fillStyle='rgba(255,238,214,.9)';
+  for (i=0;i<3;i++){ dg.beginPath(); dg.moveTo(0,0); dg.arc(0,0,30,i*2.0944,i*2.0944+0.62); dg.closePath(); dg.fill(); }
+  dg.fillStyle='#8f2313'; dg.beginPath(); dg.arc(0,0,13,0,6.2832); dg.fill();
+  dg.restore();
+  dg.strokeStyle='#c8963c'; dg.lineWidth=5;
+  dg.beginPath(); dg.arc(bx,by,39,-1.5708,-1.5708+spin*6.2832); dg.stroke();
+
+  dg.fillStyle='rgba(60,44,22,.62)';
+  dg.font='500 15px Oswald, sans-serif';
+  dg.fillText('手を回す', 132, 246);
+  dg.fillText('勢いがつく', 372, 246);
+
+  demoRaf = requestAnimationFrame(drawDemo);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  BOOT
+// ═══════════════════════════════════════════════════════════════════════
+function begin(){
+  initAudio();
+  if (A && A.state === 'suspended'){ try{ A.resume(); }catch(e){} }
+  startSheet.classList.add('hide');
+  if (demoRaf){ cancelAnimationFrame(demoRaf); demoRaf=0; }
+  if (!camOK){
+    startStream().then(function(){
+      if (initHands()) startMpCamera();
+    }).catch(showError);
+  }
+  startGame();
+}
+startBtn.addEventListener('click', begin);
+retryBtn.addEventListener('click', function(){
+  overSheet.classList.add('hide');
+  startGame();
+});
+
+window.addEventListener('resize', resize);
+if (window.visualViewport) window.visualViewport.addEventListener('resize', resize);
+resize();
+spawnRound(1);
+if (dg) drawDemo();
+last = now();
+loop();
+</script>
+</body>
+</html>
