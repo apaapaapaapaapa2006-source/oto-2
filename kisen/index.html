@@ -1,0 +1,891 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>KISEN ─ 消えない輝線</title>
+<meta name="description" content="カメラ映像を一本の電子ビームが走査して描くベクタ・ディスプレイ。画面は一度も消されず、燐光が焼きついて残る。明るさはビームの速さから決まり、部屋の音が輝線を揺らす。手をかざした所だけ輝線が暴れて白熱する。">
+<meta name="theme-color" content="#04060a">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DotGothic16&family=Rajdhani:wght@300;600&display=swap" rel="stylesheet">
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  KISEN ─ 消えない輝線                             ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  PALETTE   管 kan     #04060a  never pure black — a tube face is faintly blue
+            P1 緑      #4dff7a  the classic scope phosphor
+            P3 琥珀    #ffb23d  the slow one, used in radar
+            桃         #ff2d95  not a real phosphor, and that is the point
+            白熱       #eafff0  the core of an overdriven beam
+            MOOD: an oscilloscope at 2am in a room with no other light on.
+            This is deliberately the LOUDEST piece in the gallery — every
+            other work here is quiet on purpose, and this one is the one
+            that is allowed to be gaudy. It earns it by being loud for a
+            physical reason rather than a decorative one.
+  BACKGROUND  The tube itself: an 8x10 division graticule etched at the
+            threshold of visibility, the glass darkening toward the rim, and
+            one specular arc where a window would be. NO scanlines anywhere
+            — this is a VECTOR display, not a raster one, and scanlines
+            would be a lie about how the image is made.
+  TYPE      DotGothic16 — an actual bitmap face, which is what an instrument
+            panel of this age had — with Rajdhani 300 for the numerals.
+            Neither appears anywhere else in the gallery.
+  MOTION    There is no easing in this piece, anywhere, because a cathode
+            ray tube has none. Everything is either instantaneous (the beam)
+            or exponential decay (the phosphor). That is the entire motion
+            language and it is applied without exception.
+  SIGNATURE Persistence. The frame is NEVER cleared: what you see is the
+            integral of everywhere the beam has been, decaying. And the
+            brightness is not painted on — it is 1/speed, the way a real
+            tube works, because a slow beam leaves more electrons per
+            millimetre. That single rule is what separates this from a glow
+            filter: the picture is brightest exactly where the beam dwells,
+            so the highlights land on their own, in the right places, for
+            the right reason.
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<style>
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;padding:0;height:100%;overflow:hidden;background:#04060a}
+  body{
+    font-family:'DotGothic16','Hiragino Sans',monospace;color:#6f8f7d;
+    -webkit-user-select:none;user-select:none;touch-action:none;
+  }
+  #view{position:fixed;inset:0;width:100%;height:100%;display:block}
+  #video{position:fixed;width:2px;height:2px;opacity:0;pointer-events:none;left:-10px;top:-10px}
+
+  .btn{
+    position:fixed;z-index:6;font-family:'DotGothic16',monospace;font-size:13px;
+    letter-spacing:.14em;background:rgba(6,12,10,.78);color:#4dff7a;
+    border:1px solid rgba(77,255,122,.34);border-radius:2px;padding:8px 14px;cursor:pointer;
+    transition:none;
+  }
+  .btn:active{background:rgba(77,255,122,.20);color:#eafff0}
+  #flip{right:12px;top:calc(12px + env(safe-area-inset-top))}
+  #mode{left:12px;top:calc(12px + env(safe-area-inset-top));min-width:96px}
+  #phos{left:12px;top:calc(52px + env(safe-area-inset-top));min-width:96px}
+
+  #perswrap{
+    position:fixed;z-index:6;left:12px;bottom:calc(14px + env(safe-area-inset-bottom));
+    display:flex;align-items:center;gap:9px;
+    background:rgba(6,12,10,.72);border:1px solid rgba(77,255,122,.22);
+    border-radius:2px;padding:8px 12px;
+  }
+  #perswrap span{font-size:11px;letter-spacing:.14em;color:#4a7a5e;white-space:nowrap}
+  #pers{
+    -webkit-appearance:none;appearance:none;width:min(180px,32vw);height:2px;
+    background:rgba(77,255,122,.28);outline:none;
+  }
+  #pers::-webkit-slider-thumb{
+    -webkit-appearance:none;width:13px;height:13px;background:#4dff7a;cursor:pointer;
+    box-shadow:0 0 10px rgba(77,255,122,.7);
+  }
+  #pers::-moz-range-thumb{width:13px;height:13px;border:none;background:#4dff7a;cursor:pointer}
+
+  #err{
+    position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:9;
+    display:none;white-space:pre-line;text-align:center;max-width:82%;
+    background:rgba(4,8,10,.96);border:1px solid #4dff7a;color:#a8ffc4;
+    padding:20px 24px;font-size:13px;line-height:2;
+  }
+
+  #veil{
+    position:fixed;inset:0;z-index:12;display:flex;align-items:center;justify-content:center;
+    background:radial-gradient(80% 60% at 50% 45%, #0b1512 0%, #04060a 74%);
+  }
+  #veil.hide{display:none}
+  .panel{
+    width:min(560px,88vw);padding:28px 26px 24px;text-align:center;
+    border:1px solid rgba(77,255,122,.30);background:rgba(5,10,9,.88);
+  }
+  .panel h1{
+    margin:0 0 2px;font-size:clamp(28px,6.6vw,42px);letter-spacing:.26em;
+    font-weight:400;color:#4dff7a;text-shadow:0 0 18px rgba(77,255,122,.55);
+  }
+  .panel h1 b{
+    display:block;font-family:'Rajdhani',sans-serif;font-size:11px;
+    letter-spacing:.46em;font-weight:300;color:#4a7a5e;margin-top:10px;
+  }
+  #demo{display:block;width:100%;height:auto;margin:15px 0 12px;background:#04060a;border:1px solid rgba(77,255,122,.18)}
+  .lead{font-size:12.5px;line-height:2.1;color:#7fa88f;margin:0 0 18px}
+  .lead em{font-style:normal;color:#eafff0}
+  button.go{
+    font-family:'DotGothic16',monospace;font-size:15px;letter-spacing:.4em;cursor:pointer;
+    background:transparent;color:#4dff7a;border:1px solid rgba(77,255,122,.55);
+    padding:13px 30px;
+  }
+  button.go:active{background:#4dff7a;color:#04060a}
+  .mic{margin:0 0 14px;font-size:11px;letter-spacing:.1em;color:#4a7a5e}
+</style>
+</head>
+<body>
+
+<canvas id="view"></canvas>
+<video id="video" playsinline muted autoplay></video>
+<button class="btn" id="mode">走査・螺旋</button>
+<button class="btn" id="phos">燐光・緑</button>
+<button class="btn" id="flip">⟲ カメラ</button>
+<div id="perswrap"><span>残光</span><input id="pers" type="range" min="0" max="100" value="72"></div>
+<div id="err"></div>
+
+<div id="veil">
+  <div class="panel">
+    <h1>輝線<b>K I S E N ・ C R T  V E C T O R</b></h1>
+    <canvas id="demo" width="660" height="220"></canvas>
+    <p class="lead">一本のビームがカメラ映像を走査して描く。<br>
+      画面は<em>一度も消されない</em>ので、燐光が焼きついて残る。<br>
+      部屋の音が輝線を揺らし、<em>手をかざす</em>とそこだけ暴れる。</p>
+    <p class="mic">マイクを許可すると音でも揺れます（拒否しても動きます）</p>
+    <button class="go" id="startBtn">は じ め る</button>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+<script>
+(function(){
+'use strict';
+
+var view    = document.getElementById('view');
+var ctx     = view.getContext('2d');
+var video   = document.getElementById('video');
+var flipBtn = document.getElementById('flip');
+var modeBtn = document.getElementById('mode');
+var phosBtn = document.getElementById('phos');
+var persEl  = document.getElementById('pers');
+var errBox  = document.getElementById('err');
+var veil    = document.getElementById('veil');
+var startBtn= document.getElementById('startBtn');
+var demoCv  = document.getElementById('demo');
+var demoCtx = demoCv.getContext('2d');
+
+var DOT = "'DotGothic16',monospace";
+var RAJ = "'Rajdhani',sans-serif";
+var TAU = Math.PI*2;
+
+function now(){
+  return (window.performance && window.performance.now) ? window.performance.now() : Date.now();
+}
+function clamp(v,a,b){ return v<a?a:(v>b?b:v); }
+
+// ═══════════════════════════════════════════════════════════════════════
+//  PHOSPHORS
+//  P1 and P3 are the real ones. The third is not a phosphor that has ever
+//  existed, which is why it is in here.
+// ═══════════════════════════════════════════════════════════════════════
+var PHOS = [
+  { name:'緑',   r: 77, g:255, b:122 },
+  { name:'琥珀', r:255, g:178, b: 61 },
+  { name:'桃',   r:255, g: 45, b:149 }
+];
+var phosIx = 0;
+var MODES = [
+  { name:'螺旋', key:'spiral' },
+  { name:'走査', key:'raster' },
+  { name:'同心', key:'rings'  }
+];
+var modeIx = 0;
+
+// ═══════════════════════════════════════════════════════════════════════
+//  BEAM
+//  One continuous path. The number of points is the "sweep rate" — every
+//  mode lays the same budget of electrons down a different route.
+// ═══════════════════════════════════════════════════════════════════════
+var NPTS  = 2600;
+var BANDS = 8;
+var bx = new Float32Array(NPTS), by = new Float32Array(NPTS);
+var bh = new Float32Array(NPTS);          // per-point hand intensity
+var bl = new Uint8Array(NPTS);            // 1 = retrace, beam blanked
+var segs = [], segN = new Int32Array(BANDS);
+for (var _i=0;_i<BANDS;_i++) segs.push(new Float32Array(NPTS*4));
+var bandStyle = [], bandWidth = [];
+
+var TURNS = 34, LANES = 26, RINGS = 24;
+var meanSpd = 6;
+
+function buildStyles(){
+  var P = PHOS[phosIx];
+  bandStyle.length = 0; bandWidth.length = 0;
+  for (var k=0;k<BANDS;k++){
+    var f = (k+1)/BANDS;
+    var w = Math.pow(f, 3.2);                       // only the very top goes white
+    var r = Math.round(P.r + (234-P.r)*w);
+    var g = Math.round(P.g + (255-P.g)*w);
+    var b = Math.round(P.b + (240-P.b)*w);
+    var a = 0.05 + 0.52*f;
+    bandStyle.push('rgba('+r+','+g+','+b+','+a.toFixed(3)+')');
+    bandWidth.push(0.65 + 2.1*f*f);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  SIZE + BUFFERS
+// ═══════════════════════════════════════════════════════════════════════
+var W=1,H=1,DPR=1,U=1,portrait=false;
+var TQ=1, TW=1, TH=1;
+var traceCv=null, traceCtx=null;
+var b1=null,b1c=null, b2=null,b2c=null;
+var camCv=null, camCtx=null, CW=0, CH=0, lum=null, haveCam=false;
+
+function mkCanvas(){ return document.createElement('canvas'); }
+
+function resize(){
+  DPR = Math.min(2, window.devicePixelRatio || 1);
+  W = Math.max(1, window.innerWidth);
+  H = Math.max(1, window.innerHeight);
+  U = Math.min(W,H);
+  portrait = H > W;
+  view.width = Math.round(W*DPR);
+  view.height= Math.round(H*DPR);
+  view.style.width = W+'px'; view.style.height = H+'px';
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+
+  // The persistence buffer is the one thing filled every single frame, so
+  // it is capped by area rather than by device pixel ratio.
+  TQ = Math.min(1.5, DPR);
+  while (W*TQ*H*TQ > 1.7e6 && TQ > 0.55) TQ -= 0.1;
+  TW = Math.max(2, Math.round(W*TQ));
+  TH = Math.max(2, Math.round(H*TQ));
+  if (!traceCv){ traceCv = mkCanvas(); traceCtx = traceCv.getContext('2d'); }
+  traceCv.width = TW; traceCv.height = TH;
+  traceCtx.setTransform(1,0,0,1,0,0);
+
+  if (!b1){ b1 = mkCanvas(); b1c = b1.getContext('2d'); }
+  if (!b2){ b2 = mkCanvas(); b2c = b2.getContext('2d'); }
+  b1.width = Math.max(2, TW>>2); b1.height = Math.max(2, TH>>2);
+  b2.width = Math.max(2, TW>>3); b2.height = Math.max(2, TH>>3);
+
+  if (W >= H){ CH = 132; CW = Math.max(8, Math.round(132*W/H)); }
+  else       { CW = 132; CH = Math.max(8, Math.round(132*H/W)); }
+  if (!camCv){ camCv = mkCanvas(); camCtx = camCv.getContext('2d'); }
+  camCv.width = CW; camCv.height = CH;
+  lum = new Float32Array(CW*CH);
+  haveCam = false;
+  buildStyles();
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  SIGNAL IN — camera and microphone
+// ═══════════════════════════════════════════════════════════════════════
+var facing='user', mirror=true, stream=null, camOK=false;
+var AC = window.AudioContext || window.webkitAudioContext;
+var ac=null, analyser=null, micStream=null, micOK=false, micTried=false;
+var wave=null, WLEN=0, level=0;
+// The beam walks the waveform seven samples at a time, which puts roughly
+// one and a half cycles of a speaking voice on every turn of the spiral —
+// the right visual frequency. But POINT-sampling at stride 7 aliases
+// everything above it into hash, so the wave is box-decimated first: each
+// beam point gets the mean of the seven samples it steps over. Same visual
+// frequency, and it reads as a wave instead of as noise. The buffer wraps
+// about nine times around the sweep, so the same 43ms is drawn on every
+// turn and the turns interfere with each other — which is where the moire
+// comes from.
+var WSTRIDE = 7;
+var wdec = new Float32Array(NPTS);
+function decimateWave(){
+  var i, j, k, acc, n = WLEN;
+  if (!wave || !n){ for (i=0;i<NPTS;i++) wdec[i] = 0; return; }
+  for (i=0;i<NPTS;i++){
+    acc = 0; k = (i*WSTRIDE) % n;
+    for (j=0;j<WSTRIDE;j++){
+      acc += wave[(k+j) % n];
+    }
+    wdec[i] = acc/WSTRIDE;
+  }
+}
+
+function showError(e){
+  var msg = (e && e.message) ? e.message : String(e || 'unknown');
+  errBox.style.display='block';
+  errBox.textContent = 'カメラを起動できませんでした：' + msg +
+    '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+}
+function startStream(){
+  var md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) return Promise.reject(new Error('getUserMedia is unavailable'));
+  if (stream && stream.getTracks) stream.getTracks().forEach(function(t){ t.stop(); });
+  return md.getUserMedia({
+    video:{ facingMode:{ ideal:facing }, width:{ ideal:640 }, height:{ ideal:480 } },
+    audio:false
+  }).then(function(st){
+    stream=st; video.srcObject=st; mirror=(facing==='user'); camOK=true;
+    var p = video.play();
+    return (p && p.then) ? p.catch(function(){}) : null;
+  });
+}
+// The microphone is optional on purpose. It is asked for separately so that
+// a refusal costs the audio wobble and nothing else — the piece is a camera
+// effect first, and it must still be worth looking at with the mic denied.
+function startMic(){
+  if (micTried) return;
+  micTried = true;
+  var md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia || !ac) return;
+  md.getUserMedia({ audio:{ echoCancellation:false, noiseSuppression:false,
+                            autoGainControl:false } })
+    .then(function(st){
+      micStream = st;
+      var src = ac.createMediaStreamSource(st);
+      analyser = ac.createAnalyser();
+      analyser.fftSize = 2048;
+      analyser.smoothingTimeConstant = 0.35;
+      WLEN = analyser.fftSize;
+      wave = new Float32Array(WLEN);
+      src.connect(analyser);      // never connected to the destination: no feedback
+      micOK = true;
+    })
+    .catch(function(){ micOK = false; });
+}
+function readMic(){
+  if (!micOK || !analyser || !wave) { level += (0-level)*0.1; return; }
+  try { analyser.getFloatTimeDomainData(wave); } catch(e){ micOK = false; return; }
+  // Every sample, not every fourth: the beam indexes the whole buffer, and a
+  // capture device really does emit NaN and +/-Inf on a glitch or a device
+  // switch. One of them anywhere in here would otherwise put a non-finite
+  // coordinate straight into the sweep and take the whole picture out.
+  var s = 0, i, v;
+  for (i=0;i<WLEN;i++){
+    v = wave[i];
+    if (!isFinite(v)){ wave[i] = 0; continue; }
+    if (v > 1) { v = 1; wave[i] = 1; }
+    else if (v < -1) { v = -1; wave[i] = -1; }
+    s += v*v;
+  }
+  var rms = Math.sqrt(s/WLEN);
+  if (!isFinite(rms)) rms = 0;
+  level += (rms - level)*0.28;
+  if (!isFinite(level)) level = 0;
+  decimateWave();
+}
+function grabCam(){
+  if (!camOK || !camCtx || !video){ haveCam = false; return; }
+  var vw = video.videoWidth||0, vh = video.videoHeight||0;
+  if (!vw || !vh){ haveCam = false; return; }
+  try {
+    var sc = Math.max(CW/vw, CH/vh);
+    var dw = vw*sc, dh = vh*sc;
+    camCtx.save();
+    if (mirror){ camCtx.translate(CW,0); camCtx.scale(-1,1); }
+    camCtx.drawImage(video, (CW-dw)/2, (CH-dh)/2, dw, dh);
+    camCtx.restore();
+    var d = camCtx.getImageData(0,0,CW,CH).data;
+    if (!d || d.length !== CW*CH*4){ haveCam = false; return; }
+    for (var i=0, n=CW*CH; i<n; i++){
+      var j = i<<2;
+      lum[i] = (d[j]*0.299 + d[j+1]*0.587 + d[j+2]*0.114)/255;
+    }
+    haveCam = true;
+  } catch(e){ haveCam = false; }
+}
+function lumAt(x, y){
+  if (!haveCam) return 0.5;
+  var gx = (x/W*(CW-1))|0, gy = (y/H*(CH-1))|0;
+  if (gx < 0) gx = 0; else if (gx > CW-1) gx = CW-1;
+  if (gy < 0) gy = 0; else if (gy > CH-1) gy = CH-1;
+  var v = lum[gy*CW+gx];
+  return isFinite(v) ? v : 0.5;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  HANDS — a hand held up to the tube is a local overdrive: the beam
+//  swings wider there AND burns brighter. An open hand is a wide soft
+//  bulge, a fist is a tight hot point.
+// ═══════════════════════════════════════════════════════════════════════
+var hands=null, mpCamera=null, mpReady=false;
+function blankHand(){ return { live:false, t:-1e9, x:0.5, y:0.5, open:0, lm:null }; }
+var HANDS=[blankHand(), blankHand()];
+function loseHand(h){ h.live=false; h.lm=null; h.open=0; }
+function loseHands(){ loseHand(HANDS[0]); loseHand(HANDS[1]); }
+
+function initHands(){
+  if (typeof window.Hands !== 'function') return false;
+  try {
+    hands = new window.Hands({ locateFile:function(f){
+      return 'https://cdn.jsdelivr.net/npm/@mediapipe/hands/' + f;
+    }});
+    hands.setOptions({ maxNumHands:2, modelComplexity:0,
+                       minDetectionConfidence:0.6, minTrackingConfidence:0.5 });
+    hands.onResults(onHands);
+    mpReady = true; return true;
+  } catch(e){ return false; }
+}
+function startMpCamera(){
+  if (!mpReady || !hands || mpCamera) return;
+  if (typeof window.Camera !== 'function') return;
+  try {
+    mpCamera = new window.Camera(video, {
+      onFrame:function(){
+        if (!hands) return Promise.resolve();
+        return hands.send({ image: video }).catch(function(){});
+      }, width:480, height:360
+    });
+    mpCamera.start();
+  } catch(e){ mpCamera = null; }
+}
+function validLm(c){
+  if (!c || c.length < 21) return null;
+  for (var i=0;i<21;i++){
+    var p = c[i];
+    if (!p || typeof p.x !== 'number' || typeof p.y !== 'number' ||
+        !isFinite(p.x) || !isFinite(p.y)) return null;
+  }
+  return c;
+}
+var TIPS=[8,12,16,20], PIPS=[6,10,14,18];
+function readHand(h, c, t){
+  var ids=[0,5,9,13,17], cx=0, cy=0, i, p;
+  for (i=0;i<ids.length;i++){ p=c[ids[i]]; if(!p) return; cx+=p.x; cy+=p.y; }
+  cx/=ids.length; cy/=ids.length;
+  if (!isFinite(cx)||!isFinite(cy)) return;
+  var x = mirror ? (1-cx) : cx, y = cy;
+  if (!isFinite(x)||!isFinite(y)) return;
+  var wr=c[0], ext=0;
+  for (i=0;i<4;i++){
+    var a=c[TIPS[i]], b=c[PIPS[i]];
+    if (!a||!b||!wr) continue;
+    if (Math.hypot(a.x-wr.x,a.y-wr.y) > Math.hypot(b.x-wr.x,b.y-wr.y)*1.06) ext++;
+  }
+  h.open += (ext/4 - h.open)*0.22;
+  if (!isFinite(h.open)) h.open = 0;
+  h.x=x; h.y=y; h.t=t; h.live=true; h.lm=c;
+}
+function onHands(res){
+  var t = now(), i;
+  var list = (res && res.multiHandLandmarks) ? res.multiHandLandmarks : [];
+  var seen=[false,false];
+  for (i=0;i<list.length && i<2;i++){
+    var c = validLm(list[i]);
+    if (!c) continue;
+    readHand(HANDS[i], c, t);
+    seen[i]=true;
+  }
+  for (i=0;i<2;i++){
+    if (!seen[i] && HANDS[i].live && (t-HANDS[i].t) > 260) loseHand(HANDS[i]);
+  }
+}
+// cached per frame so the inner beam loop does no property lookups
+var hN=0, hX=[0,0], hY=[0,0], hK=[0,0], hA=[0,0];
+function cacheHands(){
+  hN = 0;
+  for (var n=0;n<2;n++){
+    var h = HANDS[n];
+    if (!h.live) continue;
+    var sg = U*(0.085 + 0.150*clamp(h.open,0,1));
+    hX[hN] = h.x*W; hY[hN] = h.y*H;
+    hK[hN] = 1/(2*sg*sg);
+    hA[hN] = 2.6 - 1.3*clamp(h.open,0,1);
+    hN++;
+  }
+}
+function handBoost(x, y){
+  var b = 1, n;
+  for (n=0;n<hN;n++){
+    var dx = x-hX[n], dy = y-hY[n];
+    var e = (dx*dx+dy*dy)*hK[n];
+    if (e < 7) b += hA[n]*Math.exp(-e);
+  }
+  return b;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  THE SWEEP
+// ═══════════════════════════════════════════════════════════════════════
+var gain = 1.0, audioGain = 1.0;
+var persist = 0.72;
+
+function buildBeam(){
+  var i, t, x0, y0, x, y, L, a, d, hb;
+  var cx = W*0.5, cy = H*0.5;
+  var Rmax = U*0.455;
+  var key = MODES[modeIx].key;
+  var wl = (micOK && wave) ? 1 : 0;
+
+  if (key === 'spiral'){
+    var sp = Rmax/TURNS;
+    for (i=0;i<NPTS;i++){
+      t = i/(NPTS-1);
+      var th = t*TURNS*TAU;
+      var r0 = t*Rmax;
+      var ct = Math.cos(th), st = Math.sin(th);
+      x0 = cx + r0*ct; y0 = cy + r0*st;
+      L = lumAt(x0,y0);
+      a = wl ? wdec[i] : 0;
+      hb = handBoost(x0,y0);
+      d = ((L-0.5)*2*gain*sp*0.72 + a*audioGain*sp*4.2) * hb;
+      var rr = r0+d;
+      if (!isFinite(rr) || rr < 0) rr = r0;
+      bx[i] = cx + rr*ct; by[i] = cy + rr*st;
+      bh[i] = hb; bl[i] = 0;
+    }
+  } else if (key === 'raster'){
+    var mx = W*0.055, mw = W-2*mx;
+    var topY = H*0.10, lh = (H*0.80)/LANES;
+    for (i=0;i<NPTS;i++){
+      t = i/(NPTS-1);
+      var f = t*LANES;
+      var lane = f|0; if (lane > LANES-1) lane = LANES-1;
+      var u = f-lane;
+      var dir = (lane & 1) ? (1-u) : u;                 // serpentine: no flyback
+      x0 = mx + dir*mw;
+      y0 = topY + (lane+0.5)*lh;
+      L = lumAt(x0,y0);
+      a = wl ? wdec[i] : 0;
+      hb = handBoost(x0,y0);
+      d = ((L-0.5)*2*gain*lh*0.95 + a*audioGain*lh*3.2) * hb;
+      bx[i] = x0; by[i] = isFinite(d) ? y0+d : y0;
+      bh[i] = hb;
+      bl[i] = (i>0 && ((((i-1)/(NPTS-1))*LANES)|0) !== lane) ? 1 : 0;
+    }
+  } else {
+    var rsp = Rmax/RINGS;
+    for (i=0;i<NPTS;i++){
+      t = i/(NPTS-1);
+      var g2 = t*RINGS;
+      var ring = g2|0; if (ring > RINGS-1) ring = RINGS-1;
+      var u2 = g2-ring;
+      var th2 = u2*TAU;
+      var r2 = (ring+1)*rsp;
+      var c2 = Math.cos(th2), s2 = Math.sin(th2);
+      x0 = cx + r2*c2; y0 = cy + r2*s2;
+      L = lumAt(x0,y0);
+      a = wl ? wdec[i] : 0;
+      hb = handBoost(x0,y0);
+      d = ((L-0.5)*2*gain*rsp*0.80 + a*audioGain*rsp*3.9) * hb;
+      var r3 = r2+d;
+      if (!isFinite(r3) || r3 < 0) r3 = r2;
+      bx[i] = cx + r3*c2; by[i] = cy + r3*s2;
+      bh[i] = hb;
+      bl[i] = (i>0 && ((((i-1)/(NPTS-1))*RINGS)|0) !== ring) ? 1 : 0;
+    }
+  }
+}
+// Brightness is 1/speed. The reference speed is the previous frame's mean,
+// so the rule normalises itself across modes and screen sizes instead of
+// needing a magic number per mode.
+function sortBeam(){
+  var i, k, sum = 0, ref = meanSpd;
+  for (k=0;k<BANDS;k++) segN[k] = 0;
+  var inv = 1/(ref*0.16 + 0.35);
+  for (i=1;i<NPTS;i++){
+    var x1=bx[i-1], y1=by[i-1], x2=bx[i], y2=by[i];
+    if (!isFinite(x1)||!isFinite(y1)||!isFinite(x2)||!isFinite(y2)) continue;
+    var dx=x2-x1, dy=y2-y1;
+    var spd = Math.sqrt(dx*dx+dy*dy);
+    sum += spd;
+    if (bl[i]) continue;                                 // retrace: beam blanked
+    var b = (ref*0.85) * inv / (spd*inv + 1) * bh[i] * 0.62;
+    if (!isFinite(b)) continue;
+    k = (b*(BANDS-1))|0;
+    if (k < 0) k = 0; else if (k > BANDS-1) k = BANDS-1;
+    var arr = segs[k], o = segN[k]*4;
+    if (o+3 >= arr.length) continue;
+    arr[o]=x1*TQ; arr[o+1]=y1*TQ; arr[o+2]=x2*TQ; arr[o+3]=y2*TQ;
+    segN[k]++;
+  }
+  var m = sum/(NPTS-1);
+  if (isFinite(m) && m > 0.0001) meanSpd += (m-meanSpd)*0.25;
+}
+function paintBeam(){
+  var g = traceCtx;
+  g.setTransform(1,0,0,1,0,0);
+  // the only decay in the piece, and it is exponential because phosphor is
+  g.globalCompositeOperation = 'source-over';
+  g.fillStyle = 'rgba(0,0,0,' + (0.030 + 0.44*(1-persist)).toFixed(3) + ')';
+  g.fillRect(0,0,TW,TH);
+  g.globalCompositeOperation = 'lighter';
+  g.lineCap = 'round'; g.lineJoin = 'round';
+  for (var k=0;k<BANDS;k++){
+    var n = segN[k];
+    if (!n) continue;
+    var arr = segs[k];
+    g.beginPath();
+    for (var j=0;j<n;j++){
+      var o = j*4;
+      g.moveTo(arr[o], arr[o+1]);
+      g.lineTo(arr[o+2], arr[o+3]);
+    }
+    g.strokeStyle = bandStyle[k];
+    g.lineWidth = bandWidth[k]*TQ;
+    g.stroke();
+  }
+  g.globalCompositeOperation = 'source-over';
+}
+function paintBloom(){
+  b1c.globalCompositeOperation = 'copy';
+  b1c.drawImage(traceCv, 0, 0, b1.width, b1.height);
+  b2c.globalCompositeOperation = 'copy';
+  b2c.drawImage(b1, 0, 0, b2.width, b2.height);
+  b1c.globalCompositeOperation = 'lighter';
+  b1c.drawImage(b2, 0, 0, b1.width, b1.height);
+  b1c.globalCompositeOperation = 'source-over';
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  THE TUBE
+// ═══════════════════════════════════════════════════════════════════════
+function drawTube(g){
+  var P = PHOS[phosIx];
+  var cx = W*0.5, cy = H*0.5;
+  g.save();
+  g.strokeStyle = 'rgba('+P.r+','+P.g+','+P.b+',.055)';
+  g.lineWidth = 1;
+  var i, dx = W/10, dy = H/8;
+  g.beginPath();
+  for (i=1;i<10;i++){ g.moveTo(i*dx, H*0.06); g.lineTo(i*dx, H*0.94); }
+  for (i=1;i<8;i++){ g.moveTo(W*0.05, i*dy); g.lineTo(W*0.95, i*dy); }
+  g.stroke();
+  // the centre axes carry the fine tick marks a real graticule has
+  g.strokeStyle = 'rgba('+P.r+','+P.g+','+P.b+',.10)';
+  g.beginPath();
+  g.moveTo(W*0.05, cy); g.lineTo(W*0.95, cy);
+  g.moveTo(cx, H*0.06); g.lineTo(cx, H*0.94);
+  for (i=0;i<50;i++){
+    var tx = W*0.05 + (W*0.90)*(i/49);
+    g.moveTo(tx, cy-U*0.008); g.lineTo(tx, cy+U*0.008);
+  }
+  for (i=0;i<40;i++){
+    var ty = H*0.06 + (H*0.88)*(i/39);
+    g.moveTo(cx-U*0.008, ty); g.lineTo(cx+U*0.008, ty);
+  }
+  g.stroke();
+  g.restore();
+}
+function drawGlass(g){
+  var cx = W*0.5, cy = H*0.5, R = Math.max(W,H)*0.72;
+  var rg = g.createRadialGradient(cx,cy,R*0.52,cx,cy,R);
+  rg.addColorStop(0,'rgba(0,0,0,0)');
+  rg.addColorStop(1,'rgba(0,0,0,.80)');
+  g.fillStyle = rg; g.fillRect(0,0,W,H);
+  g.save();
+  g.globalCompositeOperation = 'lighter';
+  var sg = g.createLinearGradient(W*0.10,H*0.06,W*0.46,H*0.40);
+  sg.addColorStop(0,'rgba(180,210,255,.045)');
+  sg.addColorStop(1,'rgba(180,210,255,0)');
+  g.fillStyle = sg;
+  g.beginPath();
+  g.ellipse(W*0.28, H*0.20, W*0.30, H*0.16, -0.5, 0, TAU);
+  g.fill();
+  g.restore();
+}
+function drawHands(g){
+  var P = PHOS[phosIx];
+  for (var n=0;n<2;n++){
+    var h = HANDS[n];
+    if (!h.live) continue;
+    var x = h.x*W, y = h.y*H;
+    var r = U*(0.085 + 0.150*clamp(h.open,0,1));
+    g.save();
+    g.strokeStyle = 'rgba('+P.r+','+P.g+','+P.b+',.20)';
+    g.lineWidth = 1;
+    g.beginPath(); g.arc(x,y,r,0,TAU); g.stroke();
+    g.setLineDash([U*0.006, U*0.014]);
+    g.beginPath(); g.arc(x,y,r*0.55,0,TAU); g.stroke();
+    g.setLineDash([]);
+    g.strokeStyle = 'rgba(234,255,240,.34)';
+    g.beginPath();
+    g.moveTo(x-U*0.014,y); g.lineTo(x+U*0.014,y);
+    g.moveTo(x,y-U*0.014); g.lineTo(x,y+U*0.014);
+    g.stroke();
+    g.restore();
+  }
+}
+function drawHud(g){
+  var P = PHOS[phosIx];
+  var pad = U*0.028, top = pad + U*0.105;
+  g.save();
+  g.textAlign='left'; g.textBaseline='top';
+  g.fillStyle = 'rgba('+P.r+','+P.g+','+P.b+',.46)';
+  g.font = '300 '+Math.round(U*0.020)+'px '+RAJ;
+  g.fillText('SWEEP ' + NPTS + ' PT   ' + MODES[modeIx].name +
+             '   P' + (phosIx+1), pad, top);
+  g.fillText('PERSIST ' + Math.round(persist*100) + '%   ' +
+             (1000/Math.max(1,emaMs)).toFixed(0) + ' FPS', pad, top+U*0.026);
+  g.font = Math.round(U*0.017)+'px '+DOT;
+  g.fillText(micOK ? '入力・カメラ＋マイク' :
+             (micTried ? '入力・カメラのみ（マイクなし）' : '入力・カメラ'),
+             pad, top+U*0.056);
+  // level meter
+  if (micOK){
+    var mw = U*0.20, mh = U*0.009, my = top+U*0.086;
+    g.strokeStyle = 'rgba('+P.r+','+P.g+','+P.b+',.30)';
+    g.lineWidth = 1;
+    g.strokeRect(pad+0.5, my+0.5, mw-1, mh-1);
+    g.fillStyle = 'rgba('+P.r+','+P.g+','+P.b+',.65)';
+    g.fillRect(pad+1.5, my+1.5, Math.max(0,(mw-3)*clamp(level*6,0,1)), mh-3);
+  }
+  g.restore();
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  FRAME
+// ═══════════════════════════════════════════════════════════════════════
+var running=false, started=false, lastT=0, emaMs=16, frameN=0;
+
+function frame(){
+  var t = now();
+  var ms = t-lastT;
+  emaMs += (ms-emaMs)*0.08;
+  if (!isFinite(emaMs) || emaMs <= 0) emaMs = 16;
+  lastT = t;
+  frameN++;
+
+  if (running){
+    grabCam();
+    readMic();
+    cacheHands();
+    buildBeam();
+    sortBeam();
+    paintBeam();
+    paintBloom();
+  }
+
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.fillStyle = '#04060a';
+  ctx.fillRect(0,0,W,H);
+  drawTube(ctx);
+  if (running && traceCv){
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(traceCv, 0, 0, W, H);
+    ctx.globalAlpha = clamp(0.42 + level*2.4, 0, 0.92);
+    ctx.drawImage(b1, 0, 0, W, H);
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'source-over';
+  }
+  drawGlass(ctx);
+  drawHands(ctx);
+  drawHud(ctx);
+  drawDemo(t);
+  requestAnimationFrame(frame);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  CONTROLS
+// ═══════════════════════════════════════════════════════════════════════
+flipBtn.addEventListener('click', function(){
+  facing = (facing==='user')?'environment':'user';
+  loseHands();
+  startStream().then(startMpCamera).catch(showError);
+});
+modeBtn.addEventListener('click', function(){
+  modeIx = (modeIx+1) % MODES.length;
+  modeBtn.textContent = '走査・' + MODES[modeIx].name;
+});
+phosBtn.addEventListener('click', function(){
+  phosIx = (phosIx+1) % PHOS.length;
+  phosBtn.textContent = '燐光・' + PHOS[phosIx].name;
+  buildStyles();
+});
+persEl.addEventListener('input', function(){
+  var v = parseFloat(persEl.value);
+  if (!isFinite(v)) v = 72;
+  persist = clamp(v/100, 0, 1);
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+//  START-OVERLAY DIAGRAM — a real beam with real persistence, drawn on a
+//  buffer that is never cleared, so the overlay demonstrates the one thing
+//  the piece is about before you have pressed anything.
+// ═══════════════════════════════════════════════════════════════════════
+var dBuf=null, dBufC=null, dPhase=0;
+function drawDemo(t){
+  if (veil.classList.contains('hide')) return;
+  var g = demoCtx, w = demoCv.width, h = demoCv.height;
+  if (!dBuf){
+    dBuf = mkCanvas(); dBuf.width = w; dBuf.height = h;
+    dBufC = dBuf.getContext('2d');
+  }
+  var gb = dBufC;
+  gb.globalCompositeOperation = 'source-over';
+  gb.fillStyle = 'rgba(0,0,0,.055)';
+  gb.fillRect(0,0,w,h);
+  gb.globalCompositeOperation = 'lighter';
+  gb.lineCap = 'round';
+  // one continuous sweep, brightness from speed, exactly as in the piece
+  var cx = w*0.5, cy = h*0.5, R = h*0.40;
+  var N = 220, i;
+  dPhase += 0.010;
+  for (i=1;i<N;i++){
+    var t0 = (i-1)/(N-1), t1 = i/(N-1);
+    function P(tt){
+      var th = tt*7*TAU + dPhase;
+      var r = R*(0.22 + 0.78*tt);
+      var wob = Math.sin(th*3.1 + dPhase*6)*R*0.085
+              + Math.sin(tt*31 + dPhase*3)*R*0.05;
+      return [cx + (r+wob)*Math.cos(th)*2.05, cy + (r+wob)*Math.sin(th)];
+    }
+    var a = P(t0), b = P(t1);
+    var spd = Math.hypot(b[0]-a[0], b[1]-a[1]);
+    var br = clamp(9/(spd+2.4), 0, 1);
+    gb.strokeStyle = 'rgba(77,255,122,'+(0.05+0.55*br).toFixed(3)+')';
+    gb.lineWidth = 0.7+1.9*br*br;
+    gb.beginPath(); gb.moveTo(a[0],a[1]); gb.lineTo(b[0],b[1]); gb.stroke();
+  }
+  gb.globalCompositeOperation = 'source-over';
+  g.fillStyle = '#04060a'; g.fillRect(0,0,w,h);
+  g.globalCompositeOperation = 'lighter';
+  g.drawImage(dBuf,0,0);
+  g.globalAlpha = 0.5;
+  g.drawImage(dBuf,-3,-3,w+6,h+6);
+  g.globalAlpha = 1;
+  g.globalCompositeOperation = 'source-over';
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  BOOT
+// ═══════════════════════════════════════════════════════════════════════
+window.addEventListener('resize', resize);
+window.addEventListener('orientationchange', function(){ setTimeout(resize, 260); });
+if (window.visualViewport && window.visualViewport.addEventListener){
+  window.visualViewport.addEventListener('resize', resize);
+}
+resize();
+lastT = now();
+requestAnimationFrame(frame);
+
+startBtn.addEventListener('click', function(){
+  veil.classList.add('hide');
+  running = true;
+  if (!ac && AC){ try { ac = new AC(); } catch(e){ ac = null; } }
+  if (ac && ac.state === 'suspended' && ac.resume){ try{ ac.resume(); }catch(e){} }
+  if (!started){
+    started = true;
+    if (initHands()) startStream().then(startMpCamera).catch(showError);
+    else startStream().catch(showError);
+    startMic();
+  }
+});
+
+// exposed only so the offline harness can assert on the real state
+window.__KISEN__ = {
+  s:function(){
+    var k, tot=0, lit=0, nan=0, i;
+    for (k=0;k<BANDS;k++) tot += segN[k];
+    for (k=1;k<BANDS;k++) lit += segN[k];
+    for (i=0;i<NPTS;i++) if (!isFinite(bx[i]) || !isFinite(by[i])) nan++;
+    return { running:running, mode:MODES[modeIx].name, phos:PHOS[phosIx].name,
+             persist:persist, segs:tot, litSegs:lit, bands:segN.slice(),
+             nan:nan, meanSpd:meanSpd, npts:NPTS,
+             haveCam:haveCam, micOK:micOK, micTried:micTried, level:level,
+             hands:[HANDS[0].live, HANDS[1].live],
+             W:W, H:H, TW:TW, TH:TH, CW:CW, CH:CH };
+  },
+  pt:function(i){ return { x:bx[i], y:by[i], h:bh[i], blank:bl[i] }; },
+  setCam:function(v){ camOK = v; },
+  setMic:function(fn){ micOK = true; analyser = fn; WLEN = 2048; wave = new Float32Array(WLEN); },
+  bounds:function(){
+    var i, x0=1e9,x1=-1e9,y0=1e9,y1=-1e9;
+    for (i=0;i<NPTS;i++){
+      if (bx[i]<x0) x0=bx[i]; if (bx[i]>x1) x1=bx[i];
+      if (by[i]<y0) y0=by[i]; if (by[i]>y1) y1=by[i];
+    }
+    return { x0:x0, x1:x1, y0:y0, y1:y1 };
+  }
+};
+
+})();
+</script>
+</body>
+</html>
