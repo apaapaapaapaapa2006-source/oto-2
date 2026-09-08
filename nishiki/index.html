@@ -1,0 +1,930 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>NISHIKI ─ 織られた像</title>
+<meta name="description" content="カメラ映像が縦糸と横糸にほどけて、本物の織り組織で織り直される。平織・綾織・繻子で布の目がまるごと変わり、糸には丸い断面の陰と艶がつく。手を握れば布をつかんで引っぱれて、離すと弾んで戻る。">
+<meta name="theme-color" content="#f0ebe1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@300;600&family=Zen+Antique&display=swap" rel="stylesheet">
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  NISHIKI ─ 織られた像                             ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  PALETTE   生成  kinari  #f0ebe1  the workshop bench the cloth lies on
+            鈍色  nibi    #55535c  the reed, the heddles, every rule and label
+            蘇芳  suou    #8c3a4a  the hand, and the one thing that is ever
+                                   allowed to be saturated besides the cloth
+            金茶  kincha  #b8893c  the selvedge down both edges of the web
+            墨白  sumishiro #cdc6b8 hairlines, gauge ticks, the reed's teeth
+            MOOD: a piece of cloth on the bench of a bright workshop at
+            midday. High-key, papery, matte — every colour in the FRAME is
+            desaturated on purpose, because the only saturated thing in the
+            picture must be the cloth, and the cloth is your room. KOMA is
+            warm clay, HIROI is near-black; this one is bleached daylight.
+  BACKGROUND  Flat 生成 with the faint vertical ruling of a loom's reed
+            (筬) drawn once to an offscreen canvas, and a selvedge (耳)
+            ruled down both edges of the web. The cloth is inset from the
+            page rather than full-bleed, so it reads as an object on a
+            bench and not as a window.
+  TYPE      Archivo 300 for numbers and latin, tracked +0.2em and kept
+            small and grey; Zen Antique for the weave names (平織 綾織
+            繻子), which are the only large type on the screen. Labels
+            never compete with the cloth.
+  MOTION    Elastic, and only elastic. The pull is a real damped spring
+            (k=250, c=15) so releasing the cloth lets it overshoot and
+            settle rather than snapping. Gauge changes ease over ~0.35s.
+            Nothing in the piece moves linearly.
+  SIGNATURE THE CLOTH IS ACTUALLY WOVEN. Warp runs vertically, weft
+            horizontally, and at every crossing a real weave draft decides
+            which is on top: 平織 alternates every thread, 綾織 is a 2/2
+            twill so the floats step sideways into a diagonal, 繻子 is a
+            5-harness satin whose warp floats four crossings out of five
+            into long vertical grain. Each thread carries the camera's
+            colour sampled ALONG ITS OWN PATH — the warp a vertical streak
+            of the image, the weft a horizontal one — so the interlacing
+            chops the picture into over-under and the image stays legible
+            while becoming unmistakably textile. Threads are shaded from a
+            round cross-section LUT with an off-centre specular, so the
+            web has relief and a sheen that changes direction with the
+            weave. And you can grab it: close your fist and the cloth
+            bunches toward your hand, open it and the whole web springs
+            back.
+  AUDIO     Near-silent on purpose, and wooden when it does speak. The
+            beat of the reed (筬打ち) on every weave change is a bandpassed
+            noise burst at 420Hz with a click on top; grabbing and letting
+            go of the cloth is a short high-passed rustle; and while you
+            drag, a very quiet noise whoosh rides the speed of the pull.
+            Master sits at 0.4 — this is something you watch.
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;overflow:hidden;background:#f0ebe1;
+    -webkit-text-size-adjust:100%;-webkit-tap-highlight-color:transparent}
+  body{font-family:'Archivo',system-ui,sans-serif;color:#55535c}
+  #view{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+  #video{position:fixed;width:2px;height:2px;opacity:.001;pointer-events:none;left:0;top:0}
+
+  #flip{
+    position:fixed;right:calc(env(safe-area-inset-right,0px) + .8rem);
+    top:calc(env(safe-area-inset-top,0px) + .8rem);z-index:30;
+    background:rgba(240,235,225,.86);color:#55535c;border:1px solid #cdc6b8;border-radius:1px;
+    padding:.42rem .7rem;font:600 .6rem/1 'Archivo',sans-serif;letter-spacing:.2em;
+    cursor:pointer;backdrop-filter:blur(6px)
+  }
+  #flip:active{border-color:#8c3a4a;color:#8c3a4a}
+  #bar{
+    position:fixed;left:50%;transform:translateX(-50%);z-index:30;
+    bottom:calc(env(safe-area-inset-bottom,0px) + .9rem);
+    display:flex;gap:1px;background:#cdc6b8;border:1px solid #cdc6b8;border-radius:1px
+  }
+  #bar button{
+    background:#f0ebe1;border:none;color:#7a7780;cursor:pointer;
+    font:400 .74rem/1 'Zen Antique',serif;letter-spacing:.2em;
+    padding:.55rem 1.05rem;transition:color .3s ease,background .3s ease
+  }
+  #bar button.on{background:#55535c;color:#f0ebe1}
+  #err{
+    position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:40;
+    display:none;max-width:22rem;white-space:pre-wrap;text-align:center;
+    background:#fff9ee;border:1px solid #8c3a4a;border-radius:2px;padding:1rem 1.1rem;
+    font:400 .77rem/1.85 'Zen Antique',serif;color:#6e3038
+  }
+
+  .sheet{position:fixed;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;
+    background:#f0ebe1;padding:1.2rem;overflow:auto}
+  .sheet.hide{display:none}
+  .panel{width:min(30rem,100%);background:#fbf8f1;border:1px solid #ddd5c6;padding:1.7rem 1.5rem 1.6rem;position:relative}
+  .kicker{display:flex;justify-content:space-between;font:300 .58rem/1 'Archivo',sans-serif;
+    letter-spacing:.3em;color:#9a958c;margin-bottom:1.2rem}
+  .panel h1{font-family:'Zen Antique',serif;font-size:clamp(2.1rem,10vw,2.8rem);line-height:1.05;color:#2f2d33}
+  .panel h1 b{display:block;font-family:'Archivo',sans-serif;font-weight:300;font-size:.26em;
+    letter-spacing:.48em;color:#8c3a4a;margin-top:.85rem}
+  #demo{display:block;width:100%;height:auto;margin:1.3rem 0 1.05rem;background:#f0ebe1;border:1px solid #ddd5c6}
+  .lead{font:400 .83rem/2 'Zen Antique',serif;color:#5c5960}
+  .lead em{font-style:normal;color:#8c3a4a}
+  .rules{list-style:none;margin:1rem 0 1.4rem;border-top:1px solid #e3dccd}
+  .rules li{font:400 .71rem/1.7 'Zen Antique',serif;color:#83808a;padding:.5rem 0 .5rem .95rem;
+    border-bottom:1px solid #ece5d7;position:relative}
+  .rules li::before{content:'';position:absolute;left:0;top:1.05em;width:4px;height:4px;background:#8c3a4a}
+  .go{display:block;width:100%;padding:.85rem;background:#55535c;color:#f5f1e8;border:none;
+    font:600 .74rem/1 'Archivo',sans-serif;letter-spacing:.44em;text-indent:.44em;cursor:pointer;
+    transition:transform .18s cubic-bezier(.2,1.4,.4,1),background .18s}
+  .go:active{transform:scale(.985);background:#8c3a4a}
+</style>
+</head>
+<body>
+
+<canvas id="view"></canvas>
+<video id="video" playsinline muted autoplay></video>
+<button id="flip">⟲ カメラ</button>
+<div id="bar">
+  <button id="wPlain" class="on">平織</button>
+  <button id="wTwill">綾織</button>
+  <button id="wSatin">繻子</button>
+</div>
+<div id="err"></div>
+
+<div class="sheet" id="startSheet">
+  <div class="panel">
+    <div class="kicker"><span>OTO-II / NISHIKI</span><span>WEAVE</span></div>
+    <h1>錦<b>NISHIKI</b></h1>
+    <canvas id="demo" width="600" height="300"></canvas>
+    <p class="lead">カメラ映像が<em>縦糸と横糸</em>にほどけて、本物の織り組織で織り直される。縦糸は縦の色を、横糸は横の色を運び、交点ごとにどちらが上かが決まる。</p>
+    <ul class="rules">
+      <li>平織・綾織・繻子で布の目がまるごと変わる</li>
+      <li>手を握ると布をつかんで引っぱれる。離すと弾んで戻る</li>
+      <li>開いた手の高さで糸の太さが変わる</li>
+    </ul>
+    <button class="go" id="startBtn">START</button>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+<script>
+'use strict';
+// ═══════════════════════════════════════════════════════════════════════
+//  NISHIKI ─ 織られた像
+//  Per-pixel weaving at a reduced internal resolution, scaled up.  Every
+//  typed array is allocated once and reused; the frame loop allocates
+//  nothing.  The pixel loop is deliberately branch-light and LUT-driven.
+// ═══════════════════════════════════════════════════════════════════════
+var view = document.getElementById('view');
+var g    = view.getContext('2d');
+var video= document.getElementById('video');
+var errBox = document.getElementById('err');
+var flipBtn= document.getElementById('flip');
+var startSheet = document.getElementById('startSheet');
+var startBtn   = document.getElementById('startBtn');
+var demoCv     = document.getElementById('demo');
+var bPlain = document.getElementById('wPlain');
+var bTwill = document.getElementById('wTwill');
+var bSatin = document.getElementById('wSatin');
+
+var now = (typeof performance !== 'undefined' && performance.now)
+  ? function(){ return performance.now()/1000; }
+  : function(){ return Date.now()/1000; };
+function num(v,d){ return (typeof v==='number' && isFinite(v)) ? v : d; }
+function clamp(v,a,b){ return v<a?a:(v>b?b:v); }
+function approach(cur,tgt,tau,dt){ return cur + (tgt-cur)*(1-Math.exp(-dt/Math.max(1e-4,tau))); }
+
+var C_KINARI='#f0ebe1', C_NIBI='#55535c', C_SUOU='#8c3a4a',
+    C_KINCHA='#b8893c', C_SUMISHIRO='#cdc6b8';
+
+// ═══════════════════════════════════════════════════════════════════════
+//  THE CLOTH SURFACE
+// ═══════════════════════════════════════════════════════════════════════
+var W=1,H=1,DPR=1;
+var clothX=0, clothY=0, clothW=1, clothH=1;
+var PW=0, PH=0, quality=1;
+var srcCv=null, srcCtx=null, outCv=null, outCtx=null;
+var srcImg=null, outImg=null, srcData=null, outData=null;
+var groundCv=null, groundG=null;
+
+function resize(){
+  DPR = Math.min(2, window.devicePixelRatio || 1);
+  W = Math.max(1, window.innerWidth|0);
+  H = Math.max(1, window.innerHeight|0);
+  view.width=Math.max(1,(W*DPR)|0); view.height=Math.max(1,(H*DPR)|0);
+  view.style.width=W+'px'; view.style.height=H+'px';
+  g.setTransform(DPR,0,0,DPR,0,0);
+
+  var mx = Math.max(14, Math.min(54, W*0.055));
+  var my = Math.max(14, Math.min(54, H*0.055));
+  clothX = mx; clothY = my;
+  clothW = Math.max(40, W - mx*2);
+  clothH = Math.max(40, H - my*2 - 46);   // room for the weave bar
+  buildGround();
+  allocate();
+}
+
+// The internal resolution is chosen from the cloth's aspect against a fixed
+// pixel budget, then scaled by `quality`, which the frame timer lowers if
+// the device cannot keep up.  Both canvases are reallocated only when the
+// dimensions actually change.
+var PIX_BUDGET = 165000;
+function allocate(){
+  var aspect = clothW/Math.max(1,clothH);
+  var budget = PIX_BUDGET*quality*quality;
+  var nh = Math.round(Math.sqrt(budget/Math.max(0.05,aspect)));
+  var nw = Math.round(nh*aspect);
+  nw = clamp(nw, 64, 640); nh = clamp(nh, 64, 640);
+  if (nw===PW && nh===PH && srcCtx && outCtx) return;
+  PW=nw; PH=nh;
+  if (!srcCv) srcCv = document.createElement('canvas');
+  if (!outCv) outCv = document.createElement('canvas');
+  srcCv.width=PW; srcCv.height=PH;
+  outCv.width=PW; outCv.height=PH;
+  try{ srcCtx = srcCv.getContext('2d', { willReadFrequently:true }); }
+  catch(e){ srcCtx = srcCv.getContext('2d'); }
+  if (!srcCtx) srcCtx = srcCv.getContext('2d');
+  outCtx = outCv.getContext('2d');
+  if (!srcCtx || !outCtx) return;
+  srcCtx.fillStyle = C_KINARI; srcCtx.fillRect(0,0,PW,PH);
+  outImg = outCtx.createImageData(PW,PH);
+  outData = outImg.data;
+  var i;
+  for (i=3;i<outData.length;i+=4) outData[i]=255;   // the web is never transparent
+  srcImg = null; srcData = null;
+}
+
+function buildGround(){
+  if (!groundCv) groundCv = document.createElement('canvas');
+  groundCv.width=Math.max(1,(W*DPR)|0); groundCv.height=Math.max(1,(H*DPR)|0);
+  groundG = groundCv.getContext('2d');
+  if (!groundG) return;
+  groundG.setTransform(DPR,0,0,DPR,0,0);
+  groundG.fillStyle=C_KINARI; groundG.fillRect(0,0,W,H);
+  // the reed: fine vertical teeth across the whole bench
+  groundG.lineWidth=1;
+  var x;
+  for (x=0;x<W;x+=9){
+    groundG.strokeStyle = (((x/9)|0)%6===0) ? 'rgba(85,83,92,.055)' : 'rgba(85,83,92,.024)';
+    groundG.beginPath(); groundG.moveTo(x+0.5,0); groundG.lineTo(x+0.5,H); groundG.stroke();
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  THREAD SHADING ─ a round cross-section, resolved once into a LUT
+// ═══════════════════════════════════════════════════════════════════════
+var LUTN=64;
+var warpLut=new Float32Array(LUTN), weftLut=new Float32Array(LUTN);
+(function buildLuts(){
+  var k,u,s,edge;
+  for (k=0;k<LUTN;k++){
+    u=(k+0.5)/LUTN;
+    s = 0.60 + 0.48*Math.sin(Math.PI*u);                       // the round body
+    s += 0.30*Math.exp(-Math.pow((u-0.38)/0.115,2));           // off-centre sheen
+    edge = Math.min(u, 1-u);
+    if (edge < 0.10) s *= 0.46 + (edge/0.10)*0.54;             // the gap between threads
+    warpLut[k] = s;
+    // the weft sits a hair lower and catches the light from the other side
+    var s2 = 0.56 + 0.46*Math.sin(Math.PI*u);
+    s2 += 0.26*Math.exp(-Math.pow((u-0.62)/0.115,2));
+    if (edge < 0.10) s2 *= 0.44 + (edge/0.10)*0.56;
+    weftLut[k] = s2*0.95;
+  }
+})();
+
+// ═══════════════════════════════════════════════════════════════════════
+//  THE DRAFTS.  These are real weave structures, not decoration.
+//    平織 plain  — alternates every thread; the tightest, flattest cloth
+//    綾織 twill  — 2/2, so the floats step sideways one thread per pick
+//                  and the surface reads as a diagonal wale
+//    繻子 satin  — 5-harness, warp-faced: the warp floats over four
+//                  crossings out of five, giving long vertical grain and
+//                  a smooth sheen with almost no visible interlacing
+//  Indices can go negative once the cloth is pulled, so every modulo is
+//  taken on an offset that is guaranteed positive.
+// ═══════════════════════════════════════════════════════════════════════
+var BIG = 1<<20;
+var weave='plain';
+function warpOverAt(i,j){
+  if (weave==='plain')  return (((i+j)+BIG) & 1) === 0;
+  if (weave==='twill')  return (((i+j)+BIG) % 4) < 2;
+  return (((i*2+j)+BIG*5) % 5) !== 0;    // satin
+}
+// Every draft above has a period that divides 20 (2, 4 and 5), so the whole
+// structure collapses into one 20×20 table.  It is rebuilt only when the
+// weave changes — the pixel loop must never do a string comparison, and at
+// 108k pixels a frame it must never call a function either.
+var draftP = 20;
+var draftLut = new Uint8Array(draftP*draftP);
+function buildDraft(){
+  var i,j;
+  for (j=0;j<draftP;j++)
+    for (i=0;i<draftP;i++)
+      draftLut[j*draftP+i] = warpOverAt(i,j) ? 1 : 0;
+}
+buildDraft();
+
+// ═══════════════════════════════════════════════════════════════════════
+//  PULL ─ a damped spring, in internal-resolution pixels
+// ═══════════════════════════════════════════════════════════════════════
+var offX=0, offY=0, velX=0, velY=0;      // the current displacement of the web
+var anchorX=0, anchorY=0, grabbing=false, grabPrev=false;
+var SPRING_K=250, SPRING_C=15;
+var FALLN=256;
+var fallLut=new Float32Array(FALLN);
+(function(){ var k; for (k=0;k<FALLN;k++){ var d2=k/(FALLN-1); fallLut[k]=Math.exp(-d2*4.2); } })();
+
+function pullStep(dt, hx, hy){
+  var tx=0, ty=0;
+  if (grabbing && hx!==null){
+    tx = clamp(hx - anchorX, -PW*0.34, PW*0.34);
+    ty = clamp(hy - anchorY, -PH*0.34, PH*0.34);
+  }
+  var sub=2, h=dt/sub, s;
+  for (s=0;s<sub;s++){
+    velX += ((tx-offX)*SPRING_K - velX*SPRING_C)*h;
+    velY += ((ty-offY)*SPRING_K - velY*SPRING_C)*h;
+    offX += velX*h; offY += velY*h;
+  }
+  if (!isFinite(offX)||!isFinite(offY)){ offX=0; offY=0; velX=0; velY=0; }
+  offX = clamp(offX, -PW*0.5, PW*0.5);
+  offY = clamp(offY, -PH*0.5, PH*0.5);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  THE LOOM ─ one pass over every pixel, allocating nothing
+// ═══════════════════════════════════════════════════════════════════════
+var gauge=6.2, gaugeTarget=6.2;
+var GAUGE_MIN=3.2, GAUGE_MAX=13.0;
+
+function weaveFrame(hx, hy, pulling){
+  if (!srcCtx || !outCtx || !outData) return false;
+  // pull the camera down to internal resolution
+  if (camOK && video.readyState>=2 && video.videoWidth>0){
+    var vw=video.videoWidth, vh=video.videoHeight;
+    var sc=Math.max(PW/vw, PH/vh), dw=vw*sc, dh=vh*sc;
+    srcCtx.save();
+    if (mirror){ srcCtx.translate(PW,0); srcCtx.scale(-1,1); }
+    srcCtx.drawImage(video, (PW-dw)/2, (PH-dh)/2, dw, dh);
+    srcCtx.restore();
+  } else {
+    srcCtx.fillStyle=C_SUMISHIRO; srcCtx.fillRect(0,0,PW,PH);
+  }
+  try{ srcImg = srcCtx.getImageData(0,0,PW,PH); }
+  catch(e){ return false; }
+  srcData = srcImg.data;
+  if (!srcData || srcData.length !== PW*PH*4) return false;
+
+  var T = gauge;
+  if (!(T > 0.5)) T = 6;
+  var invT = 1/T;
+  // Everything the inner loop touches is hoisted into a local first; a
+  // global read per pixel is the difference between 60fps and a slideshow.
+  var sd=srcData, od=outData, w=PW, h=PH;
+  var lutW=warpLut, lutF=weftLut, LN=LUTN;
+  var DR=draftLut, P=draftP;
+  var lastCol=w-1, lastRow=h-1;
+  var hasPull = pulling && (offX*offX+offY*offY) > 0.25 && hx!==null;
+  var px, py, o=0, i, j, fi, fj, u, v, si, shade, ku, kv;
+
+  if (!hasPull){
+    // ── THE FLAT WEB ────────────────────────────────────────────────────
+    // Along one row the weft's source row and its shading are CONSTANT (a
+    // weft thread runs horizontally, so every pixel of it samples the same
+    // row of the image and sits at the same height across its own body),
+    // and the warp only changes thread once every T pixels.  So the inner
+    // loop is a table read, one multiply and a store — no modulo, no call.
+    var ox=null, oy=null;
+    for (py=0; py<h; py++){
+      fj = py*invT; j = fj|0; v = fj-j;
+      kv = (v*LN)|0; if (kv<0) kv=0; else if (kv>=LN) kv=LN-1;
+      var weftShade = lutF[kv];
+      var wcy = ((j+0.5)*T)|0;
+      if (wcy<0) wcy=0; else if (wcy>lastRow) wcy=lastRow;
+      var weftBase = wcy*w;
+      var warpBase = py*w;              // a warp thread samples this row
+      var drRow = (j % P)*P;
+      var ci=-1, im=0, warpIx=0;
+      for (px=0; px<w; px++, o+=4){
+        fi = px*invT;
+        var ni = fi|0;
+        if (ni !== ci){
+          // walk the draft column forward, wrapping, instead of a modulo
+          if (ci < 0){ ci = ni; im = ci % P; }
+          else { while (ci < ni){ ci++; im++; if (im===P) im=0; } }
+          warpIx = ((ci+0.5)*T)|0;
+          if (warpIx<0) warpIx=0; else if (warpIx>lastCol) warpIx=lastCol;
+        }
+        if (DR[drRow+im]){
+          si = (warpBase + warpIx)<<2;
+          ku = ((fi-ci)*LN)|0; if (ku<0) ku=0; else if (ku>=LN) ku=LN-1;
+          shade = lutW[ku];
+        } else {
+          si = (weftBase + px)<<2;
+          shade = weftShade;
+        }
+        // Uint8ClampedArray rounds and clamps on store, and shade comes
+        // from a LUT of finite floats, so no value here can be non-finite
+        od[o]   = sd[si]*shade;
+        od[o+1] = sd[si+1]*shade;
+        od[o+2] = sd[si+2]*shade;
+        od[o+3] = 255;
+      }
+    }
+  } else {
+    // ── THE PULLED WEB ──────────────────────────────────────────────────
+    // Under a drag the sampling coordinate is displaced per pixel, so the
+    // row shortcuts above no longer hold and thread indices can go
+    // negative.  This path only runs while a hand is actually holding the
+    // cloth, so it is allowed to be the slower of the two.
+    var fx=offX, fy=offY, FL=fallLut, FN=FALLN;
+    var invSig2 = 1/Math.max(1, (w*0.26)*(w*0.26));
+    var kscale = invSig2*(FN-1);
+    for (py=0; py<h; py++){
+      var dy=py-hy, dy2=dy*dy;
+      for (px=0; px<w; px++, o+=4){
+        var sx=px, sy=py;
+        var dx=px-hx;
+        var kk=((dx*dx+dy2)*kscale)|0;
+        if (kk < FN){
+          var f=FL[kk<0?0:kk];
+          sx = px - fx*f; sy = py - fy*f;
+        }
+        fi = sx*invT; fj = sy*invT;
+        i = fi>=0 ? (fi|0) : Math.floor(fi);
+        j = fj>=0 ? (fj|0) : Math.floor(fj);
+        var im2 = i % P; if (im2<0) im2 += P;
+        var jm2 = j % P; if (jm2<0) jm2 += P;
+        var cx, cy;
+        if (DR[jm2*P+im2]){
+          cx = (i+0.5)*T; cy = sy;
+          ku = ((fi-i)*LN)|0; if (ku<0) ku=0; else if (ku>=LN) ku=LN-1;
+          shade = lutW[ku];
+        } else {
+          cx = sx; cy = (j+0.5)*T;
+          kv = ((fj-j)*LN)|0; if (kv<0) kv=0; else if (kv>=LN) kv=LN-1;
+          shade = lutF[kv];
+        }
+        var ix = cx|0, iy = cy|0;
+        if (ix<0) ix=0; else if (ix>lastCol) ix=lastCol;
+        if (iy<0) iy=0; else if (iy>lastRow) iy=lastRow;
+        si = (iy*w + ix)<<2;
+        od[o]   = sd[si]*shade;
+        od[o+1] = sd[si+1]*shade;
+        od[o+2] = sd[si+2]*shade;
+        od[o+3] = 255;
+      }
+    }
+  }
+  outCtx.putImageData(outImg, 0, 0);
+  return true;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  AUDIO ─ wooden, and quiet
+// ═══════════════════════════════════════════════════════════════════════
+var A=null, comp=null, master=null, noiseBuf=null;
+var whoosh=null, whooshG=null, whooshF=null, audioOn=false;
+
+function initAudio(){
+  if (audioOn) return;
+  var AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) return;
+  try{ A=new AC(); }catch(e){ A=null; return; }
+  comp=A.createDynamicsCompressor();
+  try{ comp.threshold.value=-18; comp.knee.value=24; comp.ratio.value=6;
+       comp.attack.value=0.004; comp.release.value=0.2; }catch(e){}
+  master=A.createGain(); master.gain.value=0.40;
+  comp.connect(master); master.connect(A.destination);
+  var n=Math.round(A.sampleRate*2), b=A.createBuffer(1,n,A.sampleRate), d=b.getChannelData(0), i;
+  for (i=0;i<n;i++) d[i]=Math.random()*2-1;
+  noiseBuf=b;
+  whooshF=A.createBiquadFilter(); whooshF.type='bandpass';
+  whooshF.frequency.value=760; whooshF.Q.value=0.9;
+  whooshG=A.createGain(); whooshG.gain.value=0;
+  whoosh=A.createBufferSource(); whoosh.buffer=noiseBuf; whoosh.loop=true;
+  whoosh.connect(whooshF); whooshF.connect(whooshG); whooshG.connect(comp);
+  try{ whoosh.start(); }catch(e){}
+  audioOn=true;
+}
+function setP(p,v,t,tau){
+  if (!p) return;
+  try{ p.setTargetAtTime(num(v,0), num(t,0), num(tau,0.05)); }
+  catch(e){ try{ p.value=num(v,0); }catch(e2){} }
+}
+function noiseHit(gain, freq, q, dur, hp){
+  if (!audioOn || !A || !noiseBuf) return;
+  var t=A.currentTime;
+  var s=A.createBufferSource(); s.buffer=noiseBuf;
+  var f=A.createBiquadFilter();
+  f.type = hp ? 'highpass' : 'bandpass';
+  f.frequency.value=clamp(num(freq,600),40,14000);
+  f.Q.value=clamp(num(q,1),0.1,24);
+  var gn=A.createGain(); gn.gain.value=0;
+  s.connect(f); f.connect(gn); gn.connect(comp);
+  var d=clamp(num(dur,0.08),0.02,1.2);
+  try{
+    gn.gain.setValueAtTime(0.0001,t);
+    gn.gain.exponentialRampToValueAtTime(Math.max(0.0005, clamp(num(gain,0.2),0.001,0.9)), t+0.005);
+    gn.gain.exponentialRampToValueAtTime(0.0001, t+d);
+    s.start(t); s.stop(t+d+0.05);
+  }catch(e){}
+}
+// 筬打ち — the reed beating the pick home
+function reedBeat(){
+  noiseHit(0.34, 420, 8, 0.085, false);
+  if (!audioOn || !A) return;
+  var t=A.currentTime;
+  var o=A.createOscillator(); o.type='triangle';
+  var gn=A.createGain(); gn.gain.value=0;
+  o.connect(gn); gn.connect(comp);
+  try{
+    o.frequency.setValueAtTime(330,t); o.frequency.exponentialRampToValueAtTime(150,t+0.05);
+    gn.gain.setValueAtTime(0.0001,t);
+    gn.gain.exponentialRampToValueAtTime(0.18,t+0.004);
+    gn.gain.exponentialRampToValueAtTime(0.0001,t+0.11);
+    o.start(t); o.stop(t+0.14);
+  }catch(e){}
+}
+function rustle(up){ noiseHit(up?0.13:0.09, up?1900:1400, 0.7, up?0.10:0.16, true); }
+
+// ═══════════════════════════════════════════════════════════════════════
+//  CAMERA
+// ═══════════════════════════════════════════════════════════════════════
+var facing='user', mirror=true, stream=null, camOK=false;
+function showError(e){
+  var msg=(e && e.message)?e.message:String(e||'unknown');
+  errBox.style.display='block';
+  errBox.textContent='カメラを起動できませんでした：'+msg+
+    '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+}
+function startStream(){
+  var md=navigator.mediaDevices;
+  if (!md || !md.getUserMedia) return Promise.reject(new Error('getUserMedia is unavailable'));
+  if (stream && stream.getTracks) stream.getTracks().forEach(function(t){ t.stop(); });
+  return md.getUserMedia({
+    video:{ facingMode:{ ideal:facing }, width:{ ideal:960 }, height:{ ideal:720 } }, audio:false
+  }).then(function(st){
+    stream=st; video.srcObject=st; mirror=(facing==='user'); camOK=true;
+    var p=video.play();
+    return (p && p.then) ? p.catch(function(){}) : null;
+  });
+}
+flipBtn.addEventListener('click', function(){
+  facing=(facing==='user')?'environment':'user';
+  loseHand();
+  startStream().then(startMpCamera).catch(showError);
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+//  HAND ─ one hand.  Open = set the gauge; closed = hold the cloth.
+// ═══════════════════════════════════════════════════════════════════════
+var hands=null, mpCamera=null, mpReady=false;
+var LOST=0.32, FRESH=0.12, JUMP=0.34;
+var GRAB_IN=0.42, GRAB_OUT=0.62;
+var Hn={ live:false, t:-1e9, x:0.5, y:0.5, open:1, openS:1, lm:null };
+
+function loseHand(){
+  Hn.live=false; Hn.lm=null;
+  // dropping the hand must RELEASE the cloth, not freeze it mid-pull
+  if (grabbing){ grabbing=false; rustle(false); }
+  grabPrev=false;
+}
+function initHands(){
+  if (typeof window.Hands !== 'function') return false;
+  try{
+    hands=new window.Hands({ locateFile:function(f){
+      return 'https://cdn.jsdelivr.net/npm/@mediapipe/hands/'+f;
+    }});
+    hands.setOptions({ maxNumHands:1, modelComplexity:0,
+                       minDetectionConfidence:0.6, minTrackingConfidence:0.5 });
+    hands.onResults(onHands);
+    mpReady=true; return true;
+  }catch(e){ return false; }
+}
+function startMpCamera(){
+  if (!mpReady || !hands || mpCamera) return;
+  if (typeof window.Camera !== 'function') return;
+  try{
+    mpCamera=new window.Camera(video,{
+      onFrame:function(){
+        if (!hands) return Promise.resolve();
+        return hands.send({ image: video }).catch(function(){});
+      }, width:480, height:360 });
+    mpCamera.start();
+  }catch(e){ mpCamera=null; }
+}
+function validLm(c){
+  if (!c || c.length < 21) return null;
+  for (var i=0;i<21;i++){
+    var p=c[i];
+    if (!p || typeof p.x!=='number' || typeof p.y!=='number' ||
+        !isFinite(p.x) || !isFinite(p.y)) return null;
+  }
+  return c;
+}
+function onHands(res){
+  var t=now();
+  var list=(res && res.multiHandLandmarks)?res.multiHandLandmarks:null;
+  var c=(list && list.length)?validLm(list[0]):null;
+  if (!c){ if (Hn.live && t-Hn.t>LOST) loseHand(); return; }
+
+  var ids=[0,5,9,13,17], cx=0, cy=0, i, p;
+  for (i=0;i<ids.length;i++){ p=c[ids[i]]; if (!p) return; cx+=p.x; cy+=p.y; }
+  cx/=ids.length; cy/=ids.length;
+  var wr=c[0], mid=c[9];
+  if (!wr || !mid) return;
+  var sx=mid.x-wr.x, sy=mid.y-wr.y, scale=Math.sqrt(sx*sx+sy*sy);
+  if (!isFinite(scale) || scale<1e-4) return;
+  var tips=[4,8,12,16,20], sum=0, k;
+  for (k=0;k<tips.length;k++){
+    p=c[tips[k]]; if (!p) return;
+    var ddx=p.x-cx, ddy=p.y-cy;
+    sum += Math.sqrt(ddx*ddx+ddy*ddy);
+  }
+  var open=(sum/tips.length)/scale;
+  if (!isFinite(open)) return;
+  open=clamp((open-0.72)/0.95, 0, 1.35);
+  if (!isFinite(cx)||!isFinite(cy)) return;
+
+  var x=mirror?(1-cx):cx, y=cy;
+  x=clamp(x,0,1); y=clamp(y,0,1);
+  var dxj=x-Hn.x, dyj=y-Hn.y;
+  var jumped = Hn.live && (dxj*dxj+dyj*dyj) > JUMP*JUMP;
+  if (!Hn.live || (t-Hn.t)>LOST || jumped){
+    // a fresh acquisition must not be read as a drag across the cloth
+    if (grabbing){ grabbing=false; }
+    grabPrev=false; Hn.openS=open;
+  }
+  Hn.live=true; Hn.t=t; Hn.x=x; Hn.y=y; Hn.open=open;
+  var out=[], q;
+  for (q=0;q<21;q++){
+    p=c[q];
+    if (!p){ out=null; break; }
+    out.push({ x: mirror?(1-p.x):p.x, y:p.y });
+  }
+  Hn.lm=out;
+}
+
+// hand → internal-resolution cloth coordinates
+function handPix(){
+  if (!Hn.live) return null;
+  // the hand moves over the whole viewport; the cloth is inset in it
+  var vx = (Hn.x*W - clothX)/Math.max(1,clothW);
+  var vy = (Hn.y*H - clothY)/Math.max(1,clothH);
+  return { x: vx*PW, y: vy*PH, inside: vx>=-0.15 && vx<=1.15 && vy>=-0.15 && vy<=1.15 };
+}
+
+function gestureStep(dt, t){
+  if (!Hn.live || t-Hn.t > FRESH){
+    // stale landmarks must not hold the cloth
+    if (grabbing && (!Hn.live || t-Hn.t > LOST)){ grabbing=false; grabPrev=false; }
+    return;
+  }
+  Hn.openS = approach(Hn.openS, Hn.open, 0.06, dt);
+  var want = grabbing ? (Hn.openS < GRAB_OUT) : (Hn.openS < GRAB_IN);
+  if (want && !grabbing){
+    var hp=handPix();
+    if (hp && hp.inside){
+      grabbing=true;
+      anchorX = hp.x - offX; anchorY = hp.y - offY;
+      rustle(true);
+    }
+  } else if (!want && grabbing){
+    grabbing=false; rustle(false);
+  }
+  // the loom can only be adjusted when you are not holding the cloth
+  if (!grabbing){
+    gaugeTarget = GAUGE_MIN + (1-clamp(Hn.y,0,1))*(GAUGE_MAX-GAUGE_MIN);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  MODE
+// ═══════════════════════════════════════════════════════════════════════
+var beat=0;
+function setWeave(k, btn){
+  if (k!=='plain' && k!=='twill' && k!=='satin') return;
+  if (weave===k) return;
+  weave=k; buildDraft(); beat=1; reedBeat();
+  [bPlain,bTwill,bSatin].forEach(function(b){ if (b) b.classList.remove('on'); });
+  if (btn) btn.classList.add('on');
+}
+if (bPlain) bPlain.addEventListener('click', function(){ setWeave('plain', bPlain); });
+if (bTwill) bTwill.addEventListener('click', function(){ setWeave('twill', bTwill); });
+if (bSatin) bSatin.addEventListener('click', function(){ setWeave('satin', bSatin); });
+
+var WEAVE_JA = { plain:'平織', twill:'綾織', satin:'繻子' };
+
+// ═══════════════════════════════════════════════════════════════════════
+//  DRAW
+// ═══════════════════════════════════════════════════════════════════════
+var HAND_EDGES=[[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],
+                [9,13],[13,14],[14,15],[15,16],[13,17],[17,18],[18,19],[19,20],[0,17]];
+
+function drawSelvedge(){
+  var i;
+  g.save();
+  // 耳 — the selvedge, where the weft turns back
+  g.strokeStyle=C_KINCHA; g.lineWidth=2;
+  g.beginPath(); g.moveTo(clothX-3, clothY); g.lineTo(clothX-3, clothY+clothH);
+  g.moveTo(clothX+clothW+3, clothY); g.lineTo(clothX+clothW+3, clothY+clothH); g.stroke();
+  // the turns themselves, ticked at the current gauge
+  var step = Math.max(6, (gauge/Math.max(1,PH))*clothH*2);
+  g.strokeStyle='rgba(184,137,60,.5)'; g.lineWidth=1;
+  g.beginPath();
+  for (i=clothY+step*0.5; i<clothY+clothH; i+=step){
+    g.moveTo(clothX-7, i); g.lineTo(clothX-1, i);
+    g.moveTo(clothX+clothW+1, i); g.lineTo(clothX+clothW+7, i);
+  }
+  g.stroke();
+  g.strokeStyle='rgba(85,83,92,.35)'; g.lineWidth=1;
+  g.strokeRect(clothX-0.5, clothY-0.5, clothW+1, clothH+1);
+  g.restore();
+}
+
+function drawHand(){
+  if (!Hn.live) return;
+  var hx=Hn.x*W, hy=Hn.y*H, k;
+  g.save();
+  if (Hn.lm){
+    g.strokeStyle = grabbing ? 'rgba(140,58,74,.85)' : 'rgba(85,83,92,.45)';
+    g.lineWidth = grabbing ? 2 : 1.3;
+    for (k=0;k<HAND_EDGES.length;k++){
+      var a=Hn.lm[HAND_EDGES[k][0]], b=Hn.lm[HAND_EDGES[k][1]];
+      if (!a || !b) continue;
+      g.beginPath(); g.moveTo(a.x*W,a.y*H); g.lineTo(b.x*W,b.y*H); g.stroke();
+    }
+    g.fillStyle = grabbing ? C_SUOU : 'rgba(85,83,92,.7)';
+    for (k=0;k<Hn.lm.length;k++){
+      var p=Hn.lm[k]; if (!p) continue;
+      g.beginPath(); g.arc(p.x*W,p.y*H, k%4===0?2.6:1.5, 0, 6.2832); g.fill();
+    }
+  }
+  var rr = 12 + clamp(Hn.openS,0,1.3)*24;
+  g.strokeStyle = grabbing ? C_SUOU : 'rgba(85,83,92,.5)';
+  g.lineWidth = grabbing ? 2.2 : 1.2;
+  g.beginPath(); g.arc(hx,hy,rr,0,6.2832); g.stroke();
+  if (grabbing){
+    // the line from where you took hold to where you have dragged it
+    var ax = clothX + ((anchorX+offX)/Math.max(1,PW))*clothW;
+    var ay = clothY + ((anchorY+offY)/Math.max(1,PH))*clothH;
+    g.setLineDash([3,4]); g.lineWidth=1; g.strokeStyle='rgba(140,58,74,.5)';
+    g.beginPath(); g.moveTo(hx,hy); g.lineTo(ax,ay); g.stroke();
+    g.setLineDash([]);
+  }
+  g.restore();
+}
+
+function drawHud(){
+  var pad=Math.max(12, clothX), top=Math.max(12, clothY)-10;
+  g.save();
+  g.font='300 9.5px Archivo, sans-serif';
+  g.fillStyle='rgba(85,83,92,.52)';
+  g.fillText('NISHIKI / 織られた像', pad, top);
+  g.textAlign='right';
+  var perW = Math.round(PW/Math.max(0.5,gauge));
+  g.fillText('経 ' + perW + ' 本   目 ' + gauge.toFixed(1) + '   ' + PW + '×' + PH,
+             clothX+clothW, top);
+  g.textAlign='left';
+  // the weave name, the only large type
+  g.font='400 ' + Math.round(clamp(W*0.05,17,30)) + 'px "Zen Antique", serif';
+  g.fillStyle='rgba(85,83,92,'+(0.30+beat*0.55).toFixed(3)+')';
+  g.fillText(WEAVE_JA[weave]||'', clothX, clothY+clothH+30);
+  if (!Hn.live){
+    g.font='300 9.5px Archivo, sans-serif';
+    g.textAlign='right'; g.fillStyle='rgba(140,58,74,.6)';
+    g.fillText('手が見えません', clothX+clothW, clothY+clothH+26);
+    g.textAlign='left';
+  }
+  g.restore();
+}
+
+function drawFrame(){
+  g.setTransform(DPR,0,0,DPR,0,0);
+  g.clearRect(0,0,W,H);
+  if (groundCv) g.drawImage(groundCv,0,0,W,H);
+  if (outCv && PW>0){
+    g.save();
+    // a hair of squash on the beat, so a weave change is felt
+    var sq = 1 - beat*0.012;
+    g.translate(clothX+clothW/2, clothY+clothH/2);
+    g.scale(1, sq);
+    g.translate(-(clothX+clothW/2), -(clothY+clothH/2));
+    g.imageSmoothingEnabled = true;
+    g.drawImage(outCv, clothX, clothY, clothW, clothH);
+    g.restore();
+  }
+  drawSelvedge();
+  drawHand();
+  drawHud();
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  LOOP ─ with an honest frame timer that drops the internal resolution
+//  rather than dropping frames
+// ═══════════════════════════════════════════════════════════════════════
+var last=now(), running=false;
+var costAcc=0, costN=0, slowRun=0, fastRun=0;
+
+function loop(){
+  requestAnimationFrame(loop);
+  var t=now(), dt=t-last; last=t;
+  if (!(dt>0)) dt=0.016;
+  if (dt>0.05) dt=0.05;
+
+  if (Hn.live && t-Hn.t > LOST) loseHand();
+  gestureStep(dt, t);
+  gauge = approach(gauge, clamp(gaugeTarget,GAUGE_MIN,GAUGE_MAX), 0.35/3, dt);
+  if (!isFinite(gauge)) gauge = 6;
+  beat = Math.max(0, beat - dt*4.5);
+
+  var hp = handPix();
+  pullStep(dt, hp?hp.x:null, hp?hp.y:null);
+
+  if (running){
+    var t0=now();
+    weaveFrame(hp?hp.x:null, hp?hp.y:null, grabbing || (offX*offX+offY*offY)>0.25);
+    costAcc += (now()-t0)*1000; costN++;
+    if (costN >= 30){
+      var avg = costAcc/costN; costAcc=0; costN=0;
+      if (avg > 17){ slowRun++; fastRun=0; } else if (avg < 7){ fastRun++; slowRun=0; }
+      else { slowRun=0; fastRun=0; }
+      if (slowRun >= 2 && quality > 0.46){ quality = Math.max(0.46, quality*0.84); allocate(); slowRun=0; }
+      else if (fastRun >= 6 && quality < 1){ quality = Math.min(1, quality*1.10); allocate(); fastRun=0; }
+    }
+  }
+  // the pull whoosh rides how fast the web is actually moving
+  if (audioOn && A){
+    var sp = Math.sqrt(velX*velX+velY*velY)/Math.max(1,PW);
+    setP(whooshG.gain, running ? Math.min(0.05, sp*0.22) : 0, A.currentTime, 0.05);
+    setP(whooshF.frequency, 520 + Math.min(1,sp*2.4)*1400, A.currentTime, 0.06);
+  }
+  drawFrame();
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  TEACHING DIAGRAM ─ threads interlacing, then a hand pulling
+// ═══════════════════════════════════════════════════════════════════════
+var dgc = demoCv ? demoCv.getContext('2d') : null;
+var dT=0, dRaf=0;
+function drawDemo(){
+  if (!dgc) return;
+  var w=600,h=300;
+  dT += 1/60;
+  var loopT=4.6, tt=(dT%loopT)/loopT;
+  dgc.clearRect(0,0,w,h); dgc.fillStyle='#f0ebe1'; dgc.fillRect(0,0,w,h);
+  var ox=120, oy=42, cell=26, N=13, M=8;
+  // pull, in cell units
+  var pull = tt>0.45 && tt<0.86 ? Math.sin((tt-0.45)/0.41*Math.PI)*1.5 : 0;
+  var phx = ox+cell*7.5, phy = oy+cell*4;
+  var i,j;
+  for (j=0;j<M;j++){
+    for (i=0;i<N;i++){
+      var dx=(ox+i*cell)-phx, dy=(oy+j*cell)-phy;
+      var f=Math.exp(-(dx*dx+dy*dy)/(2*90*90));
+      var x=ox+i*cell + pull*cell*f*2.0, y=oy+j*cell + pull*cell*f*0.7;
+      var warpOver = tt<0.30 ? ((i+j)%2===0) : (tt<0.45 ? ((i+j)%4<2) : ((i*2+j)%5!==0));
+      // warp = vertical, weft = horizontal
+      if (warpOver){
+        dgc.fillStyle='#8c3a4a';
+        dgc.fillRect(x-cell*0.30, y-cell*0.52, cell*0.60, cell*1.04);
+      } else {
+        dgc.fillStyle='#3f6d7a';
+        dgc.fillRect(x-cell*0.52, y-cell*0.30, cell*1.04, cell*0.60);
+      }
+    }
+  }
+  // the hand
+  if (tt>0.42){
+    var op = tt<0.45 ? 1-(tt-0.42)/0.03 : (tt>0.86 ? (tt-0.86)/0.05 : 0.08);
+    op=Math.max(0,Math.min(1,op));
+    var hx=phx+pull*cell*2.0, hy=phy+pull*cell*0.7;
+    var rr=11+op*20;
+    dgc.strokeStyle= op<0.5 ? '#8c3a4a' : 'rgba(85,83,92,.6)';
+    dgc.lineWidth= op<0.5 ? 2.2 : 1.3;
+    dgc.beginPath(); dgc.arc(hx,hy,rr,0,6.2832); dgc.stroke();
+    for (i=0;i<5;i++){
+      var a=-2.3+i*0.62;
+      dgc.beginPath(); dgc.moveTo(hx,hy);
+      dgc.lineTo(hx+Math.cos(a)*rr*(0.35+op*0.95), hy+Math.sin(a)*rr*(0.35+op*0.95));
+      dgc.stroke();
+    }
+  }
+  dgc.fillStyle='rgba(85,83,92,.6)';
+  dgc.font='400 15px "Zen Antique", serif';
+  var lbl = tt<0.30?'平織':(tt<0.45?'綾織':'繻子');
+  dgc.fillText(lbl, 24, 60);
+  dgc.font='300 12px Archivo, sans-serif';
+  dgc.fillStyle='rgba(85,83,92,.45)';
+  dgc.fillText(tt>0.45&&tt<0.86 ? '握って引く' : '組織が変わる', 24, 84);
+  dgc.fillStyle='#8c3a4a'; dgc.fillRect(24,232,14,14);
+  dgc.fillStyle='rgba(85,83,92,.55)'; dgc.fillText('経糸', 46, 244);
+  dgc.fillStyle='#3f6d7a'; dgc.fillRect(24,256,14,14);
+  dgc.fillStyle='rgba(85,83,92,.55)'; dgc.fillText('緯糸', 46, 268);
+  dRaf=requestAnimationFrame(drawDemo);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  BOOT
+// ═══════════════════════════════════════════════════════════════════════
+function begin(){
+  initAudio();
+  if (A && A.state==='suspended'){ try{ A.resume(); }catch(e){} }
+  startSheet.classList.add('hide');
+  if (dRaf){ cancelAnimationFrame(dRaf); dRaf=0; }
+  running=true;
+  if (!camOK){
+    startStream().then(function(){
+      if (initHands()) startMpCamera();
+    }).catch(showError);
+  }
+}
+startBtn.addEventListener('click', begin);
+window.addEventListener('resize', resize);
+if (window.visualViewport) window.visualViewport.addEventListener('resize', resize);
+resize();
+if (dgc) drawDemo();
+last=now();
+loop();
+</script>
+</body>
+</html>
