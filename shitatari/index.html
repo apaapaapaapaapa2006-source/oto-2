@@ -1,0 +1,780 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>SHITATARI ─ 明るさで並べ替える滴り</title>
+<meta name="description" content="カメラ映像の明るいところだけを、上から下へ明るさの順に並べ替えるエフェクト。並べ替えた結果をもう一度並べ替えつづけるので、じっとしているほど絵は溶けて長いリボンになって垂れていく。手の高さが溶ける量、手のひらの開きが一筋の長さ、そして手のまわりだけは流れが逆さになって吹き上がる。">
+<meta name="theme-color" content="#0d0b0e">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@300;700&family=Zen+Old+Mincho:wght@400;700&display=swap" rel="stylesheet">
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  SHITATARI ─ 明るさで並べ替える滴り                ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  PALETTE   漆    urushi #0d0b0e  the ground, and the only ground
+            鈍    nibi   #23202a  the chrome: the bar, the ruler, the wells
+            生成  kinari #e8e2d6  every character on screen
+            丹    ni     #e2542f  THE ONLY colour this piece owns. it marks
+                                  the live mode and the threshold, nothing
+                                  else, so a warm mark always means "this is
+                                  what your hand is doing"
+            ── and then the image's own colour, which is the whole point:
+            this piece contributes almost no palette of its own, because the
+            drips ARE the colour, poured out of whatever the camera saw.
+            MOOD: a darkroom. The frame is edge to edge and the chrome is a
+            thin bar that stays out of the way; nothing is centred, nothing
+            is decorated, and there is no glow, because the picture has to
+            be the brightest thing on the screen or the effect is wasted.
+  BACKGROUND  There isn't one. The processed frame is full bleed. Flat
+            #0d0b0e shows only in the letterbox when the camera's aspect
+            does not match the screen's.
+  TYPE      Big Shoulders Display 700 — a very condensed grotesque, set
+            large and tight for mode names, which reads as signage rather
+            than UI. Zen Old Mincho for Japanese body copy: a bookish serif
+            against industrial caps, and the collision between the two is
+            deliberate. Numerals are small, 300 weight, tracked wide.
+  MOTION    Snappy and mechanical, the opposite of the melt it frames. Mode
+            changes cut in 90ms with a hard ease-out and then sit still. No
+            bounce, no float, no breathing. The only slow thing in the piece
+            is the image, and that slowness is physics, not animation.
+  SIGNATURE THE MELT EATS ITS OWN OUTPUT. This is not a filter over a live
+            frame — one ImageData is persistent state that outlives every
+            frame. Only about 12% of the camera per frame is blended into
+            it, and then the sort runs over what is already there, which is
+            last frame's sorted result. Because a run that was sorted
+            once gets sorted again, drips GROW: hold still and the
+            picture liquefies over several seconds into long vertical
+            ribbons of graded colour; move, and fresh camera punches holes
+            back through them. The image is a feedback system, so it has a
+            history, and you can pour it.
+  AUDIO     Silent by design, and deliberately so rather than by omission.
+            The melt has no events in it — nothing strikes, lands or
+            resolves — so any sound would be an ambience laid over a picture
+            instead of a sound the picture makes. The gallery has plenty of
+            pieces that ring; this one is for watching.
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;overflow:hidden;background:#0d0b0e;
+    -webkit-text-size-adjust:100%;-webkit-tap-highlight-color:transparent}
+  body{font-family:'Big Shoulders Display','Zen Old Mincho',system-ui,sans-serif;color:#e8e2d6}
+  #view{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+  #video{position:fixed;width:2px;height:2px;opacity:.001;pointer-events:none;left:0;top:0}
+
+  #flip{
+    position:fixed;right:calc(env(safe-area-inset-right,0px) + .8rem);
+    top:calc(env(safe-area-inset-top,0px) + .8rem);z-index:30;
+    background:rgba(13,11,14,.72);color:#cdc6ba;border:1px solid rgba(232,226,214,.24);
+    border-radius:1px;padding:.42rem .7rem;font:700 .66rem/1 'Big Shoulders Display',sans-serif;
+    letter-spacing:.2em;cursor:pointer;backdrop-filter:blur(6px)
+  }
+  #flip:active{background:#e2542f;color:#0d0b0e;border-color:#e2542f}
+  #err{
+    position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:40;
+    display:none;max-width:22rem;white-space:pre-wrap;text-align:center;
+    background:#17141a;border:1px solid #e2542f;border-radius:1px;
+    padding:1rem 1.1rem;font:400 .78rem/1.9 'Zen Old Mincho',serif;
+    color:#e8ddd2;letter-spacing:.02em
+  }
+
+  /* the bar — the only chrome */
+  #bar{
+    position:fixed;left:0;right:0;z-index:25;
+    bottom:calc(env(safe-area-inset-bottom,0px) + .55rem);
+    display:flex;justify-content:center;gap:.4rem;padding:0 .6rem;pointer-events:none
+  }
+  #bar.hide{display:none}
+  .mode{
+    pointer-events:auto;
+    background:rgba(13,11,14,.66);color:#a49d92;border:1px solid rgba(232,226,214,.18);
+    border-radius:1px;padding:.5rem .85rem .42rem;cursor:pointer;backdrop-filter:blur(8px);
+    display:flex;flex-direction:column;align-items:center;gap:.12rem;
+    transition:background .09s ease-out,color .09s ease-out,border-color .09s ease-out
+  }
+  .mode b{font:700 1.02rem/1 'Big Shoulders Display',sans-serif;letter-spacing:.13em}
+  .mode i{font:400 .58rem/1 'Zen Old Mincho',serif;font-style:normal;letter-spacing:.12em;opacity:.72}
+  .mode.on{background:#e2542f;color:#140d09;border-color:#e2542f}
+  .mode.on i{opacity:.85}
+
+  .sheet{
+    position:fixed;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;
+    background:#0d0b0e;padding:1.2rem;overflow:auto
+  }
+  .sheet.hide{display:none}
+  .panel{
+    width:min(30rem,100%);background:#15121a;color:#e8e2d6;
+    border:1px solid rgba(232,226,214,.16);box-shadow:0 26px 64px rgba(0,0,0,.6);
+    padding:1.5rem 1.35rem 1.6rem;position:relative
+  }
+  .stamp{
+    display:flex;justify-content:space-between;font:300 .6rem/1 'Big Shoulders Display',sans-serif;
+    letter-spacing:.3em;color:#8a8177;margin-bottom:.85rem
+  }
+  .panel h1{
+    font-family:'Big Shoulders Display',sans-serif;font-weight:700;
+    font-size:clamp(2.6rem,13vw,3.9rem);line-height:.86;letter-spacing:.02em;color:#e8e2d6
+  }
+  .panel h1 b{display:block;font-family:'Zen Old Mincho',serif;font-size:.24em;font-weight:400;
+    letter-spacing:.34em;color:#e2542f;margin-top:.7rem}
+  #demo{display:block;width:100%;height:auto;margin:1.1rem 0 .95rem;background:#0d0b0e;border:1px solid rgba(232,226,214,.14)}
+  .lead{font:400 .82rem/1.95 'Zen Old Mincho',serif;color:#c2bbb0}
+  .lead em{font-style:normal;color:#e2542f}
+  .rules{list-style:none;margin:.9rem 0 1.25rem;border-top:1px solid rgba(232,226,214,.13)}
+  .rules li{
+    font:400 .73rem/1.75 'Zen Old Mincho',serif;color:#928a80;
+    padding:.5rem 0 .5rem .95rem;border-bottom:1px solid rgba(232,226,214,.08);position:relative
+  }
+  .rules li::before{content:'';position:absolute;left:0;top:1.05em;width:5px;height:5px;background:#e2542f}
+  .go{
+    display:block;width:100%;padding:.9rem;background:#e2542f;color:#140d09;border:none;
+    font:700 1rem/1 'Big Shoulders Display',sans-serif;letter-spacing:.44em;text-indent:.44em;cursor:pointer;
+    transition:background .09s ease-out
+  }
+  .go:active{background:#b93d1c}
+</style>
+</head>
+<body>
+
+<canvas id="view"></canvas>
+<video id="video" playsinline muted autoplay></video>
+<button id="flip">⟲ カメラ</button>
+<div id="err"></div>
+
+<div id="bar" class="hide">
+  <button class="mode on" id="m0"><b>DRIP</b><i>したたり</i></button>
+  <button class="mode"    id="m1"><b>SPECTRUM</b><i>にじ</i></button>
+  <button class="mode"    id="m2"><b>SIDEWAYS</b><i>よこなぐり</i></button>
+</div>
+
+<div class="sheet" id="startSheet">
+  <div class="panel">
+    <div class="stamp"><span>OTO-II / SHITATARI</span><span>滴り</span></div>
+    <h1>SHITATARI<b>したたり</b></h1>
+    <canvas id="demo" width="620" height="250"></canvas>
+    <p class="lead">明るいところだけを、明るさの<em>順に並べ替える</em>。並べ替えた結果をもう一度並べ替えつづけるので、<em>じっとしているほど溶ける</em>。動けば、そこだけ今のカメラが戻ってくる。</p>
+    <ul class="rules">
+      <li>手の高さ ＝ どこまで溶かすか。上げるほど暗いところまで溶ける</li>
+      <li>手のひらを開くほど、一筋が長く伸びる。握ると粒に切れる</li>
+      <li>手のまわりだけ流れが逆さになり、絵が吹き上がる</li>
+    </ul>
+    <button class="go" id="startBtn">START</button>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+<script>
+'use strict';
+// ═══════════════════════════════════════════════════════════════════════
+//  SHITATARI ─ 明るさで並べ替える滴り
+//
+//  Pixel sorting, but as a feedback system rather than a filter.  The work
+//  canvas is persistent state: each frame it takes a 12% dose of the live
+//  camera and is then sorted IN PLACE, so this frame's sort operates on
+//  last frame's sorted output and the runs lengthen with every pass.
+//
+//  Everything is sized to stay real time on a mid-range phone:
+//    · the work buffer is capped at ~88k pixels and scaled up on blit
+//    · every typed array is allocated once, on resize, and never per frame
+//    · exactly one getImageData and one putImageData per frame
+//    · sorting is O(n): counting sort by the 8-bit key for long runs,
+//      insertion sort for short ones, because a 256-bucket prefix sum
+//      costs more than insertion does below about forty pixels
+// ═══════════════════════════════════════════════════════════════════════
+var view = document.getElementById('view');
+var g    = view.getContext('2d');
+var video      = document.getElementById('video');
+var errBox     = document.getElementById('err');
+var flipBtn    = document.getElementById('flip');
+var bar        = document.getElementById('bar');
+var startSheet = document.getElementById('startSheet');
+var startBtn   = document.getElementById('startBtn');
+var demoCv     = document.getElementById('demo');
+
+var now = (typeof performance !== 'undefined' && performance.now)
+  ? function(){ return performance.now()/1000; }
+  : function(){ return Date.now()/1000; };
+
+function num(v,d){ return (typeof v==='number' && isFinite(v)) ? v : d; }
+function clamp(v,a,b){ return v<a?a:(v>b?b:v); }
+function follow(cur, tgt, tau, dt){
+  var k = 1-Math.exp(-dt/Math.max(tau,1e-4));
+  return cur + (tgt-cur)*k;
+}
+
+var C_GROUND='#0d0b0e', C_NI='#e2542f', C_KINARI='#e8e2d6';
+
+// ═══════════════════════════════════════════════════════════════════════
+//  BUFFERS ─ all of these are built once per resize and never again
+// ═══════════════════════════════════════════════════════════════════════
+var W=1, H=1, DPR=1;
+var WORK_PX = 88000;                 // the real-time budget, in pixels
+var WW=1, WH=1;
+var workCv=null, wctx=null;
+var img=null;                        // the one ImageData, reused every frame
+var lumA=null;                       // luminance, one byte a pixel
+var keyA=null;                       // the sort key (luminance, or hue)
+var scratchP=null;                   // gathered pixels for one run
+var scratchK=null;                   // and their keys
+var scratchI=null;                   // the ordering
+var hist=null;                       // 256 counting-sort buckets
+
+function resize(){
+  DPR = Math.min(2, (window.devicePixelRatio || 1));
+  W = Math.max(1, Math.floor(window.innerWidth));
+  H = Math.max(1, Math.floor(window.innerHeight));
+  view.width  = Math.floor(W*DPR);
+  view.height = Math.floor(H*DPR);
+  view.style.width = W+'px'; view.style.height = H+'px';
+  g.setTransform(DPR,0,0,DPR,0,0);
+  g.imageSmoothingEnabled = true;
+  buildWork();
+}
+
+function buildWork(){
+  var aspect = W/H;
+  var w = Math.round(Math.sqrt(WORK_PX*aspect));
+  var h = Math.round(WORK_PX/Math.max(w,1));
+  WW = clamp(w, 120, 620);
+  WH = clamp(h, 120, 620);
+  if (!workCv){
+    workCv = document.createElement('canvas');
+    wctx = workCv.getContext('2d');
+  }
+  if (!wctx) return;
+  workCv.width = WW; workCv.height = WH;
+  wctx.setTransform(1,0,0,1,0,0);
+  wctx.fillStyle = C_GROUND; wctx.fillRect(0,0,WW,WH);
+
+  var n = WW*WH;
+  img = wctx.createImageData(WW, WH);
+  lumA = new Uint8Array(n);
+  keyA = new Uint8Array(n);
+  var maxRun = Math.max(WW, WH);
+  scratchP = new Uint8ClampedArray(maxRun*4);
+  scratchK = new Uint8Array(maxRun);
+  scratchI = new Uint16Array(maxRun);
+  hist = new Uint32Array(256);
+  primed = false;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  KEYS
+// ═══════════════════════════════════════════════════════════════════════
+function buildKeys(d, useHue){
+  var n = WW*WH, i, p=0, r, gg, b, mx, mn, dd, h;
+  for (i=0;i<n;i++){
+    r = d[p]; gg = d[p+1]; b = d[p+2];
+    lumA[i] = (77*r + 150*gg + 29*b) >> 8;
+    if (useHue){
+      mx = r>gg ? (r>b?r:b) : (gg>b?gg:b);
+      mn = r<gg ? (r<b?r:b) : (gg<b?gg:b);
+      dd = mx-mn;
+      if (dd === 0){ keyA[i] = 0; }
+      else {
+        if (mx === r)       h = ((gg-b)/dd + 6) % 6;
+        else if (mx === gg) h = (b-r)/dd + 2;
+        else                h = (r-gg)/dd + 4;
+        h = h*42.5;
+        keyA[i] = h < 0 ? 0 : (h > 255 ? 255 : (h|0));
+      }
+    } else {
+      keyA[i] = lumA[i];
+    }
+    p += 4;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  THE SORT
+//
+//  One run is a contiguous stretch of pixels along the axis whose
+//  luminance is at or above the threshold.  `base` is the pixel index of
+//  the first, `stride` the pixel step (WW down a column, 1 across a row),
+//  `len` the count.  Sorting is a permutation of those `len` pixels and
+//  nothing outside [base, base + stride*(len-1)] is ever touched — that is
+//  the invariant the whole effect rests on.
+// ═══════════════════════════════════════════════════════════════════════
+var INSERTION_MAX = 40;
+
+function sortRun(d, base, stride, len, reverse){
+  if (len < 2) return;
+  var i, j, k, si, pi;
+
+  // gather: the run's keys and pixels, packed
+  for (i=0;i<len;i++){
+    pi = base + i*stride;
+    scratchK[i] = keyA[pi];
+    si = i*4; pi *= 4;
+    scratchP[si]   = d[pi];
+    scratchP[si+1] = d[pi+1];
+    scratchP[si+2] = d[pi+2];
+    scratchP[si+3] = d[pi+3];
+  }
+
+  if (len <= INSERTION_MAX){
+    // insertion sort over the ordering only; below ~40 this beats paying
+    // for a 256-bucket prefix sum
+    for (i=0;i<len;i++) scratchI[i] = i;
+    for (i=1;i<len;i++){
+      var vi = scratchI[i], vk = scratchK[vi];
+      j = i-1;
+      while (j >= 0 && scratchK[scratchI[j]] > vk){ scratchI[j+1] = scratchI[j]; j--; }
+      scratchI[j+1] = vi;
+    }
+  } else {
+    // counting sort: O(len + 256), and the keys are already bytes
+    for (k=0;k<256;k++) hist[k] = 0;
+    for (i=0;i<len;i++) hist[scratchK[i]]++;
+    var acc = 0, t;
+    for (k=0;k<256;k++){ t = hist[k]; hist[k] = acc; acc += t; }
+    for (i=0;i<len;i++){ scratchI[hist[scratchK[i]]++] = i; }
+  }
+
+  // scatter, forwards or backwards along the run
+  for (i=0;i<len;i++){
+    var src = scratchI[reverse ? (len-1-i) : i];
+    pi = (base + i*stride)*4;
+    si = src*4;
+    d[pi]   = scratchP[si];
+    d[pi+1] = scratchP[si+1];
+    d[pi+2] = scratchP[si+2];
+    d[pi+3] = scratchP[si+3];
+  }
+}
+
+// walk one line (a column or a row), find its runs, sort each
+function sortLine(d, base, stride, count, thr, maxRun, revAt){
+  var i = 0, start, len;
+  while (i < count){
+    while (i < count && lumA[base + i*stride] < thr) i++;
+    if (i >= count) return;
+    start = i;
+    while (i < count && lumA[base + i*stride] >= thr && (i-start) < maxRun) i++;
+    len = i - start;
+    if (len > 1){
+      // revAt is where the hand sits along this line, in [0,count). runs
+      // whose middle falls inside the band around it pour the other way
+      var mid = start + len*0.5;
+      var rev = (revAt >= 0) && (Math.abs(mid - revAt) < count*0.22);
+      sortRun(d, base + start*stride, stride, len, rev);
+    }
+    // a run truncated by maxRun simply continues as the next run: the scan
+    // has already advanced past `start`, so this cannot spin
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  CAMERA
+// ═══════════════════════════════════════════════════════════════════════
+var facing='user', mirror=true, stream=null, camOK=false;
+
+function showError(e){
+  var msg = (e && e.message) ? e.message : String(e || 'unknown');
+  errBox.style.display='block';
+  errBox.textContent = 'カメラを起動できませんでした：' + msg +
+    '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+}
+function startStream(){
+  var md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) return Promise.reject(new Error('getUserMedia is unavailable'));
+  if (stream && stream.getTracks) stream.getTracks().forEach(function(t){ t.stop(); });
+  return md.getUserMedia({
+    video:{ facingMode:{ ideal:facing }, width:{ ideal:960 }, height:{ ideal:720 } },
+    audio:false
+  }).then(function(st){
+    stream=st; video.srcObject=st; mirror=(facing==='user'); camOK=true;
+    primed=false;
+    var p = video.play();
+    return (p && p.then) ? p.catch(function(){}) : null;
+  });
+}
+flipBtn.addEventListener('click', function(){
+  facing = (facing==='user') ? 'environment' : 'user';
+  loseHand();
+  startStream().then(startMpCamera).catch(showError);
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+//  HAND ─ three continuous controls, no gestures, so no thresholds
+// ═══════════════════════════════════════════════════════════════════════
+var hands=null, mpCamera=null, mpReady=false;
+var LOST_S = 0.4;
+var TIPS = [4,8,12,16,20];
+var Hn = { live:false, t:-1e9, x:0.5, y:0.5, open:0.5, tips:null };
+
+function loseHand(){ Hn.live=false; Hn.tips=null; }
+function initHands(){
+  if (typeof window.Hands !== 'function') return false;
+  try{
+    hands = new window.Hands({ locateFile:function(f){
+      return 'https://cdn.jsdelivr.net/npm/@mediapipe/hands/' + f;
+    }});
+    hands.setOptions({ maxNumHands:1, modelComplexity:0,
+                       minDetectionConfidence:0.6, minTrackingConfidence:0.5 });
+    hands.onResults(onHands);
+    mpReady=true; return true;
+  }catch(e){ return false; }
+}
+function startMpCamera(){
+  if (!mpReady || !hands || mpCamera) return;
+  if (typeof window.Camera !== 'function') return;
+  try{
+    mpCamera = new window.Camera(video, {
+      onFrame:function(){
+        if (!hands) return Promise.resolve();
+        return hands.send({ image: video }).catch(function(){});
+      },
+      width:480, height:360
+    });
+    mpCamera.start();
+  }catch(e){ mpCamera=null; }
+}
+function validLm(c){
+  if (!c || typeof c.length !== 'number' || c.length < 21) return null;
+  for (var i=0;i<21;i++){
+    var p = c[i];
+    if (!p || typeof p.x!=='number' || typeof p.y!=='number' ||
+        !isFinite(p.x) || !isFinite(p.y)) return null;
+  }
+  return c;
+}
+function onHands(res){
+  var list = (res && res.multiHandLandmarks) ? res.multiHandLandmarks : null;
+  var lm = (list && list.length) ? validLm(list[0]) : null;
+  if (!lm) return;
+  var wr = lm[0], mc = lm[9];
+  var palm = Math.hypot(mc.x-wr.x, mc.y-wr.y);
+  if (!isFinite(palm) || palm < 1e-4) return;
+  var sum=0, i, p, tips=[];
+  for (i=0;i<TIPS.length;i++){
+    p = lm[TIPS[i]];
+    sum += Math.hypot(p.x-wr.x, p.y-wr.y);
+    tips.push({ x:p.x, y:p.y });
+  }
+  var ratio = (sum/TIPS.length)/palm;
+  if (!isFinite(ratio)) return;
+  var px = (wr.x+mc.x)*0.5, py = (wr.y+mc.y)*0.5;
+  Hn.x = mirror ? (1-px) : px;
+  Hn.y = py;
+  Hn.open = clamp((ratio-1.30)/0.95, 0, 1);
+  Hn.tips = tips;
+  Hn.t = now(); Hn.live = true;
+}
+function handAlive(){ return Hn.live && (now()-Hn.t) < LOST_S; }
+
+// ═══════════════════════════════════════════════════════════════════════
+//  STATE
+// ═══════════════════════════════════════════════════════════════════════
+var MODES = [
+  { id:'m0', axis:'v', hue:false, name:'DRIP',     jp:'したたり' },
+  { id:'m1', axis:'v', hue:true,  name:'SPECTRUM', jp:'にじ' },
+  { id:'m2', axis:'h', hue:false, name:'SIDEWAYS', jp:'よこなぐり' }
+];
+var mode = 0;
+var INJECT = 0.12;            // how much live camera is admitted per frame
+var running = false, primed = false;
+var thr = 140, runFrac = 0.45;      // both eased, both hand driven
+var hx = 0.5, hy = 0.5;
+
+function setMode(i){
+  mode = clamp(i|0, 0, MODES.length-1);
+  var k;
+  for (k=0;k<MODES.length;k++){
+    var el = document.getElementById(MODES[k].id);
+    if (el){ if (k===mode) el.classList.add('on'); else el.classList.remove('on'); }
+  }
+  primed = false;         // a mode change starts the melt over
+}
+MODES.forEach(function(m, i){
+  var el = document.getElementById(m.id);
+  if (el) el.addEventListener('click', function(){ setMode(i); });
+});
+
+function update(dt){
+  var live = handAlive();
+  // hand high  -> low threshold -> more of the picture melts
+  var thrT  = live ? clamp(20 + Hn.y*215, 20, 240) : 140;
+  var runT  = live ? clamp(0.04 + Hn.open*0.80, 0.04, 0.90) : 0.45;
+  thr      = follow(thr, thrT, 0.14, dt);
+  runFrac  = follow(runFrac, runT, 0.16, dt);
+  if (live){ hx = follow(hx, Hn.x, 0.09, dt); hy = follow(hy, Hn.y, 0.09, dt); }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  THE FRAME
+// ═══════════════════════════════════════════════════════════════════════
+function drawVideoInto(ctx, w, h, alpha){
+  if (!camOK || !video || !video.videoWidth) return false;
+  var vw = video.videoWidth, vh = video.videoHeight;
+  if (!vw || !vh) return false;
+  var sc = Math.max(w/vw, h/vh);
+  ctx.save();
+  ctx.globalAlpha = clamp(alpha,0,1);
+  if (mirror){ ctx.translate(w,0); ctx.scale(-1,1); }
+  ctx.drawImage(video, (w-vw*sc)/2, (h-vh*sc)/2, vw*sc, vh*sc);
+  ctx.restore();
+  return true;
+}
+
+var camTick = 0;
+function process(){
+  if (!wctx || !img) return;
+  var m = MODES[mode];
+  var d = img.data;                    // THE persistent buffer. one, forever.
+
+  // The camera is read every other frame and blended at twice the dose,
+  // which halves the only allocation left in the loop — getImageData is the
+  // one call in this API that must hand back a fresh object. Everything
+  // else here, the output ImageData included, is allocated on resize.
+  camTick++;
+  if (!primed || (camTick & 1) === 0){
+    wctx.setTransform(1,0,0,1,0,0);
+    wctx.globalCompositeOperation = 'source-over';
+    wctx.fillStyle = C_GROUND; wctx.fillRect(0,0,WW,WH);
+    if (drawVideoInto(wctx, WW, WH, 1)){
+      var cam = wctx.getImageData(0, 0, WW, WH);
+      var cd = cam.data, n = WW*WH*4, q;
+      if (!primed){
+        // the first frame after start, flip or a mode change is taken
+        // whole, so the melt begins from a picture rather than from black
+        for (q=0;q<n;q+=4){
+          d[q]=cd[q]; d[q+1]=cd[q+1]; d[q+2]=cd[q+2]; d[q+3]=255;
+        }
+        primed = true;
+      } else {
+        var a = clamp(INJECT*2, 0, 1);
+        for (q=0;q<n;q+=4){
+          d[q]   += (cd[q]  -d[q]  )*a;
+          d[q+1] += (cd[q+1]-d[q+1])*a;
+          d[q+2] += (cd[q+2]-d[q+2])*a;
+          d[q+3]  = 255;
+        }
+      }
+    }
+  }
+  buildKeys(d, m.hue);
+
+  var t = Math.round(clamp(thr, 0, 255));
+  var i;
+  if (m.axis === 'v'){
+    var maxRun = Math.max(2, Math.round(runFrac*WH));
+    var revY = handAlive() ? clamp(hy,0,1)*WH : -1;
+    var revHalfX = WW*0.16;
+    for (i=0;i<WW;i++){
+      var near = handAlive() && Math.abs(i - clamp(hx,0,1)*WW) < revHalfX;
+      sortLine(d, i, WW, WH, t, maxRun, near ? revY : -1);
+    }
+  } else {
+    var maxRunH = Math.max(2, Math.round(runFrac*WW));
+    var revX = handAlive() ? clamp(hx,0,1)*WW : -1;
+    var revHalfY = WH*0.16;
+    for (i=0;i<WH;i++){
+      var nearR = handAlive() && Math.abs(i - clamp(hy,0,1)*WH) < revHalfY;
+      sortLine(d, i*WW, 1, WW, t, maxRunH, nearR ? revX : -1);
+    }
+  }
+  wctx.putImageData(img, 0, 0);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  CHROME
+// ═══════════════════════════════════════════════════════════════════════
+function drawChrome(){
+  var s = Math.min(W,H);
+  var pad = Math.max(12, s*0.045);
+  g.save();
+
+  // the threshold ruler down the left edge, and the live mark on it
+  var rt = H*0.16, rb = H*0.72, rx = pad*0.55;
+  g.strokeStyle = 'rgba(232,226,214,0.20)'; g.lineWidth = 1;
+  g.beginPath(); g.moveTo(rx+0.5, rt); g.lineTo(rx+0.5, rb); g.stroke();
+  var k;
+  for (k=0;k<=8;k++){
+    var ty = rt + (rb-rt)*(k/8);
+    g.beginPath(); g.moveTo(rx - s*0.010, ty); g.lineTo(rx + s*0.006, ty); g.stroke();
+  }
+  var mk = rt + (rb-rt)*clamp(thr/255, 0, 1);
+  g.strokeStyle = C_NI; g.lineWidth = Math.max(2, s*0.005);
+  g.beginPath(); g.moveTo(rx - s*0.022, mk); g.lineTo(rx + s*0.016, mk); g.stroke();
+  g.fillStyle = C_NI;
+  g.textAlign='left'; g.textBaseline='middle';
+  g.font = '300 '+Math.max(9, s*0.024).toFixed(1)+'px "Big Shoulders Display",sans-serif';
+  g.fillText(String(Math.round(thr)), rx + s*0.026, mk);
+  g.save();
+  g.translate(rx - s*0.006, rt - s*0.028);
+  g.fillStyle = 'rgba(232,226,214,0.45)';
+  g.font = '400 '+Math.max(8, s*0.020).toFixed(1)+'px "Zen Old Mincho",serif';
+  g.textAlign='left'; g.textBaseline='alphabetic';
+  g.fillText('しきい', 0, 0);
+  g.restore();
+
+  // title
+  g.textAlign='left'; g.textBaseline='alphabetic';
+  g.fillStyle='rgba(232,226,214,0.72)';
+  g.font = '700 '+Math.max(14, s*0.052).toFixed(1)+'px "Big Shoulders Display",sans-serif';
+  g.fillText('SHITATARI', pad, Math.max(22, s*0.075));
+  g.fillStyle='rgba(232,226,214,0.32)';
+  g.font = '400 '+Math.max(8, s*0.020).toFixed(1)+'px "Zen Old Mincho",serif';
+  g.fillText(MODES[mode].jp + '　一筋 ' + Math.round(runFrac*100) + '%',
+             pad, Math.max(22, s*0.075) + s*0.030);
+
+  // the hand: a bare bracket and its five tips, and the band inside which
+  // the flow runs backwards
+  if (handAlive()){
+    var px = clamp(hx,0,1)*W, py = clamp(hy,0,1)*H;
+    var vertical = (MODES[mode].axis === 'v');
+    g.strokeStyle = 'rgba(226,84,47,0.34)'; g.lineWidth = 1;
+    g.setLineDash([s*0.014, s*0.012]);
+    g.beginPath();
+    if (vertical){
+      var bw = W*0.16;
+      g.moveTo(px-bw, 0); g.lineTo(px-bw, H);
+      g.moveTo(px+bw, 0); g.lineTo(px+bw, H);
+    } else {
+      var bh = H*0.16;
+      g.moveTo(0, py-bh); g.lineTo(W, py-bh);
+      g.moveTo(0, py+bh); g.lineTo(W, py+bh);
+    }
+    g.stroke();
+    g.setLineDash([]);
+    var r = s*0.040*(0.5+Hn.open*0.7);
+    g.strokeStyle = 'rgba(232,226,214,0.80)';
+    g.lineWidth = Math.max(1.5, s*0.004);
+    g.beginPath(); g.arc(px, py, r, -0.85, 0.85); g.stroke();
+    g.beginPath(); g.arc(px, py, r, Math.PI-0.85, Math.PI+0.85); g.stroke();
+    if (Hn.tips && Hn.tips.length===5){
+      for (k=0;k<5;k++){
+        var tp = Hn.tips[k];
+        var tx = (mirror ? (1-tp.x) : tp.x)*W, ty2 = tp.y*H;
+        g.fillStyle = 'rgba(226,84,47,0.85)';
+        g.beginPath(); g.arc(tx, ty2, Math.max(1.5, s*0.0055), 0, 6.2831853); g.fill();
+      }
+    }
+  } else {
+    g.textAlign='center'; g.textBaseline='alphabetic';
+    g.fillStyle='rgba(232,226,214,0.34)';
+    g.font = '400 '+Math.max(10, s*0.026).toFixed(1)+'px "Zen Old Mincho",serif';
+    g.fillText('手をかざすと流れが変わる', W*0.5, H*0.885);
+  }
+  g.restore();
+}
+
+function render(){
+  g.setTransform(DPR,0,0,DPR,0,0);
+  g.fillStyle = C_GROUND; g.fillRect(0,0,W,H);
+  if (workCv && WW>0 && WH>0){
+    // the work buffer already carries the screen's aspect, so this is a
+    // straight upscale with no letterbox in the common case
+    g.drawImage(workCv, 0, 0, WW, WH, 0, 0, W, H);
+  }
+  drawChrome();
+}
+
+var lastT=0, rafId=0;
+function frame(){
+  rafId = requestAnimationFrame(frame);
+  var t = now();
+  var dt = clamp(t-lastT, 0, 0.05);
+  lastT = t;
+  if (running){ update(dt); process(); }
+  render();
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  START SHEET DEMO ─ the real algorithm, run on a synthetic frame
+// ═══════════════════════════════════════════════════════════════════════
+var dg = demoCv ? demoCv.getContext('2d') : null;
+var demoRaf=0, dImg=null, dLum=null, dT=0, DW=155, DH=63;
+function demoSeed(){
+  if (!dg) return;
+  dImg = dg.createImageData(DW, DH);
+  var d = dImg.data, x, y, i;
+  for (y=0;y<DH;y++){
+    for (x=0;x<DW;x++){
+      i = (y*DW+x)*4;
+      // a warm blob on a cold ground: enough structure to have runs
+      var dx = (x-DW*0.5)/(DW*0.30), dy = (y-DH*0.46)/(DH*0.42);
+      var v = Math.exp(-(dx*dx+dy*dy)*1.5);
+      var n = Math.random()*0.16;
+      d[i]   = clamp((22 + v*236 + n*80), 0, 255);
+      d[i+1] = clamp((18 + v*140 + n*60), 0, 255);
+      d[i+2] = clamp((26 + v*70  + n*90), 0, 255);
+      d[i+3] = 255;
+    }
+  }
+  dLum = new Uint8Array(DW*DH);
+}
+function demoFrame(){
+  demoRaf = requestAnimationFrame(demoFrame);
+  if (!dg) return;
+  dT += 1/60;
+  if (!dImg || dT > 5.2){ demoSeed(); dT = 0; }
+  if (!dImg || !dLum) return;
+  var d = dImg.data, i, p=0, n=DW*DH;
+  for (i=0;i<n;i++){ dLum[i] = (77*d[p] + 150*d[p+1] + 29*d[p+2]) >> 8; p+=4; }
+  // one pass of the same sort, straight down, on the demo's own buffer
+  var x, y, start, len;
+  for (x=0;x<DW;x++){
+    y = 0;
+    while (y < DH){
+      while (y < DH && dLum[y*DW+x] < 92) y++;
+      if (y >= DH) break;
+      start = y;
+      while (y < DH && dLum[y*DW+x] >= 92) y++;
+      len = y-start;
+      if (len > 1) demoSortRun(d, dLum, x, start, len);
+    }
+  }
+  dg.setTransform(1,0,0,1,0,0);
+  dg.fillStyle = '#0d0b0e'; dg.fillRect(0,0,demoCv.width,demoCv.height);
+  dg.putImageData(dImg, 0, 0);
+  dg.imageSmoothingEnabled = false;
+  dg.drawImage(demoCv, 0, 0, DW, DH, 0, 0, demoCv.width, demoCv.height);
+  dg.fillStyle = 'rgba(232,226,214,0.5)';
+  dg.textAlign='left'; dg.textBaseline='top';
+  dg.font = '400 15px "Zen Old Mincho",serif';
+  dg.fillText('同じ絵を、毎フレームもう一度並べ替える', 14, 12);
+}
+function demoSortRun(d, lum, x, start, len){
+  var arr = [], i, idx;
+  for (i=0;i<len;i++){
+    idx = (start+i)*DW + x;
+    arr.push([lum[idx], d[idx*4], d[idx*4+1], d[idx*4+2]]);
+  }
+  arr.sort(function(a,b){ return a[0]-b[0]; });
+  for (i=0;i<len;i++){
+    idx = ((start+i)*DW + x)*4;
+    d[idx] = arr[i][1]; d[idx+1] = arr[i][2]; d[idx+2] = arr[i][3]; d[idx+3] = 255;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  BOOT
+// ═══════════════════════════════════════════════════════════════════════
+function begin(){
+  startSheet.classList.add('hide');
+  bar.classList.remove('hide');
+  if (demoRaf){ cancelAnimationFrame(demoRaf); demoRaf=0; }
+  running = true;
+  primed = false;
+  lastT = now();
+  startStream().then(function(){
+    if (initHands()) startMpCamera();
+  }).catch(showError);
+  if (!rafId) frame();
+}
+startBtn.addEventListener('click', begin);
+
+window.addEventListener('resize', resize);
+if (window.visualViewport) window.visualViewport.addEventListener('resize', resize);
+resize();
+render();
+demoSeed();
+demoFrame();
+</script>
+</body>
+</html>
