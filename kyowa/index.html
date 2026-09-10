@@ -1,0 +1,943 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>KYOWA ─ 協和のリサージュ</title>
+<meta name="description" content="左手が基の音、右手がそれに応える音。二つの音の比がそのまま画面のリサージュ図形になり、比が濁っているあいだ図形は唸りの速さで回りつづける。純正な比に近づくと図形は回るのをやめて一本の線に凍り、二つの音の倍音が重なって一つの音に融ける。合わせるのは目ではなく耳。">
+<meta name="theme-color" content="#eef2f4">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;600&family=Murecho:wght@300;600&display=swap" rel="stylesheet">
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  KYOWA ─ 協和のリサージュ                          ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  PALETTE   氷    kori   #eef2f4  the sheet. a cold white, not a cream —
+                                  this is drafting stock, not paper
+            水    mizu   #9fc3d0  the millimetre grid, and the heavy decade
+                                  rules a shade darker
+            藍    ai     #12324a  the ink. every line that means something
+            朱    shu    #c8442e  OUT OF TUNE, and nothing else in the piece
+                                  is allowed to be warm
+            金    kin    #b58a2e  LOCKED. it appears only at the moment the
+                                  figure stops turning, so gold in this piece
+                                  is a reward and never decoration
+            MOOD: a measuring instrument on a drawing board under even north
+            light. Cold, exact, unhurried. Nothing glows, nothing blooms,
+            nothing is centred for prettiness — the figure sits inside a
+            ruled frame with its readouts along the bottom like a chart.
+  BACKGROUND  A real millimetre grid ruled once to an offscreen canvas on
+            resize: a fine rule every 8px, a heavy one every 5th, and a
+            centre cross drawn full width and height. The camera is
+            composited over the whole sheet in 'multiply' at 0.07, so the
+            room's shadow moves across the board.
+  TYPE      IBM Plex Mono 300/600 for every number — frequencies, cents,
+            beat rate, ratios — because they are readings, and a reading is
+            monospaced. Murecho 300/600 for Japanese. Small throughout: this
+            piece never shouts, and the largest thing on screen is the
+            figure itself.
+  MOTION    Slow and damped. Every value the hands drive is a first-order
+            filter with a ~120ms time constant, so nothing on this board can
+            snap. There is not one overshoot, not one bounce, and not one
+            elastic ease anywhere — the opposite of a toy.
+  SIGNATURE THE FIGURE REMEMBERS ITS OWN TUNING. The Lissajous trace is
+            drawn into a buffer that only fades ~9% a frame, so a detuned
+            interval, whose figure precesses at exactly the beat rate,
+            smears itself into a shimmering torus, while a locked one lays
+            down the same line over and over until it is a single hard
+            stroke. You can see the tuning converge before you can hear it,
+            and the width of the smear IS the error.
+  AUDIO     Two stopped organ pipes and the physics of consonance. Each
+            voice is six real harmonics with a breath of bandpassed noise at
+            the fundamental. The interval is free — your hand sets any ratio
+            it likes — but within 45 cents of a just ratio a gravity pulls
+            the rest of the way, the way a singer locks onto a chord. The
+            residual closes as the CUBE of the error, which is what makes
+            this playable with a hand: 45c is untouched, 20c becomes a 4c
+            shimmer you can hear as a slow beat, and 10c — about as near as
+            a hand can be held — shuts to half a cent. On
+            lock the piece does what consonance physically IS: the partials
+            of the upper voice that coincide with partials of the lower one
+            are found each frame and lifted, so the two tones fuse into one
+            spectrum instead of merely sounding nice together. Everything
+            into one compressor.
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;overflow:hidden;background:#e4eaee;
+    -webkit-text-size-adjust:100%;-webkit-tap-highlight-color:transparent}
+  body{font-family:'IBM Plex Mono',ui-monospace,monospace;color:#12324a}
+  #view{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+  #video{position:fixed;width:2px;height:2px;opacity:.001;pointer-events:none;left:0;top:0}
+
+  #flip{
+    position:fixed;right:calc(env(safe-area-inset-right,0px) + .8rem);
+    top:calc(env(safe-area-inset-top,0px) + .8rem);z-index:30;
+    background:rgba(238,242,244,.9);color:#2c556e;border:1px solid rgba(18,50,74,.28);
+    border-radius:1px;padding:.42rem .7rem;font:300 .62rem/1 'IBM Plex Mono',monospace;
+    letter-spacing:.2em;cursor:pointer;backdrop-filter:blur(4px)
+  }
+  #flip:active{background:#12324a;color:#eef2f4}
+  #err{
+    position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:40;
+    display:none;max-width:22rem;white-space:pre-wrap;text-align:center;
+    background:#eef2f4;border:1px solid #c8442e;border-radius:1px;
+    padding:1rem 1.1rem;font:300 .78rem/1.9 'Murecho',system-ui,sans-serif;
+    color:#3a4a55;letter-spacing:.02em
+  }
+
+  .sheet{
+    position:fixed;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;
+    background:#e4eaee;padding:1.2rem;overflow:auto
+  }
+  .sheet.hide{display:none}
+  .panel{
+    width:min(30rem,100%);background:#eef2f4;color:#12324a;
+    border:1px solid rgba(18,50,74,.24);box-shadow:0 18px 46px rgba(30,60,80,.16);
+    padding:1.5rem 1.35rem 1.6rem;position:relative
+  }
+  .panel::after{content:'';position:absolute;inset:6px;border:1px solid rgba(18,50,74,.12);pointer-events:none}
+  .stamp{
+    display:flex;justify-content:space-between;font:300 .58rem/1 'IBM Plex Mono',monospace;
+    letter-spacing:.26em;color:#7e9aab;margin-bottom:1.05rem
+  }
+  .panel h1{
+    font-family:'IBM Plex Mono',monospace;font-weight:300;
+    font-size:clamp(2rem,9.5vw,2.7rem);line-height:1;letter-spacing:.06em;color:#12324a
+  }
+  .panel h1 b{display:block;font-family:'Murecho',sans-serif;font-size:.33em;font-weight:600;
+    letter-spacing:.34em;color:#2c7f96;margin-top:.75rem}
+  #demo{display:block;width:100%;height:auto;margin:1.1rem 0 .95rem;background:#e7edf0;border:1px solid rgba(18,50,74,.16)}
+  .lead{font:300 .82rem/1.95 'Murecho',system-ui,sans-serif;color:#33505f}
+  .lead em{font-style:normal;font-weight:600;color:#12324a;border-bottom:1px solid rgba(44,127,150,.5)}
+  .rules{list-style:none;margin:.9rem 0 1.25rem;border-top:1px solid rgba(18,50,74,.14)}
+  .rules li{
+    font:300 .72rem/1.75 'Murecho',system-ui,sans-serif;color:#5b7383;
+    padding:.5rem 0 .5rem .95rem;border-bottom:1px solid rgba(18,50,74,.09);position:relative
+  }
+  .rules li::before{content:'';position:absolute;left:0;top:1.08em;width:5px;height:1px;background:#2c7f96}
+  .go{
+    display:block;width:100%;padding:.85rem;background:#12324a;color:#eef2f4;border:none;
+    font:600 .78rem/1 'IBM Plex Mono',monospace;letter-spacing:.44em;text-indent:.44em;cursor:pointer;
+    transition:background .18s ease
+  }
+  .go:active{background:#0a1e2e}
+</style>
+</head>
+<body>
+
+<canvas id="view"></canvas>
+<video id="video" playsinline muted autoplay></video>
+<button id="flip">⟲ カメラ</button>
+<div id="err"></div>
+
+<div class="sheet" id="startSheet">
+  <div class="panel">
+    <div class="stamp"><span>OTO-II / KYOWA</span><span>協和のリサージュ</span></div>
+    <h1>KYOWA<b>きょうわ</b></h1>
+    <canvas id="demo" width="620" height="300"></canvas>
+    <p class="lead">画面の<em>左半分</em>の手が「基」、<em>右半分</em>の手が「応」。手の高さが音になり、二つの音の比がそのまま図形になる。比が濁っていると図形は<em>唸りの速さで回る</em>。純正な比に合うと、回るのをやめて一本の線になる。</p>
+    <ul class="rules">
+      <li>基は音階の上を段で動く。応は段が無く、どこにでも置ける</li>
+      <li>手を握るとその声は消える。ひらくほど倍音が増える</li>
+      <li>図形が止まったとき、二つの音は一つの音に融けている</li>
+    </ul>
+    <button class="go" id="startBtn">START</button>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+<script>
+'use strict';
+// ═══════════════════════════════════════════════════════════════════════
+//  KYOWA ─ 協和のリサージュ
+//
+//  The whole piece is two numbers: fA, and a ratio.  Everything you see is
+//  derived from them and nothing is faked — the figure precesses because
+//  the two phase accumulators really do drift apart at the beat frequency,
+//  and the "lock" is not a snap but a gravity whose pull grows as you close
+//  in, so the last few cents close quadratically.
+// ═══════════════════════════════════════════════════════════════════════
+var view = document.getElementById('view');
+var g    = view.getContext('2d');
+var video      = document.getElementById('video');
+var errBox     = document.getElementById('err');
+var flipBtn    = document.getElementById('flip');
+var startSheet = document.getElementById('startSheet');
+var startBtn   = document.getElementById('startBtn');
+var demoCv     = document.getElementById('demo');
+
+var now = (typeof performance !== 'undefined' && performance.now)
+  ? function(){ return performance.now()/1000; }
+  : function(){ return Date.now()/1000; };
+
+function num(v,d){ return (typeof v==='number' && isFinite(v)) ? v : d; }
+function clamp(v,a,b){ return v<a?a:(v>b?b:v); }
+function lerp(a,b,t){ return a+(b-a)*t; }
+// first-order filter with a real time constant, frame-rate independent
+function follow(cur, target, tau, dt){
+  var k = 1 - Math.exp(-dt/Math.max(tau,1e-4));
+  return cur + (target-cur)*k;
+}
+
+var C_PAPER='#eef2f4', C_GRID='#9fc3d0', C_GRID_H='#7fadbe',
+    C_INK='#12324a', C_SHU='#c8442e', C_KIN='#b58a2e', C_TEAL='#2c7f96';
+
+// ═══════════════════════════════════════════════════════════════════════
+//  LAYOUT ─ a ruled board with a square figure well in the middle
+// ═══════════════════════════════════════════════════════════════════════
+var W=1, H=1, DPR=1;
+var gridCv=null, gridG=null;
+var scope = { x:0, y:0, s:1 };      // the square well the figure lives in
+var railL = { x:0, top:0, bot:0 }, railR = { x:0, top:0, bot:0 };
+var traceCv=null, traceG=null;
+
+function resize(){
+  DPR = Math.min(2, (window.devicePixelRatio || 1));
+  W = Math.max(1, Math.floor(window.innerWidth));
+  H = Math.max(1, Math.floor(window.innerHeight));
+  view.width  = Math.floor(W*DPR);
+  view.height = Math.floor(H*DPR);
+  view.style.width = W+'px'; view.style.height = H+'px';
+  g.setTransform(DPR,0,0,DPR,0,0);
+
+  var portrait = H > W;
+  var s = portrait ? Math.min(W*0.74, H*0.44) : Math.min(H*0.68, W*0.44);
+  scope.s = Math.max(80, s);
+  scope.x = W*0.5;
+  scope.y = portrait ? H*0.40 : H*0.46;
+
+  railL.x = portrait ? W*0.10 : W*0.13;
+  railR.x = W - railL.x;
+  railL.top = railR.top = H*0.13;
+  railL.bot = railR.bot = H*0.84;
+
+  buildGrid();
+  buildTrace();
+}
+
+function buildGrid(){
+  if (!gridCv){ gridCv = document.createElement('canvas'); gridG = gridCv.getContext('2d'); }
+  if (!gridG) return;
+  gridCv.width = W; gridCv.height = H;
+  var c = gridG, i;
+  c.setTransform(1,0,0,1,0,0);
+  c.fillStyle = C_PAPER; c.fillRect(0,0,W,H);
+  var step = 8;
+  c.lineWidth = 1;
+  for (i=0;i<=Math.ceil(W/step);i++){
+    var x = Math.floor(i*step)+0.5;
+    c.strokeStyle = (i%5===0) ? 'rgba(127,173,190,0.42)' : 'rgba(159,195,208,0.24)';
+    c.beginPath(); c.moveTo(x,0); c.lineTo(x,H); c.stroke();
+  }
+  for (i=0;i<=Math.ceil(H/step);i++){
+    var y = Math.floor(i*step)+0.5;
+    c.strokeStyle = (i%5===0) ? 'rgba(127,173,190,0.42)' : 'rgba(159,195,208,0.24)';
+    c.beginPath(); c.moveTo(0,y); c.lineTo(W,y); c.stroke();
+  }
+  // the centre cross, full bleed
+  c.strokeStyle = 'rgba(18,50,74,0.16)'; c.lineWidth = 1;
+  c.beginPath();
+  c.moveTo(0, Math.floor(scope.y)+0.5); c.lineTo(W, Math.floor(scope.y)+0.5);
+  c.moveTo(Math.floor(scope.x)+0.5, 0); c.lineTo(Math.floor(scope.x)+0.5, H);
+  c.stroke();
+}
+function buildTrace(){
+  if (!traceCv){ traceCv = document.createElement('canvas'); traceG = traceCv.getContext('2d'); }
+  if (!traceG) return;
+  var n = Math.max(64, Math.ceil(scope.s));
+  traceCv.width = n; traceCv.height = n;
+  traceG.setTransform(1,0,0,1,0,0);
+  traceG.clearRect(0,0,n,n);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  THE TUNING
+// ═══════════════════════════════════════════════════════════════════════
+// 基 walks a major pentatonic ladder — a scale with no semitones, so every
+// step it takes is already consonant with the step before it
+var LADDER = [0,2,4,7,9,12,14,16,19,21,24];
+var BASE_HZ = 196;                                   // G3
+var NOTE_NAMES = ['G','A','B','D','E','G','A','B','D','E','G'];
+var NOTE_OCT   = [3,3,3,4,4,4,4,4,5,5,5];
+
+// the consonant set 応 is pulled toward. sparse on purpose: about 150 cents
+// apart, so being out of tune is a thing you can choose to be
+var JUST = [
+  {n:1,d:1,  label:'1/1',  jp:'同度'},
+  {n:6,d:5,  label:'6/5',  jp:'短三度'},
+  {n:5,d:4,  label:'5/4',  jp:'長三度'},
+  {n:4,d:3,  label:'4/3',  jp:'四度'},
+  {n:3,d:2,  label:'3/2',  jp:'五度'},
+  {n:8,d:5,  label:'8/5',  jp:'短六度'},
+  {n:5,d:3,  label:'5/3',  jp:'長六度'},
+  {n:2,d:1,  label:'2/1',  jp:'八度'}
+];
+// cents. outside this the interval is exactly what your hand says it is.
+// 45 is not arbitrary: a hand on this rail can be held to about +-25 cents,
+// so a narrower capture than that would make a lock a matter of luck, and a
+// much wider one would leave no room to be out of tune on purpose.
+var CAPTURE = 45;
+
+function cents(r){ return 1200*Math.log(r)/Math.LN2; }
+
+// Pull a raw ratio toward the nearest just one. The residual closes as the
+// CUBE of the error — 45c stays 45c, 30c becomes 13c, 20c becomes 4c, 10c
+// becomes 0.5c, 5c becomes 0.06c — so the approach is felt as a shimmer
+// slowing to a stop rather than a snap, and the last of it is genuinely
+// shut instead of merely close. A quadratic law was tried first and needed
+// about a pixel of hand precision to hold a lock, which is no law at all.
+function gravity(raw){
+  var best=0, bd=1e9, i, c;
+  for (i=0;i<JUST.length;i++){
+    c = Math.abs(cents(raw/(JUST[i].n/JUST[i].d)));
+    if (c < bd){ bd = c; best = i; }
+  }
+  var j = JUST[best], tgt = j.n/j.d;
+  var dev = cents(raw/tgt);
+  var a = Math.abs(dev);
+  var res = (a < CAPTURE) ? dev*(a/CAPTURE)*(a/CAPTURE) : dev;
+  var out = tgt * Math.pow(2, res/1200);
+  return { r:out, just:j, dev:res, rawDev:dev, idx:best };
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  AUDIO ─ two stopped organ pipes, and the physics of fusion
+// ═══════════════════════════════════════════════════════════════════════
+var A=null, comp=null, master=null, noiseBuf=null, audioOn=false;
+var NPART = 6;
+var PART_A = [1.0, 0.42, 0.26, 0.17, 0.11, 0.075];
+var V = [];              // two voices, each with its own oscillator bank
+
+function mkNoise(){
+  if (!A) return null;
+  var n = Math.floor(A.sampleRate*2), b = A.createBuffer(1,n,A.sampleRate);
+  var d = b.getChannelData(0), i;
+  for (i=0;i<n;i++) d[i] = Math.random()*2-1;
+  return b;
+}
+function mkVoice(){
+  var v = { osc:[], pg:[], gain:null, lp:null, breathG:null, breathF:null };
+  v.gain = A.createGain(); v.gain.gain.value = 0;
+  v.lp   = A.createBiquadFilter(); v.lp.type='lowpass';
+  v.lp.frequency.value = 2600; v.lp.Q.value = 0.4;
+  v.gain.connect(v.lp); v.lp.connect(comp);
+  var k;
+  for (k=0;k<NPART;k++){
+    var o = A.createOscillator(); o.type='sine'; o.frequency.value = 220*(k+1);
+    var pg = A.createGain(); pg.gain.value = PART_A[k];
+    o.connect(pg); pg.connect(v.gain);
+    try{ o.start(); }catch(e){}
+    v.osc.push(o); v.pg.push(pg);
+  }
+  if (noiseBuf){
+    v.breathF = A.createBiquadFilter(); v.breathF.type='bandpass';
+    v.breathF.frequency.value = 220; v.breathF.Q.value = 6;
+    v.breathG = A.createGain(); v.breathG.gain.value = 0;
+    var s = A.createBufferSource(); s.buffer = noiseBuf; s.loop = true;
+    s.connect(v.breathF); v.breathF.connect(v.breathG); v.breathG.connect(v.gain);
+    try{ s.start(); }catch(e){}
+  }
+  return v;
+}
+function initAudio(){
+  if (audioOn) return;
+  var AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) return;
+  try { A = new AC(); } catch(e){ A=null; return; }
+  comp = A.createDynamicsCompressor();
+  try{
+    comp.threshold.value=-18; comp.knee.value=24; comp.ratio.value=6;
+    comp.attack.value=0.006; comp.release.value=0.25;
+  }catch(e){}
+  master = A.createGain(); master.gain.value = 0.62;
+  comp.connect(master); master.connect(A.destination);
+  noiseBuf = mkNoise();
+  V = [mkVoice(), mkVoice()];
+  audioOn = true;
+}
+function setP(p, v, tau){
+  if (!p) return;
+  v = num(v, 0);
+  try{
+    if (p.setTargetAtTime) p.setTargetAtTime(v, A.currentTime, Math.max(0.005, num(tau,0.05)));
+    else p.value = v;
+  }catch(e){ try{ p.value = v; }catch(e2){} }
+}
+
+// the moment the figure stops turning, marked with a single soft bell
+function lockBell(f){
+  if (!A) return;
+  var t = A.currentTime;
+  try{
+    var o = A.createOscillator(); o.type='sine';
+    o.frequency.value = clamp(num(f,440)*4, 100, 6000);
+    var og = A.createGain();
+    og.gain.setValueAtTime(0.0001,t);
+    og.gain.exponentialRampToValueAtTime(0.07, t+0.01);
+    og.gain.exponentialRampToValueAtTime(0.0001, t+1.1);
+    o.connect(og); og.connect(comp); o.start(t); o.stop(t+1.2);
+  }catch(e){}
+}
+
+// consonance, done honestly: find which partials of the upper voice land on
+// partials of the lower one and lift exactly those, so a locked interval
+// fuses into one spectrum instead of two tones that merely agree
+function applyVoice(vi, f, rich, amp, lock, fOther){
+  if (!audioOn || !V[vi]) return;
+  var v = V[vi], k;
+  for (k=0;k<NPART;k++){
+    var pf = f*(k+1);
+    var a  = PART_A[k]*Math.pow(clamp(rich,0,1), k*0.55);
+    if (lock > 0.02 && fOther > 1){
+      var q = pf/fOther;
+      var nearest = Math.round(q);
+      if (nearest >= 1 && Math.abs(q-nearest) < 0.012) a *= (1 + 0.85*lock);
+    }
+    setP(v.osc[k].frequency, clamp(pf, 20, 18000), 0.045);
+    setP(v.pg[k].gain, a, 0.06);
+  }
+  setP(v.gain.gain, clamp(amp,0,1)*0.19, 0.07);
+  setP(v.lp.frequency, clamp(700 + rich*3800 + lock*900, 200, 12000), 0.09);
+  if (v.breathF) setP(v.breathF.frequency, clamp(f, 40, 8000), 0.05);
+  if (v.breathG) setP(v.breathG.gain, clamp(amp,0,1)*0.028*(1-0.6*lock), 0.09);
+}
+function silenceVoice(vi){
+  if (!audioOn || !V[vi]) return;
+  setP(V[vi].gain.gain, 0, 0.12);
+  if (V[vi].breathG) setP(V[vi].breathG.gain, 0, 0.12);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  CAMERA
+// ═══════════════════════════════════════════════════════════════════════
+var facing='user', mirror=true, stream=null, camOK=false;
+
+function showError(e){
+  var msg = (e && e.message) ? e.message : String(e || 'unknown');
+  errBox.style.display='block';
+  errBox.textContent = 'カメラを起動できませんでした：' + msg +
+    '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+}
+function startStream(){
+  var md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) return Promise.reject(new Error('getUserMedia is unavailable'));
+  if (stream && stream.getTracks) stream.getTracks().forEach(function(t){ t.stop(); });
+  return md.getUserMedia({
+    video:{ facingMode:{ ideal:facing }, width:{ ideal:960 }, height:{ ideal:720 } },
+    audio:false
+  }).then(function(st){
+    stream=st; video.srcObject=st; mirror=(facing==='user'); camOK=true;
+    var p = video.play();
+    return (p && p.then) ? p.catch(function(){}) : null;
+  });
+}
+flipBtn.addEventListener('click', function(){
+  facing = (facing==='user') ? 'environment' : 'user';
+  loseHands();
+  startStream().then(startMpCamera).catch(showError);
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+//  HANDS ─ two, sorted by which half of the board they are over
+// ═══════════════════════════════════════════════════════════════════════
+var hands=null, mpCamera=null, mpReady=false;
+var LOST_S = 0.34;
+var TIPS = [4,8,12,16,20];
+
+// slot 0 = 基 (left half), slot 1 = 応 (right half)
+var Hs = [
+  { live:false, t:-1e9, x:0.2, y:0.5, open:0, tips:null },
+  { live:false, t:-1e9, x:0.8, y:0.5, open:0, tips:null }
+];
+function loseHands(){
+  var i;
+  for (i=0;i<2;i++){ Hs[i].live=false; Hs[i].tips=null; }
+}
+function initHands(){
+  if (typeof window.Hands !== 'function') return false;
+  try{
+    hands = new window.Hands({ locateFile:function(f){
+      return 'https://cdn.jsdelivr.net/npm/@mediapipe/hands/' + f;
+    }});
+    hands.setOptions({ maxNumHands:2, modelComplexity:0,
+                       minDetectionConfidence:0.6, minTrackingConfidence:0.5 });
+    hands.onResults(onHands);
+    mpReady=true; return true;
+  }catch(e){ return false; }
+}
+function startMpCamera(){
+  if (!mpReady || !hands || mpCamera) return;
+  if (typeof window.Camera !== 'function') return;
+  try{
+    mpCamera = new window.Camera(video, {
+      onFrame:function(){
+        if (!hands) return Promise.resolve();
+        return hands.send({ image: video }).catch(function(){});
+      },
+      width:480, height:360
+    });
+    mpCamera.start();
+  }catch(e){ mpCamera=null; }
+}
+function validLm(c){
+  if (!c || typeof c.length !== 'number' || c.length < 21) return null;
+  for (var i=0;i<21;i++){
+    var p = c[i];
+    if (!p || typeof p.x!=='number' || typeof p.y!=='number' ||
+        !isFinite(p.x) || !isFinite(p.y)) return null;
+  }
+  return c;
+}
+function readHand(lm){
+  var wr = lm[0], mc = lm[9];
+  var palm = Math.hypot(mc.x-wr.x, mc.y-wr.y);
+  if (!isFinite(palm) || palm < 1e-4) return null;
+  var sum=0, i, p, tips=[];
+  for (i=0;i<TIPS.length;i++){
+    p = lm[TIPS[i]];
+    sum += Math.hypot(p.x-wr.x, p.y-wr.y);
+    tips.push({ x:p.x, y:p.y });
+  }
+  var ratio = (sum/TIPS.length)/palm;
+  if (!isFinite(ratio)) return null;
+  var px = (wr.x+mc.x)*0.5, py = (wr.y+mc.y)*0.5;
+  return {
+    x: mirror ? (1-px) : px,
+    y: py,
+    // 1.30 shut, 2.30 fully open. this is a continuous control, not a
+    // gesture, so it wants no thresholds at all — only a clamp.
+    open: clamp((ratio-1.30)/0.95, 0, 1),
+    tips: tips
+  };
+}
+function onHands(res){
+  var list = (res && res.multiHandLandmarks) ? res.multiHandLandmarks : null;
+  if (!list || !list.length) return;
+  var t = now(), i, got=[null,null];
+  for (i=0;i<list.length && i<2;i++){
+    var lm = validLm(list[i]);
+    if (!lm) continue;
+    var h = readHand(lm);
+    if (!h) continue;
+    var slot = (h.x < 0.5) ? 0 : 1;
+    // if both hands land on the same half, the further one takes the other
+    if (got[slot]) slot = 1-slot;
+    if (got[slot]) continue;
+    got[slot] = h;
+  }
+  for (i=0;i<2;i++){
+    if (!got[i]) continue;
+    Hs[i].x = got[i].x; Hs[i].y = got[i].y;
+    Hs[i].open = got[i].open; Hs[i].tips = got[i].tips;
+    Hs[i].t = t; Hs[i].live = true;
+  }
+}
+function alive(i){ return Hs[i].live && (now()-Hs[i].t) < LOST_S; }
+
+// ═══════════════════════════════════════════════════════════════════════
+//  STATE
+// ═══════════════════════════════════════════════════════════════════════
+var S = {
+  running:false,
+  step:4,              // index into LADDER
+  fA:BASE_HZ, fB:BASE_HZ*1.5,
+  ratio:1.5, ratioRaw:1.5,
+  just:JUST[4], dev:0, lock:0, beat:0,
+  ampA:0, ampB:0, richA:0.5, richB:0.5,
+  phA:0, phB:0,
+  wasLocked:false, lockGlow:0,
+  hintT:0
+};
+
+function yToU(y){ return clamp((0.88 - y)/(0.88-0.12), 0, 1); }
+
+function update(dt){
+  var i;
+  // ── 基 ───────────────────────────────────────────────────────────────
+  if (alive(0)){
+    var u = yToU(Hs[0].y);
+    var idx = Math.round(u*(LADDER.length-1));
+    S.step = clamp(idx, 0, LADDER.length-1);
+    S.ampA = follow(S.ampA, Hs[0].open, 0.10, dt);
+    S.richA = follow(S.richA, 0.15 + Hs[0].open*0.85, 0.12, dt);
+  } else {
+    S.ampA = follow(S.ampA, 0, 0.18, dt);
+  }
+  var fATarget = BASE_HZ*Math.pow(2, LADDER[S.step]/12);
+  S.fA = follow(S.fA, fATarget, 0.045, dt);
+
+  // ── 応 ───────────────────────────────────────────────────────────────
+  if (alive(1)){
+    var uB = yToU(Hs[1].y);
+    S.ratioRaw = follow(S.ratioRaw, Math.pow(2, uB), 0.055, dt);
+    S.ampB = follow(S.ampB, Hs[1].open, 0.10, dt);
+    S.richB = follow(S.richB, 0.15 + Hs[1].open*0.85, 0.12, dt);
+  } else {
+    S.ampB = follow(S.ampB, 0, 0.18, dt);
+  }
+  var gr = gravity(clamp(S.ratioRaw, 0.98, 2.06));
+  S.ratio = gr.r; S.just = gr.just; S.dev = gr.dev;
+  S.fB = S.fA*S.ratio;
+
+  // lock: how nearly the figure has stopped turning
+  var lockT = clamp(1 - Math.abs(S.dev)/6, 0, 1);
+  S.lock = follow(S.lock, lockT, 0.12, dt);
+  // the beat rate you can hear: how far the coinciding partials are apart
+  S.beat = Math.abs(S.fB*S.just.d - S.fA*S.just.n);
+
+  var bothOn = (S.ampA > 0.12 && S.ampB > 0.12);
+  if (bothOn && S.lock > 0.86 && !S.wasLocked){ S.wasLocked = true; S.lockGlow = 1; lockBell(S.fA); }
+  if (S.lock < 0.6 || !bothOn) S.wasLocked = false;
+  S.lockGlow = Math.max(0, S.lockGlow - dt*1.1);
+
+  // ── phases really do drift; that is where the precession comes from ──
+  S.phA = (S.phA + 6.2831853*S.fA*dt) % 6.2831853;
+  S.phB = (S.phB + 6.2831853*S.fB*dt) % 6.2831853;
+
+  // ── audio ────────────────────────────────────────────────────────────
+  if (audioOn){
+    if (S.ampA > 0.002) applyVoice(0, S.fA, S.richA, S.ampA, S.lock, S.fB); else silenceVoice(0);
+    if (S.ampB > 0.002) applyVoice(1, S.fB, S.richB, S.ampB, S.lock, S.fA); else silenceVoice(1);
+  }
+  S.hintT += dt;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  THE FIGURE
+// ═══════════════════════════════════════════════════════════════════════
+var NPTS = 820;
+function drawFigure(){
+  if (!traceG) return;
+  var n = traceCv.width;
+  // fade what is already there — this is the whole signature
+  traceG.setTransform(1,0,0,1,0,0);
+  traceG.globalCompositeOperation = 'destination-out';
+  traceG.fillStyle = 'rgba(0,0,0,0.09)';
+  traceG.fillRect(0,0,n,n);
+  traceG.globalCompositeOperation = 'source-over';
+
+  var both = (S.ampA > 0.02 && S.ampB > 0.02);
+  if (!both) return;
+
+  // one period of the figure at the nearest just ratio, so a locked figure
+  // lays exactly one closed curve down every frame
+  var T = S.just.d / Math.max(S.fA, 1);
+  var R = n*0.5 - 2;
+  var cx = n*0.5, cy = n*0.5;
+  var col = S.lock > 0.5
+    ? 'rgba(181,138,46,' + (0.30+S.lock*0.55).toFixed(3) + ')'
+    : 'rgba(18,50,74,' + (0.22 + (1-Math.min(1,Math.abs(S.dev)/40))*0.16).toFixed(3) + ')';
+  traceG.strokeStyle = col;
+  traceG.lineWidth = Math.max(1, n*0.0035);
+  traceG.lineJoin = 'round'; traceG.lineCap='round';
+  traceG.beginPath();
+  var i, u, x, y;
+  for (i=0;i<=NPTS;i++){
+    u = (i/NPTS)*T;
+    x = cx + Math.sin(S.phA + 6.2831853*S.fA*u)*R*clamp(S.ampA,0,1);
+    y = cy - Math.sin(S.phB + 6.2831853*S.fB*u)*R*clamp(S.ampB,0,1);
+    if (i===0) traceG.moveTo(x,y); else traceG.lineTo(x,y);
+  }
+  traceG.stroke();
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  RAILS ─ the scale on the left, the consonant set on the right
+// ═══════════════════════════════════════════════════════════════════════
+function drawRails(c){
+  var s = Math.min(W,H), i;
+  var fs = Math.max(8, s*0.020);
+  c.save();
+  c.font = '300 '+fs.toFixed(1)+'px "IBM Plex Mono",monospace';
+  c.textBaseline='middle';
+
+  // ── 基 rail ──────────────────────────────────────────────────────────
+  c.strokeStyle = 'rgba(18,50,74,0.28)'; c.lineWidth=1;
+  c.beginPath(); c.moveTo(railL.x+0.5, railL.top); c.lineTo(railL.x+0.5, railL.bot); c.stroke();
+  for (i=0;i<LADDER.length;i++){
+    var yy = railL.bot + (railL.top-railL.bot)*(i/(LADDER.length-1));
+    var on = (i===S.step) && alive(0);
+    c.strokeStyle = on ? C_INK : 'rgba(18,50,74,0.30)';
+    c.lineWidth = on ? 2 : 1;
+    c.beginPath(); c.moveTo(railL.x - (on? s*0.030 : s*0.016), yy);
+    c.lineTo(railL.x + (on? s*0.014 : s*0.006), yy); c.stroke();
+    c.textAlign='right';
+    c.fillStyle = on ? C_INK : 'rgba(18,50,74,0.34)';
+    c.fillText(NOTE_NAMES[i]+NOTE_OCT[i], railL.x - s*0.038, yy);
+  }
+  c.textAlign='center';
+  c.fillStyle='rgba(18,50,74,0.55)';
+  c.font = '600 '+(fs*0.95).toFixed(1)+'px "Murecho",sans-serif';
+  c.fillText('基', railL.x, railL.top - s*0.042);
+
+  // ── 応 rail ──────────────────────────────────────────────────────────
+  c.font = '300 '+fs.toFixed(1)+'px "IBM Plex Mono",monospace';
+  c.strokeStyle = 'rgba(18,50,74,0.28)'; c.lineWidth=1;
+  c.beginPath(); c.moveTo(railR.x+0.5, railR.top); c.lineTo(railR.x+0.5, railR.bot); c.stroke();
+  for (i=0;i<JUST.length;i++){
+    var u = clamp(cents(JUST[i].n/JUST[i].d)/1200, 0, 1);
+    var ry = railR.bot + (railR.top-railR.bot)*u;
+    var onR = (S.just === JUST[i]) && alive(1);
+    var hot = onR && S.lock > 0.5;
+    c.strokeStyle = hot ? C_KIN : (onR ? C_INK : 'rgba(18,50,74,0.30)');
+    c.lineWidth = onR ? 2 : 1;
+    c.beginPath(); c.moveTo(railR.x + (onR? s*0.030 : s*0.016), ry);
+    c.lineTo(railR.x - (onR? s*0.014 : s*0.006), ry); c.stroke();
+    c.textAlign='left';
+    c.fillStyle = hot ? C_KIN : (onR ? C_INK : 'rgba(18,50,74,0.34)');
+    c.fillText(JUST[i].label, railR.x + s*0.038, ry);
+  }
+  c.textAlign='center';
+  c.fillStyle='rgba(18,50,74,0.55)';
+  c.font = '600 '+(fs*0.95).toFixed(1)+'px "Murecho",sans-serif';
+  c.fillText('応', railR.x, railR.top - s*0.042);
+  c.restore();
+}
+
+// the hands themselves — a bracket on the rail plus the five fingertips, so
+// you can always see the board is watching you
+function drawHands(c){
+  var s = Math.min(W,H), i, k;
+  for (i=0;i<2;i++){
+    if (!alive(i)) continue;
+    var hx = Hs[i].x*W, hy = Hs[i].y*H;
+    var amp = i===0 ? S.ampA : S.ampB;
+    var rail = i===0 ? railL.x : railR.x;
+    c.save();
+    // the reading line: hand height, carried across to its rail
+    c.strokeStyle = 'rgba(44,127,150,'+(0.20+amp*0.35).toFixed(3)+')';
+    c.lineWidth = 1;
+    c.setLineDash([s*0.012, s*0.010]);
+    c.beginPath(); c.moveTo(rail, hy); c.lineTo(hx, hy); c.stroke();
+    c.setLineDash([]);
+    // the palm, a bracket that closes as you close
+    var r = s*0.034*(0.55 + amp*0.75);
+    c.strokeStyle = 'rgba(18,50,74,'+(0.35+amp*0.45).toFixed(3)+')';
+    c.lineWidth = Math.max(1.4, s*0.0038);
+    c.beginPath();
+    c.arc(hx, hy, r, -0.9, 0.9); c.stroke();
+    c.beginPath();
+    c.arc(hx, hy, r, Math.PI-0.9, Math.PI+0.9); c.stroke();
+    if (Hs[i].tips && Hs[i].tips.length===5){
+      for (k=0;k<5;k++){
+        var t = Hs[i].tips[k];
+        var tx = (mirror ? (1-t.x) : t.x)*W, ty = t.y*H;
+        c.fillStyle = 'rgba(18,50,74,0.42)';
+        c.beginPath(); c.arc(tx, ty, Math.max(1.3, s*0.006), 0, 6.2831853); c.fill();
+      }
+    }
+    c.restore();
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  READOUTS
+// ═══════════════════════════════════════════════════════════════════════
+function drawReadout(c){
+  var s = Math.min(W,H);
+  var fs = Math.max(9, s*0.023);
+  var y0 = H - Math.max(16, s*0.075);
+  var both = (S.ampA > 0.12 && S.ampB > 0.12);
+  c.save();
+  c.textBaseline='alphabetic';
+
+  // the interval, large, in the middle
+  c.textAlign='center';
+  if (both){
+    c.fillStyle = S.lock>0.5 ? C_KIN : C_INK;
+    c.font = '600 '+(fs*2.0).toFixed(1)+'px "IBM Plex Mono",monospace';
+    c.fillText(S.just.label, W*0.5, y0);
+    c.fillStyle = 'rgba(18,50,74,0.55)';
+    c.font = '300 '+(fs*0.92).toFixed(1)+'px "Murecho",sans-serif';
+    c.fillText(S.just.jp, W*0.5, y0 + fs*1.15);
+  } else {
+    c.fillStyle = 'rgba(18,50,74,0.40)';
+    c.font = '300 '+(fs*0.95).toFixed(1)+'px "Murecho",sans-serif';
+    c.fillText(alive(0)||alive(1) ? '両手をひらくと二つの音が鳴る' : '手をカメラに見せる', W*0.5, y0);
+  }
+
+  // readings along the bottom edge
+  var pad = Math.max(10, s*0.045);
+  c.font = '300 '+fs.toFixed(1)+'px "IBM Plex Mono",monospace';
+  c.textAlign='left';
+  c.fillStyle = 'rgba(18,50,74,0.62)';
+  c.fillText(S.fA.toFixed(1)+' Hz', pad, H - pad*0.55);
+  c.textAlign='right';
+  c.fillText(S.fB.toFixed(1)+' Hz', W-pad, H - pad*0.55);
+
+  // the two numbers that matter: how far out, and how fast it beats
+  if (both){
+    c.textAlign='center';
+    var dv = S.dev;
+    c.fillStyle = S.lock>0.5 ? C_KIN : C_SHU;
+    c.font = '300 '+(fs*0.95).toFixed(1)+'px "IBM Plex Mono",monospace';
+    var centTxt = (Math.abs(dv) < 0.05 ? '±0.0' : (dv>0?'+':'')+dv.toFixed(1)) + ' cent';
+    var beatTxt = S.beat < 0.05 ? '唸り なし' : ('唸り ' + S.beat.toFixed(2) + ' Hz');
+    c.fillText(centTxt + '   ·   ' + beatTxt, W*0.5, H - pad*0.55);
+  }
+
+  // title, top left
+  c.textAlign='left';
+  c.fillStyle='rgba(18,50,74,0.40)';
+  c.font = '300 '+(fs*0.86).toFixed(1)+'px "IBM Plex Mono",monospace';
+  c.fillText('KYOWA', pad, Math.max(16, s*0.055));
+  c.fillStyle='rgba(18,50,74,0.28)';
+  c.font = '300 '+(fs*0.74).toFixed(1)+'px "Murecho",sans-serif';
+  c.fillText('協和のリサージュ', pad, Math.max(16, s*0.055) + fs*1.05);
+  c.restore();
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  RENDER
+// ═══════════════════════════════════════════════════════════════════════
+function render(){
+  g.setTransform(DPR,0,0,DPR,0,0);
+  if (gridCv) g.drawImage(gridCv, 0, 0, W, H);
+  else { g.fillStyle=C_PAPER; g.fillRect(0,0,W,H); }
+
+  if (camOK && video && video.videoWidth > 0){
+    g.save();
+    g.globalAlpha = 0.07;
+    g.globalCompositeOperation = 'multiply';
+    if (mirror){ g.translate(W,0); g.scale(-1,1); }
+    var vw = video.videoWidth, vh = video.videoHeight;
+    var sc = Math.max(W/vw, H/vh);
+    g.drawImage(video, (W-vw*sc)/2, (H-vh*sc)/2, vw*sc, vh*sc);
+    g.restore();
+  }
+
+  // the well the figure sits in
+  var half = scope.s*0.5;
+  g.save();
+  g.strokeStyle = 'rgba(18,50,74,0.30)'; g.lineWidth = 1;
+  g.strokeRect(Math.floor(scope.x-half)+0.5, Math.floor(scope.y-half)+0.5,
+               Math.floor(scope.s), Math.floor(scope.s));
+  // corner ticks
+  var tk = scope.s*0.05;
+  g.strokeStyle = 'rgba(18,50,74,0.5)'; g.lineWidth = 1.5;
+  [[-1,-1],[1,-1],[-1,1],[1,1]].forEach(function(q){
+    var qx = scope.x + q[0]*half, qy = scope.y + q[1]*half;
+    g.beginPath();
+    g.moveTo(qx - q[0]*tk, qy); g.lineTo(qx, qy); g.lineTo(qx, qy - q[1]*tk);
+    g.stroke();
+  });
+  g.restore();
+
+  if (traceCv) g.drawImage(traceCv, scope.x-half, scope.y-half, scope.s, scope.s);
+
+  // the lock flare: a ring that opens once, at the instant it fuses
+  if (S.lockGlow > 0.001){
+    var k = 1 - S.lockGlow;
+    g.save();
+    g.strokeStyle = 'rgba(181,138,46,'+(S.lockGlow*0.55).toFixed(3)+')';
+    g.lineWidth = Math.max(1, scope.s*0.006);
+    g.beginPath();
+    g.arc(scope.x, scope.y, half*(0.55 + k*0.75), 0, 6.2831853);
+    g.stroke();
+    g.restore();
+  }
+
+  drawRails(g);
+  drawHands(g);
+  drawReadout(g);
+}
+
+var lastT = 0, rafId = 0;
+function frame(){
+  rafId = requestAnimationFrame(frame);
+  var t = now();
+  var dt = clamp(t-lastT, 0, 0.05);
+  lastT = t;
+  if (S.running){ update(dt); drawFigure(); }
+  render();
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  START SHEET DEMO ─ the right hand slides, the figure stops turning
+// ═══════════════════════════════════════════════════════════════════════
+var dg = demoCv ? demoCv.getContext('2d') : null;
+var demoT=0, demoRaf=0, dph=[0,0];
+function demoFrame(){
+  demoRaf = requestAnimationFrame(demoFrame);
+  if (!dg) return;
+  var dt = 1/60; demoT += dt;
+  var L = 6.0, u = (demoT % L)/L;
+  var w = demoCv.width, h = demoCv.height;
+  dg.setTransform(1,0,0,1,0,0);
+  dg.fillStyle='#e7edf0'; dg.fillRect(0,0,w,h);
+  dg.strokeStyle='rgba(159,195,208,0.5)'; dg.lineWidth=1;
+  var i;
+  for (i=0;i<w;i+=10){ dg.beginPath(); dg.moveTo(i+0.5,0); dg.lineTo(i+0.5,h); dg.stroke(); }
+  for (i=0;i<h;i+=10){ dg.beginPath(); dg.moveTo(0,i+0.5); dg.lineTo(w,i+0.5); dg.stroke(); }
+
+  // the ratio slides from badly out to exactly 3/2 and holds
+  var approach = clamp((u-0.12)/0.42, 0, 1);
+  var off = (1-approach)*0.085;
+  var fA = 200, fB = fA*(1.5 + off);
+  dph[0] = (dph[0] + 6.2831853*fA*dt) % 6.2831853;
+  dph[1] = (dph[1] + 6.2831853*fB*dt) % 6.2831853;
+  var locked = approach > 0.985;
+
+  var cx = w*0.5, cy = h*0.5, R = h*0.34, T = 2/fA, N = 460;
+  dg.strokeStyle = locked ? 'rgba(181,138,46,0.95)' : 'rgba(18,50,74,0.55)';
+  dg.lineWidth = 2;
+  dg.beginPath();
+  for (i=0;i<=N;i++){
+    var uu = (i/N)*T;
+    var x = cx + Math.sin(dph[0]+6.2831853*fA*uu)*R;
+    var y = cy - Math.sin(dph[1]+6.2831853*fB*uu)*R;
+    if (i===0) dg.moveTo(x,y); else dg.lineTo(x,y);
+  }
+  dg.stroke();
+
+  // the two hands on their rails
+  var lx = w*0.12, rx = w*0.88;
+  dg.strokeStyle='rgba(18,50,74,0.3)'; dg.lineWidth=1;
+  dg.beginPath(); dg.moveTo(lx,h*0.12); dg.lineTo(lx,h*0.88); dg.stroke();
+  dg.beginPath(); dg.moveTo(rx,h*0.12); dg.lineTo(rx,h*0.88); dg.stroke();
+  var ly = h*0.62;
+  var ry = lerp(h*0.30, h*0.44, approach);
+  [[lx,ly],[rx,ry]].forEach(function(p){
+    dg.strokeStyle='rgba(18,50,74,0.7)'; dg.lineWidth=3;
+    dg.beginPath(); dg.arc(p[0],p[1],h*0.05,-0.9,0.9); dg.stroke();
+    dg.beginPath(); dg.arc(p[0],p[1],h*0.05,Math.PI-0.9,Math.PI+0.9); dg.stroke();
+  });
+
+  dg.textAlign='center'; dg.textBaseline='top';
+  dg.font = '600 '+(h*0.085).toFixed(1)+'px "IBM Plex Mono",monospace';
+  dg.fillStyle = locked ? '#b58a2e' : '#c8442e';
+  dg.fillText(locked ? '3/2  ロック' : '回っている', cx, h*0.045);
+  dg.font = '300 '+(h*0.062).toFixed(1)+'px "Murecho",sans-serif';
+  dg.fillStyle='rgba(18,50,74,0.45)';
+  dg.fillText(locked ? '唸りが消えた' : '唸りの速さで回る', cx, h*0.86);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  BOOT
+// ═══════════════════════════════════════════════════════════════════════
+function begin(){
+  initAudio();
+  if (A && A.state === 'suspended' && A.resume) { try{ A.resume(); }catch(e){} }
+  startSheet.classList.add('hide');
+  if (demoRaf){ cancelAnimationFrame(demoRaf); demoRaf=0; }
+  S.running = true;
+  lastT = now();
+  startStream().then(function(){
+    if (initHands()) startMpCamera();
+  }).catch(showError);
+  if (!rafId) frame();
+}
+startBtn.addEventListener('click', begin);
+
+window.addEventListener('resize', resize);
+if (window.visualViewport) window.visualViewport.addEventListener('resize', resize);
+resize();
+render();
+demoFrame();
+</script>
+</body>
+</html>
