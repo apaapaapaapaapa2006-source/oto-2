@@ -1,0 +1,1158 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>MUKKURI ─ 口のなかで鳴る口琴</title>
+<meta name="description" content="音の高さを一度も変えない楽器。弁は決まった一つの高さで鳴りつづけ、変わるのは口のなかの空洞だけ。口をひらけば第一共鳴が上がり、口を横にひろげれば第二共鳴が上がる。倍音のどれが選ばれているかが、そのまま口のなかに見える。手から弁へは紐がかかっていて、引けば弾かれ、近づければ紐が締まって音が硬く短くなる。">
+<meta name="theme-color" content="#16130f">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Yuji+Syuku&display=swap" rel="stylesheet">
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  MUKKURI ─ 口のなかで鳴る口琴                       ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  PALETTE   黒橡  kurotsurubami #16130f  the ground. this is the one dark
+                                        piece of the three, and it is dark
+                                        because the instrument is a wooden
+                                        thing held up to a lamp at night.
+            錆鉄  sabitetsu     #3a2f26  the woodgrain, the chrome, the rails
+            生成  kinari        #e6dccb  every character
+            弁柄  bengara       #a8432a  THE REED, and the harmonic that is
+                                        currently selected. nothing else is
+                                        ever this colour, so a red bar always
+                                        means "this is the note you are
+                                        hearing right now"
+            萌黄  moegi         #7d9b4e  the cord, and only the cord
+            MOOD: lamplight on worn wood. The camera is pushed warm and dark
+            so you appear lit from one side; there is no cool colour anywhere
+            in the piece, no blue, no cyan, no glow. Light comes from the
+            lower left and everything casts its value accordingly.
+  BACKGROUND  Procedural woodgrain: 14 bands of warped grain lines drawn once
+            into an offscreen canvas at resize and blitted, never redrawn per
+            frame. Over it a warm single-lamp vignette, and over THAT the
+            live camera at low opacity in multiply, so your face sits inside
+            the wood rather than on top of it.
+  TYPE      Archivo Black for latin — a heavy grotesque with no elegance at
+            all, set in caps, because the instrument is a blunt object.
+            Yuji Syuku for Japanese: a brush-cut mincho that looks handwritten
+            and a little rough, which is the opposite of Archivo and exactly
+            the collision the piece wants. No other weights, no other families.
+  MOTION    Elastic. The cord is a real damped spring that keeps swinging
+            after you yank it, the harmonic bars settle with overshoot, and
+            the mode buttons overshoot by 6% before landing. Nothing in this
+            piece moves linearly and nothing arrives without wobbling first.
+  SIGNATURE THE STANDING WAVE SITS INSIDE YOUR OWN MOUTH. The reed never
+            changes pitch — 24 harmonics of one fixed fundamental are drawn
+            as a stack of bars, and the two formants of your mouth cavity
+            sweep across them as you open and widen. Whichever harmonic the
+            resonance is sitting on burns 弁柄 red and its number is printed.
+            The stack is positioned ON your mouth in the camera image and
+            scaled to your actual mouth opening, so the harmonic you have
+            selected is literally inside your mouth. You are not choosing a
+            note; you are choosing which note is already there.
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<style>
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{height:100%;overflow:hidden;background:#16130f;color:#e6dccb}
+  body{font-family:'Yuji Syuku',serif;-webkit-font-smoothing:antialiased;touch-action:manipulation}
+  #view{position:fixed;inset:0;width:100%;height:100%;display:block}
+  #video{position:fixed;width:2px;height:2px;opacity:.001;pointer-events:none;left:-10px;top:-10px}
+
+  #flip{
+    position:fixed;top:calc(env(safe-area-inset-top,0px) + 14px);right:14px;z-index:6;
+    font-family:'Yuji Syuku',serif;font-size:12px;letter-spacing:.16em;
+    color:#a8998a;background:rgba(22,19,15,.7);border:1px solid #3a2f26;
+    padding:7px 11px;cursor:pointer;
+    transition:color .18s cubic-bezier(.34,1.56,.64,1),border-color .18s cubic-bezier(.34,1.56,.64,1);
+  }
+  #flip:hover{color:#e6dccb;border-color:#6b5a49}
+
+  #err{
+    display:none;position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);
+    z-index:40;max-width:min(30rem,86vw);white-space:pre-line;
+    background:#16130f;border:1px solid #3a2f26;color:#e6dccb;
+    padding:22px 24px;font-size:14px;line-height:2;letter-spacing:.04em;
+  }
+
+  /* ── reed / tuning rail ─────────────────────────────────────── */
+  #bar{
+    position:fixed;left:50%;transform:translateX(-50%);
+    bottom:calc(env(safe-area-inset-bottom,0px) + 16px);z-index:6;
+    display:flex;gap:8px;opacity:0;pointer-events:none;
+    transition:opacity .42s cubic-bezier(.34,1.56,.64,1);
+  }
+  #bar.on{opacity:1;pointer-events:auto}
+  .mode{
+    background:rgba(22,19,15,.78);border:1px solid #3a2f26;color:#8d7f70;
+    padding:9px 16px 8px;cursor:pointer;min-width:82px;
+    display:flex;flex-direction:column;align-items:center;gap:3px;
+    transition:transform .26s cubic-bezier(.34,1.56,.64,1),
+               color .26s cubic-bezier(.34,1.56,.64,1),
+               border-color .26s cubic-bezier(.34,1.56,.64,1);
+  }
+  .mode b{font-family:'Archivo Black',sans-serif;font-size:11px;letter-spacing:.14em}
+  .mode i{font-family:'Yuji Syuku',serif;font-style:normal;font-size:14px;letter-spacing:.14em}
+  .mode.on{color:#e6dccb;border-color:#a8432a;transform:translateY(-3px) scale(1.06)}
+  .mode:active{transform:translateY(-1px) scale(.98)}
+
+  /* ── readout ────────────────────────────────────────────────── */
+  #read{
+    position:fixed;top:calc(env(safe-area-inset-top,0px) + 14px);left:16px;z-index:5;
+    opacity:0;transition:opacity .42s cubic-bezier(.34,1.56,.64,1);pointer-events:none;
+  }
+  #read.on{opacity:1}
+  #read .big{
+    font-family:'Archivo Black',sans-serif;font-size:30px;line-height:1;
+    letter-spacing:.02em;color:#a8432a;
+  }
+  #read .sub{
+    font-family:'Yuji Syuku',serif;font-size:12px;letter-spacing:.2em;
+    color:#8d7f70;margin-top:7px;
+  }
+
+  /* ── sheet ──────────────────────────────────────────────────── */
+  .sheet{
+    position:fixed;inset:0;z-index:30;display:flex;align-items:center;justify-content:center;
+    padding:24px;background:rgba(14,12,9,.95);
+    transition:opacity .42s cubic-bezier(.34,1.56,.64,1);
+  }
+  .sheet.gone{opacity:0;pointer-events:none}
+  .panel{width:min(30rem,100%);max-height:100%;overflow:auto}
+  .stamp{
+    display:flex;justify-content:space-between;align-items:baseline;
+    font-family:'Archivo Black',sans-serif;font-size:10px;letter-spacing:.3em;color:#6b5a49;
+    border-bottom:1px solid #3a2f26;padding-bottom:9px;margin-bottom:24px;
+  }
+  .panel h1{
+    font-family:'Archivo Black',sans-serif;font-weight:400;
+    font-size:clamp(2.3rem,10.5vw,3.4rem);line-height:1;letter-spacing:-.01em;color:#e6dccb;
+  }
+  .panel h1 b{
+    display:block;font-family:'Yuji Syuku',serif;font-weight:400;
+    font-size:.30em;letter-spacing:.46em;color:#a8432a;margin-top:.9em;
+  }
+  #demo{display:block;width:100%;height:auto;margin:24px 0 20px;border:1px solid #3a2f26}
+  .lead{font-size:14px;line-height:2.1;letter-spacing:.04em;color:#c4b8a6}
+  .lead em{font-style:normal;color:#a8432a}
+  .rules{list-style:none;margin:18px 0 0;border-top:1px solid #3a2f26;padding-top:15px}
+  .rules li{
+    font-size:12.5px;line-height:1.95;letter-spacing:.04em;color:#8d7f70;
+    padding-left:1.1em;position:relative;
+  }
+  .rules li::before{content:'━';position:absolute;left:0;color:#4a3d31;font-size:.7em;top:.45em}
+  .go{
+    display:block;width:100%;margin-top:24px;padding:16px;cursor:pointer;
+    font-family:'Archivo Black',sans-serif;font-size:15px;letter-spacing:.4em;text-indent:.4em;
+    color:#16130f;background:#a8432a;border:none;
+    transition:transform .26s cubic-bezier(.34,1.56,.64,1),background .26s ease;
+  }
+  .go:hover{background:#c25236}
+  .go:active{transform:scale(.97)}
+  .fine{margin-top:13px;font-size:11px;letter-spacing:.08em;color:#6b5a49;text-align:center;line-height:1.9}
+</style>
+</head>
+<body>
+
+<canvas id="view"></canvas>
+<video id="video" playsinline muted autoplay></video>
+<button id="flip">⟲ カメラ</button>
+<div id="err"></div>
+
+<div id="read">
+  <div class="big" id="harmN">—</div>
+  <div class="sub" id="harmSub">くちをひらく</div>
+</div>
+
+<div id="bar">
+  <button class="mode on" id="m0"><b>LOW</b><i>低</i></button>
+  <button class="mode"    id="m1"><b>MID</b><i>中</i></button>
+  <button class="mode"    id="m2"><b>HIGH</b><i>高</i></button>
+</div>
+
+<div class="sheet" id="startSheet">
+  <div class="panel">
+    <div class="stamp"><span>OTO-II / MUKKURI</span><span>口琴</span></div>
+    <h1>MUKKURI<b>むっくり</b></h1>
+    <canvas id="demo" width="620" height="235"></canvas>
+    <p class="lead">弁は<em>ひとつの高さでしか鳴らない</em>。変えられるのは口のなかの空洞だけで、空洞がどの倍音を選ぶかで音が変わる。<em>音程ではなく、響きを弾く楽器。</em></p>
+    <ul class="rules">
+      <li>口をひらくほど第一共鳴が上がる ── 縦に「あ」、閉じて「う」</li>
+      <li>口を横にひろげるほど第二共鳴が上がる ── 「い」で鋭く、すぼめて丸く</li>
+      <li>手を横へ振ると紐が引かれて弁が弾かれる。振るたびに鳴る</li>
+      <li>手を顔へ近づけるほど紐が締まり、音は硬く短くなる</li>
+    </ul>
+    <button class="go" id="startBtn">START</button>
+    <p class="fine">カメラの使用を許可してください</p>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js"></script>
+<script>
+'use strict';
+// ═══════════════════════════════════════════════════════════════════════
+//  MUKKURI ─ 口のなかで鳴る口琴
+//
+//  A jaw harp is the one instrument whose pitch you cannot change.  A reed
+//  buzzes at one fixed frequency; the player's mouth is a resonator that
+//  selects WHICH HARMONIC of that fixed pitch is loud.  Nothing in either
+//  gallery works this way — every other instrument maps a gesture onto a
+//  note.  Here the notes are all present all the time and the mouth chooses
+//  among them, which is why the piece can have a melody without ever having
+//  a pitch control.
+//
+//  SOUND DESIGN: a bright pulse-train reed (a 44-partial PeriodicWave with
+//  a slow 1/n^0.45 rolloff, far brighter than a sawtooth) driven through
+//  TWO parallel high-Q bandpass formants.  F1 comes from how far the mouth
+//  is open, F2 from how wide it is spread — the real vowel plane — so the
+//  sweep is the /u/-/o/-/a/-/e/-/i/ arc a mukkuri actually makes.  Each
+//  pluck retriggers an amplitude envelope with a 3ms attack and a
+//  characteristic downward pitch bend, because a real lamella runs flat
+//  while its excursion is large.
+//
+//  TWO MEDIAPIPE MODELS on alternating frames: FaceMesh on even frames,
+//  Hands on odd.  Running both on every frame costs more than the budget
+//  allows on a phone, and neither signal needs 30Hz — the mouth is a slow
+//  control and the pluck is caught by the cord spring, not by the sample.
+// ═══════════════════════════════════════════════════════════════════════
+
+var view = document.getElementById('view');
+var g    = view.getContext('2d');
+var video      = document.getElementById('video');
+var errBox     = document.getElementById('err');
+var flipBtn    = document.getElementById('flip');
+var readBox    = document.getElementById('read');
+var harmNEl    = document.getElementById('harmN');
+var harmSubEl  = document.getElementById('harmSub');
+var bar        = document.getElementById('bar');
+var startSheet = document.getElementById('startSheet');
+var startBtn   = document.getElementById('startBtn');
+var demoCv     = document.getElementById('demo');
+
+var now = (typeof performance !== 'undefined' && performance.now)
+  ? function(){ return performance.now()/1000; }
+  : function(){ return Date.now()/1000; };
+
+function clamp(v,a,b){ return v<a?a:(v>b?b:v); }
+function lerp(a,b,t){ return a+(b-a)*t; }
+function easeOut(t){ t=clamp(t,0,1); return 1-Math.pow(1-t,3); }
+
+var C_GROUND='#16130f', C_WOOD='#3a2f26', C_TEXT='#e6dccb',
+    C_REED='#a8432a',   C_CORD='#7d9b4e', C_DIM='#8d7f70';
+
+// ═══════════════════════════════════════════════════════════════════════
+//  CAMERA
+// ═══════════════════════════════════════════════════════════════════════
+var facing='user', mirror=true, stream=null, camOK=false;
+
+function showError(e){
+  var msg = (e && e.message) ? e.message : String(e || 'unknown');
+  errBox.style.display='block';
+  errBox.textContent = 'カメラを起動できませんでした：' + msg +
+    '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+}
+function startStream(){
+  var md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) return Promise.reject(new Error('getUserMedia is unavailable'));
+  if (stream && stream.getTracks) stream.getTracks().forEach(function(t){ t.stop(); });
+  return md.getUserMedia({
+    video:{ facingMode:{ ideal:facing }, width:{ ideal:640 }, height:{ ideal:480 } },
+    audio:false
+  }).then(function(st){
+    stream=st; video.srcObject=st; mirror=(facing==='user'); camOK=true;
+    var p = video.play();
+    return (p && p.then) ? p.catch(function(){}) : null;
+  });
+}
+flipBtn.addEventListener('click', function(){
+  facing = (facing==='user') ? 'environment' : 'user';
+  loseHand(); loseFace();
+  startStream().then(startMpCamera).catch(showError);
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+//  TRACKING ─ FaceMesh and Hands, alternating frames
+// ═══════════════════════════════════════════════════════════════════════
+var hands=null, faceMesh=null, mpCamera=null, handsReady=false, faceReady=false;
+var frameParity = 0;
+var LOST_S = 0.5;
+
+// FaceMesh mouth landmarks: inner lip 13 (upper) / 14 (lower),
+// corners 61 / 291, and 10 -> 152 for face height as the scale reference.
+var Fc = { live:false, t:-1e9, x:0.5, y:0.5, open:0, wide:0.5, scale:0.3, roll:0 };
+var Hn = { live:false, t:-1e9, x:0.8, y:0.6, vx:0, px:0.8, py:0.6, pt:-1e9 };
+
+function loseFace(){ Fc.live=false; }
+function loseHand(){
+  Hn.live=false; Hn.vx=0; Hn.pt=-1e9;
+  // the cord must forget its stretch too, or reacquiring the hand across
+  // the room reads as one enormous yank and fires a pluck
+  cord.len = cord.rest; cord.rate = 0; cord.travel = 0;
+  cord.armed = false; cord.quietT = 0; cordWasAlive = false;
+}
+
+function initHands(){
+  if (typeof window.Hands !== 'function') return false;
+  try{
+    hands = new window.Hands({ locateFile:function(f){
+      return 'https://cdn.jsdelivr.net/npm/@mediapipe/hands/' + f; }});
+    hands.setOptions({ maxNumHands:1, modelComplexity:0,
+                       minDetectionConfidence:0.6, minTrackingConfidence:0.5 });
+    hands.onResults(onHands);
+    handsReady=true; return true;
+  }catch(e){ return false; }
+}
+function initFace(){
+  if (typeof window.FaceMesh !== 'function') return false;
+  try{
+    faceMesh = new window.FaceMesh({ locateFile:function(f){
+      return 'https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/' + f; }});
+    faceMesh.setOptions({ maxNumFaces:1, refineLandmarks:false,
+                          minDetectionConfidence:0.6, minTrackingConfidence:0.5 });
+    faceMesh.onResults(onFace);
+    faceReady=true; return true;
+  }catch(e){ return false; }
+}
+function startMpCamera(){
+  if (mpCamera) return;
+  if (typeof window.Camera !== 'function') return;
+  if (!handsReady && !faceReady) return;
+  try{
+    mpCamera = new window.Camera(video, {
+      onFrame:function(){
+        frameParity ^= 1;
+        // alternate: the mouth is a slow control and the pluck is caught by
+        // the cord spring, so neither model needs every frame
+        if (frameParity === 0 && faceMesh) return faceMesh.send({ image: video }).catch(function(){});
+        if (frameParity === 1 && hands)    return hands.send({ image: video }).catch(function(){});
+        return Promise.resolve();
+      },
+      width:480, height:360
+    });
+    mpCamera.start();
+  }catch(e){ mpCamera=null; }
+}
+
+function lmOk(arr, idx){
+  if (!arr || typeof arr.length !== 'number') return null;
+  var i, p;
+  for (i=0;i<idx.length;i++){
+    if (idx[i] >= arr.length) return null;
+    p = arr[idx[i]];
+    if (!p || typeof p.x!=='number' || typeof p.y!=='number' ||
+        !isFinite(p.x) || !isFinite(p.y)) return null;
+  }
+  return arr;
+}
+
+var MOUTH_IDX = [13,14,61,291,10,152];
+function onFace(res){
+  var list = (res && res.multiFaceLandmarks) ? res.multiFaceLandmarks : null;
+  if (!list || !list.length) return;
+  var lm = lmOk(list[0], MOUTH_IDX);
+  if (!lm) return;
+  var up=lm[13], lo=lm[14], lft=lm[61], rgt=lm[291], top=lm[10], chin=lm[152];
+  var faceH = Math.hypot(chin.x-top.x, chin.y-top.y);
+  if (!isFinite(faceH) || faceH < 1e-4) return;
+
+  var gap  = Math.hypot(lo.x-up.x, lo.y-up.y) / faceH;      // ~0.005 .. ~0.16
+  var span = Math.hypot(rgt.x-lft.x, rgt.y-lft.y) / faceH;  // ~0.26 .. ~0.44
+  if (!isFinite(gap) || !isFinite(span)) return;
+
+  var cx = (up.x+lo.x)*0.5, cy = (up.y+lo.y)*0.5;
+  Fc.x = mirror ? (1-cx) : cx;
+  Fc.y = cy;
+  Fc.open  = clamp((gap  - 0.012) / 0.115, 0, 1);
+  Fc.wide  = clamp((span - 0.265) / 0.120, 0, 1);
+  Fc.scale = clamp(faceH, 0.08, 1.2);
+  Fc.roll  = Math.atan2(rgt.y-lft.y, Math.abs(rgt.x-lft.x) || 1e-4);
+  if (!isFinite(Fc.roll)) Fc.roll = 0;
+  Fc.t = now(); Fc.live = true;
+}
+
+function onHands(res){
+  var list = (res && res.multiHandLandmarks) ? res.multiHandLandmarks : null;
+  if (!list || !list.length) return;
+  var lm = lmOk(list[0], [0,9]);
+  if (!lm) return;
+  var wr=lm[0], mc=lm[9];
+  var px = (wr.x+mc.x)*0.5, py = (wr.y+mc.y)*0.5;
+  if (!isFinite(px)||!isFinite(py)) return;
+  var nx = mirror ? (1-px) : px;
+  var t = now();
+  var dt = t - Hn.pt;
+  if (Hn.live && dt > 1e-3 && dt < 0.35){
+    var inst = (nx - Hn.px)/dt;
+    if (isFinite(inst)) Hn.vx = lerp(Hn.vx, clamp(inst,-8,8), 0.55);
+  } else {
+    Hn.vx = 0;
+  }
+  Hn.px = nx; Hn.py = py; Hn.pt = t;
+  Hn.x = nx; Hn.y = py;
+  Hn.t = t; Hn.live = true;
+}
+function faceAlive(){ return Fc.live && (now()-Fc.t) < LOST_S; }
+function handAlive(){ return Hn.live && (now()-Hn.t) < LOST_S; }
+
+// ═══════════════════════════════════════════════════════════════════════
+//  THE CORD ─ a damped spring between the reed and your hand.  The pluck
+//  is not "hand moved fast": it is the cord's stretch rising through a
+//  threshold, which is what makes repeated shaking feel like an instrument
+//  instead of a gesture detector.
+// ═══════════════════════════════════════════════════════════════════════
+var cord = {
+  rest:0.22, len:0.22, rate:0, armed:true, travel:0,
+  lastPluck:-9, swing:0, swingVel:0, quietT:0
+};
+// Tuned in the harness against simulated shakes, not guessed.  The pluck
+// fires on the RATE the cord is being paid out, never on absolute stretch:
+// absolute stretch would mean that holding your hand far from the reed
+// leaves the cord permanently taut, so it would fire once and then never
+// re-arm.  A stroke is out-then-back, exactly like the real instrument.
+// Measured, not guessed.  Landmark jitter (+/-0.004 at ~15Hz) arrives at
+// the threshold as ~0.016 because the cord length and its rate are each
+// low-passed, which kills high-frequency noise twice over; a gentle wrist
+// flick across 10% of the screen at 2Hz arrives as 0.49.  0.30 sits in the
+// middle of that gap, so a soft flick plays and noise never does.
+var PLUCK_RATE  = 0.30;   // normalised units per second on the way out
+var PLUCK_TRAVEL= 0.022;  // and the stroke must actually cover some ground
+var REARM_RATE  = -0.12;  // coming back toward the reed re-arms it
+var REFRACT     = 0.105;
+
+function anchorPos(){
+  // the reed sits just off the cheek when a face is visible, and on a fixed
+  // rail at the left edge when it is not
+  if (faceAlive()) return { x: clamp(Fc.x - Fc.scale*0.62, 0.05, 0.6), y: clamp(Fc.y, 0.1, 0.9) };
+  return { x:0.16, y:0.5 };
+}
+
+var cordWasAlive = false;
+function stepCord(dt){
+  var a = anchorPos();
+  var alive = handAlive();
+  var target;
+  if (alive){
+    target = Math.hypot(Hn.x - a.x, Hn.y - a.y);
+    if (!isFinite(target)) target = cord.rest;
+  } else {
+    target = cord.rest;
+  }
+  target = clamp(target, 0.02, 1.4);
+
+  // Tracking dropping out, or coming back somewhere else entirely, must
+  // never read as a stroke.  On both edges the cord SNAPS to the new
+  // length instead of ramping, so the rate it reports is zero.
+  if (alive !== cordWasAlive){
+    cord.len = target; cord.rate = 0; cord.travel = 0;
+    cord.armed = false; cord.quietT = 0;   // re-arms once the hand is calm
+    cordWasAlive = alive;
+    cord.swingVel += 0;
+    return { anchor:a, stretch:Math.max(0, cord.len-cord.rest) };
+  }
+
+  var prev = cord.len;
+  cord.len = lerp(cord.len, target, clamp(dt*18, 0, 1));
+  if (!isFinite(cord.len)) cord.len = cord.rest;
+
+  var rate = (dt > 1e-4) ? (cord.len - prev)/dt : 0;
+  if (!isFinite(rate)) rate = 0;
+  cord.rate = lerp(cord.rate, rate, clamp(dt*22, 0, 1));
+  if (!isFinite(cord.rate)) cord.rate = 0;
+
+  // accumulate how far this outward stroke has travelled
+  if (cord.rate > 0) cord.travel += cord.rate*dt;
+
+  // re-arm on the return stroke, or after the hand has simply gone quiet
+  if (cord.rate < REARM_RATE){ cord.armed = true; cord.travel = 0; cord.quietT = 0; }
+  else if (Math.abs(cord.rate) < 0.06){
+    cord.quietT += dt;
+    if (cord.quietT > 0.18){ cord.armed = true; cord.travel = 0; }
+  } else {
+    cord.quietT = 0;
+  }
+
+  var t = now();
+  if (cord.armed && handAlive() &&
+      cord.rate > PLUCK_RATE && cord.travel > PLUCK_TRAVEL &&
+      (t - cord.lastPluck) > REFRACT){
+    cord.armed = false;
+    cord.travel = 0;
+    cord.lastPluck = t;
+    pluck(clamp(0.32 + cord.rate*0.40, 0.32, 1));
+    cord.swingVel += clamp(cord.rate*0.85, 0, 6);
+  }
+
+  // the visible cord keeps ringing after the yank: a real damped spring
+  cord.swingVel += (-cord.swing*260 - cord.swingVel*7.5)*dt;
+  cord.swing    += cord.swingVel*dt;
+  if (!isFinite(cord.swing) || !isFinite(cord.swingVel)){ cord.swing=0; cord.swingVel=0; }
+  var stretch = Math.max(0, cord.len - cord.rest);
+  return { anchor:a, stretch:stretch };
+}
+
+// how tight the cord is, 0..1 — sets damping and brightness
+function tension(){
+  if (!handAlive()) return 0.35;
+  var s = clamp((cord.len - 0.10) / 0.55, 0, 1);
+  return 1 - s;   // hand CLOSE to the reed = tight = short, hard notes
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  AUDIO ─ one buzzing reed, two mouth formants, never a pitch control
+// ═══════════════════════════════════════════════════════════════════════
+var AC=null, master=null, comp=null, verb=null, verbGain=null;
+var reedOsc=null, reedAmp=null, reedBuzz=null, buzzAmp=null;
+var f1=null, f2=null, g1=null, g2=null, gDry=null, body=null;
+var audioOK=false, reedRunning=false;
+
+var TUNINGS = [
+  { name:'低', hz: 73.42, decay:1.55, bright:0.92 },
+  { name:'中', hz: 98.00, decay:1.20, bright:1.00 },
+  { name:'高', hz:130.81, decay:0.92, bright:1.08 }
+];
+var tuning = 0;
+function f0(){ return TUNINGS[clamp(tuning,0,TUNINGS.length-1)].hz; }
+
+function buildReverb(ac){
+  var len = Math.floor(ac.sampleRate * 1.35);
+  if (!isFinite(len) || len < 1) len = 1;
+  var buf;
+  try{ buf = ac.createBuffer(2, len, ac.sampleRate); }catch(e){ return null; }
+  var ch,i,d;
+  for (ch=0; ch<2; ch++){
+    d = buf.getChannelData(ch);
+    for (i=0;i<len;i++) d[i] = (Math.random()*2-1) * Math.pow(1-i/len, 3.4) * 0.5;
+  }
+  var cv = ac.createConvolver(); cv.buffer = buf; return cv;
+}
+
+// 44 partials with a very slow rolloff — FLATTER than a sawtooth, not
+// merely brighter.  This exponent is load-bearing: at -0.45 the first
+// formant wins the "loudest partial" contest at every mouth shape, because
+// the source falls faster than the second formant can lift, and the
+// instrument collapses to a one-dimensional control.  At -0.20 either
+// formant can win and the full vowel plane is playable.
+var REED_ROLLOFF = 0.20;
+function reedWave(ac){
+  var N = 44, re = new Float32Array(N), im = new Float32Array(N), n;
+  for (n=1;n<N;n++){
+    im[n] = Math.pow(n, -REED_ROLLOFF) * (n%2 ? 1 : 0.78);
+    re[n] = 0;
+  }
+  try{ return ac.createPeriodicWave(re, im, { disableNormalization:false }); }
+  catch(e){
+    try{ return ac.createPeriodicWave(re, im); }catch(e2){ return null; }
+  }
+}
+
+function initAudio(){
+  if (AC){ if (AC.state==='suspended' && AC.resume){ try{ AC.resume(); }catch(e){} } return true; }
+  var Ctor = window.AudioContext || window.webkitAudioContext;
+  if (!Ctor) return false;
+  try{ AC = new Ctor(); }catch(e){ AC=null; return false; }
+  if (AC.state==='suspended' && AC.resume){ try{ AC.resume(); }catch(e){} }
+
+  comp = AC.createDynamicsCompressor();
+  comp.threshold.value=-15; comp.knee.value=20; comp.ratio.value=6;
+  comp.attack.value=0.003; comp.release.value=0.19;
+  master = AC.createGain(); master.gain.value=0.76;
+  master.connect(comp); comp.connect(AC.destination);
+
+  verb = buildReverb(AC);
+  verbGain = AC.createGain(); verbGain.gain.value = 0.17;
+  if (verb){ verbGain.connect(verb); verb.connect(master); } else { verbGain.connect(master); }
+
+  // wooden body: a gentle lowpass everything shares, so nothing is ever
+  // harsh no matter where the formants go
+  body = AC.createBiquadFilter();
+  body.type='lowpass'; body.frequency.value=5200; body.Q.value=0.5;
+  body.connect(master); body.connect(verbGain);
+
+  reedAmp = AC.createGain(); reedAmp.gain.value = 0.0001;
+
+  f1 = AC.createBiquadFilter(); f1.type='bandpass'; f1.frequency.value=520; f1.Q.value=9;
+  f2 = AC.createBiquadFilter(); f2.type='bandpass'; f2.frequency.value=1400; f2.Q.value=13;
+  g1 = AC.createGain(); g1.gain.value=0.95;
+  g2 = AC.createGain(); g2.gain.value=0.62;
+  gDry = AC.createGain(); gDry.gain.value=0.11;
+  reedAmp.connect(f1); f1.connect(g1); g1.connect(body);
+  reedAmp.connect(f2); f2.connect(g2); g2.connect(body);
+  reedAmp.connect(gDry); gDry.connect(body);
+
+  reedOsc = AC.createOscillator();
+  var pw = reedWave(AC);
+  if (pw) { try{ reedOsc.setPeriodicWave(pw); }catch(e){ reedOsc.type='sawtooth'; } }
+  else reedOsc.type='sawtooth';
+  reedOsc.frequency.value = f0();
+  reedOsc.connect(reedAmp);
+
+  // the lamella's own rasp: filtered noise gated by the same envelope
+  try{
+    var nl = Math.floor(AC.sampleRate*2);
+    var nb = AC.createBuffer(1, nl, AC.sampleRate);
+    var nd = nb.getChannelData(0), k;
+    for (k=0;k<nl;k++) nd[k] = (Math.random()*2-1);
+    reedBuzz = AC.createBufferSource(); reedBuzz.buffer=nb; reedBuzz.loop=true;
+    buzzAmp = AC.createGain(); buzzAmp.gain.value = 0.0001;
+    var bf = AC.createBiquadFilter(); bf.type='bandpass';
+    bf.frequency.value = 2100; bf.Q.value = 1.1;
+    reedBuzz.connect(bf); bf.connect(buzzAmp); buzzAmp.connect(body);
+  }catch(e){ reedBuzz=null; buzzAmp=null; }
+
+  try{
+    reedOsc.start();
+    if (reedBuzz) reedBuzz.start();
+    reedRunning = true;
+  }catch(e){ reedRunning=false; }
+
+  audioOK = true;
+  return true;
+}
+
+// a pluck does not start a note — the reed is always running.  It
+// re-excites the envelope and bends the pitch flat, the way a real lamella
+// runs flat while its excursion is large.
+function pluck(force){
+  if (!audioOK || !AC || !reedAmp) return;
+  force = isFinite(force) ? clamp(force, 0.12, 1) : 0.6;
+  var T = TUNINGS[clamp(tuning,0,TUNINGS.length-1)];
+  var tg = tension();
+  var dec = T.decay * (1.05 - tg*0.55);
+  if (!isFinite(dec) || dec <= 0.05) dec = 0.3;
+  var t0 = AC.currentTime;
+  var peak = clamp(0.20 + force*0.30, 0.02, 0.56);
+
+  var p = reedAmp.gain;
+  try{
+    p.cancelScheduledValues(t0);
+    p.setValueAtTime(Math.max(p.value, 0.0001), t0);
+    p.linearRampToValueAtTime(peak, t0 + 0.003);
+    p.exponentialRampToValueAtTime(Math.max(peak*0.30,0.0002), t0 + dec*0.34);
+    p.exponentialRampToValueAtTime(0.0001, t0 + dec);
+  }catch(e){}
+
+  if (buzzAmp){
+    var q = buzzAmp.gain;
+    try{
+      q.cancelScheduledValues(t0);
+      q.setValueAtTime(Math.max(q.value,0.0001), t0);
+      q.linearRampToValueAtTime(clamp(force*0.055,0.002,0.08), t0+0.002);
+      q.exponentialRampToValueAtTime(0.0001, t0 + Math.min(0.16, dec*0.3));
+    }catch(e){}
+  }
+
+  if (reedOsc){
+    var base = f0();
+    var bend = base * (1 - 0.055*force);
+    try{
+      reedOsc.frequency.cancelScheduledValues(t0);
+      reedOsc.frequency.setValueAtTime(clamp(bend,20,4000), t0);
+      reedOsc.frequency.exponentialRampToValueAtTime(clamp(base,20,4000), t0 + 0.12 + dec*0.22);
+    }catch(e){}
+  }
+  flashT = now();
+}
+
+// F1 from how far the mouth is open, F2 from how wide it is spread.
+// This is the real vowel plane, so the sweep is /u/-/o/-/a/-/e/-/i/.
+var MOUTH = { open:0, wide:0.4, F1:420, F2:1150, G1:0.7, G2:0.79 };
+function updateFormants(dt){
+  var tOpen = faceAlive() ? Fc.open : 0.12;
+  var tWide = faceAlive() ? Fc.wide : 0.40;
+  var k = clamp(dt*11, 0, 1);              // the mouth is a slow control
+  MOUTH.open = lerp(MOUTH.open, tOpen, k);
+  MOUTH.wide = lerp(MOUTH.wide, tWide, k);
+  if (!isFinite(MOUTH.open)) MOUTH.open = 0.12;
+  if (!isFinite(MOUTH.wide)) MOUTH.wide = 0.40;
+
+  var T = TUNINGS[clamp(tuning,0,TUNINGS.length-1)];
+  MOUTH.F1 = (270 + 690*MOUTH.open) * T.bright;
+  MOUTH.F2 = (780 + 1780*MOUTH.wide + 260*MOUTH.open) * T.bright;
+  if (!isFinite(MOUTH.F1)) MOUTH.F1 = 420;
+  if (!isFinite(MOUTH.F2)) MOUTH.F2 = 1150;
+  // A narrow aperture radiates the low formant poorly and a spread one
+  // throws the high formant forward — so the two gains move with the vowel
+  // rather than sitting fixed.  This is what lets /i/ sound like /i/
+  // instead of like a slightly thinner /u/.
+  MOUTH.G1 = 0.40 + 0.75*MOUTH.open;
+  MOUTH.G2 = 0.45 + 0.85*MOUTH.wide;
+
+  if (!audioOK || !f1 || !f2 || !AC) return;
+  var tg = tension();
+  try{
+    f1.frequency.setTargetAtTime(clamp(MOUTH.F1,60,8000), AC.currentTime, 0.020);
+    f2.frequency.setTargetAtTime(clamp(MOUTH.F2,60,9000), AC.currentTime, 0.020);
+    f1.Q.setTargetAtTime(clamp(7 + tg*7, 1, 26), AC.currentTime, 0.05);
+    f2.Q.setTargetAtTime(clamp(10 + tg*9, 1, 30), AC.currentTime, 0.05);
+    if (g1) g1.gain.setTargetAtTime(clamp(MOUTH.G1,0.02,1.6), AC.currentTime, 0.03);
+    if (g2) g2.gain.setTargetAtTime(clamp(MOUTH.G2,0.02,1.6), AC.currentTime, 0.03);
+    if (body) body.frequency.setTargetAtTime(clamp(3600 + tg*3800, 400, 12000), AC.currentTime, 0.06);
+  }catch(e){}
+}
+
+// analytic bandpass magnitude, used for BOTH the bar heights and the
+// readout, so what you see is exactly what the filters are doing
+function bpMag(f, F, Q){
+  if (!(f>0) || !(F>0) || !(Q>0)) return 0;
+  var r = f/F - F/f;
+  var m = 1/Math.sqrt(1 + Q*Q*r*r);
+  return isFinite(m) ? m : 0;
+}
+// The ladder has to be TALL ENOUGH TO HOLD F2, or the second formant runs
+// off the top and stops contributing: at the low tuning F2 reaches 2820Hz
+// while 24 harmonics of 73.42Hz stop at 1762Hz, which collapses /u/ and /i/
+// onto the same harmonic and costs the instrument half its vowel plane.
+// The rung count therefore follows the tuning, capped where a jaw harp
+// stops being audible as pitch.
+var NHARM = 40;
+var harmAmp = new Float32Array(NHARM+1);
+var harmShown = new Float32Array(NHARM+1);
+function nTop(){ return clamp(Math.floor(4300/f0()), 12, NHARM)|0; }
+function computeHarmonics(dt){
+  var base = f0(), n, f, a, tg = tension(), NT = nTop();
+  var Q1 = clamp(7 + tg*7, 1, 26), Q2 = clamp(10 + tg*9, 1, 30);
+  var best = 1, bestV = -1;
+  for (n=NT+1;n<=NHARM;n++){ harmAmp[n]=0; harmShown[n]=lerp(harmShown[n],0,clamp(dt*13,0,1)); }
+  for (n=1;n<=NT;n++){
+    f = base*n;
+    a = Math.pow(n,-REED_ROLLOFF) *
+        (MOUTH.G1*bpMag(f,MOUTH.F1,Q1) + MOUTH.G2*bpMag(f,MOUTH.F2,Q2) + 0.11);
+    if (!isFinite(a)) a = 0;
+    harmAmp[n] = a;
+    if (a > bestV){ bestV = a; best = n; }
+  }
+  var k = clamp(dt*13, 0, 1);
+  for (n=1;n<=NT;n++){
+    harmShown[n] = lerp(harmShown[n], harmAmp[n], k);
+    if (!isFinite(harmShown[n])) harmShown[n] = 0;
+  }
+  return best;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  RENDER
+// ═══════════════════════════════════════════════════════════════════════
+var W=1,H=1,DPR=1,MIN=1, flashT=-9;
+var grainCv=null, grainCtx=null;
+var canFilter=false;
+try{ canFilter = (typeof g.filter === 'string'); }catch(e){ canFilter=false; }
+
+function buildGrain(){
+  if (!grainCv){
+    grainCv = document.createElement('canvas');
+    grainCtx = grainCv.getContext('2d');
+  }
+  if (!grainCtx) return;
+  var gw = Math.max(2, Math.round(W)), gh = Math.max(2, Math.round(H));
+  grainCv.width = gw; grainCv.height = gh;
+  var c = grainCtx;
+  c.fillStyle = C_GROUND; c.fillRect(0,0,gw,gh);
+  // 14 bands of warped grain, drawn ONCE per resize and blitted after
+  var b, i, x, y, amp, yb, hue;
+  for (b=0;b<14;b++){
+    yb = (b+0.5)/14*gh;
+    amp = 5 + (b%5)*4.5;
+    hue = 0.035 + (b%3)*0.012;
+    c.strokeStyle = 'rgba(90,72,56,'+hue.toFixed(3)+')';
+    c.lineWidth = Math.max(1, gh/160);
+    for (i=0;i<5;i++){
+      c.beginPath();
+      for (x=0;x<=gw;x+=10){
+        y = yb + i*gh/95
+            + Math.sin(x/gw*7.1 + b*2.3 + i*0.7)*amp
+            + Math.sin(x/gw*17.3 - b*1.1)*amp*0.35;
+        if (x===0) c.moveTo(x,y); else c.lineTo(x,y);
+      }
+      c.stroke();
+    }
+  }
+  // knots
+  for (b=0;b<4;b++){
+    var kx = (0.17+0.23*b)*gw, ky = (0.2+0.19*b)*gh;
+    for (i=0;i<7;i++){
+      c.strokeStyle='rgba(96,76,58,'+(0.05-i*0.006).toFixed(3)+')';
+      c.lineWidth=Math.max(1,gh/190);
+      c.beginPath();
+      c.ellipse(kx,ky, (5+i*8)*(gh/700)*2, (2.5+i*3.4)*(gh/700)*2, 0.35, 0, Math.PI*2);
+      c.stroke();
+    }
+  }
+}
+
+function resize(){
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  W = Math.max(1, Math.round(window.innerWidth  || 360));
+  H = Math.max(1, Math.round(window.innerHeight || 640));
+  MIN = Math.min(W,H);
+  view.width = Math.max(1, Math.round(W*DPR));
+  view.height= Math.max(1, Math.round(H*DPR));
+  view.style.width=W+'px'; view.style.height=H+'px';
+  g.setTransform(DPR,0,0,DPR,0,0);
+  buildGrain();
+}
+window.addEventListener('resize', resize);
+window.addEventListener('orientationchange', function(){ setTimeout(resize,180); });
+
+function drawGround(){
+  if (grainCv && grainCv.width>1){ try{ g.drawImage(grainCv,0,0,W,H); }catch(e){ g.fillStyle=C_GROUND; g.fillRect(0,0,W,H);} }
+  else { g.fillStyle=C_GROUND; g.fillRect(0,0,W,H); }
+
+  var vw=video.videoWidth|0, vh=video.videoHeight|0;
+  if (camOK && vw>1 && vh>1){
+    var s = Math.max(W/vw, H/vh);
+    var dw=vw*s, dh=vh*s, dx=(W-dw)/2, dy=(H-dh)/2;
+    g.save();
+    if (mirror){ g.translate(W,0); g.scale(-1,1); }
+    if (canFilter){ try{ g.filter='saturate(0.5) brightness(0.72) contrast(1.15) sepia(0.4)'; }catch(e){} }
+    g.globalCompositeOperation='lighten';
+    g.globalAlpha=0.52;
+    try{ g.drawImage(video,dx,dy,dw,dh); }catch(e){}
+    if (canFilter){ try{ g.filter='none'; }catch(e){} }
+    g.restore();
+    g.globalCompositeOperation='source-over';
+    g.globalAlpha=1;
+  }
+
+  // one lamp, lower left
+  var grd;
+  try{
+    grd = g.createRadialGradient(W*0.22,H*0.82,MIN*0.05, W*0.22,H*0.82, MIN*1.35);
+    grd.addColorStop(0,'rgba(196,134,72,0.16)');
+    grd.addColorStop(0.45,'rgba(90,58,32,0.06)');
+    grd.addColorStop(1,'rgba(8,6,4,0.66)');
+    g.fillStyle = grd;
+  }catch(e){ g.fillStyle='rgba(8,6,4,0.35)'; }
+  g.fillRect(0,0,W,H);
+}
+
+function drawReed(t, a, stretch){
+  var x=a.x*W, y=a.y*H, L=MIN*0.16;
+  var since = t - cord.lastPluck;
+  var ring = (since>=0 && since<2.2) ? Math.exp(-since*2.6) : 0;
+  var amp = MIN*0.020*ring;
+  // the frame the lamella sits in
+  g.strokeStyle='#5a4838'; g.lineWidth=Math.max(2, MIN*0.009);
+  g.beginPath(); g.moveTo(x-MIN*0.018, y-L*0.62); g.lineTo(x-MIN*0.018, y+L*0.62); g.stroke();
+  g.beginPath(); g.moveTo(x-MIN*0.018, y-L*0.62); g.lineTo(x+MIN*0.006, y-L*0.62); g.stroke();
+  g.beginPath(); g.moveTo(x-MIN*0.018, y+L*0.62); g.lineTo(x+MIN*0.006, y+L*0.62); g.stroke();
+  // the lamella itself, vibrating at a legible stand-in speed
+  var i,n=18,u,py,px;
+  g.strokeStyle=C_REED; g.lineWidth=Math.max(1.6, MIN*0.0055);
+  g.beginPath();
+  for(i=0;i<=n;i++){
+    u=i/n;
+    px = x - MIN*0.014 + u*L*0.9;
+    py = y + Math.sin(u*Math.PI*0.5)*Math.sin(t*34)*amp;
+    if(!isFinite(px)||!isFinite(py)) continue;
+    if(i===0) g.moveTo(px,py); else g.lineTo(px,py);
+  }
+  g.stroke();
+  if (ring>0.02){
+    g.globalAlpha = ring*0.5;
+    g.strokeStyle=C_REED; g.lineWidth=Math.max(1, MIN*0.003);
+    g.beginPath(); g.arc(x+L*0.5, y, L*(0.5+ (1-ring)*0.9), 0, Math.PI*2); g.stroke();
+    g.globalAlpha=1;
+  }
+}
+
+function drawCord(t, a, stretch){
+  if (!handAlive()) return;
+  var ax=a.x*W, ay=a.y*H, hx=Hn.x*W, hy=Hn.y*H;
+  if (!isFinite(hx)||!isFinite(hy)) return;
+  var dx=hx-ax, dy=hy-ay, len=Math.hypot(dx,dy);
+  if (!(len>1)) return;
+  var nx=-dy/len, ny=dx/len;
+  var sag = clamp((1 - clamp(stretch/0.35,0,1))*MIN*0.05, 0, MIN*0.09);
+  var sw  = clamp(cord.swing, -0.6, 0.6)*MIN*0.09;
+  var i,n=26,u,px,py,off;
+  g.strokeStyle=C_CORD; g.lineWidth=Math.max(1.4, MIN*0.0042);
+  g.globalAlpha=0.85;
+  g.beginPath();
+  for(i=0;i<=n;i++){
+    u=i/n;
+    off = Math.sin(u*Math.PI)*(sag + sw);
+    px = ax+dx*u + nx*off;
+    py = ay+dy*u + ny*off + Math.sin(u*Math.PI)*sag*0.4;
+    if(!isFinite(px)||!isFinite(py)) continue;
+    if(i===0) g.moveTo(px,py); else g.lineTo(px,py);
+  }
+  g.stroke();
+  g.globalAlpha=1;
+  // the hand: a grip ring, so you can always tell the camera sees you
+  var tg = tension();
+  g.strokeStyle=C_CORD; g.lineWidth=Math.max(1.6, MIN*0.005);
+  g.globalAlpha=0.55+0.35*tg;
+  g.beginPath(); g.arc(hx,hy, MIN*(0.030+0.016*tg), 0, Math.PI*2); g.stroke();
+  g.globalAlpha=0.9;
+  g.beginPath(); g.arc(hx,hy, MIN*0.006, 0, Math.PI*2); g.fillStyle=C_CORD; g.fill();
+  g.globalAlpha=1;
+}
+
+// ── THE SIGNATURE: the harmonic ladder standing in your mouth ──────────
+function drawLadder(t, sel){
+  var mx, my, halfBase, rise;
+  if (faceAlive()){
+    mx = Fc.x*W; my = Fc.y*H;
+    halfBase = clamp(Fc.scale*W*0.13*(0.55+0.75*MOUTH.wide), MIN*0.035, MIN*0.22);
+    rise = clamp(Fc.scale*H*1.15, MIN*0.34, MIN*0.95);
+  } else {
+    mx = W*0.5; my = H*0.60;
+    halfBase = MIN*0.09; rise = MIN*0.46;
+  }
+  if (!isFinite(mx)||!isFinite(my)||!isFinite(halfBase)||!isFinite(rise)) return;
+
+  // the cavity: a flare opening out of the mouth, its height the aperture
+  var ap = clamp(MOUTH.open,0,1);
+  g.globalAlpha = 0.20 + 0.28*ap;
+  g.fillStyle = 'rgba(168,67,42,0.16)';
+  g.beginPath();
+  g.moveTo(mx-halfBase*0.42, my);
+  g.lineTo(mx-halfBase, my-rise*0.18);
+  g.lineTo(mx+halfBase, my-rise*0.18);
+  g.lineTo(mx+halfBase*0.42, my);
+  g.closePath(); g.fill();
+  g.globalAlpha=1;
+
+  // the actual mouth aperture, drawn on your actual mouth
+  g.strokeStyle = C_TEXT; g.globalAlpha=0.35;
+  g.lineWidth=Math.max(1, MIN*0.003);
+  g.beginPath();
+  g.ellipse(mx,my, halfBase*0.46, Math.max(1.5, ap*rise*0.075), 0, 0, Math.PI*2);
+  g.stroke(); g.globalAlpha=1;
+
+  var n, y, amp, hw, on, maxA=1e-6, NT=nTop();
+  for(n=1;n<=NT;n++) if (harmShown[n]>maxA) maxA=harmShown[n];
+
+  for (n=1;n<=NT;n++){
+    y = my - rise*0.18 - (n/NT)*rise*0.82;
+    amp = clamp(harmShown[n]/maxA, 0, 1);
+    hw = halfBase*(0.16 + 0.94*amp);
+    on = (n===sel);
+    if (!isFinite(y)||!isFinite(hw)) continue;
+    g.globalAlpha = on ? 0.96 : (0.16 + 0.52*amp);
+    g.fillStyle = on ? C_REED : C_TEXT;
+    var rungH = Math.max(1.6, Math.min(MIN*0.0045, rise*0.82/NT*0.55));
+    g.fillRect(mx-hw, y-rungH*0.5, hw*2, rungH);
+    if (on){
+      g.globalAlpha=0.9;
+      g.font = '400 ' + Math.round(clamp(MIN*0.030,10,18)) + 'px "Archivo Black",sans-serif';
+      g.textAlign='left'; g.textBaseline='middle';
+      g.fillText(String(n), mx+hw+MIN*0.016, y);
+    }
+  }
+  g.globalAlpha=1;
+
+  // where the two formants actually sit, in harmonic space
+  var base=f0(), k;
+  var marks=[{f:MOUTH.F1,l:'F1'},{f:MOUTH.F2,l:'F2'}];
+  for(k=0;k<2;k++){
+    var hn = marks[k].f/base;
+    if (!isFinite(hn) || hn<0.5 || hn>NT+1) continue;
+    var yy = my - rise*0.18 - (hn/NT)*rise*0.82;
+    if (!isFinite(yy)) continue;
+    g.strokeStyle=C_CORD; g.globalAlpha=0.5; g.lineWidth=1;
+    g.beginPath(); g.moveTo(mx-halfBase*1.30, yy); g.lineTo(mx-halfBase*1.02, yy); g.stroke();
+    g.globalAlpha=0.7; g.fillStyle=C_CORD;
+    g.font='400 '+Math.round(clamp(MIN*0.020,8,12))+'px "Archivo Black",sans-serif';
+    g.textAlign='right'; g.textBaseline='middle';
+    g.fillText(marks[k].l, mx-halfBase*1.38, yy);
+    g.globalAlpha=1;
+  }
+}
+
+function drawHint(t){
+  if (faceAlive() && handAlive()) return;
+  var a = 0.30+0.16*Math.sin(t*2.2);
+  g.globalAlpha=a; g.fillStyle=C_DIM;
+  g.font='400 '+Math.round(clamp(MIN*0.030,11,17))+'px "Yuji Syuku",serif';
+  g.textAlign='center'; g.textBaseline='middle';
+  g.fillText(!faceAlive() ? 'カメラに顔を見せる' : '手をカメラに入れて横へ振る', W*0.5, H*0.90);
+  g.globalAlpha=1;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  READOUT
+// ═══════════════════════════════════════════════════════════════════════
+var NOTE_NAMES = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+function noteName(f){
+  if (!(f>0) || !isFinite(f)) return '—';
+  var m = Math.round(69 + 12*Math.log(f/440)/Math.LN2);
+  if (!isFinite(m)) return '—';
+  var oct = Math.floor(m/12) - 1;
+  var nm = NOTE_NAMES[((m%12)+12)%12];
+  return nm + oct;
+}
+var lastSel = -1, lastSub = '';
+function syncRead(sel){
+  if (sel !== lastSel){
+    lastSel = sel;
+    harmNEl.textContent = sel>0 ? String(sel) : '—';
+  }
+  var sub = (sel>0) ? (noteName(f0()*sel) + ' ・ ' + Math.round(f0()*sel) + ' Hz') : 'くちをひらく';
+  if (sub !== lastSub){ lastSub = sub; harmSubEl.textContent = sub; }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  LOOP
+// ═══════════════════════════════════════════════════════════════════════
+var running=false, lastT=now(), sel=1;
+
+function frame(){
+  requestAnimationFrame(frame);
+  var t=now(), dt=Math.min(t-lastT,0.05); lastT=t;
+  if (dt<0) dt=0;
+
+  var c = stepCord(dt);
+  updateFormants(dt);
+  sel = computeHarmonics(dt);
+  if (running) syncRead(sel);
+
+  drawGround();
+  drawLadder(t, sel);
+  drawReed(t, c.anchor, c.stretch);
+  drawCord(t, c.anchor, c.stretch);
+  if (running) drawHint(t);
+
+  // the pluck flash: 90ms, the only fast thing in an otherwise elastic piece
+  var fl = t - flashT;
+  if (fl >= 0 && fl < 0.09){
+    g.globalAlpha = (1 - fl/0.09)*0.12;
+    g.fillStyle = C_REED; g.fillRect(0,0,W,H);
+    g.globalAlpha = 1;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  START OVERLAY DIAGRAM ─ a mouth opening, the resonance climbing a ladder
+// ═══════════════════════════════════════════════════════════════════════
+var dg = demoCv.getContext('2d');
+var DW = demoCv.width, DH = demoCv.height, demoRun = true;
+function drawDemo(){
+  if (!demoRun) return;
+  requestAnimationFrame(drawDemo);
+  var t = now() % 4.4;
+  dg.fillStyle = '#16130f'; dg.fillRect(0,0,DW,DH);
+
+  // a mouth that opens and widens on a loop
+  var ph = t/4.4;
+  var open = 0.5-0.5*Math.cos(ph*Math.PI*2);
+  var wide = 0.5-0.5*Math.cos((ph*2)*Math.PI*2);
+  var mx = 150, my = DH-42;
+
+  // ladder
+  var NB=16, n, y, best=1, bestv=-1, amps=[];
+  var F1 = 270+690*open, F2 = 780+1780*wide+260*open, base=98;
+  for(n=1;n<=NB;n++){
+    var f=base*n;
+    var r1=f/F1-F1/f, r2=f/F2-F2/f;
+    var a=Math.pow(n,-0.45)*(0.95/Math.sqrt(1+81*r1*r1)+0.62/Math.sqrt(1+169*r2*r2)+0.11);
+    amps[n]=a; if(a>bestv){bestv=a;best=n;}
+  }
+  var half = 30+34*wide;
+  dg.globalAlpha=0.18+0.3*open;
+  dg.fillStyle='rgba(168,67,42,0.2)';
+  dg.beginPath();
+  dg.moveTo(mx-half*0.42,my); dg.lineTo(mx-half,my-22); dg.lineTo(mx+half,my-22); dg.lineTo(mx+half*0.42,my);
+  dg.closePath(); dg.fill(); dg.globalAlpha=1;
+  dg.strokeStyle='#e6dccb'; dg.globalAlpha=0.4; dg.lineWidth=1;
+  dg.beginPath(); dg.ellipse(mx,my,half*0.46,Math.max(1.5,open*13),0,0,Math.PI*2); dg.stroke();
+  dg.globalAlpha=1;
+  for(n=1;n<=NB;n++){
+    y = my-22-(n/NB)*(DH-84);
+    var a = amps[n]/bestv, on=(n===best), hw=half*(0.16+0.94*a);
+    dg.globalAlpha = on?0.96:(0.16+0.5*a);
+    dg.fillStyle = on?'#a8432a':'#e6dccb';
+    dg.fillRect(mx-hw,y-1.5,hw*2,3);
+    if(on){ dg.globalAlpha=0.9;
+      dg.font='400 15px "Archivo Black",sans-serif'; dg.textAlign='left'; dg.textBaseline='middle';
+      dg.fillText(String(n), mx+hw+10, y); }
+  }
+  dg.globalAlpha=1;
+
+  // the reed and the cord being yanked
+  var ry=DH*0.5, yank=(t%1.1)<0.16 ? (1-(t%1.1)/0.16) : 0;
+  dg.strokeStyle='#5a4838'; dg.lineWidth=4;
+  dg.beginPath(); dg.moveTo(DW-160,ry-26); dg.lineTo(DW-160,ry+26); dg.stroke();
+  dg.strokeStyle='#a8432a'; dg.lineWidth=2.5;
+  dg.beginPath();
+  for(var i=0;i<=14;i++){var u=i/14;
+    dg.lineTo(DW-158+u*44, ry+Math.sin(u*1.57)*Math.sin(t*40)*9*yank);}
+  dg.stroke();
+  dg.strokeStyle='#7d9b4e'; dg.lineWidth=2; dg.globalAlpha=0.85;
+  dg.beginPath();
+  var hxx=DW-40-yank*26;
+  for(i=0;i<=14;i++){var u2=i/14;
+    dg.lineTo((DW-112)+(hxx-(DW-112))*u2, ry+Math.sin(u2*Math.PI)*(9-yank*7));}
+  dg.stroke();
+  dg.beginPath(); dg.arc(hxx,ry,11,0,Math.PI*2); dg.stroke(); dg.globalAlpha=1;
+
+  dg.fillStyle='#8d7f70'; dg.globalAlpha=0.95;
+  dg.font='400 15px "Yuji Syuku",serif'; dg.textAlign='left'; dg.textBaseline='middle';
+  dg.fillText(t<2.2?'口をひらくと下の共鳴が上がる':'横にひろげると上の共鳴が上がる', 16, 22);
+  dg.globalAlpha=1;
+}
+drawDemo();
+
+// ═══════════════════════════════════════════════════════════════════════
+//  WIRING
+// ═══════════════════════════════════════════════════════════════════════
+var modeBtns = [document.getElementById('m0'),document.getElementById('m1'),document.getElementById('m2')];
+function setTuning(i){
+  i = clamp(i|0, 0, TUNINGS.length-1);
+  tuning = i;
+  var k;
+  for (k=0;k<modeBtns.length;k++){
+    if (modeBtns[k]) modeBtns[k].className = 'mode' + (k===i ? ' on' : '');
+  }
+  if (audioOK && reedOsc && AC){
+    try{
+      reedOsc.frequency.cancelScheduledValues(AC.currentTime);
+      reedOsc.frequency.setTargetAtTime(clamp(f0(),20,4000), AC.currentTime, 0.03);
+    }catch(e){}
+  }
+  lastSel = -1; lastSub = '';
+}
+(function(){
+  var k;
+  for (k=0;k<modeBtns.length;k++){
+    (function(idx){
+      if (!modeBtns[idx]) return;
+      modeBtns[idx].addEventListener('click', function(){
+        setTuning(idx);
+        pluck(0.55);          // so a tuning change is audible immediately
+      });
+    })(k);
+  }
+})();
+
+var started=false;
+startBtn.addEventListener('click', function(){
+  if (started) return;
+  started = true;
+  demoRun = false;
+  initAudio();
+  startSheet.classList.add('gone');
+  setTimeout(function(){ startSheet.style.display='none'; }, 460);
+  readBox.classList.add('on');
+  bar.classList.add('on');
+  running = true;
+  startStream()
+    .then(function(){ initFace(); initHands(); startMpCamera(); })
+    .catch(showError);
+  // one stroke so the instrument is already sounding when you look up
+  setTimeout(function(){ pluck(0.5); }, 380);
+});
+
+document.addEventListener('visibilitychange', function(){
+  if (document.hidden){ loseHand(); loseFace(); }
+});
+
+resize();
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
