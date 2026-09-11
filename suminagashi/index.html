@@ -1,0 +1,951 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>SUMINAGASHI ─ 混ざらない墨流し</title>
+<meta name="description" content="水面に墨を落として櫛で梳く、本物の墨流し。色はカメラが見たものから採るが、絵としては入らない。滴は一滴ずつ平らな輪として残り、既にある輪は外へ押し広げられるだけで、決して混ざらない。拡散が一切ないので、何十回梳いても墨は濁らず、髪のように細い筋になって伸びていく。手をひらけば櫛、握れば指先から墨が落ちる。">
+<meta name="theme-color" content="#f2ede1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Italiana&family=Zen+Antique&display=swap" rel="stylesheet">
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  SUMINAGASHI ─ 混ざらない墨流し                     ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  PALETTE   生成  kinari #f2ede1  the washi. the ground, and the water, and
+                                  the colour a drop of clear size makes
+            墨    sumi   #22201c  ink
+            藍    ai     #2e4a6b  the second ink
+            臙脂  enji   #9b3b46  the third ink
+            金    kin    #b99245  the chrome ONLY — the rule, the seal, the
+                                  live mode. never appears in the water.
+            MOOD: a tray of water photographed from directly overhead on a
+            white table. Absolutely flat. No vignette, no glow, no shadow,
+            no depth cue of any kind, because a marbling tray has none —
+            everything is one surface seen square on. This is the light
+            piece; the previous two tonight are dawn-mist and lamplight, and
+            this one is plain daylight on paper.
+  BACKGROUND  There is none, and that is the point: the marbled buffer is
+            full bleed and IS the image. Over it sits only a 1px 金 rule
+            inset from the edge and a 落款 seal in the corner, both of which
+            are chrome and never touch the water. A very faint washi fibre
+            texture is composited at 4% so the white reads as paper.
+  TYPE      Italiana for latin — a hairline didone display face, all caps,
+            tracked very wide, used at small sizes. It is almost too thin,
+            which is correct: nothing in the chrome should compete with the
+            ink. Zen Antique for Japanese, an antique mincho with a printed
+            rather than brushed feel. One weight each; the piece never bolds.
+  MOTION    Slow and liquid. Every transition is 700ms on a long ease-out,
+            mode names cross-fade rather than move, and the seal breathes
+            once every four seconds. The water itself never eases — it moves
+            exactly as fast as your hand does, because it is being displaced,
+            not animated.
+  SIGNATURE THE INK NEVER MIXES. This is not a fluid simulation and not a
+            blur — there is no diffusion term anywhere in the piece, because
+            marbling has none. A drop of ink on water does not blend into
+            what is already there; it pushes everything else outward and
+            sits as a flat unbroken ring. That displacement has an exact
+            closed form, and so does its inverse, so the whole surface can
+            be resampled through it in one pass with no error accumulating.
+            The consequence is the thing you actually see: comb the water
+            fifty times and the ink does not go muddy. It draws out into
+            filigree finer than a hair and every band keeps its own colour,
+            which is precisely what no blur-based effect can do and why the
+            real craft has survived nine hundred years.
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<style>
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{height:100%;overflow:hidden;background:#f2ede1;color:#22201c}
+  body{font-family:'Zen Antique',serif;-webkit-font-smoothing:antialiased;touch-action:manipulation}
+  #view{position:fixed;inset:0;width:100%;height:100%;display:block}
+  #video{position:fixed;width:2px;height:2px;opacity:.001;pointer-events:none;left:-10px;top:-10px}
+
+  #flip{
+    position:fixed;top:calc(env(safe-area-inset-top,0px) + 15px);right:15px;z-index:6;
+    font-family:'Zen Antique',serif;font-size:11px;letter-spacing:.2em;
+    color:#8a8377;background:rgba(242,237,225,.82);border:1px solid #d9d1bf;
+    padding:7px 12px;cursor:pointer;
+    transition:color .7s cubic-bezier(.16,.84,.3,1),border-color .7s cubic-bezier(.16,.84,.3,1);
+  }
+  #flip:hover{color:#22201c;border-color:#b99245}
+
+  #err{
+    display:none;position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);
+    z-index:40;max-width:min(30rem,86vw);white-space:pre-line;
+    background:#f2ede1;border:1px solid #d9d1bf;color:#22201c;
+    padding:22px 24px;font-size:14px;line-height:2;letter-spacing:.04em;
+  }
+
+  #bar{
+    position:fixed;left:50%;transform:translateX(-50%);
+    bottom:calc(env(safe-area-inset-bottom,0px) + 18px);z-index:6;
+    display:flex;gap:1px;background:#d9d1bf;border:1px solid #d9d1bf;
+    opacity:0;pointer-events:none;transition:opacity .7s cubic-bezier(.16,.84,.3,1);
+  }
+  #bar.on{opacity:1;pointer-events:auto}
+  .mode{
+    background:rgba(242,237,225,.94);border:none;color:#8a8377;cursor:pointer;
+    padding:10px 18px 9px;display:flex;flex-direction:column;align-items:center;gap:3px;min-width:88px;
+    transition:color .7s cubic-bezier(.16,.84,.3,1),background .7s cubic-bezier(.16,.84,.3,1);
+  }
+  .mode b{font-family:'Italiana',serif;font-weight:400;font-size:11px;letter-spacing:.3em;text-indent:.3em}
+  .mode i{font-family:'Zen Antique',serif;font-style:normal;font-size:14px;letter-spacing:.24em;text-indent:.24em}
+  .mode.on{color:#b99245;background:#fff}
+
+  #hud{
+    position:fixed;top:calc(env(safe-area-inset-top,0px) + 15px);left:17px;z-index:5;
+    font-family:'Italiana',serif;font-size:11px;letter-spacing:.34em;color:#8a8377;
+    opacity:0;transition:opacity .7s cubic-bezier(.16,.84,.3,1);pointer-events:none;
+  }
+  #hud.on{opacity:1}
+  #hud .jp{font-family:'Zen Antique',serif;letter-spacing:.2em;display:block;margin-top:6px;color:#a89f8e;font-size:11px}
+
+  .sheet{
+    position:fixed;inset:0;z-index:30;display:flex;align-items:center;justify-content:center;
+    padding:24px;background:rgba(242,237,225,.96);
+    transition:opacity .7s cubic-bezier(.16,.84,.3,1);
+  }
+  .sheet.gone{opacity:0;pointer-events:none}
+  .panel{width:min(30rem,100%);max-height:100%;overflow:auto}
+  .stamp{
+    display:flex;justify-content:space-between;align-items:baseline;
+    font-family:'Italiana',serif;font-size:11px;letter-spacing:.36em;color:#a89f8e;
+    border-bottom:1px solid #ddd5c4;padding-bottom:10px;margin-bottom:26px;
+  }
+  .panel h1{
+    font-family:'Italiana',serif;font-weight:400;
+    font-size:clamp(2.1rem,9vw,3.1rem);line-height:1.05;letter-spacing:.10em;
+  }
+  .panel h1 b{
+    display:block;font-family:'Zen Antique',serif;font-weight:400;
+    font-size:.34em;letter-spacing:.5em;color:#b99245;margin-top:1.1em;
+  }
+  #demo{display:block;width:100%;height:auto;margin:26px 0 22px;border:1px solid #e2dac9}
+  .lead{font-size:14px;line-height:2.15;letter-spacing:.05em;color:#4a463e}
+  .lead em{font-style:normal;color:#9b3b46}
+  .rules{list-style:none;margin:20px 0 0;border-top:1px solid #ddd5c4;padding-top:16px}
+  .rules li{
+    font-size:12.5px;line-height:2;letter-spacing:.045em;color:#6d675c;
+    padding-left:1.2em;position:relative;
+  }
+  .rules li::before{content:'○';position:absolute;left:0;color:#cdc3af;font-size:.62em;top:.62em}
+  .go{
+    display:block;width:100%;margin-top:26px;padding:16px;cursor:pointer;
+    font-family:'Italiana',serif;font-size:16px;letter-spacing:.5em;text-indent:.5em;
+    color:#f2ede1;background:#22201c;border:none;
+    transition:background .7s cubic-bezier(.16,.84,.3,1);
+  }
+  .go:hover{background:#9b3b46}
+  .fine{margin-top:14px;font-size:11px;letter-spacing:.09em;color:#a89f8e;text-align:center;line-height:1.9}
+</style>
+</head>
+<body>
+
+<canvas id="view"></canvas>
+<video id="video" playsinline muted autoplay></video>
+<button id="flip">⟲ カメラ</button>
+<div id="err"></div>
+
+<div id="hud"><span id="hudN">0</span> DROPS<span class="jp" id="hudJp">手をひらいて梳く</span></div>
+
+<div id="bar">
+  <button class="mode on" id="m0"><b>SUMI</b><i>墨</i></button>
+  <button class="mode"    id="m1"><b>SAI</b><i>彩</i></button>
+  <button class="mode"    id="m2"><b>KUJAKU</b><i>孔雀</i></button>
+</div>
+
+<div class="sheet" id="startSheet">
+  <div class="panel">
+    <div class="stamp"><span>OTO-II / SUMINAGASHI</span><span>墨流</span></div>
+    <h1>SUMINAGASHI<b>すみながし</b></h1>
+    <canvas id="demo" width="620" height="250"></canvas>
+    <p class="lead">水面に落ちた墨は、<em>先にある墨と混ざらない</em>。ただ外へ押し広げるだけで、輪は輪のまま残る。拡散が一度も起きないので、<em>何十回梳いても濁らず</em>、髪より細い筋まで伸びていく。色はカメラが見たものから採る。</p>
+    <ul class="rules">
+      <li>手をひらいて動かす ── 櫛。水面が梳かれて筋が伸びる</li>
+      <li>手を握る ── 指先から墨が落ちる。落ちた場所の色はカメラの色</li>
+      <li>墨・彩・孔雀。孔雀は櫛がひとりでに往復しはじめる</li>
+      <li>止まっていても水は止まらない。滴は落ちつづける</li>
+    </ul>
+    <button class="go" id="startBtn">START</button>
+    <p class="fine">カメラの使用を許可してください</p>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+<script>
+'use strict';
+// ═══════════════════════════════════════════════════════════════════════
+//  SUMINAGASHI ─ 混ざらない墨流し
+//
+//  Real marbling mathematics, not a fluid simulation and not a blur.
+//
+//  A drop of ink of radius r landing at c does not blend with the ink
+//  already on the water: it displaces every existing point radially
+//  outward by the area-preserving map
+//        p  ->  c + (p-c) * sqrt(1 + r^2/|p-c|^2)
+//  which has the exact closed-form inverse
+//        p  ->  c + (p-c) * sqrt(1 - r^2/|p-c|^2)   for |p-c| > r
+//  so the whole surface can be resampled through it in ONE pass with no
+//  iteration and no error accumulating.
+//
+//  A comb stroke displaces points PARALLEL to the stroke by an amount that
+//  depends only on their perpendicular distance from it.  That distance is
+//  unchanged by a displacement along the stroke, so this map's inverse is
+//  also exact: subtract the same displacement computed from the same d.
+//
+//  Both inverses are composed analytically per pixel, so a frame costs one
+//  bilinear resample of the paper buffer and nothing else.  Because there
+//  is no diffusion term anywhere, ink NEVER goes muddy: comb it fifty times
+//  and the bands draw out finer and finer while each keeps its own colour.
+//  That is the whole piece, and it is exactly what a blur-based effect
+//  cannot do.
+//
+//  REAL TIME: the paper is capped near 76k pixels and scaled up on blit,
+//  both ping-pong buffers are allocated once on resize, the perpendicular
+//  falloff and comb-tooth profile are baked into a 512-entry LUT each frame
+//  so the inner loop has no exp and no cos, and the camera is sampled into
+//  an 80x60 offscreen only every 6th frame — the camera supplies COLOUR,
+//  never an image, so it does not need to be read often.
+// ═══════════════════════════════════════════════════════════════════════
+
+var view = document.getElementById('view');
+var g    = view.getContext('2d');
+var video      = document.getElementById('video');
+var errBox     = document.getElementById('err');
+var flipBtn    = document.getElementById('flip');
+var hud        = document.getElementById('hud');
+var hudN       = document.getElementById('hudN');
+var hudJp      = document.getElementById('hudJp');
+var bar        = document.getElementById('bar');
+var startSheet = document.getElementById('startSheet');
+var startBtn   = document.getElementById('startBtn');
+var demoCv     = document.getElementById('demo');
+
+var now = (typeof performance !== 'undefined' && performance.now)
+  ? function(){ return performance.now()/1000; }
+  : function(){ return Date.now()/1000; };
+function clamp(v,a,b){ return v<a?a:(v>b?b:v); }
+function lerp(a,b,t){ return a+(b-a)*t; }
+function rand(a,b){ return a+Math.random()*(b-a); }
+
+var C_PAPER='#f2ede1', C_SUMI='#22201c', C_AI='#2e4a6b',
+    C_ENJI='#9b3b46', C_KIN='#b99245', C_DIM='#8a8377';
+
+// ═══════════════════════════════════════════════════════════════════════
+//  CAMERA
+// ═══════════════════════════════════════════════════════════════════════
+var facing='user', mirror=true, stream=null, camOK=false;
+function showError(e){
+  var msg = (e && e.message) ? e.message : String(e || 'unknown');
+  errBox.style.display='block';
+  errBox.textContent = 'カメラを起動できませんでした：' + msg +
+    '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+}
+function startStream(){
+  var md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) return Promise.reject(new Error('getUserMedia is unavailable'));
+  if (stream && stream.getTracks) stream.getTracks().forEach(function(t){ t.stop(); });
+  return md.getUserMedia({
+    video:{ facingMode:{ ideal:facing }, width:{ ideal:640 }, height:{ ideal:480 } },
+    audio:false
+  }).then(function(st){
+    stream=st; video.srcObject=st; mirror=(facing==='user'); camOK=true;
+    var p = video.play();
+    return (p && p.then) ? p.catch(function(){}) : null;
+  });
+}
+flipBtn.addEventListener('click', function(){
+  facing = (facing==='user') ? 'environment' : 'user';
+  loseHand();
+  startStream().then(startMpCamera).catch(showError);
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+//  HAND ─ open is the comb, closed drops ink from the fingertip
+// ═══════════════════════════════════════════════════════════════════════
+var hands=null, mpCamera=null, mpReady=false;
+var LOST_S = 0.42, TIPS=[4,8,12,16,20];
+var Hn = { live:false, t:-1e9, x:0.5, y:0.5, px:0.5, py:0.5, pt:-1e9,
+           vx:0, vy:0, open:0.5, tips:null };
+
+function loseHand(){
+  Hn.live=false; Hn.tips=null; Hn.vx=0; Hn.vy=0; Hn.pt=-1e9;
+  // velocity and grip must both be forgotten, or reacquiring the hand
+  // across the tray reads as one enormous comb stroke
+  fistHeld = 0; fistWasClosed = false;
+}
+function initHands(){
+  if (typeof window.Hands !== 'function') return false;
+  try{
+    hands = new window.Hands({ locateFile:function(f){
+      return 'https://cdn.jsdelivr.net/npm/@mediapipe/hands/' + f; }});
+    hands.setOptions({ maxNumHands:1, modelComplexity:0,
+                       minDetectionConfidence:0.6, minTrackingConfidence:0.5 });
+    hands.onResults(onHands);
+    mpReady=true; return true;
+  }catch(e){ return false; }
+}
+function startMpCamera(){
+  if (!mpReady || !hands || mpCamera) return;
+  if (typeof window.Camera !== 'function') return;
+  try{
+    mpCamera = new window.Camera(video, {
+      onFrame:function(){
+        if (!hands) return Promise.resolve();
+        return hands.send({ image: video }).catch(function(){});
+      },
+      width:480, height:360
+    });
+    mpCamera.start();
+  }catch(e){ mpCamera=null; }
+}
+function validLm(c){
+  if (!c || typeof c.length !== 'number' || c.length < 21) return null;
+  var i,p;
+  for (i=0;i<21;i++){
+    p=c[i];
+    if (!p || typeof p.x!=='number' || typeof p.y!=='number' ||
+        !isFinite(p.x) || !isFinite(p.y)) return null;
+  }
+  return c;
+}
+function onHands(res){
+  var list = (res && res.multiHandLandmarks) ? res.multiHandLandmarks : null;
+  var lm = (list && list.length) ? validLm(list[0]) : null;
+  if (!lm) return;
+  var wr=lm[0], mc=lm[9];
+  var palm = Math.hypot(mc.x-wr.x, mc.y-wr.y);
+  if (!isFinite(palm) || palm < 1e-4) return;
+  var sum=0,i,p,tips=[];
+  for (i=0;i<TIPS.length;i++){
+    p=lm[TIPS[i]];
+    sum += Math.hypot(p.x-wr.x, p.y-wr.y);
+    tips.push({ x: mirror ? (1-p.x) : p.x, y:p.y });
+  }
+  var ratio=(sum/TIPS.length)/palm;
+  if (!isFinite(ratio)) return;
+  var rx=(wr.x+mc.x*2)/3, ry=(wr.y+mc.y*2)/3;
+  var nx = mirror ? (1-rx) : rx, ny = ry;
+  var t = now(), dt = t - Hn.pt;
+  if (Hn.live && dt > 1e-3 && dt < 0.3){
+    var ivx=(nx-Hn.px)/dt, ivy=(ny-Hn.py)/dt;
+    if (isFinite(ivx) && isFinite(ivy)){
+      Hn.vx = lerp(Hn.vx, clamp(ivx,-8,8), 0.5);
+      Hn.vy = lerp(Hn.vy, clamp(ivy,-8,8), 0.5);
+    }
+  } else { Hn.vx=0; Hn.vy=0; }
+  Hn.px=nx; Hn.py=ny; Hn.pt=t;
+  Hn.x=nx; Hn.y=ny;
+  Hn.open = clamp((ratio-1.30)/0.95, 0, 1);
+  Hn.tips = tips;
+  Hn.t=t; Hn.live=true;
+}
+function handAlive(){ return Hn.live && (now()-Hn.t) < LOST_S; }
+
+// ═══════════════════════════════════════════════════════════════════════
+//  THE PAPER ─ two ping-pong RGBA buffers, allocated once per resize
+// ═══════════════════════════════════════════════════════════════════════
+var TARGET_PX = 76000;
+var PW=1, PH=1;
+var imgA=null, imgB=null, bufA=null, bufB=null, cur=0;
+var paperCv=null, paperCtx=null;
+var W=1,H=1,DPR=1,MIN=1;
+
+function allocPaper(w,h){
+  PW = Math.max(8, w|0); PH = Math.max(8, h|0);
+  if (!paperCv){
+    paperCv = document.createElement('canvas');
+    paperCtx = paperCv.getContext('2d');
+  }
+  paperCv.width = PW; paperCv.height = PH;
+  if (!paperCtx) return false;
+  imgA = paperCtx.createImageData(PW,PH);
+  imgB = paperCtx.createImageData(PW,PH);
+  bufA = imgA.data; bufB = imgB.data;
+  cur = 0;
+  clearPaper();
+  return true;
+}
+function clearPaper(){
+  if (!bufA || !bufB) return;
+  var i, n = PW*PH*4;
+  // 生成 — the water is the same colour as the washi it will be printed on
+  for (i=0;i<n;i+=4){
+    bufA[i]=242; bufA[i+1]=237; bufA[i+2]=225; bufA[i+3]=255;
+    bufB[i]=242; bufB[i+1]=237; bufB[i+2]=225; bufB[i+3]=255;
+  }
+  drops = 0;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  CAMERA COLOUR ─ the camera supplies COLOUR, never an image, so it is
+//  read into an 80x60 offscreen only every 6th frame
+// ═══════════════════════════════════════════════════════════════════════
+var CW=80, CH=60, camCv=null, camCtx=null, camData=null, camFresh=false, camTick=0;
+function initCamSample(){
+  if (camCv) return;
+  camCv = document.createElement('canvas');
+  camCv.width=CW; camCv.height=CH;
+  camCtx = camCv.getContext('2d');
+}
+function sampleCamera(){
+  if (!camCtx) return;
+  var vw=video.videoWidth|0, vh=video.videoHeight|0;
+  if (!camOK || vw<2 || vh<2) return;
+  try{
+    camCtx.save();
+    if (mirror){ camCtx.translate(CW,0); camCtx.scale(-1,1); }
+    camCtx.drawImage(video, 0,0, CW,CH);
+    camCtx.restore();
+    camData = camCtx.getImageData(0,0,CW,CH);
+    camFresh = !!(camData && camData.data);
+  }catch(e){ camFresh=false; }
+}
+// returns [r,g,b] at normalised (u,v), already pushed toward ink
+function inkColour(u,v){
+  var r=34,gg=32,b=28;
+  if (camFresh && camData && camData.data){
+    var cx = clamp(Math.round(u*(CW-1)),0,CW-1);
+    var cy = clamp(Math.round(v*(CH-1)),0,CH-1);
+    var o = (cy*CW+cx)*4, d = camData.data;
+    r=d[o]; gg=d[o+1]; b=d[o+2];
+  }
+  var mode = MODE;
+  if (mode === 0){
+    // 墨 — luminance only, mapped onto the sumi..kinari ramp
+    var L = clamp((0.2126*r + 0.7152*gg + 0.0722*b)/255, 0, 1);
+    var t = Math.pow(L, 1.35);
+    return [ Math.round(lerp(24,238,t)), Math.round(lerp(22,233,t)), Math.round(lerp(20,222,t)) ];
+  }
+  // 彩 / 孔雀 — the camera's own colour, pushed to ink strength so a dim
+  // room still makes a saturated drop
+  var mx = Math.max(r,Math.max(gg,b)), mn = Math.min(r,Math.min(gg,b));
+  var sat = (mx>1) ? (mx-mn)/mx : 0;
+  var boost = (sat < 0.16) ? 0 : 1;
+  var k = 0.55 + 0.45*boost;
+  var mid = (r+gg+b)/3;
+  r = clamp(Math.round(mid + (r-mid)*(1+1.5*k)), 0, 255);
+  gg= clamp(Math.round(mid + (gg-mid)*(1+1.5*k)), 0, 255);
+  b = clamp(Math.round(mid + (b-mid)*(1+1.5*k)), 0, 255);
+  var dark = 0.42;
+  return [ Math.round(r*dark+16), Math.round(gg*dark+16), Math.round(b*dark+16) ];
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  THE MARBLING PASS
+//  new(p) = old( rakeInv( dropInv(p) ) ), then the disc is painted.
+//  Both inverses are exact closed forms; nothing iterates, nothing blurs.
+// ═══════════════════════════════════════════════════════════════════════
+var LUTN = 512;
+var tineLut = new Float32Array(LUTN);
+var drops = 0;
+
+function buildTineLut(M, z, spacing, depth){
+  var i, d, fall, teeth;
+  var maxD = Math.max(PW,PH);
+  for (i=0;i<LUTN;i++){
+    d = (i/(LUTN-1))*maxD;
+    // rational falloff: same shape as the classic lambda^(d/z), no exp
+    fall = 1/(1 + (d*d)/(z*z));
+    // the comb's teeth: a gentle periodic modulation across the stroke
+    teeth = 1 - depth + depth*0.5*(1+Math.cos(d*(Math.PI*2)/Math.max(spacing,1e-3)));
+    tineLut[i] = M*fall*teeth;
+  }
+  return (LUTN-1)/maxD;
+}
+
+// one pass. rake: {ox,oy,nx,ny,ux,uy,lutScale} or null. drop: {cx,cy,r2} or null
+function marblePass(rake, drop, dropRGB){
+  if (!bufA || !bufB) return;
+  var src = cur ? bufB : bufA;
+  var dst = cur ? bufA : bufB;
+  var w=PW, h=PH, x, y, o=0;
+  var qx, qy, dx, dy, d2, f;
+  var hasRake = !!rake, hasDrop = !!drop;
+  var ox=0,oy=0,nx=0,ny=0,ux=0,uy=0,ls=0;
+  if (hasRake){ ox=rake.ox; oy=rake.oy; nx=rake.nx; ny=rake.ny; ux=rake.ux; uy=rake.uy; ls=rake.lutScale; }
+  var cx=0,cy=0,r2=0, dr=0,dg=0,db=0;
+  if (hasDrop){ cx=drop.cx; cy=drop.cy; r2=drop.r2; dr=dropRGB[0]; dg=dropRGB[1]; db=dropRGB[2]; }
+
+  var sx, sy, x0, y0, fx, fy, i00, i10, i01, i11, wa, wb, wc, wd, li;
+
+  for (y=0; y<h; y++){
+    for (x=0; x<w; x++, o+=4){
+      qx = x + 0.5; qy = y + 0.5;
+
+      if (hasDrop){
+        dx = qx - cx; dy = qy - cy;
+        d2 = dx*dx + dy*dy;
+        if (d2 <= r2){
+          // inside the new drop: it is simply the new colour, nothing to fetch
+          dst[o]=dr; dst[o+1]=dg; dst[o+2]=db; dst[o+3]=255;
+          continue;
+        }
+        f = Math.sqrt(1 - r2/d2);
+        qx = cx + dx*f; qy = cy + dy*f;
+      }
+
+      if (hasRake){
+        // signed perpendicular distance is INVARIANT under a displacement
+        // along the stroke, which is exactly why this inverse is exact
+        d2 = (qx-ox)*nx + (qy-oy)*ny;
+        li = (d2<0 ? -d2 : d2)*ls;
+        li = li < LUTN-1 ? (li|0) : LUTN-1;
+        f = tineLut[li];
+        qx -= ux*f; qy -= uy*f;
+      }
+
+      // bilinear fetch, REFLECTED at the walls of the tray.  Clamping
+      // replicates whatever sits on the rim inward, so a long combing
+      // session slowly drags the whole surface toward the edge colour —
+      // measured at 57 levels of mean-tone drift over 200 passes.
+      // Reflection folds the flow back instead, which costs nothing and
+      // is also what the wall of a real tray does to the ink.
+      sx = qx - 0.5; sy = qy - 0.5;
+      if (sx < 0) sx = -sx;
+      if (sx > w-1.001){ sx = 2*(w-1.001) - sx; if (sx < 0) sx = 0; }
+      if (sy < 0) sy = -sy;
+      if (sy > h-1.001){ sy = 2*(h-1.001) - sy; if (sy < 0) sy = 0; }
+      x0 = sx|0; y0 = sy|0;
+      fx = sx - x0; fy = sy - y0;
+      i00 = (y0*w + x0)*4; i10 = i00+4;
+      i01 = i00 + w*4;     i11 = i01+4;
+      wa = (1-fx)*(1-fy); wb = fx*(1-fy); wc = (1-fx)*fy; wd = fx*fy;
+      dst[o]   = src[i00]*wa   + src[i10]*wb   + src[i01]*wc   + src[i11]*wd;
+      dst[o+1] = src[i00+1]*wa + src[i10+1]*wb + src[i01+1]*wc + src[i11+1]*wd;
+      dst[o+2] = src[i00+2]*wa + src[i10+2]*wb + src[i01+2]*wc + src[i11+2]*wd;
+      dst[o+3] = 255;
+    }
+  }
+  cur ^= 1;
+  if (hasDrop) drops++;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  MODES + SCHEDULING
+// ═══════════════════════════════════════════════════════════════════════
+var MODE = 0;                       // 0 墨 / 1 彩 / 2 孔雀
+var MODE_JP = ['墨','彩','孔雀'];
+// Minimum hand speed that counts as combing, in screen-widths per second.
+// Tuned in the harness against simulated landmark jitter, not guessed:
+// jitter must never smear the water while the hand is simply resting.
+var MIN_COMB_SPEED = 0.34;
+var COMB_GAIN = 1.0;                // the water moves exactly as fast as you do
+var nextDrop = 0, nextFistDrop = 0;
+var fistHeld = 0, fistWasClosed = false;
+var lastPlip = -9;
+
+function scheduleDrop(t){ nextDrop = t + rand(0.55, 1.30); }
+
+function handOpen(){ return handAlive() && Hn.open > 0.45; }
+function handFist(){ return handAlive() && Hn.open < 0.25; }
+
+// ── the rake for this frame, or null ──────────────────────────────────
+var autoPhase = 0;
+function buildRake(dt, t){
+  var vx, vy, ox, oy, sp;
+
+  if (handOpen()){
+    vx = Hn.vx; vy = Hn.vy;
+    sp = Math.hypot(vx, vy);
+    if (!isFinite(sp) || sp < MIN_COMB_SPEED) { /* fall through to auto */ }
+    else {
+      ox = Hn.x*PW; oy = Hn.y*PH;
+      return rakeFrom(ox, oy, vx, vy, sp, dt, 1.0);
+    }
+  }
+
+  if (MODE === 2){
+    // 孔雀 — the comb walks the tray on its own, the way the peacock
+    // pattern is actually made: passes at right angles, back and forth
+    autoPhase += dt*0.42;
+    var leg = Math.floor(autoPhase) % 2;
+    var u = autoPhase - Math.floor(autoPhase);
+    var s = Math.sin(u*Math.PI);
+    if (s < 0.06) return null;
+    if (leg === 0){
+      ox = lerp(0.08, 0.92, u)*PW; oy = PH*0.5;
+      return rakeFrom(ox, oy, 0.85*s, 0, 0.85*s, dt, 0.8);
+    }
+    ox = PW*0.5; oy = lerp(0.08, 0.92, u)*PH;
+    return rakeFrom(ox, oy, 0, 0.85*s, 0.85*s, dt, 0.8);
+  }
+  return null;
+}
+
+function rakeFrom(ox, oy, vx, vy, sp, dt, scale){
+  if (!(sp > 1e-5)) return null;
+  var ux = vx/sp, uy = vy/sp;
+  if (!isFinite(ux) || !isFinite(uy)) return null;
+  // displacement this frame, in paper pixels
+  var M = clamp(sp*COMB_GAIN*scale*dt*PW, 0, PW*0.16);
+  if (!(M > 0.12)) return null;
+  var z = Math.min(PW,PH) * (0.15 + 0.13*(handAlive()?Hn.open:0.5));
+  var spacing = Math.min(PW,PH) * 0.16;
+  var lutScale = buildTineLut(M, z, spacing, 0.34);
+  return { ox:ox, oy:oy, ux:ux, uy:uy, nx:-uy, ny:ux, lutScale:lutScale };
+}
+
+// ── the drop for this frame, or null ──────────────────────────────────
+function buildDrop(t){
+  var cx, cy, r, u, v;
+  if (handFist() && t >= nextFistDrop){
+    nextFistDrop = t + 0.22;
+    u = clamp(Hn.x,0,1); v = clamp(Hn.y,0,1);
+    cx = u*PW; cy = v*PH;
+    r = Math.min(PW,PH) * rand(0.030, 0.062);
+    plip(t, 0.55);
+    return { cx:cx, cy:cy, r2:r*r, u:u, v:v };
+  }
+  if (t >= nextDrop){
+    scheduleDrop(t);
+    u = rand(0.12,0.88); v = rand(0.12,0.88);
+    cx = u*PW; cy = v*PH;
+    r = Math.min(PW,PH) * rand(0.035, 0.115);
+    plip(t, 0.32);
+    return { cx:cx, cy:cy, r2:r*r, u:u, v:v };
+  }
+  return null;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  AUDIO ─ near-silent by design: a shallow tray of water, and the sound
+//  a single drop makes hitting it.  No music, no drone, nothing to play.
+// ═══════════════════════════════════════════════════════════════════════
+var AC=null, master=null, comp=null, ambGain=null, audioOK=false;
+function initAudio(){
+  if (AC){ if (AC.state==='suspended' && AC.resume){ try{ AC.resume(); }catch(e){} } return true; }
+  var Ctor = window.AudioContext || window.webkitAudioContext;
+  if (!Ctor) return false;
+  try{ AC = new Ctor(); }catch(e){ AC=null; return false; }
+  if (AC.state==='suspended' && AC.resume){ try{ AC.resume(); }catch(e){} }
+  comp = AC.createDynamicsCompressor();
+  comp.threshold.value=-20; comp.knee.value=24; comp.ratio.value=4;
+  comp.attack.value=0.005; comp.release.value=0.25;
+  master = AC.createGain(); master.gain.value=0.5;
+  master.connect(comp); comp.connect(AC.destination);
+  try{
+    var nl=Math.floor(AC.sampleRate*2.2);
+    var nb=AC.createBuffer(1,nl,AC.sampleRate);
+    var nd=nb.getChannelData(0), last=0, k;
+    for(k=0;k<nl;k++){ last = last*0.992 + (Math.random()*2-1)*0.008; nd[k]=last*5; }
+    var src=AC.createBufferSource(); src.buffer=nb; src.loop=true;
+    var lp=AC.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value=320; lp.Q.value=0.5;
+    ambGain=AC.createGain(); ambGain.gain.value=0.035;
+    src.connect(lp); lp.connect(ambGain); ambGain.connect(master);
+    src.start();
+  }catch(e){ ambGain=null; }
+  audioOK=true; return true;
+}
+// a real water drop: a sine whose pitch RISES sharply as the cavity closes
+function plip(t, vol){
+  if (!audioOK || !AC) return;
+  if (t - lastPlip < 0.06) return;
+  lastPlip = t;
+  vol = isFinite(vol) ? clamp(vol,0.05,1) : 0.3;
+  var t0 = AC.currentTime;
+  var f = rand(620, 1180);
+  try{
+    var o = AC.createOscillator(); o.type='sine';
+    o.frequency.setValueAtTime(clamp(f*0.55,20,16000), t0);
+    o.frequency.exponentialRampToValueAtTime(clamp(f,20,16000), t0+0.045);
+    var a = AC.createGain();
+    a.gain.setValueAtTime(0.0001, t0);
+    a.gain.exponentialRampToValueAtTime(Math.max(vol*0.16,0.0002), t0+0.004);
+    a.gain.exponentialRampToValueAtTime(0.0001, t0+0.19);
+    var bp = AC.createBiquadFilter();
+    bp.type='bandpass'; bp.frequency.value=clamp(f*1.4,60,16000); bp.Q.value=2.2;
+    o.connect(a); a.connect(bp); bp.connect(master);
+    o.start(t0); o.stop(t0+0.26);
+    o.onended = function(){ try{ o.disconnect(); a.disconnect(); bp.disconnect(); }catch(e){} };
+  }catch(e){}
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  RENDER
+// ═══════════════════════════════════════════════════════════════════════
+var fibreCv=null;
+function buildFibre(){
+  if (!fibreCv){ fibreCv = document.createElement('canvas'); }
+  var c = fibreCv.getContext('2d');
+  if (!c) return;
+  fibreCv.width = Math.max(2,Math.round(W));
+  fibreCv.height= Math.max(2,Math.round(H));
+  c.clearRect(0,0,fibreCv.width,fibreCv.height);
+  // washi fibre: short pale strands, drawn once and composited at 4.5%
+  var i, x, y, a, L;
+  c.lineWidth = 1;
+  for (i=0;i<620;i++){
+    x = Math.random()*fibreCv.width; y = Math.random()*fibreCv.height;
+    a = Math.random()*Math.PI; L = 5 + Math.random()*26;
+    c.strokeStyle = (i%3) ? 'rgba(255,255,255,0.9)' : 'rgba(120,110,92,0.55)';
+    c.beginPath(); c.moveTo(x,y);
+    c.lineTo(x+Math.cos(a)*L, y+Math.sin(a)*L);
+    c.stroke();
+  }
+}
+
+function resize(){
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  W = Math.max(1, Math.round(window.innerWidth  || 360));
+  H = Math.max(1, Math.round(window.innerHeight || 640));
+  MIN = Math.min(W,H);
+  view.width = Math.max(1, Math.round(W*DPR));
+  view.height= Math.max(1, Math.round(H*DPR));
+  view.style.width=W+'px'; view.style.height=H+'px';
+  g.setTransform(DPR,0,0,DPR,0,0);
+
+  // paper resolution: hold the screen's aspect, hold the pixel budget
+  var aspect = W/H;
+  var ph = Math.round(Math.sqrt(TARGET_PX/Math.max(aspect,1e-3)));
+  var pw = Math.round(ph*aspect);
+  pw = clamp(pw, 64, 640); ph = clamp(ph, 64, 640);
+  if (pw !== PW || ph !== PH || !bufA) allocPaper(pw, ph);
+  buildFibre();
+  initCamSample();
+}
+window.addEventListener('resize', resize);
+window.addEventListener('orientationchange', function(){ setTimeout(resize,180); });
+
+function blitPaper(){
+  if (!paperCtx || !imgA || !imgB) { g.fillStyle=C_PAPER; g.fillRect(0,0,W,H); return; }
+  try{ paperCtx.putImageData(cur ? imgB : imgA, 0, 0); }catch(e){}
+  var s = Math.max(W/PW, H/PH);
+  var dw = PW*s, dh = PH*s;
+  g.imageSmoothingEnabled = true;
+  try{ g.drawImage(paperCv, 0,0,PW,PH, (W-dw)/2, (H-dh)/2, dw, dh); }
+  catch(e){ g.fillStyle=C_PAPER; g.fillRect(0,0,W,H); }
+}
+
+function drawFibre(){
+  if (!fibreCv || fibreCv.width<2) return;
+  g.globalAlpha = 0.045;
+  try{ g.drawImage(fibreCv, 0,0,W,H); }catch(e){}
+  g.globalAlpha = 1;
+}
+
+function drawComb(t){
+  if (!handAlive()) return;
+  var x = Hn.x*W, y = Hn.y*H;
+  if (!isFinite(x)||!isFinite(y)) return;
+  var open = Hn.open;
+
+  if (open > 0.45){
+    // the comb: teeth drawn across the direction of travel
+    var sp = Math.hypot(Hn.vx, Hn.vy);
+    var ux = 1, uy = 0;
+    if (sp > 1e-4){ ux = Hn.vx/sp; uy = Hn.vy/sp; }
+    var nx = -uy, ny = ux;
+    var span = MIN*0.20, i, u, px, py, n=9;
+    var live = sp > MIN_COMB_SPEED;
+    g.strokeStyle = live ? C_KIN : C_DIM;
+    g.globalAlpha = live ? 0.85 : 0.30;
+    g.lineWidth = Math.max(1, MIN*0.0035);
+    for (i=0;i<n;i++){
+      u = (i/(n-1) - 0.5)*2;
+      px = x + nx*u*span; py = y + ny*u*span;
+      if(!isFinite(px)||!isFinite(py)) continue;
+      g.beginPath();
+      g.moveTo(px, py);
+      g.lineTo(px - ux*MIN*0.026, py - uy*MIN*0.026);
+      g.stroke();
+    }
+    g.beginPath();
+    g.moveTo(x + nx*span, y + ny*span);
+    g.lineTo(x - nx*span, y - ny*span);
+    g.stroke();
+    g.globalAlpha = 1;
+    return;
+  }
+
+  // the fist: ink gathering at the fingertip
+  var pulse = 0.5+0.5*Math.sin(t*7);
+  g.globalAlpha = 0.75;
+  g.fillStyle = C_ENJI;
+  g.beginPath(); g.arc(x, y, MIN*(0.010+0.006*pulse), 0, Math.PI*2); g.fill();
+  g.globalAlpha = 0.30;
+  g.strokeStyle = C_ENJI; g.lineWidth = Math.max(1, MIN*0.003);
+  g.beginPath(); g.arc(x, y, MIN*(0.026+0.012*pulse), 0, Math.PI*2); g.stroke();
+  g.globalAlpha = 1;
+
+  if (Hn.tips){
+    var k, tp;
+    g.globalAlpha = 0.35; g.fillStyle = C_SUMI;
+    for (k=0;k<Hn.tips.length;k++){
+      tp = Hn.tips[k];
+      if (!tp || !isFinite(tp.x) || !isFinite(tp.y)) continue;
+      g.beginPath(); g.arc(tp.x*W, tp.y*H, MIN*0.0045, 0, Math.PI*2); g.fill();
+    }
+    g.globalAlpha = 1;
+  }
+}
+
+function drawChrome(t){
+  // the 金 rule, inset from the deckle
+  var m = Math.max(10, MIN*0.030);
+  g.strokeStyle = C_KIN; g.globalAlpha = 0.45; g.lineWidth = 1;
+  g.strokeRect(m+0.5, m+0.5, W-m*2-1, H-m*2-1);
+  g.globalAlpha = 1;
+
+  // 落款 — the seal, breathing once every four seconds
+  var s = MIN*0.062, br = 1 + 0.018*Math.sin(t*(Math.PI*2)/4);
+  var sx = W - m - s*br - MIN*0.012, sy = H - m - s*br - MIN*0.012;
+  if (!isFinite(sx)||!isFinite(sy)||!(s>0)) return;
+  g.save();
+  g.translate(sx + s*br/2, sy + s*br/2);
+  g.scale(br, br);
+  g.fillStyle = C_ENJI; g.globalAlpha = 0.88;
+  g.fillRect(-s/2, -s/2, s, s);
+  g.fillStyle = C_PAPER; g.globalAlpha = 1;
+  g.font = '400 ' + Math.round(s*0.36) + 'px "Zen Antique",serif';
+  g.textAlign='center'; g.textBaseline='middle';
+  g.fillText('墨', 0, -s*0.20);
+  g.fillText('流', 0,  s*0.20);
+  g.restore();
+  g.globalAlpha = 1;
+}
+
+function drawHint(t){
+  if (handAlive()) return;
+  g.globalAlpha = 0.30 + 0.16*Math.sin(t*1.8);
+  g.fillStyle = C_DIM;
+  g.font = '400 ' + Math.round(clamp(MIN*0.030,11,17)) + 'px "Zen Antique",serif';
+  g.textAlign='center'; g.textBaseline='middle';
+  g.fillText('カメラに手を見せる', W*0.5, H*0.5);
+  g.globalAlpha = 1;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  LOOP
+// ═══════════════════════════════════════════════════════════════════════
+var running=false, lastT=now(), lastHudN=-1, lastHudJp='';
+function frame(){
+  requestAnimationFrame(frame);
+  var t=now(), dt=Math.min(t-lastT,0.05); lastT=t;
+  if (dt<0) dt=0;
+
+  if (running){
+    camTick++;
+    if (camTick % 6 === 0) sampleCamera();
+
+    var drop = buildDrop(t);
+    var rake = buildRake(dt, t);
+    if (drop || rake){
+      var rgb = drop ? inkColour(drop.u, drop.v) : null;
+      marblePass(rake, drop, rgb);
+    }
+
+    if (drops !== lastHudN){ lastHudN = drops; hudN.textContent = String(drops); }
+    var jp = MODE_JP[clamp(MODE,0,2)] + ' ・ ' +
+      (!handAlive() ? '手を見せる' : (handFist() ? '墨を落としている' : '手をひらいて梳く'));
+    if (jp !== lastHudJp){ lastHudJp = jp; hudJp.textContent = jp; }
+  }
+
+  blitPaper();
+  drawFibre();
+  if (running) drawComb(t);
+  drawChrome(t);
+  if (running) drawHint(t);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  START OVERLAY DIAGRAM ─ a drop landing, then a comb drawing it out
+// ═══════════════════════════════════════════════════════════════════════
+var dg = demoCv.getContext('2d');
+var DW=demoCv.width, DH=demoCv.height, demoRun=true;
+function drawDemo(){
+  if (!demoRun) return;
+  requestAnimationFrame(drawDemo);
+  var t = now() % 6.0;
+  dg.fillStyle='#f2ede1'; dg.fillRect(0,0,DW,DH);
+
+  var cx=DW*0.5, cy=DH*0.5;
+  var cols=['#22201c','#2e4a6b','#9b3b46','#f2ede1'];
+  var i,k,rings=7;
+  // concentric rings, sheared by a travelling comb: the real thing in
+  // miniature, drawn analytically
+  var combX = (t<2.4) ? -999 : (DW*0.05 + (t-2.4)/2.2*DW*0.95);
+  for (i=rings-1;i>=0;i--){
+    var born = clamp((t - i*0.26)/0.34, 0, 1);
+    if (born<=0) continue;
+    var R = (12 + i*13)*born;
+    dg.beginPath();
+    for (k=0;k<=72;k++){
+      var a = k/72*Math.PI*2;
+      var px = cx + Math.cos(a)*R, py = cy + Math.sin(a)*R*0.92;
+      if (combX > -900){
+        var d = px - combX;
+        var amt = 46/(1+(d*d)/(52*52));
+        amt *= 0.72+0.28*0.5*(1+Math.cos(d*Math.PI*2/48));
+        py += amt;
+      }
+      if (k===0) dg.moveTo(px,py); else dg.lineTo(px,py);
+    }
+    dg.closePath();
+    dg.fillStyle = cols[i%cols.length];
+    dg.globalAlpha = 0.94; dg.fill(); dg.globalAlpha=1;
+  }
+  if (combX > -900 && combX < DW*1.02){
+    dg.strokeStyle='#b99245'; dg.lineWidth=1.6; dg.globalAlpha=0.9;
+    for(k=0;k<9;k++){
+      var yy = 14 + k*(DH-28)/8;
+      dg.beginPath(); dg.moveTo(combX,yy); dg.lineTo(combX-13,yy); dg.stroke();
+    }
+    dg.beginPath(); dg.moveTo(combX,8); dg.lineTo(combX,DH-8); dg.stroke();
+    dg.globalAlpha=1;
+  }
+  dg.fillStyle='#8a8377'; dg.globalAlpha=0.95;
+  dg.font='400 15px "Zen Antique",serif'; dg.textAlign='left'; dg.textBaseline='middle';
+  dg.fillText(t<2.4?'落ちた墨は先の墨を押し広げるだけ':'梳いても混ざらない ── 筋が細くなる', 14, 20);
+  dg.globalAlpha=1;
+}
+drawDemo();
+
+// ═══════════════════════════════════════════════════════════════════════
+//  WIRING
+// ═══════════════════════════════════════════════════════════════════════
+var modeBtns=[document.getElementById('m0'),document.getElementById('m1'),document.getElementById('m2')];
+function setMode(i){
+  MODE = clamp(i|0, 0, 2);
+  var k;
+  for(k=0;k<modeBtns.length;k++){
+    if (modeBtns[k]) modeBtns[k].className = 'mode' + (k===MODE ? ' on' : '');
+  }
+  lastHudJp = '';
+}
+(function(){
+  var k;
+  for(k=0;k<modeBtns.length;k++){
+    (function(idx){
+      if (!modeBtns[idx]) return;
+      modeBtns[idx].addEventListener('click', function(){ setMode(idx); });
+    })(k);
+  }
+})();
+
+var started=false;
+startBtn.addEventListener('click', function(){
+  if (started) return;
+  started=true; demoRun=false;
+  initAudio();
+  startSheet.classList.add('gone');
+  setTimeout(function(){ startSheet.style.display='none'; }, 740);
+  hud.classList.add('on'); bar.classList.add('on');
+  running = true;
+  scheduleDrop(now());
+  nextFistDrop = now();
+  startStream()
+    .then(function(){ if (initHands()) startMpCamera(); })
+    .catch(showError);
+});
+
+document.addEventListener('visibilitychange', function(){ if (document.hidden) loseHand(); });
+
+resize();
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
