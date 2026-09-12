@@ -1,0 +1,1674 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>SOPPO ─ あっち向いてホイ</title>
+<meta name="description" content="紙芝居の舞台で狸と向かい合う五番勝負のあっち向いてホイ。じゃんけんに勝てば指をさす側、負ければ顔をそむける側。ホイの一瞬に指のさした向きへ顔を向けてしまったら取られる。そむけなければ、それも取られる。決着がつくまで同じ番のなかでじゃんけんが繰り返され、繰り返すほど拍が速くなる。">
+<meta name="theme-color" content="#1b2233">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Yuji+Syuku&family=Kaisei+Decol:wght@400;700&display=swap" rel="stylesheet">
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  SOPPO ─ あっち向いてホイ                           ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  PALETTE   宵闇  yoiyami  #1b2233  the street behind the cart. A cold blue
+                                    that is never black, so the warm card
+                                    reads as the only lit thing on screen.
+            行灯  andon    #f0c46a  lantern amber. EVERY light in this piece
+                                    comes from one lamp above the stage, so
+                                    all highlights are this hue and all
+                                    falloff is radial from a point up-left.
+            生成り kinari  #efe3c8  the kamishibai card itself — unbleached
+                                    paper, warm, slightly uneven.
+            朱    shu      #d94f2b  vermilion. RESERVED. It is used for
+                                    exactly two things: the pointing arrow
+                                    and the ホイ stamp. Nothing else in the
+                                    piece is ever allowed to be red, so red
+                                    always means "the instant is now".
+            墨    sumi     #241d1a  every line and every character. Brush ink
+                                    on paper, never pure black.
+            MOOD: a paper-theatre cart at dusk, one lamp, one audience. The
+            screen is a lit card in a dark street — not a UI.
+  BACKGROUND  NOT the camera. The camera lives in a small round peep-mirror
+            in the corner; the stage is the subject. Deep indigo with vertical
+            woodgrain (the cart body), a single radial lantern falloff from
+            up-left, and a wooden frame with four nail heads holding the card.
+            The card carries a procedurally generated paper grain baked once
+            into an offscreen canvas, plus foxing blotches at the corners.
+  TYPE      Yuji Syuku — a brush-written kaisho — for every large word, because
+            kamishibai signage was hand-lettered with a brush. Kaisei Decol for
+            small text and numerals: an antique-print rounded serif. Two
+            Japanese faces only, no sans anywhere, and the display face is only
+            ever used LARGE (36px+) where the brush texture is visible.
+  MOTION    Snappy and mechanical, like a card being yanked out of the stage.
+            Every state change is 200ms on a cubic ease with a 6% overshoot.
+            The card pull is a 420ms horizontal slide. The ONE exception is
+            the ホイ instant, which has no transition at all — a hard cut,
+            a 3-frame white flash and a decaying screen shake. It reads as a
+            shock because everything else in the piece eases.
+  SIGNATURE THE CARD PULL, and THE STAMP. Between exchanges the paper card
+            physically slides out to the left with its edge catching the
+            lantern, while the next slides in from the right. And at the ホイ
+            instant a brush-drawn 「ホイ」 is stamped across the card in 朱 at
+            a random small angle with real ink spatter, then dries and fades.
+            Because the stamp lands on the paper and not on a HUD layer, the
+            moment of judgement belongs to the object, not to the interface.
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<style>
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{height:100%;overflow:hidden;background:#1b2233;color:#efe3c8}
+  body{font-family:'Kaisei Decol',serif;-webkit-font-smoothing:antialiased}
+  #view{position:fixed;inset:0;width:100%;height:100%;display:block}
+  #video{position:fixed;width:2px;height:2px;opacity:.001;pointer-events:none;left:-10px;top:-10px}
+
+  /* ── chrome ─────────────────────────────────────────────── */
+  #flip{
+    position:fixed;top:calc(env(safe-area-inset-top,0px) + 14px);right:14px;z-index:6;
+    font-family:'Kaisei Decol',serif;font-size:12px;letter-spacing:.16em;
+    color:#efe3c8;background:rgba(27,34,51,.66);border:1px solid #4a5468;
+    border-radius:1px;padding:7px 11px;cursor:pointer;
+    backdrop-filter:blur(5px);-webkit-backdrop-filter:blur(5px);
+    transition:border-color .2s cubic-bezier(.3,.9,.3,1),color .2s cubic-bezier(.3,.9,.3,1);
+  }
+  #flip:hover{border-color:#f0c46a;color:#f0c46a}
+  #err{
+    display:none;position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);
+    z-index:40;max-width:min(30rem,86vw);white-space:pre-line;
+    background:#efe3c8;border:1px solid #241d1a;color:#241d1a;
+    padding:22px 24px;font-size:14px;line-height:2;letter-spacing:.04em;
+  }
+
+  /* ── hud : the tally board nailed to the cart ───────────── */
+  #hud{
+    position:fixed;left:0;right:0;top:0;z-index:5;pointer-events:none;
+    padding:calc(env(safe-area-inset-top,0px) + 13px) 16px 0;
+    display:flex;align-items:flex-start;gap:14px;
+    opacity:0;transition:opacity .42s cubic-bezier(.3,.9,.3,1);
+  }
+  #hud.on{opacity:1}
+  .tally{display:flex;flex-direction:column;gap:4px}
+  .tally .lab{font-size:10px;letter-spacing:.3em;color:#8c94a8}
+  .tally .row{display:flex;gap:5px;align-items:center;height:18px}
+  .mark{
+    width:13px;height:13px;border:1px solid #4a5468;border-radius:50%;
+    transition:background .2s cubic-bezier(.3,.9,.3,1),border-color .2s cubic-bezier(.3,.9,.3,1);
+  }
+  .mark.me{border-color:#6f7a92}
+  .mark.me.on{background:#f0c46a;border-color:#f0c46a}
+  .mark.op.on{background:#d94f2b;border-color:#d94f2b}
+  #exch{
+    margin-left:auto;text-align:right;font-size:10px;letter-spacing:.26em;color:#8c94a8;
+  }
+  #exch b{display:block;font-size:26px;letter-spacing:0;color:#f0c46a;line-height:1.1;font-weight:400}
+
+  /* ── sheets ─────────────────────────────────────────────── */
+  .sheet{
+    position:fixed;inset:0;z-index:20;display:flex;align-items:center;justify-content:center;
+    padding:24px;background:radial-gradient(120% 90% at 26% 14%,rgba(46,57,82,.97),rgba(17,22,34,.99));
+    transition:opacity .42s cubic-bezier(.3,.9,.3,1);
+  }
+  .sheet.gone{opacity:0;pointer-events:none}
+  #endSheet{display:none}
+  #endSheet.show{display:flex}
+  .card2{
+    width:min(38rem,94vw);max-height:92vh;overflow:auto;
+    background:#efe3c8;color:#241d1a;padding:30px 30px 26px;
+    box-shadow:0 26px 60px rgba(0,0,0,.55);
+    border:1px solid #cbbd9d;position:relative;
+  }
+  .card2::after{
+    content:'';position:absolute;inset:6px;border:1px solid rgba(36,29,26,.26);pointer-events:none;
+  }
+  .kanban{font-family:'Yuji Syuku',serif;font-size:clamp(30px,8.5vw,44px);line-height:1.1;letter-spacing:.04em}
+  .sub{font-size:11px;letter-spacing:.4em;color:#7d7259;margin-top:9px}
+  .lead{font-size:13.5px;line-height:2.05;letter-spacing:.03em;margin-top:18px;color:#3c322c}
+  .lead em{font-style:normal;color:#b8431f;font-weight:700}
+  #demo{display:block;width:100%;height:auto;margin:18px 0 4px;border:1px solid rgba(36,29,26,.2)}
+  .rule{font-size:12px;line-height:1.95;letter-spacing:.02em;color:#4a3f37;
+        border-top:1px solid rgba(36,29,26,.22);margin-top:14px;padding-top:12px}
+  .go{
+    display:block;width:100%;margin-top:20px;padding:15px;cursor:pointer;
+    font-family:'Yuji Syuku',serif;font-size:21px;letter-spacing:.4em;
+    color:#efe3c8;background:#241d1a;border:none;
+    transition:background .2s cubic-bezier(.3,.9,.3,1),transform .2s cubic-bezier(.3,.9,.3,1);
+  }
+  .go:hover{background:#b8431f}
+  .go:active{transform:scale(.985)}
+  .verdict{font-family:'Yuji Syuku',serif;font-size:clamp(34px,10vw,52px);line-height:1.05}
+  .stamp{
+    display:flex;justify-content:space-between;align-items:baseline;
+    font-size:10px;letter-spacing:.32em;color:#8b7f64;margin-bottom:14px;
+  }
+  .tb{display:flex;gap:10px;margin-top:18px;flex-wrap:wrap}
+  .tb>div{flex:1 1 30%;min-width:88px;border-top:1px solid rgba(36,29,26,.24);padding-top:7px}
+  .tb span{display:block;font-size:10px;letter-spacing:.22em;color:#7d7259}
+  .tb b{font-family:'Yuji Syuku',serif;font-size:27px;font-weight:400;line-height:1.3}
+  @media (max-width:430px){
+    .card2{padding:22px 20px 20px}
+    .lead{font-size:12.5px;line-height:1.95}
+  }
+</style>
+</head>
+<body>
+
+<canvas id="view"></canvas>
+<video id="video" playsinline muted autoplay></video>
+<button id="flip">⟲ カメラ</button>
+<div id="err"></div>
+
+<div id="hud">
+  <div class="tally"><span class="lab">ワレ</span><span class="row" id="rowMe"></span></div>
+  <div class="tally"><span class="lab">タヌキ</span><span class="row" id="rowOp"></span></div>
+  <div id="exch">つづけて<b id="exchN">0</b></div>
+</div>
+
+<div class="sheet" id="startSheet">
+  <div class="card2">
+    <div class="stamp"><span>OTO-II / SOPPO</span><span>紙芝居</span></div>
+    <div class="kanban">あっち向いてホイ</div>
+    <div class="sub">GO－RO－KU　狸と五番勝負</div>
+    <p class="lead">まず<em>じゃんけん</em>。グー・チョキ・パーを手で出す。<br>
+      勝ったら<em>指をさす側</em>。負けたら<em>顔をそむける側</em>。<br>
+      「ホイ」の一瞬に、さされた向きへ顔を向けたら取られる。</p>
+    <canvas id="demo" width="640" height="200"></canvas>
+    <div class="rule">◯ そむける先は 上・下・左・右 の四つ。鏡に映るとおりの向き。<br>
+      ◯ <b>どこへも向かなければ、それも取られる。</b>棒立ちは負け。<br>
+      ◯ 決着がつくまで同じ番のなかで繰り返し、繰り返すほど拍が速くなる。</div>
+    <button class="go" id="startBtn">はじめる</button>
+  </div>
+</div>
+
+<div class="sheet gone" id="endSheet">
+  <div class="card2">
+    <div class="stamp"><span>OTO-II / SOPPO</span><span id="endStamp">終</span></div>
+    <div class="verdict" id="verdict">引き分け</div>
+    <p class="lead" id="endLead" style="margin-top:16px"></p>
+    <div class="tb">
+      <div><span>取った</span><b id="tMe">0</b></div>
+      <div><span>取られた</span><b id="tOp">0</b></div>
+      <div><span>じゃんけん</span><b id="tJan">0</b></div>
+      <div><span>最も長い番</span><b id="tLong">0</b></div>
+      <div><span>そむけ損じ</span><b id="tStill">0</b></div>
+    </div>
+    <button class="go" id="againBtn">もう一番</button>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
+<script>
+'use strict';
+// ═══════════════════════════════════════════════════════════════════════
+//  SOPPO ─ あっち向いてホイ
+//  Two detectors, neither used anywhere else in this gallery:
+//    1. janken hand shape  (グー / チョキ / パー from finger extension)
+//    2. head TURN direction (yaw+pitch from FaceMesh, baseline-calibrated)
+//  Judgement is a single sample at a fixed instant after ホイ, which is why
+//  tracking jitter can never score for or against you: there is no
+//  continuously-armed trigger anywhere in the piece.
+// ═══════════════════════════════════════════════════════════════════════
+var TAU = Math.PI*2;
+function clamp(v,a,b){ return v<a?a:(v>b?b:v); }
+function lerp(a,b,t){ return a+(b-a)*t; }
+function now(){ return (typeof performance!=='undefined' && performance.now) ? performance.now()/1000 : Date.now()/1000; }
+function eOut(t){ t=clamp(t,0,1); return 1-Math.pow(1-t,3); }
+function eOver(t){ t=clamp(t,0,1); var s=1.70158*0.6; return 1+ (s+1)*Math.pow(t-1,3) + s*Math.pow(t-1,2); }
+function rnd(a,b){ return a + Math.random()*(b-a); }
+function pick(arr){ return arr[(Math.random()*arr.length)|0]; }
+
+var view = document.getElementById('view');
+var ctx  = view.getContext('2d');
+var video= document.getElementById('video');
+var flipBtn=document.getElementById('flip');
+var errBox =document.getElementById('err');
+var hud    =document.getElementById('hud');
+var rowMe  =document.getElementById('rowMe');
+var rowOp  =document.getElementById('rowOp');
+var exchN  =document.getElementById('exchN');
+var startSheet=document.getElementById('startSheet');
+var endSheet  =document.getElementById('endSheet');
+var startBtn  =document.getElementById('startBtn');
+var againBtn  =document.getElementById('againBtn');
+var demoCv    =document.getElementById('demo');
+var demoCtx   =demoCv.getContext('2d');
+var verdictEl =document.getElementById('verdict');
+var endLead   =document.getElementById('endLead');
+var endStamp  =document.getElementById('endStamp');
+var tMe=document.getElementById('tMe'), tOp=document.getElementById('tOp');
+var tJan=document.getElementById('tJan'), tLong=document.getElementById('tLong');
+var tStill=document.getElementById('tStill');
+
+var W=0,H=0,DPR=1;
+function resize(){
+  DPR = Math.min(window.devicePixelRatio||1, 2);
+  W = window.innerWidth; H = window.innerHeight;
+  view.width = Math.max(1,Math.round(W*DPR));
+  view.height= Math.max(1,Math.round(H*DPR));
+  view.style.width=W+'px'; view.style.height=H+'px';
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  layout();
+  paper = null;   // paper grain is baked to the card size, so rebake
+}
+window.addEventListener('resize', resize);
+window.addEventListener('orientationchange', function(){ setTimeout(resize,180); });
+
+// ═══════════════════════════════════════════════════════════════════════
+//  LAYOUT ─ the cart, the frame, the card, the peep-mirror
+// ═══════════════════════════════════════════════════════════════════════
+var L = { cx:0, cy:0, cw:0, ch:0, frame:0, mirror:{x:0,y:0,r:0}, port:false, s:1 };
+function layout(){
+  var port = H > W*1.04;
+  L.port = port;
+  var m = Math.min(W,H)*0.052;
+  var availW = W - m*2, availH = H - m*2 - (port?0:0);
+  var ar = port ? 0.80 : 1.42;                 // card aspect (w/h)
+  var cw = availW, ch = cw/ar;
+  if (ch > availH){ ch = availH; cw = ch*ar; }
+  L.cw = cw; L.ch = ch;
+  L.cx = W/2; L.cy = H/2 + (port? Math.min(18, H*0.012) : 0);
+  L.frame = Math.max(9, Math.min(W,H)*0.026);
+  L.s = Math.min(cw/760, ch/540);              // one scale for all card art
+  var r = Math.max(38, Math.min(cw,ch)*0.115);
+  L.mirror.r = r;
+  L.mirror.x = L.cx - cw/2 + r + L.frame*0.9;
+  L.mirror.y = L.cy + ch/2 - r - L.frame*0.9;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  CAMERA
+// ═══════════════════════════════════════════════════════════════════════
+var facing='user', mirror=true, stream=null, camOK=false;
+
+function showError(e){
+  var msg = (e && e.message) ? e.message : String(e || 'unknown');
+  errBox.style.display='block';
+  errBox.textContent = 'カメラを起動できませんでした：' + msg +
+    '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+}
+function startStream(){
+  var md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) return Promise.reject(new Error('getUserMedia is unavailable'));
+  if (stream && stream.getTracks) stream.getTracks().forEach(function(t){ t.stop(); });
+  return md.getUserMedia({
+    video:{ facingMode:{ ideal:facing }, width:{ ideal:640 }, height:{ ideal:480 } },
+    audio:false
+  }).then(function(st){
+    stream=st; video.srcObject=st; mirror=(facing==='user'); camOK=true;
+    var p = video.play();
+    return (p && p.then) ? p.catch(function(){}) : null;
+  });
+}
+flipBtn.addEventListener('click', function(){
+  facing = (facing==='user') ? 'environment' : 'user';
+  loseHand(); loseFace();
+  startStream().then(startMpCamera).catch(showError);
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+//  TRACKING ─ hands (janken + pointing) and face (turn direction)
+//  The two models share one frame pump and take alternate frames: the
+//  janken shape and the head turn are both read at a fixed instant, so
+//  neither needs 60Hz.
+// ═══════════════════════════════════════════════════════════════════════
+var hands=null, faceMesh=null, mpCamera=null, handsReady=false, faceReady=false;
+var frameParity=0;
+var LOST_S = 0.42;
+
+var Hn = { live:false, t:-1e9, x:0.5, y:0.5, shape:'?', dir:'c', open:0,
+           pts:null, palm:0.1, pointLen:0, ex:0, ey:0 };
+var Fc = { live:false, t:-1e9, x:0.5, y:0.44, w:0.2, h:0.26,
+           yaw:0, pitch:0, dir:'c', mag:0, baseY:null, baseP:null, seen:0,
+           emaY:0, emaP:0 };
+var RY=[], RP=[], RN=7;
+function ring(a,v){ a.push(v); if (a.length>RN) a.shift(); }
+function med(a){
+  var b=a.slice(0).sort(function(p,q){ return p-q; });
+  return b[(b.length-1)>>1];
+}
+
+function loseHand(){ Hn.live=false; Hn.pts=null; Hn.shape='?'; Hn.dir='c'; Hn.ex=0; Hn.ey=0; }
+function loseFace(){
+  Fc.live=false; Fc.dir='c'; Fc.mag=0; Fc.yaw=0; Fc.pitch=0;
+  Fc.emaY=0; Fc.emaP=0; RY.length=0; RP.length=0;
+}
+
+function initHands(){
+  if (typeof window.Hands !== 'function') return false;
+  try{
+    hands = new window.Hands({ locateFile:function(f){
+      return 'https://cdn.jsdelivr.net/npm/@mediapipe/hands/' + f;
+    }});
+    hands.setOptions({ maxNumHands:1, modelComplexity:0,
+                       minDetectionConfidence:0.6, minTrackingConfidence:0.5 });
+    hands.onResults(onHands);
+    handsReady=true; return true;
+  }catch(e){ hands=null; return false; }
+}
+function initFace(){
+  if (typeof window.FaceMesh !== 'function') return false;
+  try{
+    faceMesh = new window.FaceMesh({ locateFile:function(f){
+      return 'https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/' + f;
+    }});
+    faceMesh.setOptions({ maxNumFaces:1, refineLandmarks:false,
+                          minDetectionConfidence:0.55, minTrackingConfidence:0.5 });
+    faceMesh.onResults(onFace);
+    faceReady=true; return true;
+  }catch(e){ faceMesh=null; return false; }
+}
+function startMpCamera(){
+  if (mpCamera) return;
+  if (!handsReady && !faceReady) return;
+  if (typeof window.Camera !== 'function') return;
+  try{
+    mpCamera = new window.Camera(video, {
+      onFrame:function(){
+        frameParity ^= 1;
+        if (frameParity===0 && faceMesh) return faceMesh.send({ image: video }).catch(function(){});
+        if (frameParity===1 && hands)    return hands.send({ image: video }).catch(function(){});
+        return Promise.resolve();
+      },
+      width:480, height:360
+    });
+    mpCamera.start();
+  }catch(e){ mpCamera=null; }
+}
+function sx(x){ return mirror ? (1-x) : x; }
+
+// ── hand ───────────────────────────────────────────────────────────────
+var TIP=[4,8,12,16,20], PIP=[2,6,10,14,18];
+function validHand(c){
+  if (!c || typeof c.length!=='number' || c.length < 21) return null;
+  for (var i=0;i<21;i++){
+    var p=c[i];
+    if (!p || typeof p.x!=='number' || typeof p.y!=='number' ||
+        !isFinite(p.x) || !isFinite(p.y)) return null;
+  }
+  return c;
+}
+function d2(a,b){ return Math.hypot(a.x-b.x, a.y-b.y); }
+
+function onHands(res){
+  var list = (res && res.multiHandLandmarks) ? res.multiHandLandmarks : null;
+  var lm = (list && list.length) ? validHand(list[0]) : null;
+  if (!lm) return;
+  var wr=lm[0], mc=lm[9];
+  var palm = d2(wr,mc);
+  if (!isFinite(palm) || palm < 1e-4) return;
+
+  // finger extension, thumb deliberately ignored: グー/チョキ/パー are all
+  // decidable from the four fingers alone, and the thumb is the noisiest
+  // landmark on the hand.
+  var ext=[0,0,0,0], n=0, i;
+  for (i=1;i<5;i++){
+    var e = (d2(lm[TIP[i]],wr) > d2(lm[PIP[i]],wr)*1.12) ? 1 : 0;
+    ext[i-1]=e; n+=e;
+  }
+  var shape='?';
+  if (n===0) shape='g';                                     // グー
+  else if (n===2 && ext[0] && ext[1]) shape='c';            // チョキ
+  else if (n>=3) shape='p';                                 // パー
+  Hn.shape = shape;
+
+  // pointing direction, in SCREEN space so it matches the peep-mirror
+  var a = lm[5], b = lm[8];
+  var ax=sx(a.x), bx=sx(b.x);
+  var dx = bx-ax, dy = b.y-a.y;
+  var len = Math.hypot(dx,dy);
+  var idxExt = d2(lm[8],wr) > d2(lm[6],wr)*1.12;
+  // The finger direction is smoothed as a UNIT vector before it is turned
+  // into one of four words.  A steady point converges on magnitude 1; a
+  // finger that is only wobbling averages toward 0 and never resolves, so
+  // landmark noise cannot spell out a direction.
+  if (idxExt && len > palm*0.55 && len > 0.035){
+    Hn.ex = lerp(Hn.ex, dx/len, 0.30);
+    Hn.ey = lerp(Hn.ey, dy/len, 0.30);
+  } else {
+    Hn.ex = lerp(Hn.ex, 0, 0.5); Hn.ey = lerp(Hn.ey, 0, 0.5);
+  }
+  var ex=Hn.ex, ey=Hn.ey, em=Math.hypot(ex,ey);
+  var dir='c';
+  if (em > 0.62){
+    if (Math.abs(ex) > Math.abs(ey)*1.50)      dir = ex>0 ? 'r' : 'l';
+    else if (Math.abs(ey) > Math.abs(ex)*1.50) dir = ey>0 ? 'd' : 'u';
+  }
+  Hn.dir = dir;
+  Hn.pointLen = len;
+
+  var pts=[], j;
+  for (j=0;j<21;j++) pts.push({ x:sx(lm[j].x), y:lm[j].y });
+  Hn.pts = pts;
+  Hn.x = sx((wr.x+mc.x*2)/3); Hn.y = (wr.y+mc.y*2)/3;
+  Hn.palm = palm;
+  Hn.open = clamp(n/4,0,1);
+  Hn.t = now(); Hn.live = true;
+}
+function handAlive(){ return Hn.live && (now()-Hn.t) < LOST_S; }
+
+// ── face ───────────────────────────────────────────────────────────────
+// yaw  : which cheek the nose has moved toward, normalised by cheek span
+// pitch: nose tip height between the eye line and the chin
+var FI = { nose:1, cl:234, cr:454, el:33, er:263, chin:152, brow:10 };
+function lmAt(c, i){
+  if (!c || typeof c.length!=='number' || i>=c.length) return null;
+  var p=c[i];
+  if (!p || typeof p.x!=='number' || typeof p.y!=='number' ||
+      !isFinite(p.x) || !isFinite(p.y)) return null;
+  return p;
+}
+// Tuned against the headless harness with independent per-landmark noise of
+// +-0.006 normalised units — several times worse than FaceMesh actually is,
+// and worse in the way that hurts most, since real mesh noise is correlated
+// across neighbouring points.  A median of five raw readings removes the
+// spikes outright and a light EMA removes the rest; a real turn of ~20 deg
+// lands around 0.30, i.e. more than twice the threshold.
+var YAW_TH = 0.130, PITCH_TH = 0.085;
+
+function onFace(res){
+  var list = (res && res.multiFaceLandmarks) ? res.multiFaceLandmarks : null;
+  var c = (list && list.length) ? list[0] : null;
+  if (!c) return;
+  var nose=lmAt(c,FI.nose), cl=lmAt(c,FI.cl), cr=lmAt(c,FI.cr),
+      el=lmAt(c,FI.el), er=lmAt(c,FI.er), chin=lmAt(c,FI.chin), brow=lmAt(c,FI.brow);
+  if (!nose||!cl||!cr||!el||!er||!chin||!brow) return;
+
+  var faceW = d2(cl,cr);
+  var faceH = Math.hypot(chin.x-brow.x, chin.y-brow.y);
+  if (!isFinite(faceW) || faceW < 1e-4 || !isFinite(faceH) || faceH < 1e-4) return;
+
+  // A is whichever cheek sits at smaller image-x, so the sign never depends
+  // on which physical side MediaPipe calls 234.
+  var A = (cl.x <= cr.x) ? cl : cr, B = (cl.x <= cr.x) ? cr : cl;
+  var yawImg = (d2(nose,A) - d2(nose,B)) / faceW;      // + => nose toward image-right
+  var yawScr = mirror ? -yawImg : yawImg;              // + => nose toward screen-right
+  var eyeY = (el.y + er.y)/2;
+  var pitchRaw = (nose.y - eyeY) / faceH;              // smaller => looking up
+  if (!isFinite(yawScr) || !isFinite(pitchRaw)) return;
+
+  ring(RY, yawScr); ring(RP, pitchRaw);
+  var my = med(RY), mp = med(RP);
+  if (Fc.baseY === null){ Fc.baseY = my; Fc.baseP = mp; Fc.emaY=0; Fc.emaP=0; }
+  Fc.emaY = lerp(Fc.emaY, my - Fc.baseY, 0.35);
+  Fc.emaP = lerp(Fc.emaP, -(mp - Fc.baseP), 0.35);      // + => up
+  Fc.yaw = Fc.emaY; Fc.pitch = Fc.emaP;
+  // adapt the neutral pose only while the head is clearly centred, so a long
+  // held turn can never be learned as "forward"
+  if (Math.abs(Fc.yaw) < YAW_TH*0.55 && Math.abs(Fc.pitch) < PITCH_TH*0.55){
+    Fc.baseY = lerp(Fc.baseY, my, 0.05);
+    Fc.baseP = lerp(Fc.baseP, mp, 0.05);
+  }
+  var ay = Math.abs(Fc.yaw)/YAW_TH, ap = Math.abs(Fc.pitch)/PITCH_TH;
+  var m = Math.max(ay,ap);
+  Fc.mag = m;
+  if (m < 1) Fc.dir='c';
+  else if (ay >= ap) Fc.dir = Fc.yaw>0 ? 'r' : 'l';
+  else Fc.dir = Fc.pitch>0 ? 'u' : 'd';
+
+  Fc.x = sx((cl.x+cr.x)/2); Fc.y = (brow.y+chin.y)/2;
+  Fc.w = faceW; Fc.h = faceH;
+  Fc.seen++;
+  Fc.t = now(); Fc.live = true;
+}
+function faceAlive(){ return Fc.live && (now()-Fc.t) < LOST_S; }
+
+// ═══════════════════════════════════════════════════════════════════════
+//  AUDIO ─ sound design: 拍子木.  Everything in this piece is a short noise
+//  burst read through parallel high-Q bandpasses, i.e. a struck wooden bar.
+//  No oscillator sustains for longer than 40ms anywhere except the single
+//  low 締太鼓 body tone, which is a sine with a fast downward pitch glide.
+//  That gives the whole piece one attack character — dry, hard, no tail —
+//  so five hits landing together still read as five separate hits.
+// ═══════════════════════════════════════════════════════════════════════
+var AC=null, master=null, comp=null, verb=null, verbSend=null, air=null, audioOK=false;
+var NOISE=null;
+
+function makeNoise(ac){
+  var len = Math.floor(ac.sampleRate*1.2);
+  if (!isFinite(len) || len<1) len=1;
+  var buf;
+  try{ buf = ac.createBuffer(1,len,ac.sampleRate); }catch(e){ return null; }
+  var d = buf.getChannelData(0);
+  for (var i=0;i<len;i++) d[i] = Math.random()*2-1;
+  return buf;
+}
+function buildReverb(ac){
+  // 0.9s — a street, not a hall. Long enough that the clapper has a room,
+  // short enough that the next beat of じゃんけん lands on silence.
+  var len = Math.floor(ac.sampleRate*0.9);
+  if (!isFinite(len) || len<1) len=1;
+  var buf;
+  try{ buf = ac.createBuffer(2,len,ac.sampleRate); }catch(e){ return null; }
+  for (var ch=0;ch<2;ch++){
+    var d=buf.getChannelData(ch);
+    for (var i=0;i<len;i++) d[i]=(Math.random()*2-1)*Math.pow(1-i/len,3.4)*0.5;
+  }
+  var cv=ac.createConvolver(); cv.buffer=buf; return cv;
+}
+function initAudio(){
+  if (AC){ if (AC.state==='suspended' && AC.resume){ try{AC.resume();}catch(e){} } return true; }
+  var C = window.AudioContext || window.webkitAudioContext;
+  if (!C) return false;
+  try{ AC = new C(); }catch(e){ AC=null; return false; }
+  if (AC.state==='suspended' && AC.resume){ try{AC.resume();}catch(e){} }
+
+  comp = AC.createDynamicsCompressor();
+  comp.threshold.value=-15; comp.knee.value=20; comp.ratio.value=5;
+  comp.attack.value=0.003; comp.release.value=0.2;
+  master = AC.createGain(); master.gain.value=0.85;
+  comp.connect(master); master.connect(AC.destination);
+
+  verb = buildReverb(AC);
+  verbSend = AC.createGain(); verbSend.gain.value=0.3;
+  if (verb){ verbSend.connect(verb); verb.connect(comp); }
+
+  NOISE = makeNoise(AC);
+
+  // night air: the only continuous sound, 40dB down, so the street is never
+  // digitally silent between hits
+  if (NOISE){
+    var s=AC.createBufferSource(); s.buffer=NOISE; s.loop=true;
+    var lp=AC.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value=430; lp.Q.value=0.6;
+    air=AC.createGain(); air.gain.value=0.0;
+    s.connect(lp); lp.connect(air); air.connect(comp);
+    try{ s.start(); }catch(e){}
+    ramp(air.gain, 0.012, 1.4);
+  }
+  audioOK=true; return true;
+}
+function at(){ return AC ? AC.currentTime : 0; }
+function ramp(param,v,tc){
+  if (!param || !isFinite(v)) return;
+  try{ param.setTargetAtTime(v, at(), Math.max(0.005,tc||0.05)); }catch(e){}
+}
+function env(g, t0, peak, atk, dec){
+  if (!isFinite(peak)||!isFinite(atk)||!isFinite(dec)) return;
+  try{
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(Math.max(0.0002,peak), t0+atk);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0+atk+dec);
+  }catch(e){}
+}
+// a struck wooden bar: noise through two high-Q bandpasses an octave and a
+// fifth apart. f0 is the bar; wet decides how much of the street it is in.
+function wood(f0, dur, gain, wet, t0){
+  if (!audioOK || !NOISE) return;
+  if (!isFinite(f0) || f0<=0) return;
+  t0 = t0 || at();
+  var s=AC.createBufferSource(); s.buffer=NOISE;
+  s.playbackRate.value = 1;
+  var out=AC.createGain(); out.gain.value=1;
+  var i, freqs=[f0, f0*2.71], qs=[26,18], gs=[1,0.55];
+  for (i=0;i<freqs.length;i++){
+    var bp=AC.createBiquadFilter(); bp.type='bandpass';
+    bp.frequency.value=freqs[i]; bp.Q.value=qs[i];
+    var g=AC.createGain(); g.gain.value=gs[i];
+    s.connect(bp); bp.connect(g); g.connect(out);
+  }
+  var amp=AC.createGain();
+  env(amp, t0, gain, 0.002, dur);
+  out.connect(amp); amp.connect(comp);
+  if (verbSend){ var w=AC.createGain(); w.gain.value=wet||0.2; amp.connect(w); w.connect(verbSend); }
+  try{ s.start(t0); s.stop(t0+dur+0.06); }catch(e){}
+}
+// 締太鼓: sine body with a fast downward glide plus a noise slap
+function drum(f0, gain, t0){
+  if (!audioOK) return;
+  t0 = t0 || at();
+  var o=AC.createOscillator(); o.type='sine';
+  try{
+    o.frequency.setValueAtTime(f0*1.9, t0);
+    o.frequency.exponentialRampToValueAtTime(Math.max(20,f0), t0+0.09);
+  }catch(e){}
+  var g=AC.createGain(); env(g, t0, gain, 0.004, 0.34);
+  o.connect(g); g.connect(comp);
+  try{ o.start(t0); o.stop(t0+0.5); }catch(e){}
+  if (NOISE){
+    var s=AC.createBufferSource(); s.buffer=NOISE;
+    var bp=AC.createBiquadFilter(); bp.type='bandpass'; bp.frequency.value=1500; bp.Q.value=1.1;
+    var sg=AC.createGain(); env(sg, t0, gain*0.5, 0.002, 0.05);
+    s.connect(bp); bp.connect(sg); sg.connect(comp);
+    try{ s.start(t0); s.stop(t0+0.14); }catch(e){}
+  }
+}
+// ちゃんちき: a small brass gong. Four inharmonic sines, struck.
+var CHAN=[1, 2.76, 5.40, 8.93];
+function gong(f0, gain, t0){
+  if (!audioOK) return;
+  t0 = t0 || at();
+  for (var i=0;i<CHAN.length;i++){
+    var f=f0*CHAN[i];
+    if (!isFinite(f) || f<=0 || f>16000) continue;
+    var o=AC.createOscillator(); o.type='sine'; o.frequency.value=f;
+    var g=AC.createGain();
+    env(g, t0, gain*Math.pow(0.55,i), 0.003, 0.9/(1+i*0.7));
+    o.connect(g); g.connect(comp);
+    if (verbSend){ var w=AC.createGain(); w.gain.value=0.34; g.connect(w); w.connect(verbSend); }
+    try{ o.start(t0); o.stop(t0+1.3); }catch(e){}
+  }
+}
+// paper: a band of noise swept up then down — the card leaving the stage
+function paperSlide(gain){
+  if (!audioOK || !NOISE) return;
+  var t0=at();
+  var s=AC.createBufferSource(); s.buffer=NOISE;
+  var bp=AC.createBiquadFilter(); bp.type='bandpass'; bp.Q.value=1.5;
+  try{
+    bp.frequency.setValueAtTime(900, t0);
+    bp.frequency.linearRampToValueAtTime(3100, t0+0.16);
+    bp.frequency.linearRampToValueAtTime(1200, t0+0.4);
+  }catch(e){}
+  var g=AC.createGain();
+  try{
+    g.gain.setValueAtTime(0.0001,t0);
+    g.gain.linearRampToValueAtTime(gain,t0+0.07);
+    g.gain.linearRampToValueAtTime(0.0001,t0+0.4);
+  }catch(e){}
+  s.connect(bp); bp.connect(g); g.connect(comp);
+  try{ s.start(t0); s.stop(t0+0.46); }catch(e){}
+}
+function sfxClap(step){ wood(1180*Math.pow(1.11,step||0), 0.16, 0.5, 0.16); }
+function sfxHoi(){ drum(96, 0.62); wood(2100, 0.1, 0.34, 0.3); }
+function sfxTake(){ gong(880, 0.3); wood(1560, 0.13, 0.26, 0.3); }
+function sfxTaken(){ drum(58, 0.5); wood(420, 0.34, 0.3, 0.34); }
+function sfxAiko(){ wood(880, 0.2, 0.32, 0.22); }
+function sfxWin(){
+  gong(660,0.26,at()); gong(990,0.22,at()+0.16); gong(1320,0.2,at()+0.34);
+}
+function sfxLose(){ drum(70,0.44,at()); drum(52,0.4,at()+0.22); wood(300,0.5,0.26,0.4,at()+0.22); }
+
+// ═══════════════════════════════════════════════════════════════════════
+//  GAME ─ 五番勝負・三本先取.  A 番 does not end until somebody takes it, so
+//  the じゃんけん→ホイ exchange repeats inside the 番 and the beat tightens
+//  every time it does.  That is the whole shape of the real playground game.
+// ═══════════════════════════════════════════════════════════════════════
+var ROUNDS=5, TAKE_TO_WIN=3, EXCH_CAP=12;
+// ホイ lands ON the beat, never at a random moment, because the whole point
+// of the playground game is that both sides commit at the same instant by
+// anticipation.  0.42s is then late enough for a head actually to have got
+// there, and it is one fixed instant, so nothing is "armed" in between.
+var SAMPLE_DELAY=0.42;
+var DIRS=['u','d','l','r'];
+var JLAB={ g:'グー', c:'チョキ', p:'パー', '?':'—' };
+var DLAB={ u:'上', d:'下', l:'左', r:'右', c:'正面' };
+
+var G=null;
+function resetGame(){
+  G={
+    phase:'idle', pt:0, over:false, started:false,
+    round:0, roundsDone:0, scoreMe:0, scoreOp:0,
+    exch:0, janken:0, longest:0, stillMiss:0,
+    myShape:'?', opShape:'?', jVerdict:'', role:null,
+    labels:['じゃん','けん','ぽん'], countStep:0, countGap:0.40,
+    beatLen:0.5, sampled:false, hoiT:-1e9,
+    opDir:'c', myDir:'c', outcome:'', note:'',
+    shake:0, flash:0, stamp:0, stampAng:0, pull:0, pullSign:-1,
+    tk:{ dir:'c', shown:{x:0,y:0}, turnT:1, blink:0, nextBlink:2, mood:0, paw:0 },
+    lastOpDir:'', banner:'', bannerT:0
+  };
+  paintTally();
+  exchN.textContent='0';
+}
+function paintTally(){
+  var h='', i;
+  for (i=0;i<TAKE_TO_WIN;i++) h+='<span class="mark me'+(G && i<G.scoreMe?' on':'')+'"></span>';
+  rowMe.innerHTML=h;
+  h='';
+  for (i=0;i<TAKE_TO_WIN;i++) h+='<span class="mark op'+(G && i<G.scoreOp?' on':'')+'"></span>';
+  rowOp.innerHTML=h;
+}
+function setPhase(p){ G.phase=p; G.pt=0; }
+function banner(txt, hold){ G.banner=txt; G.bannerT=hold||0.9; }
+
+function aiPick(){
+  var pool=DIRS;
+  if (G.lastOpDir && Math.random()<0.62){
+    pool=[];
+    for (var i=0;i<DIRS.length;i++) if (DIRS[i]!==G.lastOpDir) pool.push(DIRS[i]);
+    if (!pool.length) pool=DIRS;
+  }
+  var d=pick(pool);
+  G.lastOpDir=d;
+  return d;
+}
+function gapFor(){ return Math.max(0.255, 0.40 - G.exch*0.017); }
+
+function beginRound(){
+  G.exch=0; G.outcome=''; G.note='';
+  beginJanken(3);
+}
+function beginJanken(beats){
+  G.labels = (beats===1) ? ['あいこでしょ'] : ['じゃん','けん','ぽん'];
+  G.countStep=0; G.countGap=gapFor();
+  G.myShape='?'; G.opShape='?'; G.jVerdict=''; G.role=null;
+  G.tk.paw=0; G.tk.dir='c';
+  setPhase('count');
+}
+function readShape(){
+  if (!handAlive()) return '?';
+  return Hn.shape;
+}
+function jankenVerdict(a,b){
+  if (a===b) return 'd';
+  if ((a==='g'&&b==='c')||(a==='c'&&b==='p')||(a==='p'&&b==='g')) return 'w';
+  return 'l';
+}
+function doReveal(){
+  G.janken++;
+  G.myShape = readShape();
+  if (G.myShape==='?'){
+    G.jVerdict='x'; G.note='手が見えない';
+    sfxAiko(); setPhase('reveal'); return;
+  }
+  G.opShape = pick(['g','c','p']);
+  G.jVerdict = jankenVerdict(G.myShape, G.opShape);
+  if (G.jVerdict==='d'){ sfxAiko(); G.note='あいこ'; }
+  else { G.note = (G.jVerdict==='w') ? '勝った' : '負けた'; wood(1500,0.13,0.3,0.24); }
+  setPhase('reveal');
+}
+function freshFace(){ return Fc.live && Fc.t > G.hoiT; }
+function freshHand(){ return Hn.live && Hn.t > G.hoiT; }
+function startHoi(){
+  G.sampled=false;
+  G.hoiT=now();
+  G.myDir='c'; G.opDir='c';
+  G.opDir = aiPick();                 // chosen now, shown only after you are read
+  G.stamp=1; G.stampAng=rnd(-0.13,0.13);
+  G.shake=1; G.flash=1;
+  sfxHoi();
+  burst(L.cx+L.cw*0.02, L.cy-L.ch*0.03, 26, 'verm');
+  burst(L.cx+L.cw*0.02, L.cy-L.ch*0.03, 14, 'ink');
+  setPhase('hoi');
+}
+function judge(){
+  if (G.sampled) return;
+  G.sampled=true;
+  var pd;
+  if (G.role==='turn'){
+    // a landmark from BEFORE ホイ must never be judged: if the camera did not
+    // see you inside the window, nobody scores and the exchange is replayed
+    pd = freshFace() ? Fc.dir : null;
+    if (pd===null){ G.outcome='noread'; G.note='顔が見えない'; }
+    else if (pd==='c'){ G.outcome='still'; G.myDir='c'; G.stillMiss++; }
+    else { G.myDir=pd; G.outcome = (pd===G.opDir) ? 'taken' : 'miss'; }
+  } else {
+    pd = freshHand() ? Hn.dir : null;
+    if (pd===null){ G.outcome='noread'; G.note='手が見えない'; }
+    else if (pd==='c'){ G.outcome='nopoint'; G.myDir='c'; }
+    else { G.myDir=pd; G.outcome = (pd===G.opDir) ? 'take' : 'miss'; }
+  }
+  // the tanuki's own move becomes visible at exactly this instant
+  G.tk.turnT=0;
+  if (G.role==='turn'){ G.tk.dir='c'; G.tk.paw=1; }
+  else { G.tk.dir=G.opDir; G.tk.paw=0; }
+
+  if (G.outcome==='take'){
+    G.scoreMe++; paintTally(); sfxTake(); banner('取った',1.15); G.tk.mood=-1;
+    burst(S.wordX||L.cx, S.wordY||L.cy, 40, 'spark');
+    burst(S.tanX||L.cx, S.tanY||L.cy, 16, 'spark');
+  } else if (G.outcome==='taken' || G.outcome==='still'){
+    G.scoreOp++; paintTally(); sfxTaken();
+    banner(G.outcome==='still' ? 'そむけなかった' : '取られた', 1.15);
+    G.tk.mood=1; G.shake=Math.max(G.shake,1);
+    burst(S.wordX||L.cx, S.wordY||L.cy, 34, 'ink');
+  } else if (G.outcome==='nopoint'){
+    banner('指せなかった',0.6); wood(520,0.2,0.2,0.3);
+  } else if (G.outcome==='noread'){
+    banner(G.note,0.7);
+  } else {
+    banner('ぬけた',0.55); wood(1900,0.08,0.18,0.2);
+  }
+  setPhase('score');
+}
+function afterScore(){
+  var o=G.outcome;
+  if (o==='take' || o==='taken' || o==='still'){
+    if (G.exch+1 > G.longest) G.longest = G.exch+1;
+    G.roundsDone++;
+    if (G.scoreMe>=TAKE_TO_WIN || G.scoreOp>=TAKE_TO_WIN || G.roundsDone>=ROUNDS){
+      gameOver(); return;
+    }
+    G.round++; G.pull=1; G.pullSign=-1; paperSlide(0.2);
+    setPhase('pull'); return;
+  }
+  if (o==='noread'){ beginJanken(3); return; }
+  G.exch++;
+  exchN.textContent = String(G.exch);
+  if (G.exch >= EXCH_CAP){
+    if (G.exch > G.longest) G.longest=G.exch;
+    G.roundsDone++; banner('この番は預かり',0.9);
+    if (G.roundsDone>=ROUNDS){ gameOver(); return; }
+    G.round++; G.pull=1; G.pullSign=-1; paperSlide(0.2);
+    setPhase('pull'); return;
+  }
+  beginJanken(3);
+}
+function gameOver(){
+  if (G.over) return;                 // exactly once, whatever path got here
+  G.over=true; running=false;
+  setPhase('over');
+  var win = G.scoreMe > G.scoreOp, lose = G.scoreMe < G.scoreOp;
+  verdictEl.textContent = win ? '勝った' : (lose ? '取られた' : '引き分け');
+  endStamp.textContent  = win ? '勝' : (lose ? '負' : '和');
+  endLead.textContent = win
+    ? '狸は面を伏せて、そっと札を片づけた。指のさすほうへ顔は向かなかった。'
+    : (lose ? '狸のほうが速かった。さされた向きへ、顔はもう向いていた。'
+            : '取った数も取られた数も同じ。舞台の灯はまだ消えない。');
+  tMe.textContent=String(G.scoreMe); tOp.textContent=String(G.scoreOp);
+  tJan.textContent=String(G.janken); tLong.textContent=String(G.longest);
+  tStill.textContent=String(G.stillMiss);
+  if (win) sfxWin(); else sfxLose();
+  endSheet.classList.add('show');
+  requestAnimationFrame(function(){ endSheet.classList.remove('gone'); });
+}
+
+// ── the clock ──────────────────────────────────────────────────────────
+var running=false;
+function stepGame(dt){
+  if (!G) return;
+  G.pt += dt;
+  if (G.bannerT>0) G.bannerT=Math.max(0,G.bannerT-dt);
+  G.shake = Math.max(0, G.shake - dt*3.6);
+  G.flash = Math.max(0, G.flash - dt*7.5);
+  G.stamp = Math.max(0, G.stamp - dt*0.62);
+  G.pull  = Math.max(0, G.pull  - dt*2.4);
+  var tk=G.tk;
+  tk.turnT = Math.min(1, tk.turnT + dt*5.6);
+  tk.nextBlink -= dt;
+  if (tk.nextBlink<=0){ tk.blink=1; tk.nextBlink=rnd(1.8,4.6); }
+  tk.blink = Math.max(0, tk.blink - dt*7);
+  tk.mood = tk.mood * Math.pow(0.12, dt);
+
+  if (!running) return;
+  switch(G.phase){
+    case 'count':
+      if (G.pt >= G.countGap){
+        G.pt -= G.countGap;
+        sfxClap(G.countStep);
+        G.countStep++;
+        if (G.countStep >= G.labels.length){ doReveal(); }
+      }
+      break;
+    case 'reveal':
+      if (G.pt >= (G.jVerdict==='d' ? 0.40 : (G.jVerdict==='x' ? 0.62 : 0.60))){
+        if (G.jVerdict==='d'){ beginJanken(1); }
+        else if (G.jVerdict==='x'){ beginJanken(3); }
+        else {
+          G.role = (G.jVerdict==='w') ? 'point' : 'turn';
+          G.beatLen = gapFor()*1.9;      // 「あっち向いて」 is two claps long
+          setPhase('beat');
+        }
+      }
+      break;
+    case 'beat':
+      if (G.pt >= G.beatLen) startHoi();
+      break;
+    case 'hoi':
+      if (G.pt >= SAMPLE_DELAY) judge();
+      break;
+    case 'score':
+      var hold = (G.outcome==='take'||G.outcome==='taken'||G.outcome==='still') ? 1.18
+               : (G.outcome==='noread' ? 0.74 : 0.60);
+      if (G.pt >= hold) afterScore();
+      break;
+    case 'pull':
+      if (G.pt >= 0.44){ beginRound(); }
+      break;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  RENDER
+// ═══════════════════════════════════════════════════════════════════════
+var YOI='#1b2233', AND='#f0c46a', KIN='#efe3c8', SHU='#d94f2b', SUM='#241d1a';
+var BRUSH='"Yuji Syuku",serif', TEXT='"Kaisei Decol",serif';
+var paper=null, paperW=0, paperH=0;
+var fontsOK=false;
+if (document.fonts && document.fonts.ready && document.fonts.ready.then){
+  document.fonts.ready.then(function(){ fontsOK=true; }).catch(function(){});
+}
+function ink(a){ return 'rgba(36,29,26,'+a+')'; }
+function amber(a){ return 'rgba(240,196,106,'+a+')'; }
+function verm(a){ return 'rgba(217,79,43,'+a+')'; }
+
+function bakePaper(w,h){
+  var cv;
+  try{ cv=document.createElement('canvas'); }catch(e){ return null; }
+  w=Math.max(2,Math.round(w)); h=Math.max(2,Math.round(h));
+  cv.width=w; cv.height=h;
+  var c=cv.getContext('2d');
+  if (!c) return null;
+  c.fillStyle=KIN; c.fillRect(0,0,w,h);
+  var i,x,y,n=Math.min(4200, Math.round(w*h/220));
+  // fibre: short pale and dark strokes, mostly horizontal, like laid paper
+  for (i=0;i<n;i++){
+    x=Math.random()*w; y=Math.random()*h;
+    var len=1+Math.random()*7, dark=Math.random()<0.5;
+    c.strokeStyle = dark ? 'rgba(120,104,78,0.08)' : 'rgba(255,250,232,0.10)';
+    c.lineWidth = 0.6+Math.random()*0.7;
+    c.beginPath(); c.moveTo(x,y); c.lineTo(x+len, y+(Math.random()-0.5)*1.2); c.stroke();
+  }
+  // foxing: age blooms, pushed to the corners
+  for (i=0;i<9;i++){
+    var fx = (Math.random()<0.5? Math.random()*0.3 : 0.7+Math.random()*0.3)*w;
+    var fy = (Math.random()<0.5? Math.random()*0.3 : 0.7+Math.random()*0.3)*h;
+    var fr = Math.min(w,h)*(0.04+Math.random()*0.09);
+    var g=c.createRadialGradient(fx,fy,0,fx,fy,fr);
+    g.addColorStop(0,'rgba(163,132,84,0.10)');
+    g.addColorStop(1,'rgba(163,132,84,0)');
+    c.fillStyle=g; c.beginPath(); c.arc(fx,fy,fr,0,TAU); c.fill();
+  }
+  return cv;
+}
+
+// ── the cart the stage is bolted to ────────────────────────────────────
+function drawCart(t){
+  var g=ctx.createLinearGradient(0,0,W*0.4,H);
+  g.addColorStop(0,'#2a3349'); g.addColorStop(0.55,YOI); g.addColorStop(1,'#121725');
+  ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
+  // woodgrain of the cart body: vertical, irregular, very low contrast
+  ctx.save();
+  ctx.globalAlpha=0.5;
+  var step=Math.max(9,W/74), i, x;
+  for (i=0,x=0;x<W+step;i++,x+=step){
+    var w2=step*(0.14+((i*37)%11)/60);
+    ctx.fillStyle = (i%2) ? 'rgba(255,255,255,0.016)' : 'rgba(0,0,0,0.10)';
+    ctx.fillRect(x + Math.sin(i*1.7)*2, 0, w2, H);
+  }
+  ctx.restore();
+  // the one lamp: up-left, warm, and everything else falls away from it
+  var lx=W*0.22, ly=-H*0.06, lr=Math.max(W,H)*1.02;
+  var rg=ctx.createRadialGradient(lx,ly,0,lx,ly,lr);
+  rg.addColorStop(0,'rgba(240,196,106,0.20)');
+  rg.addColorStop(0.34,'rgba(240,196,106,0.055)');
+  rg.addColorStop(1,'rgba(240,196,106,0)');
+  ctx.fillStyle=rg; ctx.fillRect(0,0,W,H);
+  var vg=ctx.createRadialGradient(W*0.5,H*0.5,Math.min(W,H)*0.3,W*0.5,H*0.5,Math.max(W,H)*0.78);
+  vg.addColorStop(0,'rgba(0,0,0,0)'); vg.addColorStop(1,'rgba(0,0,0,0.42)');
+  ctx.fillStyle=vg; ctx.fillRect(0,0,W,H);
+}
+
+function drawFrame(x,y,w,h){
+  var f=L.frame;
+  ctx.save();
+  ctx.shadowColor='rgba(0,0,0,0.5)'; ctx.shadowBlur=f*1.6; ctx.shadowOffsetY=f*0.4;
+  var g=ctx.createLinearGradient(x-f,y-f,x+w+f,y+h+f);
+  g.addColorStop(0,'#6b5238'); g.addColorStop(0.4,'#4e3b28'); g.addColorStop(1,'#33261a');
+  ctx.fillStyle=g;
+  ctx.fillRect(x-f,y-f,w+f*2,h+f*2);
+  ctx.restore();
+  ctx.strokeStyle='rgba(240,196,106,0.22)'; ctx.lineWidth=1;
+  ctx.strokeRect(x-f+0.5,y-f+0.5,w+f*2-1,h+f*2-1);
+  ctx.strokeStyle='rgba(0,0,0,0.42)'; ctx.lineWidth=1;
+  ctx.strokeRect(x-0.5,y-0.5,w+1,h+1);
+  // four nail heads
+  var nx=[x-f*0.5,x+w+f*0.5,x-f*0.5,x+w+f*0.5], ny=[y-f*0.5,y-f*0.5,y+h+f*0.5,y+h+f*0.5], i;
+  for (i=0;i<4;i++){
+    var ng=ctx.createRadialGradient(nx[i]-f*0.08,ny[i]-f*0.08,0,nx[i],ny[i],f*0.3);
+    ng.addColorStop(0,'rgba(240,196,106,0.8)'); ng.addColorStop(1,'rgba(60,44,28,0.9)');
+    ctx.fillStyle=ng; ctx.beginPath(); ctx.arc(nx[i],ny[i],f*0.24,0,TAU); ctx.fill();
+  }
+}
+
+function drawCardPaper(x,y,w,h){
+  if (!paper || paperW!==Math.round(w) || paperH!==Math.round(h)){
+    paper=bakePaper(w,h); paperW=Math.round(w); paperH=Math.round(h);
+  }
+  if (paper) ctx.drawImage(paper,x,y,w,h);
+  else { ctx.fillStyle=KIN; ctx.fillRect(x,y,w,h); }
+  // lantern on the paper: the sheet is lit from up-left and falls off
+  var g=ctx.createRadialGradient(x+w*0.26,y-h*0.1,0,x+w*0.26,y-h*0.1,Math.max(w,h)*1.25);
+  g.addColorStop(0,'rgba(255,236,190,0.4)');
+  g.addColorStop(0.42,'rgba(255,230,175,0.06)');
+  g.addColorStop(1,'rgba(90,66,34,0.2)');
+  ctx.fillStyle=g; ctx.fillRect(x,y,w,h);
+  ctx.strokeStyle=ink(0.24); ctx.lineWidth=Math.max(1,L.s*1.6);
+  ctx.strokeRect(x+L.s*9, y+L.s*9, w-L.s*18, h-L.s*18);
+}
+
+// ── brush glyph helpers ────────────────────────────────────────────────
+function brushText(txt,x,y,size,col,align,alpha,rot){
+  ctx.save();
+  ctx.translate(x,y);
+  if (rot) ctx.rotate(rot);
+  ctx.font = size.toFixed(1)+'px '+BRUSH;
+  ctx.textAlign = align||'center'; ctx.textBaseline='middle';
+  ctx.globalAlpha = (alpha===undefined?1:alpha);
+  ctx.fillStyle=col; ctx.fillText(txt,0,0);
+  ctx.restore();
+}
+function smallText(txt,x,y,size,col,align,ls){
+  ctx.save();
+  ctx.font=size.toFixed(1)+'px '+TEXT;
+  ctx.textAlign='left'; ctx.textBaseline='middle'; ctx.fillStyle=col;
+  var i, tot=0, chs=txt.split('');
+  for (i=0;i<chs.length;i++) tot += ctx.measureText(chs[i]).width + (ls||0);
+  var cx = (align==='right') ? x-tot : (align==='center' ? x-tot/2 : x);
+  for (i=0;i<chs.length;i++){
+    ctx.fillText(chs[i],cx,y);
+    cx += ctx.measureText(chs[i]).width + (ls||0);
+  }
+  ctx.restore();
+}
+
+// a stylised hand, drawn as ink on the card.  flip mirrors it so the tanuki's
+// hand and yours read as facing each other.
+function drawJanken(x,y,r,shape,flip,alpha){
+  ctx.save();
+  ctx.translate(x,y); ctx.scale(flip?-1:1,1);
+  ctx.globalAlpha=alpha===undefined?1:alpha;
+  ctx.lineJoin='round'; ctx.lineCap='round';
+  ctx.strokeStyle=SUM; ctx.lineWidth=r*0.13;
+  ctx.fillStyle='rgba(250,242,222,0.92)';
+  function rrect(px,py,pw,ph,rad,ang){
+    ctx.save(); ctx.translate(px,py); if(ang) ctx.rotate(ang);
+    ctx.beginPath();
+    var rr=Math.min(rad,pw/2,ph/2);
+    ctx.moveTo(-pw/2+rr,-ph/2);
+    ctx.arcTo(pw/2,-ph/2,pw/2,ph/2,rr);
+    ctx.arcTo(pw/2,ph/2,-pw/2,ph/2,rr);
+    ctx.arcTo(-pw/2,ph/2,-pw/2,-ph/2,rr);
+    ctx.arcTo(-pw/2,-ph/2,pw/2,-ph/2,rr);
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.restore();
+  }
+  if (shape==='g'){
+    rrect(0,r*0.1,r*1.5,r*1.35,r*0.5,0);
+    ctx.lineWidth=r*0.09;
+    for (var i=0;i<3;i++){
+      ctx.beginPath();
+      ctx.moveTo(-r*0.5+i*r*0.5, -r*0.36);
+      ctx.lineTo(-r*0.5+i*r*0.5, r*0.06);
+      ctx.stroke();
+    }
+  } else if (shape==='c'){
+    rrect(0,r*0.44,r*1.34,r*1.0,r*0.42,0);
+    rrect(-r*0.5,-r*0.56,r*0.44,r*1.5,r*0.22,-0.30);
+    rrect( r*0.18,-r*0.62,r*0.44,r*1.6,r*0.22, 0.22);
+  } else if (shape==='p'){
+    rrect(0,r*0.5,r*1.42,r*1.06,r*0.4,0);
+    var ang=[-0.92,-0.42,0.0,0.40], hh=[1.42,1.62,1.5,1.24], xs=[-0.62,-0.24,0.16,0.52];
+    for (var k=0;k<4;k++) rrect(r*xs[k], -r*0.5, r*0.42, r*hh[k], r*0.2, ang[k]);
+    rrect(-r*0.86, r*0.5, r*0.4, r*1.0, r*0.2, -1.35);
+  } else {
+    ctx.globalAlpha*=0.5;
+    ctx.setLineDash([r*0.22,r*0.2]);
+    ctx.beginPath(); ctx.arc(0,r*0.1,r*0.78,0,TAU); ctx.stroke();
+    ctx.setLineDash([]);
+    brushText('?',0,r*0.1,r*0.9,ink(0.5),'center',1,0);
+  }
+  ctx.restore();
+}
+
+// the pointing arrow.  This and the ホイ stamp are the only 朱 in the piece.
+function drawArrow(x,y,len,dir,alpha,thick){
+  if (dir==='c') return;
+  var dx = dir==='l'?-1:(dir==='r'?1:0), dy = dir==='u'?-1:(dir==='d'?1:0);
+  ctx.save();
+  ctx.globalAlpha=alpha;
+  ctx.strokeStyle=SHU; ctx.fillStyle=SHU;
+  ctx.lineCap='round'; ctx.lineJoin='round';
+  var tw=thick||len*0.13;
+  var ex=x+dx*len, ey=y+dy*len;
+  ctx.lineWidth=tw;
+  ctx.beginPath(); ctx.moveTo(x,y);
+  ctx.lineTo(x+dx*len*0.62, y+dy*len*0.62); ctx.stroke();
+  // brush head: a filled triangle with one rounded shoulder
+  var hw=len*0.3, hl=len*0.44;
+  ctx.beginPath();
+  ctx.moveTo(ex,ey);
+  ctx.lineTo(ex-dx*hl - dy*hw*0.5, ey-dy*hl - dx*hw*0.5);
+  ctx.lineTo(ex-dx*hl*0.62, ey-dy*hl*0.62);
+  ctx.lineTo(ex-dx*hl + dy*hw*0.5, ey-dy*hl + dx*hw*0.5);
+  ctx.closePath(); ctx.fill();
+  ctx.restore();
+}
+
+// ── particles ──────────────────────────────────────────────────────────
+var P=[], PMAX=240;
+function burst(x,y,n,kind){
+  for (var i=0;i<n && P.length<PMAX;i++){
+    var a=Math.random()*TAU, sp=rnd(0.4,1)*(kind==='ink'?1:1.35);
+    P.push({ x:x, y:y, vx:Math.cos(a)*sp*L.s*30, vy:Math.sin(a)*sp*L.s*30 - (kind==='spark'?L.s*14:0),
+             r:rnd(0.8,2.6)*L.s, life:0, max:rnd(0.4,1.0), kind:kind,
+             g: kind==='ink' ? L.s*70 : L.s*22, spin:rnd(-6,6), rot:0 });
+  }
+}
+function stepParticles(dt){
+  for (var i=P.length-1;i>=0;i--){
+    var p=P[i];
+    p.life+=dt;
+    if (p.life>=p.max){ P.splice(i,1); continue; }
+    p.vy += p.g*dt;
+    p.vx *= Math.pow(0.22,dt); p.vy *= Math.pow(0.6,dt);
+    p.x += p.vx*dt; p.y += p.vy*dt; p.rot += p.spin*dt;
+  }
+}
+function drawParticles(){
+  for (var i=0;i<P.length;i++){
+    var p=P[i], k=1-p.life/p.max;
+    ctx.globalAlpha = k*k;
+    if (p.kind==='ink'){ ctx.fillStyle=SUM; }
+    else if (p.kind==='spark'){ ctx.fillStyle=AND; }
+    else { ctx.fillStyle=SHU; }
+    ctx.beginPath(); ctx.arc(p.x,p.y,p.r*(0.4+k*0.8),0,TAU); ctx.fill();
+  }
+  ctx.globalAlpha=1;
+}
+
+// ── the tanuki ─────────────────────────────────────────────────────────
+function dirVec(d){
+  return { x: d==='l'?-1:(d==='r'?1:0), y: d==='u'?-1:(d==='d'?1:0) };
+}
+function drawTanuki(cx,cy,r,t){
+  var tk=G.tk;
+  var v=dirVec(tk.dir), k=eOver(tk.turnT);
+  var ox=v.x*k, oy=v.y*k;
+  var rot=ox*0.15;
+  var breathe=Math.sin(t*1.5)*r*0.012;
+  ctx.save();
+  ctx.translate(cx, cy+breathe);
+  ctx.rotate(rot);
+  ctx.lineJoin='round'; ctx.lineCap='round';
+
+  // cast shadow on the paper
+  ctx.fillStyle='rgba(60,44,30,0.13)';
+  ctx.beginPath(); ctx.ellipse(r*0.1, r*1.02, r*0.86, r*0.15, 0,0,TAU); ctx.fill();
+
+  // ears
+  var i;
+  for (i=0;i<2;i++){
+    var s = i? 1 : -1;
+    var ex = s*r*0.74 + ox*r*0.2, ey = -r*0.62 + oy*r*0.14;
+    ctx.fillStyle='rgba(52,42,34,0.92)';
+    ctx.beginPath(); ctx.ellipse(ex,ey,r*0.27,r*0.3,s*0.32,0,TAU); ctx.fill();
+    ctx.fillStyle='rgba(233,214,184,0.8)';
+    ctx.beginPath(); ctx.ellipse(ex,ey+r*0.03,r*0.14,r*0.16,s*0.32,0,TAU); ctx.fill();
+  }
+  // head: a warm ink wash on the paper, slightly squashed when turned
+  var sq = 1 - Math.abs(ox)*0.1;
+  ctx.save();
+  ctx.scale(sq,1);
+  var hg=ctx.createRadialGradient(-r*0.3,-r*0.42,r*0.1,0,0,r*1.25);
+  hg.addColorStop(0,'rgba(214,188,150,0.98)');
+  hg.addColorStop(0.62,'rgba(158,128,96,0.96)');
+  hg.addColorStop(1,'rgba(84,66,50,0.97)');
+  ctx.fillStyle=hg;
+  ctx.beginPath(); ctx.ellipse(0,0,r,r*0.9,0,0,TAU); ctx.fill();
+  ctx.strokeStyle=ink(0.62); ctx.lineWidth=r*0.035;
+  ctx.beginPath(); ctx.ellipse(0,0,r,r*0.9,0,0,TAU); ctx.stroke();
+  ctx.restore();
+
+  // 葉 on the head: the one green-free leaf, drawn as ink
+  ctx.save();
+  ctx.translate(ox*r*0.24 - r*0.2, -r*0.92 + oy*r*0.1);
+  ctx.rotate(-0.5 + Math.sin(t*1.1)*0.07);
+  ctx.fillStyle='rgba(72,60,44,0.85)';
+  ctx.beginPath();
+  ctx.moveTo(0,0); ctx.quadraticCurveTo(r*0.22,-r*0.2,r*0.52,-r*0.05);
+  ctx.quadraticCurveTo(r*0.22,r*0.06,0,0); ctx.fill();
+  ctx.strokeStyle=ink(0.5); ctx.lineWidth=r*0.018;
+  ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(r*0.5,-r*0.05); ctx.stroke();
+  ctx.restore();
+
+  // eye patches, eyes
+  var px = ox*r*0.3, py = oy*r*0.22;
+  for (i=0;i<2;i++){
+    var s2 = i?1:-1;
+    var far = (ox*s2) < -0.02;                 // the eye on the far side of a turn
+    var narrow = far ? (1 - Math.abs(ox)*0.62) : 1;
+    var exx = s2*r*0.38*(1-Math.abs(ox)*0.16) + px;
+    var eyy = -r*0.1 + py;
+    ctx.save();
+    ctx.translate(exx,eyy); ctx.scale(narrow,1);
+    ctx.fillStyle='rgba(48,38,30,0.9)';
+    ctx.beginPath(); ctx.ellipse(0,0,r*0.29,r*0.27,s2*0.22,0,TAU); ctx.fill();
+    var open = 1 - tk.blink*0.92;
+    if (tk.mood>0.25) open *= 0.5;             // smug
+    ctx.fillStyle='rgba(246,238,218,0.96)';
+    ctx.beginPath(); ctx.ellipse(0,0,r*0.155,r*0.15*open+r*0.004,0,0,TAU); ctx.fill();
+    if (open>0.2){
+      ctx.fillStyle=SUM;
+      ctx.beginPath(); ctx.arc(ox*r*0.06, oy*r*0.04, r*0.075*(tk.mood<-0.25?1.25:1),0,TAU); ctx.fill();
+      ctx.fillStyle=amber(0.85);
+      ctx.beginPath(); ctx.arc(-r*0.03,-r*0.04,r*0.026,0,TAU); ctx.fill();
+    }
+    ctx.restore();
+  }
+  // snout
+  ctx.save();
+  ctx.translate(px*1.35, r*0.3 + py*1.3);
+  ctx.fillStyle='rgba(238,224,198,0.94)';
+  ctx.beginPath(); ctx.ellipse(0,0,r*0.36,r*0.27,0,0,TAU); ctx.fill();
+  ctx.strokeStyle=ink(0.36); ctx.lineWidth=r*0.02;
+  ctx.beginPath(); ctx.ellipse(0,0,r*0.36,r*0.27,0,0,TAU); ctx.stroke();
+  ctx.fillStyle=SUM;
+  ctx.beginPath(); ctx.ellipse(0,-r*0.08,r*0.1,r*0.075,0,0,TAU); ctx.fill();
+  ctx.strokeStyle=ink(0.7); ctx.lineWidth=r*0.028;
+  ctx.beginPath();
+  if (tk.mood>0.25){ ctx.moveTo(-r*0.14,r*0.06); ctx.quadraticCurveTo(0,r*0.2,r*0.14,r*0.06); }
+  else if (tk.mood<-0.25){ ctx.arc(0,r*0.11,r*0.08,0,TAU); }
+  else { ctx.moveTo(-r*0.1,r*0.09); ctx.quadraticCurveTo(0,r*0.15,r*0.1,r*0.09); }
+  ctx.stroke();
+  ctx.restore();
+
+  // surprise sweat when it has just been taken
+  if (tk.mood<-0.25){
+    ctx.fillStyle='rgba(160,190,210,0.7)';
+    var sw=r*0.09;
+    ctx.beginPath();
+    ctx.moveTo(r*0.86, -r*0.5);
+    ctx.quadraticCurveTo(r*0.86+sw, -r*0.5+sw*1.4, r*0.86, -r*0.5+sw*2.2);
+    ctx.quadraticCurveTo(r*0.86-sw, -r*0.5+sw*1.4, r*0.86, -r*0.5);
+    ctx.fill();
+  }
+  ctx.restore();
+
+  // the paw, raised only while the tanuki is the one pointing
+  if (tk.paw>0.01 && G.opDir!=='c'){
+    var ax = cx + r*0.95, ay = cy + r*0.5;
+    ctx.save();
+    ctx.globalAlpha=Math.min(1,tk.paw);
+    ctx.fillStyle='rgba(158,128,96,0.96)'; ctx.strokeStyle=ink(0.55);
+    ctx.lineWidth=r*0.03;
+    ctx.beginPath(); ctx.ellipse(ax,ay,r*0.2,r*0.24,0.3,0,TAU); ctx.fill(); ctx.stroke();
+    drawArrow(ax + (G.opDir==='l'? -r*0.24 : (G.opDir==='r'? r*0.24:0)),
+              ay + (G.opDir==='u'? -r*0.24 : (G.opDir==='d'? r*0.24:0)),
+              r*0.8, G.opDir, 1, r*0.11);
+    ctx.restore();
+  }
+}
+
+// ── the peep hole: the only place the camera appears ────────────────────
+function drawPeep(t){
+  var m=L.mirror, x=m.x, y=m.y, r=m.r;
+  ctx.save();
+  // a hole torn in the paper
+  ctx.beginPath(); ctx.arc(x,y,r,0,TAU); ctx.closePath();
+  ctx.save(); ctx.clip();
+  ctx.fillStyle='#141a26'; ctx.fillRect(x-r,y-r,r*2,r*2);
+  if (camOK && video && video.videoWidth>0){
+    var vw=video.videoWidth, vh=video.videoHeight;
+    var sc=Math.max(r*2/vw, r*2/vh);
+    var dw=vw*sc, dh=vh*sc;
+    ctx.save();
+    ctx.globalAlpha=0.92;
+    if (mirror){ ctx.translate(x*2,0); ctx.scale(-1,1); }
+    try{ ctx.drawImage(video, x-dw/2, y-dh/2, dw, dh); }catch(e){}
+    ctx.restore();
+    // push the feed into lamplight: desaturate toward amber
+    ctx.globalCompositeOperation='saturation';
+    ctx.fillStyle='hsl(38,32%,50%)'; ctx.fillRect(x-r,y-r,r*2,r*2);
+    ctx.globalCompositeOperation='overlay';
+    ctx.fillStyle='rgba(240,196,106,0.3)'; ctx.fillRect(x-r,y-r,r*2,r*2);
+    ctx.globalCompositeOperation='source-over';
+  } else {
+    smallText('カメラ待ち', x, y, r*0.2, 'rgba(240,196,106,0.6)', 'center', r*0.03);
+  }
+  // where your face is turned, drawn straight onto the feed
+  if (faceAlive()){
+    var fx = x + clamp(Fc.yaw/(YAW_TH*2.2),-1,1)*r*0.62;
+    var fy = y - clamp(Fc.pitch/(PITCH_TH*2.2),-1,1)*r*0.62;
+    ctx.strokeStyle = Fc.dir==='c' ? amber(0.85) : verm(0.95);
+    ctx.lineWidth=Math.max(1.4,r*0.045);
+    ctx.beginPath(); ctx.arc(fx,fy,r*0.17,0,TAU); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x,y); ctx.lineTo(fx,fy); ctx.stroke();
+  }
+  ctx.restore();
+  // torn edge
+  ctx.lineWidth=Math.max(1.5,r*0.07);
+  ctx.strokeStyle='rgba(210,192,158,0.95)';
+  ctx.beginPath(); ctx.arc(x,y,r,0,TAU); ctx.stroke();
+  ctx.lineWidth=Math.max(1,r*0.028);
+  ctx.strokeStyle=ink(0.5);
+  ctx.beginPath(); ctx.arc(x,y,r*1.035,0,TAU); ctx.stroke();
+  ctx.restore();
+  var st = faceAlive() ? (Fc.dir==='c'?'正面':DLAB[Fc.dir]) : '顔をさがしています';
+  smallText(st, x, y+r*1.32, Math.max(9,r*0.19), ink(0.6), 'center', r*0.02);
+}
+
+// ── where everything sits on the card ──────────────────────────────────
+var S={};
+function spots(){
+  var cw=L.cw, ch=L.ch, cx=L.cx, cy=L.cy;
+  var mn=Math.min(cw,ch);
+  if (L.port){
+    S.tanR = Math.min(cw*0.30, ch*0.17);
+    S.tanX = cx; S.tanY = cy - ch*0.235;
+    S.myJR = mn*0.115;
+    S.myJX = cx - cw*0.26; S.myJY = cy + ch*0.255;
+    S.wordX= cx;           S.wordY= cy + ch*0.035;
+    S.wordS= Math.min(cw*0.17, ch*0.11);
+    L.mirror.r = Math.min(cw*0.19, ch*0.115);
+    L.mirror.x = cx + cw*0.23; L.mirror.y = cy + ch*0.245;
+  } else {
+    S.tanR = Math.min(cw*0.165, ch*0.235);
+    S.tanX = cx - cw*0.255; S.tanY = cy - ch*0.055;
+    S.myJR = mn*0.115;
+    S.myJX = cx + cw*0.235; S.myJY = cy - ch*0.10;
+    S.wordX= cx + cw*0.02;  S.wordY= cy + ch*0.30;
+    S.wordS= Math.min(cw*0.115, ch*0.155);
+    L.mirror.r = Math.min(cw*0.105, ch*0.175);
+    L.mirror.x = cx + cw*0.255; L.mirror.y = cy + ch*0.235;
+  }
+  S.tanJR = S.tanR*0.44;
+  S.tanJX = S.tanX + S.tanR*1.42; S.tanJY = S.tanY + S.tanR*1.02;
+}
+
+function roleLabel(){
+  if (!G.role) return '';
+  return G.role==='point' ? 'あなたが指す' : 'あなたがそむける';
+}
+function drawCardContent(t){
+  var cw=L.cw, ch=L.ch, cx=L.cx, cy=L.cy;
+  var x0=cx-cw/2, y0=cy-ch/2;
+  var pad=L.s*20;
+
+  // 演目 strip
+  brushText('あっち向いてホイ', x0+pad*1.4, y0+pad*1.9, Math.min(cw*0.045,ch*0.06), ink(0.82), 'left', 1, 0);
+  smallText('第 '+['一','二','三','四','五'][Math.min(4,G.round)]+' 番',
+            x0+cw-pad*1.4, y0+pad*1.9, Math.max(9,L.s*13), ink(0.55), 'right', L.s*1.6);
+  if (G.role){
+    smallText(roleLabel(), x0+cw-pad*1.4, y0+pad*3.5, Math.max(9,L.s*12),
+              G.role==='point'? verm(0.9) : ink(0.62), 'right', L.s*1.8);
+  }
+
+  drawTanuki(S.tanX, S.tanY, S.tanR, t);
+
+  // the tanuki's janken hand, shown from reveal onward
+  if (G.phase==='reveal' || G.phase==='beat' || G.phase==='hoi' || G.phase==='score'){
+    if (G.opShape!=='?'){
+      var pop = (G.phase==='reveal') ? eOver(clamp(G.pt/0.16,0,1)) : 1;
+      ctx.save(); ctx.translate(S.tanJX,S.tanJY); ctx.scale(pop,pop);
+      drawJanken(0,0,S.tanJR,G.opShape,true,1);
+      ctx.restore();
+    }
+  }
+  // your janken hand: live during the count so you can see you are read
+  var liveShape = handAlive()? Hn.shape : '?';
+  var showShape = (G.phase==='count'||G.phase==='idle') ? liveShape : (G.myShape!=='?'?G.myShape:liveShape);
+  var alpha = (G.phase==='count'||G.phase==='idle') ? 0.55 : 1;
+  var pop2 = (G.phase==='reveal') ? eOver(clamp(G.pt/0.16,0,1)) : 1;
+  ctx.save(); ctx.translate(S.myJX,S.myJY); ctx.scale(pop2,pop2);
+  drawJanken(0,0,S.myJR,showShape,false,alpha);
+  ctx.restore();
+  smallText('あなた', S.myJX, S.myJY+S.myJR*2.0, Math.max(9,L.s*12), ink(0.5),'center',L.s*1.6);
+
+  // your live pointing direction, while you are the one pointing
+  if (G.role==='point' && (G.phase==='beat'||G.phase==='hoi') && handAlive() && Hn.dir!=='c'){
+    drawArrow(S.myJX, S.myJY - S.myJR*1.1, S.myJR*1.4, Hn.dir, 0.35, S.myJR*0.16);
+  }
+  // what you actually did, revealed with the verdict
+  if (G.phase==='score'){
+    if (G.role==='point' && G.myDir!=='c'){
+      drawArrow(S.myJX, S.myJY - S.myJR*1.1, S.myJR*1.7, G.myDir, 1, S.myJR*0.2);
+    } else if (G.role==='turn' && G.myDir!=='c'){
+      // a hollow ink arrow: your turn is never drawn in 朱
+      var v=dirVec(G.myDir), ax=L.mirror.x, ay=L.mirror.y-L.mirror.r*1.75;
+      ctx.save();
+      ctx.strokeStyle=ink(0.8); ctx.lineWidth=Math.max(1.4,L.s*2.4);
+      ctx.lineCap='round';
+      var ln=L.mirror.r*0.7;
+      ctx.beginPath(); ctx.moveTo(ax,ay); ctx.lineTo(ax+v.x*ln,ay+v.y*ln); ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(ax+v.x*ln,ay+v.y*ln);
+      ctx.lineTo(ax+v.x*ln*0.55 - v.y*ln*0.32, ay+v.y*ln*0.55 - v.x*ln*0.32);
+      ctx.moveTo(ax+v.x*ln,ay+v.y*ln);
+      ctx.lineTo(ax+v.x*ln*0.55 + v.y*ln*0.32, ay+v.y*ln*0.55 + v.x*ln*0.32);
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
+  drawPeep(t);
+
+  // ── the word ────────────────────────────────────────────────────────
+  var word='', ws=S.wordS, wcol=ink(0.9), wa=1, scl=1;
+  if (G.phase==='count'){
+    var step=Math.min(G.countStep, G.labels.length-1);
+    word=G.labels[step];
+    var k=clamp(G.pt/G.countGap,0,1);
+    scl = 1 + (1-eOut(clamp(k*4,0,1)))*0.22;
+    wa = 0.35 + 0.65*(1-k*0.55);
+    if (word.length>3) ws*=0.62;
+  } else if (G.phase==='reveal'){
+    word = G.note; ws*=0.76; scl=eOver(clamp(G.pt/0.2,0,1));
+  } else if (G.phase==='beat'){
+    word='あっち向いて'; ws*=0.56; wa=0.9;
+    scl = 1 + Math.sin(G.pt*14)*0.01;
+  } else if (G.phase==='score' && G.bannerT>0){
+    word=G.banner; ws*= (word.length>4?0.54:0.9);
+    scl=eOver(clamp(G.pt/0.22,0,1));
+  }
+  if (word){
+    if (G.phase==='score' && (G.outcome==='take')){
+      var gg=ctx.createRadialGradient(S.wordX,S.wordY,0,S.wordX,S.wordY,ws*1.5);
+      gg.addColorStop(0,amber(0.42)); gg.addColorStop(1,amber(0));
+      ctx.fillStyle=gg; ctx.beginPath(); ctx.arc(S.wordX,S.wordY,ws*1.5,0,TAU); ctx.fill();
+    }
+    ctx.save(); ctx.translate(S.wordX,S.wordY); ctx.scale(scl,scl);
+    brushText(word,0,0,ws,wcol,'center',wa,0);
+    ctx.restore();
+  }
+
+  // ── the ホイ stamp: the only other 朱 in the piece ────────────────────
+  if (G.stamp>0.001){
+    var a=Math.min(1,G.stamp*1.7);
+    var pin=1+(1-Math.min(1,(1-G.stamp)*9))*0.28;
+    var ss=Math.min(cw*0.30,ch*0.40);
+    ctx.save();
+    ctx.translate(cx+cw*0.02, cy-ch*0.03);
+    ctx.rotate(G.stampAng); ctx.scale(pin,pin);
+    ctx.globalAlpha=a*0.92;
+    ctx.strokeStyle=SHU; ctx.lineWidth=ss*0.045;
+    ctx.strokeRect(-ss*0.58,-ss*0.46,ss*1.16,ss*0.92);
+    brushText('ホイ',0,0,ss*0.72,SHU,'center',1,0);
+    ctx.restore();
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  FRAME
+// ═══════════════════════════════════════════════════════════════════════
+var lastT=now();
+function frame(){
+  requestAnimationFrame(frame);
+  var t=now(), dt=t-lastT; lastT=t;
+  if (!(dt>0)) dt=0;
+  if (dt>0.05) dt=0.05;
+
+  if (G) { stepGame(dt); stepParticles(dt); }
+  if (demoRun) drawDemo(t);
+
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  ctx.clearRect(0,0,W,H);
+  drawCart(t);
+  if (!G){ return; }
+  spots();
+
+  var shx=0, shy=0;
+  if (G.shake>0.001){
+    var amp=G.shake*G.shake*L.s*9;
+    shx=(Math.random()*2-1)*amp; shy=(Math.random()*2-1)*amp;
+  }
+  ctx.save();
+  ctx.translate(shx,shy);
+  var slide = G.pull>0.001 ? (1-eOut(1-G.pull))*L.cw*1.25*G.pullSign : 0;
+  var x0=L.cx-L.cw/2, y0=L.cy-L.ch/2;
+  drawFrame(x0,y0,L.cw,L.ch);
+  ctx.save();
+  ctx.beginPath(); ctx.rect(x0,y0,L.cw,L.ch); ctx.clip();
+  ctx.save();
+  ctx.translate(slide,0);
+  drawCardPaper(x0,y0,L.cw,L.ch);
+  if (Math.abs(slide) < L.cw*1.1) drawCardContent(t);
+  ctx.restore();
+  // the next card already waiting behind, sliding in from the right
+  if (G.pull>0.001){
+    ctx.save();
+    ctx.translate(slide + L.cw*1.25, 0);
+    drawCardPaper(x0,y0,L.cw,L.ch);
+    ctx.restore();
+    // the leaving edge catches the lamp
+    var ex = x0 + L.cw + slide;
+    var lg=ctx.createLinearGradient(ex-L.frame*0.8,0,ex+L.frame*0.2,0);
+    lg.addColorStop(0,'rgba(240,196,106,0)'); lg.addColorStop(1,'rgba(240,196,106,0.5)');
+    ctx.fillStyle=lg; ctx.fillRect(ex-L.frame*0.8,y0,L.frame,L.ch);
+  }
+  ctx.restore();
+  drawParticles();
+  ctx.restore();
+
+  if (G.flash>0.001){
+    ctx.fillStyle='rgba(255,244,220,'+(G.flash*0.42)+')';
+    ctx.fillRect(0,0,W,H);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  THE TEACHING LOOP ─ two panels, same pointing finger, two different
+//  turns.  It says the whole rule in about three seconds without a
+//  sentence: match the finger and you are taken, miss it and you are free.
+// ═══════════════════════════════════════════════════════════════════════
+var demoRun=true;
+function demoFace(c,x,y,r,dir,k){
+  var v=dirVec(dir), ox=v.x*k, oy=v.y*k;
+  c.save(); c.translate(x,y); c.rotate(ox*0.14);
+  c.fillStyle='rgba(36,29,26,0.08)';
+  c.beginPath(); c.arc(0,0,r,0,TAU); c.fill();
+  c.strokeStyle='rgba(36,29,26,0.8)'; c.lineWidth=r*0.07;
+  c.beginPath(); c.arc(0,0,r,0,TAU); c.stroke();
+  c.fillStyle='rgba(36,29,26,0.88)';
+  for (var i=0;i<2;i++){
+    var s=i?1:-1;
+    var narrow = ((ox*s)<-0.02) ? (1-Math.abs(ox)*0.6) : 1;
+    c.save();
+    c.translate(s*r*0.36*(1-Math.abs(ox)*0.18)+ox*r*0.3, -r*0.14+oy*r*0.26);
+    c.scale(narrow,1);
+    c.beginPath(); c.arc(0,0,r*0.1,0,TAU); c.fill();
+    c.restore();
+  }
+  c.strokeStyle='rgba(36,29,26,0.6)'; c.lineWidth=r*0.06; c.lineCap='round';
+  c.beginPath();
+  c.moveTo(ox*r*0.42, oy*r*0.3+r*0.02);
+  c.lineTo(ox*r*0.42, oy*r*0.3+r*0.3);
+  c.stroke();
+  c.restore();
+}
+function demoArrow(c,x,y,len,a){
+  c.save(); c.globalAlpha=a;
+  c.strokeStyle=SHU; c.fillStyle=SHU; c.lineCap='round';
+  c.lineWidth=len*0.16;
+  c.beginPath(); c.moveTo(x,y); c.lineTo(x+len*0.6,y); c.stroke();
+  c.beginPath();
+  c.moveTo(x+len,y); c.lineTo(x+len*0.52,y-len*0.26);
+  c.lineTo(x+len*0.62,y); c.lineTo(x+len*0.52,y+len*0.26);
+  c.closePath(); c.fill();
+  c.restore();
+}
+function drawDemo(t){
+  var c=demoCtx, w=demoCv.width, h=demoCv.height;
+  if (!c) return;
+  c.clearRect(0,0,w,h);
+  c.fillStyle='rgba(36,29,26,0.035)'; c.fillRect(0,0,w,h);
+  c.strokeStyle='rgba(36,29,26,0.14)'; c.lineWidth=1;
+  c.beginPath(); c.moveTo(w/2,14); c.lineTo(w/2,h-14); c.stroke();
+
+  var per=2.6, ph=(t%per)/per;
+  var armed = ph>0.21;
+  var turn = ph>0.29 ? eOver(clamp((ph-0.29)/0.1,0,1)) : 0;
+  if (ph>0.72) turn *= 1-eOut(clamp((ph-0.72)/0.16,0,1));
+  var aA = armed ? Math.min(1,(ph-0.21)/0.05) : 0;
+  if (ph>0.78) aA *= 1-clamp((ph-0.78)/0.12,0,1);
+  var mark = ph>0.40 ? Math.min(1,(ph-0.40)/0.07) : 0;
+  if (ph>0.78) mark *= 1-clamp((ph-0.78)/0.12,0,1);
+
+  var panels=[{x:0,dir:'u',ok:true,lab:'ぬけた'},{x:w/2,dir:'r',ok:false,lab:'取られた'}];
+  for (var i=0;i<2;i++){
+    var p=panels[i], bx=p.x, r=h*0.19;
+    c.save();
+    c.translate(bx+w*0.5*0.30, h*0.47);
+    demoArrow(c,-r*2.0,0,r*1.15,aA);
+    c.restore();
+    demoFace(c, bx+w*0.5*0.62, h*0.47, r, p.dir, turn);
+    if (mark>0.01){
+      c.save(); c.globalAlpha=mark;
+      var mx=bx+w*0.5*0.86, my=h*0.28, mr=h*0.075;
+      if (p.ok){
+        c.strokeStyle='rgba(36,29,26,0.85)'; c.lineWidth=mr*0.32;
+        c.beginPath(); c.arc(mx,my,mr,0,TAU); c.stroke();
+      } else {
+        c.strokeStyle=SHU; c.lineWidth=mr*0.34; c.lineCap='round';
+        c.beginPath();
+        c.moveTo(mx-mr*0.8,my-mr*0.8); c.lineTo(mx+mr*0.8,my+mr*0.8);
+        c.moveTo(mx+mr*0.8,my-mr*0.8); c.lineTo(mx-mr*0.8,my+mr*0.8);
+        c.stroke();
+      }
+      c.restore();
+    }
+    c.save();
+    c.globalAlpha=0.75;
+    c.font = (h*0.105).toFixed(1)+'px '+TEXT;
+    c.textAlign='center'; c.textBaseline='middle'; c.fillStyle=SUM;
+    c.fillText(p.lab, bx+w*0.25, h-h*0.11);
+    c.restore();
+  }
+  if (aA>0.02){
+    c.save(); c.globalAlpha=aA;
+    c.font=(h*0.15).toFixed(1)+'px '+BRUSH;
+    c.textAlign='center'; c.textBaseline='middle'; c.fillStyle=SHU;
+    c.fillText('ホイ', w/2, h*0.14);
+    c.restore();
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  BOOT
+// ═══════════════════════════════════════════════════════════════════════
+function boot(){
+  resetGame();
+  hud.classList.add('on');
+  running=true;
+  startStream()
+    .then(function(){
+      var a=initHands(), b=initFace();
+      if (a||b) startMpCamera();
+    })
+    .catch(showError);
+  beginRound();
+}
+startBtn.addEventListener('click', function(){
+  if (G && G.started) return;
+  if (!G) resetGame();
+  G.started=true;
+  demoRun=false;
+  initAudio();
+  startSheet.classList.add('gone');
+  setTimeout(function(){ startSheet.style.display='none'; }, 460);
+  boot();
+  G.started=true;
+});
+againBtn.addEventListener('click', function(){
+  if (AC && AC.state==='suspended' && AC.resume){ try{ AC.resume(); }catch(e){} }
+  endSheet.classList.add('gone');
+  setTimeout(function(){ endSheet.classList.remove('show'); }, 460);
+  var keepStarted=true;
+  resetGame();
+  G.started=keepStarted;
+  hud.classList.add('on');
+  running=true;
+  beginRound();
+});
+document.addEventListener('visibilitychange', function(){
+  if (document.hidden){ loseHand(); loseFace(); }
+});
+
+resetGame();
+resize();
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
