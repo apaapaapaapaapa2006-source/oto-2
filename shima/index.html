@@ -1,0 +1,1020 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>SHIMA ─ 格子と格子のあいだに出る縞</title>
+<meta name="description" content="細い罫を二枚重ねると、どちらの罫にも無い太い縞が現れる。二枚目の罫はカメラの明るさで撓むので、縞はそのままあなたの形の等高線になる。手が二枚目の版で、傾きが角度、手のひらの開きが罫の間隔。二枚の角度と間隔がそろった瞬間、縞の間隔は無限に伸びて画面から消える。縞・彩・環の三版。">
+<meta name="theme-color" content="#f2f0ea">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap" rel="stylesheet">
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  SHIMA ─ 格子と格子のあいだに出る縞                 ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  PALETTE   骨白  honejiro #f2f0ea  the sheet. A COLD white — no warmth
+                                    anywhere, which is what separates this
+                                    piece from the two warm-paper pieces in
+                                    the gallery. It is a press proof, not a
+                                    hand-made sheet.
+            漆黒  shikkoku #14130f  the ink of 版一. Near-black; this is a
+                                    print, so ink is allowed to be almost
+                                    black, but never #000.
+            藍鉄  aitetsu  #2b3a45  the ink of 版二 in 環 mode: a cold
+                                    blue-black, so a duotone reads as two
+                                    plates and not as one smudged one.
+            辰砂  shinsha  #c8321e  RESERVED for the instrument: the live
+                                    readout, the active plate marker and the
+                                    register marks. Never used in the image.
+            三原色 process  シアン #00a0b8 / マゼンタ #d6006e / イエロー #f5c800
+                                    the three plates of 彩 mode, overprinted
+                                    subtractively, so where all three land
+                                    you get real process black.
+            MOOD: a registration proof pulled off the press and pinned to the
+            wall. Cold, graphic, mechanical. Nothing glows and nothing is
+            soft. Op-art by accident of measurement.
+  BACKGROUND  The sheet IS the image. Around it, a thin 罫 border, corner
+            register marks (トンボ) in 辰砂, and along the bottom edge the two
+            source rulings printed as their own narrow strips, so you can see
+            for yourself that the huge fringes come from two fine rulings and
+            not from a filter.
+  TYPE      Space Mono for every number and latin label — this piece is an
+            instrument, and its readout should look machined. Zen Kaku Gothic
+            New (a clean gothic, deliberately NOT the mincho or the brush of
+            the gallery's other pieces) for Japanese. Numbers are the only
+            thing set in 辰砂.
+  MOTION    Snappy and mechanical: 140ms steps, no elastic anywhere. A plate
+            change is a hard cut plus a 90ms white flash, like a press stroke.
+            The only continuous motion in the piece is the fringes themselves,
+            and they move because you move.
+  SIGNATURE THE BEAT SINGULARITY. The fringe period is P1·P2/|k1−k2|, so as you
+            bring 版二's angle and pitch onto 版一's the period diverges: the
+            fringes widen, sweep off the edges, and for one instant there is
+            no moiré at all — just a single ruling bending over your face. The
+            readout says ∞ and the audible beat stops dead. It is the same
+            interference in the eye and in the ear.
+  WHY VECTOR, NOT PER-PIXEL  A grating is an analytic function, so drawing it
+            as real strokes gives true hairlines with canvas antialiasing at
+            any display size, where a per-pixel product at a reduced internal
+            resolution would alias the rulings into noise — the one thing this
+            piece cannot afford. The per-pixel work that matters is upstream:
+            the camera is reduced to a 176×132 luminance field, blurred twice
+            in cached Float32Arrays with no per-frame allocation, and 版二 is
+            displaced by that field. That is exactly how 格子投影法 measures a
+            shape, which is why the fringes come out as contours of you.
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<style>
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{height:100%;overflow:hidden;background:#f2f0ea;color:#14130f}
+  body{font-family:'Zen Kaku Gothic New',sans-serif;-webkit-font-smoothing:antialiased}
+  #view{position:fixed;inset:0;width:100%;height:100%;display:block}
+  #video{position:fixed;width:2px;height:2px;opacity:.001;pointer-events:none;left:-10px;top:-10px}
+
+  #flip{
+    position:fixed;top:calc(env(safe-area-inset-top,0px) + 14px);right:14px;z-index:6;
+    font-family:'Space Mono',monospace;font-size:11px;letter-spacing:.14em;
+    color:#14130f;background:rgba(242,240,234,.86);border:1px solid #14130f;
+    border-radius:0;padding:7px 11px;cursor:pointer;
+    transition:background .14s linear,color .14s linear;
+  }
+  #flip:hover{background:#14130f;color:#f2f0ea}
+  #err{
+    display:none;position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);
+    z-index:40;max-width:min(30rem,86vw);white-space:pre-line;
+    background:#f2f0ea;border:1px solid #14130f;color:#14130f;
+    padding:22px 24px;font-size:14px;line-height:2;letter-spacing:.04em;
+  }
+
+  /* ── the instrument panel ────────────────────────────────── */
+  #panel{
+    position:fixed;left:0;right:0;bottom:0;z-index:5;
+    padding:11px 14px calc(env(safe-area-inset-bottom,0px) + 11px);
+    display:flex;align-items:center;gap:12px;flex-wrap:wrap;
+    background:rgba(242,240,234,.9);border-top:1px solid #14130f;
+    opacity:0;pointer-events:none;transition:opacity .14s linear;
+  }
+  #panel.on{opacity:1;pointer-events:auto}
+  .plates{display:flex;gap:0;border:1px solid #14130f}
+  .plates button{
+    font-family:'Zen Kaku Gothic New',sans-serif;font-weight:500;
+    font-size:14px;letter-spacing:.2em;padding:8px 15px;
+    background:transparent;border:none;border-right:1px solid #14130f;
+    color:#14130f;cursor:pointer;transition:background .14s linear,color .14s linear;
+  }
+  .plates button:last-child{border-right:none}
+  .plates button.on{background:#14130f;color:#f2f0ea}
+  .knob{display:flex;align-items:center;gap:8px}
+  .knob label{font-family:'Space Mono',monospace;font-size:10px;letter-spacing:.16em;color:#5d5a50}
+  .knob input{
+    -webkit-appearance:none;appearance:none;width:clamp(78px,20vw,150px);height:1px;
+    background:#14130f;outline:none;
+  }
+  .knob input::-webkit-slider-thumb{
+    -webkit-appearance:none;width:13px;height:13px;border-radius:0;
+    background:#c8321e;cursor:pointer;
+  }
+  .knob input::-moz-range-thumb{
+    width:13px;height:13px;border-radius:0;border:none;background:#c8321e;cursor:pointer;
+  }
+  #read{
+    margin-left:auto;font-family:'Space Mono',monospace;font-size:10.5px;
+    line-height:1.75;letter-spacing:.06em;color:#5d5a50;text-align:right;white-space:nowrap;
+  }
+  #read b{color:#c8321e;font-weight:700}
+
+  .sheet{
+    position:fixed;inset:0;z-index:20;display:flex;align-items:center;justify-content:center;
+    padding:24px;background:rgba(242,240,234,.975);transition:opacity .3s linear;
+  }
+  .sheet.gone{opacity:0;pointer-events:none}
+  .card{
+    width:min(37rem,94vw);max-height:92vh;overflow:auto;
+    border:1px solid #14130f;padding:0;background:#f2f0ea;
+  }
+  .cap{
+    display:flex;justify-content:space-between;align-items:baseline;
+    border-bottom:1px solid #14130f;padding:11px 16px;
+    font-family:'Space Mono',monospace;font-size:10px;letter-spacing:.2em;color:#5d5a50;
+  }
+  .cap b{color:#c8321e}
+  .body{padding:24px 26px 22px}
+  .ttl{font-weight:700;font-size:clamp(24px,6.6vw,33px);letter-spacing:.03em;line-height:1.3}
+  .lead{font-size:13px;line-height:2.05;letter-spacing:.02em;margin-top:16px;color:#3a382f}
+  .lead em{font-style:normal;color:#c8321e;font-weight:500}
+  #demo{display:block;width:100%;height:auto;margin:18px 0 2px;border:1px solid #14130f}
+  .spec{
+    font-family:'Space Mono',monospace;font-size:11px;line-height:1.95;letter-spacing:.02em;
+    color:#5d5a50;border-top:1px solid #14130f;margin-top:16px;padding-top:12px;
+  }
+  .spec span{font-family:'Zen Kaku Gothic New',sans-serif;color:#14130f;font-weight:500}
+  .go{
+    display:block;width:100%;margin-top:20px;padding:15px;cursor:pointer;
+    font-family:'Zen Kaku Gothic New',sans-serif;font-weight:700;
+    font-size:15px;letter-spacing:.4em;color:#f2f0ea;background:#14130f;border:none;
+    transition:background .14s linear;
+  }
+  .go:hover{background:#c8321e}
+  @media (max-width:470px){
+    .body{padding:18px 17px 17px}
+    .lead{font-size:12.5px;line-height:1.95}
+    #panel{gap:9px}
+    .plates button{padding:7px 11px;font-size:13px}
+    #read{margin-left:0;text-align:left;width:100%}
+  }
+</style>
+</head>
+<body>
+
+<canvas id="view"></canvas>
+<video id="video" playsinline muted autoplay></video>
+<button id="flip">⟲ カメラ</button>
+<div id="err"></div>
+
+<div id="panel">
+  <div class="plates">
+    <button id="m0" class="on">縞</button>
+    <button id="m1">彩</button>
+    <button id="m2">環</button>
+  </div>
+  <div class="knob">
+    <label for="depth">DEPTH</label>
+    <input type="range" id="depth" min="0" max="100" value="58">
+  </div>
+  <div id="read">
+    縞間隔 <b id="rPitch">—</b> px　版の差 <b id="rAng">—</b>°<br>
+    唸り <b id="rBeat">—</b> Hz　版二 <b id="rPlate">—</b> px
+  </div>
+</div>
+
+<div class="sheet" id="startSheet">
+  <div class="card">
+    <div class="cap"><span>OTO-II / SHIMA</span><span>MOIRÉ <b>FRINGE</b></span></div>
+    <div class="body">
+      <div class="ttl">格子と格子のあいだに出る縞</div>
+      <p class="lead">細い罫を二枚かさねると、どちらの罫にも無い<em>太い縞</em>が出ます。<br>
+        二枚目はカメラの明るさで撓むので、縞はそのまま<em>あなたの形</em>になります。<br>
+        角度と間隔をそろえると、縞の間隔は<em>無限</em>に伸びて消えます。</p>
+      <canvas id="demo" width="640" height="200"></canvas>
+      <div class="spec">
+        <span>手が版二</span>　傾き = 罫の角度 / 手のひらの開き = 罫の間隔<br>
+        <span>両手なら</span>　二点を結ぶ線が角度 / 手の間隔が罫の間隔<br>
+        <span>握れば</span>　版が止まります<br>
+        <span>三版</span>　縞（墨）・彩（三原色の掛け合わせ）・環（同心円）
+      </div>
+      <button class="go" id="startBtn">刷る</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+<script>
+'use strict';
+// ═══════════════════════════════════════════════════════════════════════
+//  SHIMA ─ 格子と格子のあいだに出る縞
+//  Two rulings overlaid produce fringes present in neither of them, with
+//  spatial frequency k = k1 - k2.  版二 is displaced by the camera's
+//  luminance, which is literally 格子投影法 (fringe projection), so the
+//  fringes come out as contours of whatever is in front of the lens.
+// ═══════════════════════════════════════════════════════════════════════
+var TAU=Math.PI*2;
+function clamp(v,a,b){ return v<a?a:(v>b?b:v); }
+function lerp(a,b,t){ return a+(b-a)*t; }
+function now(){ return (typeof performance!=='undefined'&&performance.now)?performance.now()/1000:Date.now()/1000; }
+
+var view=document.getElementById('view');
+var ctx=view.getContext('2d');
+var video=document.getElementById('video');
+var flipBtn=document.getElementById('flip');
+var errBox=document.getElementById('err');
+var panel=document.getElementById('panel');
+var startSheet=document.getElementById('startSheet');
+var startBtn=document.getElementById('startBtn');
+var demoCv=document.getElementById('demo');
+var demoCtx=demoCv.getContext('2d');
+var depthEl=document.getElementById('depth');
+var rPitch=document.getElementById('rPitch'), rAng=document.getElementById('rAng');
+var rBeat=document.getElementById('rBeat'), rPlate=document.getElementById('rPlate');
+var mBtn=[document.getElementById('m0'),document.getElementById('m1'),document.getElementById('m2')];
+
+var W=0,H=0,DPR=1,MN=1,DIAG=1;
+function resize(){
+  DPR=Math.min(window.devicePixelRatio||1,2);
+  W=window.innerWidth; H=window.innerHeight;
+  view.width=Math.max(1,Math.round(W*DPR));
+  view.height=Math.max(1,Math.round(H*DPR));
+  view.style.width=W+'px'; view.style.height=H+'px';
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  MN=Math.min(W,H); DIAG=Math.hypot(W,H);
+  P1=clamp(MN*0.019, 7, 26);
+  grain=null;
+}
+window.addEventListener('resize',resize);
+window.addEventListener('orientationchange',function(){ setTimeout(resize,180); });
+
+// ═══════════════════════════════════════════════════════════════════════
+//  CAMERA
+// ═══════════════════════════════════════════════════════════════════════
+var facing='user', mirror=true, stream=null, camOK=false;
+function showError(e){
+  var msg=(e&&e.message)?e.message:String(e||'unknown');
+  errBox.style.display='block';
+  errBox.textContent='カメラを起動できませんでした：'+msg+
+    '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+}
+function startStream(){
+  var md=navigator.mediaDevices;
+  if (!md||!md.getUserMedia) return Promise.reject(new Error('getUserMedia is unavailable'));
+  if (stream&&stream.getTracks) stream.getTracks().forEach(function(t){ t.stop(); });
+  return md.getUserMedia({
+    video:{ facingMode:{ ideal:facing }, width:{ ideal:640 }, height:{ ideal:480 } },
+    audio:false
+  }).then(function(st){
+    stream=st; video.srcObject=st; mirror=(facing==='user'); camOK=true;
+    var p=video.play();
+    return (p&&p.then)?p.catch(function(){}):null;
+  });
+}
+flipBtn.addEventListener('click',function(){
+  facing=(facing==='user')?'environment':'user';
+  loseHands();
+  startStream().then(startMpCamera).catch(showError);
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+//  THE LUMINANCE FIELD ─ the only per-pixel stage, and the one that
+//  matters: the camera is reduced to a 176×132 height field and blurred
+//  twice.  Every array here is allocated once; nothing but the getImageData
+//  read happens per frame, and the blur is a separable box so it stays
+//  linear in pixel count.
+// ═══════════════════════════════════════════════════════════════════════
+var CW=176, CH=132, NPX=CW*CH;
+var camCv=null, camCtx=null;
+var LUM=new Float32Array(NPX), TMP=new Float32Array(NPX);
+var lumReady=false, lumFrames=0;
+(function(){
+  try{
+    camCv=document.createElement('canvas');
+    camCv.width=CW; camCv.height=CH;
+    camCtx=camCv.getContext('2d');
+  }catch(e){ camCv=null; camCtx=null; }
+  for (var i=0;i<NPX;i++){ LUM[i]=0.5; TMP[i]=0.5; }
+})();
+
+function boxBlurH(src,dst,r){
+  var y,x,i,acc,w=CW;
+  var inv=1/(r*2+1);
+  for (y=0;y<CH;y++){
+    var row=y*w;
+    acc=0;
+    for (x=-r;x<=r;x++) acc += src[row + clamp(x,0,w-1)];
+    for (x=0;x<w;x++){
+      dst[row+x]=acc*inv;
+      acc += src[row + clamp(x+r+1,0,w-1)] - src[row + clamp(x-r,0,w-1)];
+    }
+  }
+}
+function boxBlurV(src,dst,r){
+  var y,x,acc,w=CW,h=CH;
+  var inv=1/(r*2+1);
+  for (x=0;x<w;x++){
+    acc=0;
+    for (y=-r;y<=r;y++) acc += src[clamp(y,0,h-1)*w + x];
+    for (y=0;y<h;y++){
+      dst[y*w+x]=acc*inv;
+      acc += src[clamp(y+r+1,0,h-1)*w + x] - src[clamp(y-r,0,h-1)*w + x];
+    }
+  }
+}
+function updateLum(){
+  if (!camCtx || !camOK || !video || !(video.videoWidth>0)) return false;
+  camCtx.save();
+  if (mirror){ camCtx.translate(CW,0); camCtx.scale(-1,1); }
+  try{ camCtx.drawImage(video,0,0,CW,CH); }catch(e){ camCtx.restore(); return false; }
+  camCtx.restore();
+  var d;
+  try{ d=camCtx.getImageData(0,0,CW,CH).data; }catch(e){ return false; }
+  if (!d || d.length < NPX*4) return false;
+  var i,j=0;
+  // Rec.601 luma, and the field is written in full every frame: every one of
+  // the NPX entries is assigned, none is left from the previous frame.
+  for (i=0;i<NPX;i++){
+    TMP[i]=(d[j]*0.299 + d[j+1]*0.587 + d[j+2]*0.114)/255;
+    j+=4;
+  }
+  boxBlurH(TMP,LUM,2); boxBlurV(LUM,TMP,2);
+  boxBlurH(TMP,LUM,1); boxBlurV(LUM,TMP,1);
+  var t;
+  for (i=0;i<NPX;i++){
+    t=TMP[i];
+    LUM[i]= (t>=0 && t<=1) ? t : (t<0?0:(t>1?1:0.5));
+  }
+  lumReady=true; lumFrames++;
+  return true;
+}
+// sample the field at a point in SCREEN space
+function lumAt(x,y){
+  if (!lumReady) return 0.5;
+  var bx=(x/Math.max(1,W))*CW, by=(y/Math.max(1,H))*CH;
+  var ix=bx|0, iy=by|0;
+  if (ix<0) ix=0; else if (ix>CW-1) ix=CW-1;
+  if (iy<0) iy=0; else if (iy>CH-1) iy=CH-1;
+  var v=LUM[iy*CW+ix];
+  return (v>=0&&v<=1)?v:0.5;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  HANDS ─ up to two.  One hand: tilt is the angle, openness is the pitch.
+//  Two hands: the line between them is the angle, their separation is the
+//  pitch.  A closed fist freezes 版二 so you can hold a look still.
+// ═══════════════════════════════════════════════════════════════════════
+var hands=null, mpCamera=null, mpReady=false, LOST_S=0.34;
+var TIPS=[4,8,12,16,20], PIPS=[2,6,10,14,18];
+var HA=[
+  { on:false,t:-1e9,x:0.35,y:0.5,ang:0,open:1,span:0.14,pts:null,px:0.35,py:0.5 },
+  { on:false,t:-1e9,x:0.65,y:0.5,ang:0,open:1,span:0.14,pts:null,px:0.65,py:0.5 }
+];
+function loseHands(){
+  for (var i=0;i<2;i++){ HA[i].on=false; HA[i].pts=null; }
+}
+function initHands(){
+  if (typeof window.Hands!=='function') return false;
+  try{
+    hands=new window.Hands({ locateFile:function(f){
+      return 'https://cdn.jsdelivr.net/npm/@mediapipe/hands/'+f;
+    }});
+    hands.setOptions({ maxNumHands:2, modelComplexity:0,
+                       minDetectionConfidence:0.55, minTrackingConfidence:0.5 });
+    hands.onResults(onHands);
+    mpReady=true; return true;
+  }catch(e){ hands=null; return false; }
+}
+function startMpCamera(){
+  if (!mpReady||!hands||mpCamera) return;
+  if (typeof window.Camera!=='function') return;
+  try{
+    mpCamera=new window.Camera(video,{
+      onFrame:function(){
+        if (!hands) return Promise.resolve();
+        return hands.send({ image:video }).catch(function(){});
+      },
+      width:480, height:360
+    });
+    mpCamera.start();
+  }catch(e){ mpCamera=null; }
+}
+function sx(x){ return mirror?(1-x):x; }
+function validHand(c){
+  if (!c||typeof c.length!=='number'||c.length<21) return null;
+  for (var i=0;i<21;i++){
+    var p=c[i];
+    if (!p||typeof p.x!=='number'||typeof p.y!=='number'||
+        !isFinite(p.x)||!isFinite(p.y)) return null;
+  }
+  return c;
+}
+function d2(a,b){ return Math.hypot(a.x-b.x,a.y-b.y); }
+function onHands(res){
+  var list=(res&&res.multiHandLandmarks)?res.multiHandLandmarks:null;
+  if (!list||!list.length) return;
+  var t=now(), seen=[], i,j;
+  for (i=0;i<list.length && seen.length<2;i++){
+    var lm=validHand(list[i]);
+    if (!lm) continue;
+    var wr=lm[0], mc=lm[9];
+    var palm=d2(wr,mc);
+    if (!isFinite(palm)||palm<1e-4) continue;
+    var n=0;
+    for (j=1;j<5;j++) if (d2(lm[TIPS[j]],wr) > d2(lm[PIPS[j]],wr)*1.12) n++;
+    var tOut=(d2(lm[4],lm[17])/palm)>1.05 ? 1 : 0;
+    // hand tilt from wrist to middle knuckle, in SCREEN space
+    var ax=sx(mc.x)-sx(wr.x), ay=mc.y-wr.y;
+    var ang=Math.atan2(ay,ax);
+    if (!isFinite(ang)) continue;
+    var pts=[],k;
+    for (k=0;k<21;k++) pts.push({ x:sx(lm[k].x), y:lm[k].y });
+    seen.push({
+      x:sx((wr.x+mc.x*2)/3), y:(wr.y+mc.y*2)/3,
+      ang:ang, open:clamp((n+tOut*0.6)/4.6,0,1),
+      span:clamp(palm*2.7,0.05,0.6), pts:pts
+    });
+  }
+  // keep left-of-screen in slot 0 so the pair's angle does not flip sign
+  seen.sort(function(a,b){ return a.x-b.x; });
+  for (i=0;i<seen.length && i<2;i++){
+    var s=seen[i], h=HA[i];
+    if (!h.on || (t-h.t)>LOST_S){ h.px=s.x; h.py=s.y; }
+    h.x=s.x; h.y=s.y; h.ang=s.ang; h.open=s.open; h.span=s.span; h.pts=s.pts;
+    h.on=true; h.t=t;
+  }
+  if (seen.length<2 && HA[1].on && (t-HA[1].t)>LOST_S) HA[1].on=false;
+}
+function hAlive(h){ return h.on && (now()-h.t)<LOST_S; }
+function liveHands(){ return (hAlive(HA[0])?1:0)+(hAlive(HA[1])?1:0); }
+
+// ═══════════════════════════════════════════════════════════════════════
+//  AUDIO ─ near-silent by design, and it is the SAME interference the eye
+//  is looking at: two sines a beat apart, where the beat in hertz is the
+//  fringe frequency on screen.  Align the two plates and the beat stops at
+//  the same instant the fringes vanish.  Nothing else sounds.
+// ═══════════════════════════════════════════════════════════════════════
+var AC=null, comp=null, master=null, oscA=null, oscB=null, bed=null, audioOK=false;
+var BASEF=174;
+function initAudio(){
+  if (AC){ if (AC.state==='suspended'&&AC.resume){ try{AC.resume();}catch(e){} } return true; }
+  var C=window.AudioContext||window.webkitAudioContext;
+  if (!C) return false;
+  try{ AC=new C(); }catch(e){ AC=null; return false; }
+  if (AC.state==='suspended'&&AC.resume){ try{AC.resume();}catch(e){} }
+  comp=AC.createDynamicsCompressor();
+  comp.threshold.value=-22; comp.knee.value=24; comp.ratio.value=4;
+  comp.attack.value=0.02; comp.release.value=0.35;
+  master=AC.createGain(); master.gain.value=0.5;
+  comp.connect(master); master.connect(AC.destination);
+  var lp=AC.createBiquadFilter(); lp.type='lowpass';
+  lp.frequency.value=900; lp.Q.value=0.5;
+  lp.connect(comp);
+  function tone(f,g){
+    var o=AC.createOscillator(); o.type='sine'; o.frequency.value=f;
+    var gg=AC.createGain(); gg.gain.value=g;
+    o.connect(gg); gg.connect(lp);
+    try{ o.start(); }catch(e){}
+    return { o:o, g:gg };
+  }
+  oscA=tone(BASEF,0.0001);
+  oscB=tone(BASEF,0.0001);
+  bed =tone(BASEF/2,0.0001);
+  audioOK=true;
+  return true;
+}
+function ramp(param,v,tc){
+  if (!param||!isFinite(v)) return;
+  try{ param.setTargetAtTime(v, AC.currentTime, Math.max(0.005,tc||0.05)); }catch(e){}
+}
+function pushAudio(beatHz, present){
+  if (!audioOK) return;
+  var b=clamp(isFinite(beatHz)?beatHz:0, 0, 26);
+  ramp(oscA.o.frequency, BASEF, 0.1);
+  ramp(oscB.o.frequency, BASEF+b, 0.1);
+  ramp(oscA.g.gain, present?0.026:0.0001, 0.4);
+  ramp(oscB.g.gain, present?0.026:0.0001, 0.4);
+  ramp(bed.g.gain,  present?0.016:0.0001, 0.6);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  THE TWO PLATES
+// ═══════════════════════════════════════════════════════════════════════
+var HONE='#f2f0ea', SUMI='#14130f', AITE='#2b3a45', SHIN='#c8321e';
+var CYAN='#00a0b8', MAGE='#d6006e', KIIRO='#f5c800';
+var MONO='"Space Mono",monospace', GOTH='"Zen Kaku Gothic New",sans-serif';
+
+var P1=15, TH1=0;
+var PMIN=8, MAXBARS=210;
+var P2=22, TH2=0.5;
+var c2=Math.cos(1.0), s2=Math.sin(1.0);     // smoothed double-angle of 版二
+var frozen=false, freezeT=0;
+var mode=0, flash=0, drift=0;
+var depthFr=0.99;
+var ringX=0.5, ringY=0.5;
+
+function plateTargets(dt){
+  // the smoothed palm positions everything downstream reads — the plate
+  // angle, the ring centre and the drawn register marks — have to keep
+  // following the live landmarks, not just the moment of acquisition
+  var i;
+  for (i=0;i<2;i++){
+    var hh=HA[i];
+    if (hAlive(hh)){
+      var k=1-Math.pow(0.0008,dt);
+      hh.px=lerp(hh.px,hh.x,k); hh.py=lerp(hh.py,hh.y,k);
+      if (!isFinite(hh.px)) hh.px=hh.x;
+      if (!isFinite(hh.py)) hh.py=hh.y;
+    }
+  }
+  var n=liveHands();
+  var thT=null, pT=null;
+  if (n>=2){
+    var ax=HA[0].px*W, ay=HA[0].py*H, bx=HA[1].px*W, by=HA[1].py*H;
+    var dx=bx-ax, dy=by-ay, d=Math.hypot(dx,dy);
+    if (d>1e-3){
+      thT=Math.atan2(dy,dx);
+      pT=clamp(7 + d*0.055, PMIN, 74);
+    }
+    ringX=lerp(ringX,(HA[0].px+HA[1].px)/2,1-Math.pow(0.01,dt));
+    ringY=lerp(ringY,(HA[0].py+HA[1].py)/2,1-Math.pow(0.01,dt));
+    frozen = (HA[0].open<0.2 && HA[1].open<0.2);
+  } else if (n===1){
+    var h=hAlive(HA[0])?HA[0]:HA[1];
+    thT=h.ang+Math.PI/2;
+    pT=clamp(6.5 + h.open*58, PMIN, 74);
+    ringX=lerp(ringX,h.px,1-Math.pow(0.01,dt));
+    ringY=lerp(ringY,h.py,1-Math.pow(0.01,dt));
+    frozen = (h.open<0.2);
+  } else {
+    // nobody there: the press keeps turning slowly so the sheet is never dead
+    drift += dt*0.075;
+    thT=drift;
+    pT=clamp(20+Math.sin(drift*0.7)*11, PMIN, 74);
+    frozen=false;
+    ringX=lerp(ringX,0.5,1-Math.pow(0.2,dt));
+    ringY=lerp(ringY,0.5,1-Math.pow(0.2,dt));
+  }
+  if (frozen){ freezeT=Math.min(1,freezeT+dt*5); return; }
+  freezeT=Math.max(0,freezeT-dt*5);
+  if (thT===null||!isFinite(thT)) return;
+  // Smoothed in the DOUBLE angle, because a ruling at θ and θ+π is the same
+  // ruling: without that the plate spins 180° whenever the hands swap sides.
+  // It has to be a shortest-ARC step and not a lerp of the unit vector: a 90°
+  // turn of the ruling is a 180° turn in double-angle space, and interpolating
+  // (1,0) toward (−1,0) in a straight line passes through the origin, where
+  // the angle is undefined — the plate would jam there and never arrive.
+  var k=1-Math.pow(0.012,dt);
+  var cur2=Math.atan2(s2,c2);
+  var d2a=thT*2-cur2;
+  d2a=Math.atan2(Math.sin(d2a),Math.cos(d2a));      // shortest arc, wrapped
+  if (!isFinite(d2a)) d2a=0;
+  cur2+=d2a*k;
+  c2=Math.cos(cur2); s2=Math.sin(cur2);
+  TH2=cur2/2;
+  if (!isFinite(TH2)) TH2=0.5;
+  if (pT!==null && isFinite(pT)) P2=lerp(P2,pT,1-Math.pow(0.02,dt));
+  P2=clamp(P2,PMIN,74);
+}
+// k = k1 - k2, in cycles per pixel
+function moire(){
+  var k1x=Math.cos(TH1)/P1, k1y=Math.sin(TH1)/P1;
+  var k2x=Math.cos(TH2)/P2, k2y=Math.sin(TH2)/P2;
+  var kx=k1x-k2x, ky=k1y-k2y;
+  var km=Math.hypot(kx,ky);
+  var per=(km>1e-7)?1/km:Infinity;
+  var dth=Math.abs(TH2-TH1)%Math.PI;
+  if (dth>Math.PI/2) dth=Math.PI-dth;
+  return { kx:kx, ky:ky, km:km, per:per, dth:dth,
+           fringes:km*MN, beat:clamp(km*MN*0.55,0,26) };
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  RENDER
+// ═══════════════════════════════════════════════════════════════════════
+var grain=null, strokes=0;
+function bakeGrain(){
+  var n=110, cv;
+  try{ cv=document.createElement('canvas'); }catch(e){ return null; }
+  cv.width=n; cv.height=n;
+  var c=cv.getContext('2d');
+  if (!c) return null;
+  c.clearRect(0,0,n,n);
+  for (var i=0;i<1500;i++){
+    c.fillStyle = (i%2) ? 'rgba(20,19,15,0.035)' : 'rgba(255,255,255,0.05)';
+    c.fillRect(Math.random()*n|0, Math.random()*n|0, 1, 1);
+  }
+  return cv;
+}
+function drawSheet(){
+  ctx.fillStyle=HONE; ctx.fillRect(0,0,W,H);
+  if (!grain) grain=bakeGrain();
+  if (grain){
+    var pat=null;
+    try{ pat=ctx.createPattern(grain,'repeat'); }catch(e){ pat=null; }
+    if (pat){ ctx.save(); ctx.globalAlpha=0.9; ctx.fillStyle=pat; ctx.fillRect(0,0,W,H); ctx.restore(); }
+  }
+}
+// one ruling.  `disp` decides whether the bars are bent by the camera:
+// 版一 is the straight reference plate, 版二 is the projected one.
+function drawLinear(th,P,D,col,alpha,duty,disp){
+  if (!(P>=2)||!isFinite(th)) return;
+  var cx=W/2, cy=H/2;
+  var nx=Math.cos(th), ny=Math.sin(th);
+  var dx=-ny, dy=nx;
+  var i, lo=Infinity, hi=-Infinity;
+  var cor=[[0,0],[W,0],[0,H],[W,H]];
+  for (i=0;i<4;i++){
+    var ph=((cor[i][0]-cx)*nx+(cor[i][1]-cy)*ny)/P;
+    if (ph<lo) lo=ph; if (ph>hi) hi=ph;
+  }
+  var pad=Math.abs(D)/P + 1.5;
+  var m0=Math.floor(lo-pad), m1=Math.ceil(hi+pad);
+  if (m1-m0 > MAXBARS){ var mid=(m0+m1)/2; m0=Math.round(mid-MAXBARS/2); m1=m0+MAXBARS; }
+  var half=DIAG*0.55;
+  var NS = disp ? clamp(Math.round(DIAG/16),18,72) : 1;
+  ctx.strokeStyle=col; ctx.globalAlpha=alpha;
+  ctx.lineWidth=Math.max(0.6,P*duty); ctx.lineCap='butt'; ctx.lineJoin='round';
+  var m,j;
+  for (m=m0;m<=m1;m++){
+    var off=m*P;
+    ctx.beginPath();
+    if (!disp){
+      ctx.moveTo(cx+nx*off-dx*half, cy+ny*off-dy*half);
+      ctx.lineTo(cx+nx*off+dx*half, cy+ny*off+dy*half);
+    } else {
+      for (j=0;j<=NS;j++){
+        var s=-half + (2*half)*(j/NS);
+        var bx=cx+nx*off+dx*s, by=cy+ny*off+dy*s;
+        var e=(lumAt(bx,by)-0.5)*D;
+        var px=bx+nx*e, py=by+ny*e;
+        if (j===0) ctx.moveTo(px,py); else ctx.lineTo(px,py);
+      }
+    }
+    ctx.stroke(); strokes++;
+  }
+  ctx.globalAlpha=1;
+}
+// 版二 as concentric circles: the same interference in polar geometry, so the
+// fringes come out as hyperbolae instead of straight bands
+function drawRings(cxn,cyn,P,D,col,alpha,duty){
+  if (!(P>=2)) return;
+  var cx=cxn*W, cy=cyn*H;
+  var maxR=0, i;
+  var cor=[[0,0],[W,0],[0,H],[W,H]];
+  for (i=0;i<4;i++){
+    var r=Math.hypot(cor[i][0]-cx,cor[i][1]-cy);
+    if (r>maxR) maxR=r;
+  }
+  maxR+=Math.abs(D)+P;
+  var nC=Math.ceil(maxR/P);
+  if (nC>MAXBARS) nC=MAXBARS;
+  ctx.strokeStyle=col; ctx.globalAlpha=alpha;
+  ctx.lineWidth=Math.max(0.6,P*duty); ctx.lineCap='butt'; ctx.lineJoin='round';
+  var m,j;
+  for (m=0;m<nC;m++){
+    var rr=(m+0.5)*P;
+    var NA=clamp(Math.round(rr/3.2),16,140);
+    ctx.beginPath();
+    for (j=0;j<=NA;j++){
+      var a=(j/NA)*TAU;
+      var ca=Math.cos(a), sa=Math.sin(a);
+      var bx=cx+ca*rr, by=cy+sa*rr;
+      var e=(lumAt(bx,by)-0.5)*D;
+      var px=bx+ca*e, py=by+sa*e;
+      if (j===0) ctx.moveTo(px,py); else ctx.lineTo(px,py);
+    }
+    ctx.closePath(); ctx.stroke(); strokes++;
+  }
+  ctx.globalAlpha=1;
+}
+function drawPlates(){
+  var D=depthFr*P2;
+  ctx.save();
+  ctx.globalCompositeOperation='multiply';
+  // Duty cycles are chosen so the SHEET stays light. Two crossed rulings at
+  // 50% duty ink three quarters of the paper, which reads as black with white
+  // diamonds and fights the whole art direction; at 0.40 the coverage runs
+  // from 40% where the plates coincide to 64% where they interleave, which is
+  // the same moiré contrast on a sheet that is still obviously paper.
+  if (mode===0){
+    drawLinear(TH1,P1,0,SUMI,0.88,0.40,false);
+    drawLinear(TH2,P2,D,SUMI,0.93,0.40,true);
+  } else if (mode===1){
+    // three process screens a few degrees apart, plus the black plate: real
+    // overprint, so where all four land you get process black
+    drawLinear(TH1,P1,0,SUMI,0.38,0.30,false);
+    drawLinear(TH2-0.105,P2,D,CYAN,0.88,0.38,true);
+    drawLinear(TH2,      P2,D,MAGE,0.88,0.38,true);
+    drawLinear(TH2+0.105,P2,D,KIIRO,0.88,0.38,true);
+  } else {
+    drawLinear(TH1,P1,0,SUMI,0.86,0.36,false);
+    drawRings(ringX,ringY,P2,D,AITE,0.92,0.40);
+  }
+  ctx.restore();
+}
+
+// ── the proof sheet furniture ───────────────────────────────────────────
+function drawRegister(){
+  var m=Math.max(11,MN*0.026), i;
+  ctx.save();
+  ctx.strokeStyle=SHIN; ctx.lineWidth=1;
+  var pts=[[m,m],[W-m,m],[m,H-m],[W-m,H-m]];
+  for (i=0;i<4;i++){
+    var x=pts[i][0], y=pts[i][1], r=m*0.42;
+    ctx.beginPath(); ctx.arc(x,y,r,0,TAU); ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x-r*1.7,y); ctx.lineTo(x+r*1.7,y);
+    ctx.moveTo(x,y-r*1.7); ctx.lineTo(x,y+r*1.7);
+    ctx.stroke();
+  }
+  ctx.strokeStyle='rgba(20,19,15,0.5)';
+  ctx.strokeRect(m*0.5+0.5, m*0.5+0.5, W-m-1, H-m-1);
+  ctx.restore();
+}
+// the two source rulings printed as their own strips, so the viewer can check
+// that the wide fringes are not a filter
+function drawStrips(){
+  var h=Math.max(13,MN*0.026);
+  var y0=H-h*2.5-(panelH());
+  if (y0 < H*0.4) return;
+  var x0=Math.max(13,MN*0.026)*1.2, wid=Math.min(W-x0*2, MN*0.52);
+  var i;
+  for (i=0;i<2;i++){
+    var yy=y0+i*(h+h*0.42);
+    var P=i?P2:P1;
+    ctx.save();
+    ctx.fillStyle=HONE; ctx.fillRect(x0,yy,wid,h);
+    ctx.strokeStyle='rgba(20,19,15,0.55)'; ctx.lineWidth=1;
+    ctx.strokeRect(x0+0.5,yy+0.5,wid-1,h-1);
+    ctx.beginPath(); ctx.rect(x0,yy,wid,h); ctx.clip();
+    ctx.strokeStyle = (mode===2&&i===1) ? AITE : SUMI;
+    ctx.lineWidth=Math.max(0.6,P*0.5);
+    var th=i?TH2:TH1;
+    var nx=Math.cos(th), ny=Math.sin(th), dx=-ny, dy=nx;
+    var cx=x0+wid/2, cy=yy+h/2, half=Math.hypot(wid,h);
+    var m0=-Math.ceil(half/P)-1, m1=Math.ceil(half/P)+1;
+    if (m1-m0>MAXBARS){ m0=-(MAXBARS>>1); m1=m0+MAXBARS; }
+    for (var m=m0;m<=m1;m++){
+      ctx.beginPath();
+      ctx.moveTo(cx+nx*m*P-dx*half, cy+ny*m*P-dy*half);
+      ctx.lineTo(cx+nx*m*P+dx*half, cy+ny*m*P+dy*half);
+      ctx.stroke(); strokes++;
+    }
+    ctx.restore();
+    ctx.save();
+    ctx.font=Math.max(8,MN*0.0155).toFixed(1)+'px '+MONO;
+    ctx.textAlign='left'; ctx.textBaseline='middle';
+    ctx.fillStyle='rgba(93,90,80,1)';
+    ctx.fillText((i?'版二 ':'版一 ')+P.toFixed(1)+'px', x0+wid+8, yy+h/2);
+    ctx.restore();
+  }
+}
+function panelH(){
+  return (L_panelOn? Math.max(56,MN*0.11) : 0);
+}
+var L_panelOn=false;
+// hands, as register marks rather than as pictures of hands
+function drawHands(){
+  var n=liveHands();
+  if (!n) return;
+  ctx.save();
+  var i;
+  for (i=0;i<2;i++){
+    var h=HA[i];
+    if (!hAlive(h)||!h.pts) continue;
+    var col = frozen ? SHIN : SUMI;
+    ctx.strokeStyle=col; ctx.globalAlpha=0.55;
+    ctx.lineWidth=Math.max(1,MN*0.0028); ctx.lineCap='round';
+    var BONES=[[0,1,2,3,4],[0,5,6,7,8],[0,9,10,11,12],[0,13,14,15,16],[0,17,18,19,20]];
+    var b,j;
+    for (b=0;b<BONES.length;b++){
+      ctx.beginPath();
+      for (j=0;j<BONES[b].length;j++){
+        var p=h.pts[BONES[b][j]];
+        if (!p) break;
+        if (j===0) ctx.moveTo(p.x*W,p.y*H); else ctx.lineTo(p.x*W,p.y*H);
+      }
+      ctx.stroke(); strokes++;
+    }
+    ctx.globalAlpha=1;
+    var cx=h.px*W, cy=h.py*H, r=Math.max(9,MN*0.022);
+    ctx.strokeStyle=col; ctx.lineWidth=1.2;
+    ctx.beginPath();
+    ctx.moveTo(cx-r,cy-r*0.55); ctx.lineTo(cx-r,cy-r); ctx.lineTo(cx-r*0.55,cy-r);
+    ctx.moveTo(cx+r*0.55,cy-r); ctx.lineTo(cx+r,cy-r); ctx.lineTo(cx+r,cy-r*0.55);
+    ctx.moveTo(cx+r,cy+r*0.55); ctx.lineTo(cx+r,cy+r); ctx.lineTo(cx+r*0.55,cy+r);
+    ctx.moveTo(cx-r*0.55,cy+r); ctx.lineTo(cx-r,cy+r); ctx.lineTo(cx-r,cy+r*0.55);
+    ctx.stroke(); strokes++;
+  }
+  if (n>=2){
+    var ax=HA[0].px*W, ay=HA[0].py*H, bx=HA[1].px*W, by=HA[1].py*H;
+    ctx.strokeStyle=frozen?SHIN:'rgba(20,19,15,0.45)';
+    ctx.lineWidth=1; ctx.setLineDash([5,5]);
+    ctx.beginPath(); ctx.moveTo(ax,ay); ctx.lineTo(bx,by); ctx.stroke();
+    ctx.setLineDash([]); strokes++;
+    var deg=(TH2*180/Math.PI)%180;
+    if (deg<0) deg+=180;
+    ctx.font=Math.max(9,MN*0.017).toFixed(1)+'px '+MONO;
+    ctx.textAlign='center'; ctx.textBaseline='bottom';
+    ctx.fillStyle=SHIN;
+    ctx.fillText(deg.toFixed(0)+'°', (ax+bx)/2, (ay+by)/2-Math.max(6,MN*0.012));
+  }
+  if (freezeT>0.02){
+    ctx.globalAlpha=freezeT;
+    ctx.font=Math.max(11,MN*0.022).toFixed(1)+'px '+GOTH;
+    ctx.textAlign='left'; ctx.textBaseline='top';
+    ctx.fillStyle=SHIN;
+    var mm=Math.max(11,MN*0.026);
+    ctx.fillText('版を止めています', mm*1.3, mm*1.3);
+    ctx.globalAlpha=1;
+  }
+  ctx.restore();
+}
+function drawAligned(mo){
+  // fewer than about one fringe across the whole sheet: the plates coincide
+  if (mo.fringes > 0.85) return;
+  var a=clamp(1-mo.fringes/0.85,0,1);
+  ctx.save();
+  ctx.globalAlpha=a;
+  ctx.font=Math.max(15,MN*0.05).toFixed(1)+'px '+GOTH;
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillStyle=SHIN;
+  ctx.fillText('重なった', W/2, H*0.5);
+  ctx.font=Math.max(9,MN*0.019).toFixed(1)+'px '+MONO;
+  ctx.fillStyle='rgba(93,90,80,1)';
+  ctx.fillText('FRINGE PERIOD → ∞', W/2, H*0.5+Math.max(16,MN*0.045));
+  ctx.restore();
+}
+function drawWaiting(t){
+  ctx.save();
+  ctx.globalAlpha=0.5+Math.sin(t*2.1)*0.12;
+  ctx.font=Math.max(12,MN*0.028).toFixed(1)+'px '+GOTH;
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillStyle=SUMI;
+  ctx.fillText('手をかざすと版二になります', W/2, H*0.31);
+  ctx.restore();
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  FRAME
+// ═══════════════════════════════════════════════════════════════════════
+var running=false, started=false, lastT=now(), readT=0, lastStrokes=0;
+function frame(){
+  requestAnimationFrame(frame);
+  var t=now(), dt=t-lastT; lastT=t;
+  if (!(dt>0)) dt=0;
+  if (dt>0.05) dt=0.05;
+  if (demoRun) drawDemo(t);
+
+  plateTargets(dt);
+  if (running) updateLum();
+  var mo=moire();
+  flash=Math.max(0,flash-dt*11);
+
+  strokes=0;
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  ctx.clearRect(0,0,W,H);
+  drawSheet();
+  drawPlates();
+  drawRegister();
+  drawStrips();
+  if (running){
+    drawHands();
+    drawAligned(mo);
+    if (liveHands()===0) drawWaiting(t);
+  }
+  if (flash>0.001){
+    ctx.fillStyle='rgba(255,255,255,'+(flash*0.72)+')';
+    ctx.fillRect(0,0,W,H);
+  }
+  lastStrokes=strokes;
+
+  pushAudio(mo.beat, running && audioOK);
+
+  readT+=dt;
+  if (readT>0.14){
+    readT=0;
+    rPitch.textContent = isFinite(mo.per) ? (mo.per>4000 ? '∞' : mo.per.toFixed(0)) : '∞';
+    rAng.textContent = (mo.dth*180/Math.PI).toFixed(1);
+    rBeat.textContent = mo.beat.toFixed(1);
+    rPlate.textContent = P2.toFixed(1);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  THE TEACHING LOOP ─ two rulings crossing.  The angle closes to zero and
+//  the fringes widen out of the frame, which is the whole piece in one
+//  gesture and needs no sentence.
+// ═══════════════════════════════════════════════════════════════════════
+var demoRun=true;
+function drawDemo(t){
+  var c=demoCtx, w=demoCv.width, h=demoCv.height;
+  if (!c) return;
+  c.clearRect(0,0,w,h);
+  c.fillStyle=HONE; c.fillRect(0,0,w,h);
+  var per=5.2, ph=(t%per)/per;
+  // angle sweeps in, pauses at zero, sweeps back
+  var a;
+  if (ph<0.42) a=0.30*(1-ph/0.42);
+  else if (ph<0.58) a=0;
+  else a=0.30*((ph-0.58)/0.42);
+  var P=7;
+  c.save();
+  c.beginPath(); c.rect(0,0,w,h); c.clip();
+  c.globalCompositeOperation='multiply';
+  var i,pl;
+  for (pl=0;pl<2;pl++){
+    var th=pl?a:0;
+    var nx=Math.cos(th), ny=Math.sin(th), dx=-ny, dy=nx;
+    var cx=w/2, cy=h/2, half=Math.hypot(w,h);
+    c.strokeStyle=SUMI; c.globalAlpha=0.92; c.lineWidth=P*0.5;
+    var nb=Math.ceil(half/P);
+    for (i=-nb;i<=nb;i++){
+      // 版二 bends over a soft bump, standing in for a face
+      c.beginPath();
+      if (!pl){
+        c.moveTo(cx+nx*i*P-dx*half, cy+ny*i*P-dy*half);
+        c.lineTo(cx+nx*i*P+dx*half, cy+ny*i*P+dy*half);
+      } else {
+        for (var j=0;j<=24;j++){
+          var s=-half+2*half*(j/24);
+          var bx=cx+nx*i*P+dx*s, by=cy+ny*i*P+dy*s;
+          var u=(bx-w*0.5)/(w*0.22), v=(by-h*0.5)/(h*0.42);
+          var e=Math.exp(-(u*u+v*v))*P*1.5;
+          if (j===0) c.moveTo(bx+nx*e,by+ny*e); else c.lineTo(bx+nx*e,by+ny*e);
+        }
+      }
+      c.stroke();
+    }
+  }
+  c.restore();
+  c.save();
+  c.font=(h*0.085).toFixed(1)+'px '+MONO;
+  c.textAlign='left'; c.textBaseline='top';
+  c.fillStyle=HONE;
+  c.fillRect(6,6, h*0.95, h*0.13);
+  c.fillStyle=SHIN;
+  var pp = a<0.004 ? '∞' : Math.round(P/Math.max(1e-4,2*Math.sin(a/2)));
+  c.fillText('PERIOD '+pp, 9, 8);
+  c.restore();
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  CONTROLS
+// ═══════════════════════════════════════════════════════════════════════
+function setMode(m){
+  if (m===mode) return;
+  mode=m;
+  flash=1;
+  for (var i=0;i<mBtn.length;i++){
+    if (!mBtn[i]) continue;
+    if (i===m) mBtn[i].classList.add('on'); else mBtn[i].classList.remove('on');
+  }
+}
+(function(){
+  for (var i=0;i<mBtn.length;i++){
+    if (!mBtn[i]) continue;
+    (function(k){ mBtn[k].addEventListener('click',function(){ setMode(k); }); })(i);
+  }
+})();
+function readDepth(){
+  var v=parseFloat(depthEl.value);
+  if (!isFinite(v)) v=58;
+  depthFr=clamp(v,0,100)/100*1.7;
+}
+depthEl.addEventListener('input',readDepth);
+depthEl.addEventListener('change',readDepth);
+
+startBtn.addEventListener('click',function(){
+  if (started) return;
+  started=true;
+  demoRun=false;
+  initAudio();
+  readDepth();
+  startSheet.classList.add('gone');
+  setTimeout(function(){ startSheet.style.display='none'; },340);
+  panel.classList.add('on');
+  L_panelOn=true;
+  running=true;
+  flash=1;
+  startStream()
+    .then(function(){ if (initHands()) startMpCamera(); })
+    .catch(showError);
+});
+document.addEventListener('visibilitychange',function(){
+  if (document.hidden) loseHands();
+});
+
+resize();
+readDepth();
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
