@@ -1,0 +1,1431 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>UTSUSEMI ─ 手ぶりだけで変わる変わり身</title>
+<meta name="description" content="隠れ蓑の姉妹作。ボタンもスライダーも一つも無く、操作はすべて手ぶり。指を立てた本数で四つの変わり身を選び、手をひねると色が回り、両手の間隔がしきい値、両手を握れば部屋を覚え直す。隠は撫でたところから消え、彩は自分だけが染まり、染は部屋だけが染まり、移は自分の形に部屋が透ける。">
+<meta name="theme-color" content="#f2ece0">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Klee+One:wght@400;600&family=Outfit:wght@300;500;700&display=swap" rel="stylesheet">
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  UTSUSEMI ─ 手ぶりだけで変わる変わり身              ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  WHAT IT IS  The sibling of KAKUREMINO, asked for directly by the owner:
+              the same learned background plate, but (a) every single
+              control is a hand gesture — there is not one button or slider
+              in the piece — and (b) three of its four bodies are about
+              COLOUR rather than absence. KAKUREMINO removes you. UTSUSEMI
+              swaps you: 変わり身. The name is 空蝉, the empty shell a
+              cicada leaves behind, still exactly the shape of the thing
+              that is no longer in it.
+
+  PALETTE   胡粉  gofun    #f2ece0  the chrome. A WARM off-white, and this
+                                    is the deliberate inversion of the
+                                    sibling: KAKUREMINO's instrument is a
+                                    cold blue-black hide, so this one is
+                                    pale and dry like the shell. The two
+                                    read as a pair without being twins.
+            墨    sumi     #1a1714  every glyph. Warm black, never neutral.
+            鈍    nibi     #8c8579  inactive glyphs and rules.
+            蝉茶  semicha  #6b5b46  the wing veins of the chrome band.
+            ACCENT         LIVE     the accent colour is not in this list —
+                                    it IS the current hue dial, computed
+                                    every frame. Turn your hand and the
+                                    instrument's own colour turns with it,
+                                    so the UI is never a different colour
+                                    from the thing it is controlling.
+
+  BACKGROUND  None: the processed camera is the whole picture. The chrome
+              sits on a 胡粉 band textured with cicada-wing venation — a
+              procedural tile of thin branching veins, drawn once — which
+              is the only ornament in the piece.
+
+  TYPE      Klee One for Japanese: a face with a pen in it, slightly
+            handwritten, which is as far as you can get from the sibling's
+            monospace hide. Outfit 300/500/700 for latin and numerals.
+
+  MOTION    LIQUID, and again the opposite of the sibling. KAKUREMINO cuts
+            its mode changes hard at 140ms on purpose. Nothing here cuts:
+            the hue dial has a 120ms lag, the charge rings fill on an ease
+            out, and a mode change takes 0.55s to cross the frame.
+
+  SIGNATURE THE 変わり身 WASH. Because there are no buttons, you have to be
+            able to SEE your hand cause the change — otherwise gesture
+            control just feels like the piece glitching. So a mode change
+            is not applied to the frame at once. It radiates: a wave leaves
+            the hand that ordered it and sweeps outward across the picture
+            over 0.55s, old body behind it, new body in front of it, a thin
+            bright rim on the wavefront. Every switch is visibly caused by,
+            and centred on, your own hand.
+
+  THE GESTURES (there are no other controls)
+            指 1〜4 本を立てて止める   その番号の変わり身に変わる
+            手のひらで撫でる           隠 のとき、撫でた所から消える
+            手をひねる                 彩・染・移 のとき、色が回る
+            両手をひらいて間隔          しきい値（感度）
+            両手を握って止める          部屋を覚え直す（3秒）
+            The one hard problem is that "an open palm held up" and "an
+            open palm stroking" are the same hand. They are separated by
+            MOTION, not by shape: selecting requires the hand to be STILL
+            and erasing requires it to be MOVING, which is also how a
+            person would describe the two actions out loud.
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;overflow:hidden;background:#15120f}
+  body{
+    font-family:'Klee One',-apple-system,'Hiragino Mincho ProN',serif;
+    color:#1a1714;-webkit-text-size-adjust:100%;-webkit-tap-highlight-color:transparent;
+  }
+  #view{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+  #video{position:fixed;width:2px;height:2px;opacity:.004;pointer-events:none;left:0;top:0}
+
+  #flip{
+    position:fixed;top:calc(env(safe-area-inset-top,0px) + 12px);right:12px;z-index:6;
+    font-family:'Outfit',sans-serif;font-weight:500;font-size:11px;letter-spacing:.22em;
+    color:#1a1714;background:rgba(242,236,224,.86);border:1px solid rgba(107,91,70,.5);
+    padding:8px 13px;cursor:pointer;border-radius:2px;
+    transition:background .4s ease,color .4s ease;
+  }
+  #flip:hover{background:#1a1714;color:#f2ece0}
+
+  #err{
+    display:none;position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:20;
+    max-width:min(86vw,430px);white-space:pre-wrap;line-height:1.9;font-size:13px;
+    background:#f2ece0;border:1px solid #9a4a30;border-left:4px solid #9a4a30;
+    padding:18px 20px;color:#1a1714;
+  }
+
+  /* the learn overlay — the only full-screen chrome, and it has no buttons */
+  #learn{
+    position:fixed;inset:0;z-index:14;display:none;
+    align-items:center;justify-content:center;flex-direction:column;gap:14px;
+    background:rgba(242,236,224,.90);text-align:center;padding:24px;
+  }
+  #learn.on{display:flex}
+  #lBig{font-size:clamp(20px,5.6vw,27px);font-weight:600;letter-spacing:.06em}
+  #lSub{font-size:13px;color:#6b5b46;line-height:2}
+  #lCnt{
+    font-family:'Outfit',sans-serif;font-weight:300;
+    font-size:clamp(56px,17vw,96px);line-height:1;color:#1a1714;
+    font-variant-numeric:tabular-nums;
+  }
+
+  .sheet{
+    position:fixed;inset:0;z-index:30;display:flex;align-items:center;justify-content:center;
+    padding:16px;background:rgba(21,18,15,.93);
+    transition:opacity .55s ease,visibility .55s;
+  }
+  .sheet.gone{opacity:0;visibility:hidden;pointer-events:none}
+  .card{
+    width:min(94vw,480px);background:#f2ece0;border:1px solid rgba(107,91,70,.45);
+    box-shadow:0 26px 70px rgba(0,0,0,.55);
+  }
+  .cap{
+    display:flex;justify-content:space-between;align-items:center;
+    padding:10px 18px;border-bottom:1px solid rgba(107,91,70,.3);
+    font-family:'Outfit',sans-serif;font-weight:500;font-size:10px;letter-spacing:.26em;
+    color:#8c8579;
+  }
+  .cap b{font-weight:700;color:#6b5b46}
+  .bodyw{padding:22px 22px 20px}
+  .ttl{font-size:clamp(20px,5.6vw,25px);font-weight:600;line-height:1.5;letter-spacing:.03em;margin-bottom:12px}
+  .lead{font-size:13px;line-height:2.1;color:#4a4238}
+  .lead em{font-style:normal;font-weight:600;color:#1a1714}
+  #demo{
+    display:block;width:100%;height:auto;margin:15px 0 13px;
+    border:1px solid rgba(107,91,70,.3);background:#e8e0d0;
+  }
+  .spec{
+    font-size:12px;line-height:2.1;color:#4a4238;
+    border-top:1px solid rgba(107,91,70,.3);padding-top:11px;
+  }
+  .spec span{display:inline-block;min-width:7.6em;font-weight:600;color:#1a1714}
+  .go{
+    display:block;width:100%;margin-top:18px;padding:15px;cursor:pointer;
+    font-family:'Klee One',serif;font-weight:600;font-size:15px;letter-spacing:.4em;
+    color:#f2ece0;background:#1a1714;border:none;transition:background .4s ease;
+  }
+  .go:hover{background:#6b5b46}
+  @media (max-width:470px){
+    .bodyw{padding:17px 16px 16px}
+    .lead{font-size:12.5px;line-height:1.95}
+    .spec{font-size:11.5px}
+    .spec span{min-width:6.8em}
+  }
+</style>
+</head>
+<body>
+
+<canvas id="view"></canvas>
+<video id="video" playsinline muted autoplay></video>
+<button id="flip">⟲ カメラ</button>
+<div id="err"></div>
+
+<div id="learn">
+  <div id="lBig">画面から出てください</div>
+  <div id="lCnt">3</div>
+  <div id="lSub">あなたのいない部屋を覚えます<br>覚え終わったら戻ってきてください</div>
+</div>
+
+<div class="sheet" id="sheet">
+  <div class="card">
+    <div class="cap"><span>OTO-II / UTSUSEMI</span><span>GESTURE <b>ONLY</b></span></div>
+    <div class="bodyw">
+      <div class="ttl">手ぶりだけで変わる変わり身</div>
+      <p class="lead">
+        ボタンもスライダーも<em>一つもありません</em>。<br>
+        はじめに部屋だけを三秒おぼえさせ、あとは手ぶりだけで操ります。<br>
+        指の本数で変わり身を選び、<em>手をひねると色が回り</em>ます。
+      </p>
+      <canvas id="demo" width="680" height="228"></canvas>
+      <div class="spec">
+        <span>指を立てて止める</span>一 隠 ／ 二 彩 ／ 三 染 ／ 四 移<br>
+        <span>手のひらで撫でる</span>隠のとき、撫でた所から消えます<br>
+        <span>手をひねる</span>彩・染・移 のとき、色が回ります<br>
+        <span>両手をひらく</span>両手の間隔が、しきい値になります<br>
+        <span>両手を握る</span>部屋を覚え直します
+      </div>
+      <button class="go" id="go">部屋を覚える</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+<script>
+'use strict';
+// ═══════════════════════════════════════════════════════════════════════
+//  UTSUSEMI ─ 手ぶりだけで変わる変わり身
+//
+//  The background-plate machinery below (learn / chromaticity mask / the
+//  live plate update, the lighting-change rescue and the shadow discount)
+//  is the same engine as KAKUREMINO, reused deliberately: this is that
+//  piece's sibling and it should vanish exactly as well. What is new is
+//  everything above it — a complete gesture vocabulary in place of the
+//  controls, and three colour bodies instead of one.
+// ═══════════════════════════════════════════════════════════════════════
+var TAU=Math.PI*2;
+function clamp(v,a,b){ return v<a?a:(v>b?b:v); }
+function lerp(a,b,t){ return a+(b-a)*t; }
+function smooth(t){ t=clamp(t,0,1); return t*t*(3-2*t); }
+function nowS(){ return (typeof performance!=='undefined'&&performance.now)?performance.now()/1000:Date.now()/1000; }
+function fin(v){ return typeof v==='number'&&isFinite(v); }
+function h2(x,y){ var n=Math.sin(x*127.1+y*311.7)*43758.5453; return n-Math.floor(n); }
+
+var view=document.getElementById('view');
+var ctx=view.getContext('2d');
+var video=document.getElementById('video');
+var flipBtn=document.getElementById('flip');
+var errBox=document.getElementById('err');
+var sheet=document.getElementById('sheet');
+var goBtn=document.getElementById('go');
+var demoCv=document.getElementById('demo');
+var demoCtx=demoCv?demoCv.getContext('2d'):null;
+var learnBox=document.getElementById('learn');
+var lBig=document.getElementById('lBig');
+var lCnt=document.getElementById('lCnt');
+
+var W=0,H=0,DPR=1,MN=1;
+function resize(){
+  DPR=Math.min(window.devicePixelRatio||1,2);
+  W=Math.max(1,window.innerWidth); H=Math.max(1,window.innerHeight);
+  view.width=Math.max(1,Math.round(W*DPR));
+  view.height=Math.max(1,Math.round(H*DPR));
+  view.style.width=W+'px'; view.style.height=H+'px';
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  MN=Math.max(1,Math.min(W,H));
+  wingTile=null;
+}
+window.addEventListener('resize',resize);
+window.addEventListener('orientationchange',function(){ setTimeout(resize,180); });
+
+// ═══════════════════════════════════════════════════════════════════════
+//  CAMERA
+// ═══════════════════════════════════════════════════════════════════════
+var facing='user', mirror=true, stream=null;
+function showError(e){
+  var msg=(e&&e.message)?e.message:String(e||'unknown');
+  errBox.style.display='block';
+  errBox.textContent='カメラを起動できませんでした：'+msg+
+    '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+}
+function startStream(){
+  var md=navigator.mediaDevices;
+  if (!md||!md.getUserMedia) return Promise.reject(new Error('getUserMedia is unavailable'));
+  if (stream&&stream.getTracks) stream.getTracks().forEach(function(t){ t.stop(); });
+  return md.getUserMedia({
+    video:{ facingMode:{ ideal:facing }, width:{ ideal:640 }, height:{ ideal:480 } },
+    audio:false
+  }).then(function(st){
+    stream=st; video.srcObject=st; mirror=(facing==='user');
+    var p=video.play();
+    return (p&&p.then)?p.catch(function(){}):null;
+  });
+}
+flipBtn.addEventListener('click',function(){
+  facing=(facing==='user')?'environment':'user';
+  loseHands();
+  startStream().then(startMpCamera).catch(showError);
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+//  HANDS ─ this piece asks far more of them than its sibling did, because
+//  they are the entire control surface. Per hand we need: where it is, how
+//  big it is, how many fingers are up, which way it is twisted, and — the
+//  one that makes the whole scheme work — whether it is MOVING.
+// ═══════════════════════════════════════════════════════════════════════
+var hands=null, mpCamera=null, mpReady=false;
+var LOST_S=0.34;
+var PALMPTS=[0,5,9,13,17];
+var TIPS=[8,12,16,20], PIPS=[6,10,14,18];
+var NEED=[0,4,5,6,8,9,10,12,13,14,16,17,18,20];
+
+function mkHand(){
+  return { on:false, t:-1e9, x:0.5, y:0.5, px:0.5, py:0.5, r:0.1, open:0.5,
+           cnt:0, cntBuf:[0,0,0,0,0], cntI:0, ang:-Math.PI/2, speed:0, still:0 };
+}
+var HA=[mkHand(),mkHand()];
+function loseHands(){
+  for (var k=0;k<2;k++){
+    HA[k].on=false; HA[k].t=-1e9; HA[k].speed=0; HA[k].still=0;
+    HA[k].cnt=0;
+    for (var j=0;j<5;j++) HA[k].cntBuf[j]=0;
+  }
+  // a gesture half-charged when the hand vanished must not complete on the
+  // next hand the tracker happens to find
+  resetGestures();
+}
+function handLive(i){ return HA[i].on && (nowS()-HA[i].t)<LOST_S; }
+function lmOK(L,i){
+  if (!L||typeof L.length!=='number'||L.length<21) return false;
+  var p=L[i];
+  return !!p && fin(p.x) && fin(p.y);
+}
+function camAspect(){
+  var a=1.3333;
+  if (video && video.videoWidth>0 && video.videoHeight>0) a=video.videoWidth/video.videoHeight;
+  if (!fin(a)||a<0.2||a>5) a=1.3333;
+  return a;
+}
+function median5(b){
+  var s=[b[0],b[1],b[2],b[3],b[4]];
+  s.sort(function(p,q){ return p-q; });
+  return s[2];
+}
+function onHands(res){
+  var t=nowS();
+  var list=(res&&res.multiHandLandmarks)?res.multiHandLandmarks:[];
+  var AS=camAspect(), used=0, k, i;
+  for (k=0;k<list.length && used<2;k++){
+    var L=list[k], ok=true;
+    for (i=0;i<NEED.length;i++){ if (!lmOK(L,NEED[i])){ ok=false; break; } }
+    if (!ok) continue;
+    var cx=0, cy=0;
+    for (i=0;i<PALMPTS.length;i++){ cx+=L[PALMPTS[i]].x; cy+=L[PALMPTS[i]].y; }
+    cx/=PALMPTS.length; cy/=PALMPTS.length;
+    // palm length, aspect-corrected, is the scale everything else divides by
+    var sp=Math.hypot((L[9].x-L[0].x)*AS, L[9].y-L[0].y);
+    if (!fin(sp)||sp<0.02) sp=0.02;
+
+    // ── how many fingers are up ──────────────────────────────────────
+    // A finger is extended when its TIP is further from the wrist than its
+    // own middle joint. The thumb is excluded on purpose: it is the
+    // noisiest landmark on the hand and folding it is not something people
+    // do consistently, so counting it would make every count unstable.
+    var n=0;
+    for (i=0;i<4;i++){
+      var dt2=Math.hypot((L[TIPS[i]].x-L[0].x)*AS, L[TIPS[i]].y-L[0].y);
+      var dp=Math.hypot((L[PIPS[i]].x-L[0].x)*AS, L[PIPS[i]].y-L[0].y);
+      if (dt2>dp*1.08) n++;
+    }
+
+    var acc=0;
+    for (i=0;i<4;i++) acc+=Math.hypot((L[TIPS[i]].x-L[0].x)*AS, L[TIPS[i]].y-L[0].y);
+
+    // ── which way the hand is twisted ────────────────────────────────
+    // Measured in DISPLAY space, not camera space, so that turning your
+    // hand clockwise as you see it turns the colour clockwise. Mirroring
+    // the preview without mirroring this would invert the dial.
+    var ax=(L[9].x-L[0].x)*AS, ay=(L[9].y-L[0].y);
+    if (mirror) ax=-ax;
+
+    var Hd=HA[used];
+    var nx=clamp(mirror?(1-cx):cx, -0.3, 1.3);
+    var ny=clamp(cy, -0.3, 1.3);
+    var dtm=t-Hd.t;
+    if (Hd.on && dtm>1e-3 && dtm<LOST_S){
+      var v=Math.hypot(nx-Hd.x, ny-Hd.y)/dtm;
+      Hd.speed=Hd.speed+(clamp(v,0,20)-Hd.speed)*clamp(dtm/0.09,0,1);
+    } else {
+      // reacquired: a hand that jumped across the frame has not "moved"
+      Hd.speed=0; Hd.still=0;
+      for (i=0;i<5;i++) Hd.cntBuf[i]=n;
+    }
+    Hd.px=Hd.x; Hd.py=Hd.y;
+    Hd.x=nx; Hd.y=ny;
+    Hd.r=clamp(sp*1.35, 0.02, 0.6);
+    Hd.open=clamp((acc/4/sp-1.30)/1.15, 0, 1);
+    Hd.cntBuf[Hd.cntI%5]=n; Hd.cntI++;
+    Hd.cnt=median5(Hd.cntBuf);
+    Hd.ang=Math.atan2(ay,ax);
+    Hd.on=true; Hd.t=t;
+    used++;
+  }
+  for (k=used;k<2;k++){
+    if (HA[k].on){ HA[k].on=false; HA[k].speed=0; HA[k].still=0; }
+  }
+}
+function initHands(){
+  if (typeof window.Hands!=='function') return false;
+  try{
+    hands=new window.Hands({ locateFile:function(f){
+      return 'https://cdn.jsdelivr.net/npm/@mediapipe/hands/'+f;
+    }});
+    hands.setOptions({ maxNumHands:2, modelComplexity:0,
+                       minDetectionConfidence:0.55, minTrackingConfidence:0.5 });
+    hands.onResults(onHands);
+    mpReady=true; return true;
+  }catch(e){ hands=null; return false; }
+}
+function startMpCamera(){
+  if (!mpReady||!hands||mpCamera) return;
+  if (typeof window.Camera!=='function') return;
+  try{
+    mpCamera=new window.Camera(video,{
+      onFrame:function(){
+        if (!hands) return Promise.resolve();
+        try{ return hands.send({image:video}); }catch(e){ return Promise.resolve(); }
+      },
+      width:640, height:480
+    });
+    mpCamera.start();
+  }catch(e){ mpCamera=null; }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  BUFFERS ─ allocated once per resolution and never again. The frame
+//  loop performs one getImageData and one putImageData and allocates
+//  nothing at all.
+// ═══════════════════════════════════════════════════════════════════════
+var LEVELS=[[352,264],[288,216],[224,168],[176,132]];
+var lvl=1;
+var PW=0, PH=0, NPX=0;
+var srcCv=null, srcCtx=null, outCv=null, outCtx=null;
+var outImg=null, outData=null;
+var PLATE=null, MASK=null, MTMP=null, STRAW=null;
+var plateReady=false, plateAcc=0;
+var EW=0, EH=0, ERASE=null;
+
+// keep=true resamples the plate we already have into the new buffer size.
+// Without it, every adaptive-resolution step threw the player out of the
+// piece into a full-screen three-second "leave the frame" countdown — and
+// the level moves a couple of times in the first seconds on almost any
+// device, so that is what most people would have seen first.
+function allocBuffers(keep){
+  var oP=PLATE, oW=PW, oH=PH;
+  var hadPlate=!!(keep&&plateReady&&oP&&oW>0&&oH>0);
+  PW=LEVELS[lvl][0]; PH=LEVELS[lvl][1]; NPX=PW*PH;
+  if (!srcCv){
+    srcCv=document.createElement('canvas');
+    srcCtx=srcCv.getContext('2d',{willReadFrequently:true})||srcCv.getContext('2d');
+    outCv=document.createElement('canvas'); outCtx=outCv.getContext('2d');
+  }
+  srcCv.width=PW; srcCv.height=PH;
+  outCv.width=PW; outCv.height=PH;
+  if (!srcCtx||!outCtx) return false;
+  outImg=outCtx.createImageData(PW,PH);
+  outData=outImg.data;
+  PLATE=new Float32Array(NPX*3);
+  MASK=new Float32Array(NPX);
+  MTMP=new Float32Array(NPX);
+  STRAW=new Float32Array(NPX);
+  buildStraw();
+  EW=Math.max(8,Math.round(PW/6)); EH=Math.max(6,Math.round(PH/6));
+  ERASE=new Float32Array(EW*EH);
+  for (var i=0;i<NPX;i++) outData[i*4+3]=255;
+  if (hadPlate){
+    for (var y=0;y<PH;y++){
+      var sy=Math.floor(y*oH/PH); if (sy>oH-1) sy=oH-1;
+      for (var x=0;x<PW;x++){
+        var sx=Math.floor(x*oW/PW); if (sx>oW-1) sx=oW-1;
+        var so=(sy*oW+sx)*3, dn=(y*PW+x)*3;
+        PLATE[dn]=oP[so]; PLATE[dn+1]=oP[so+1]; PLATE[dn+2]=oP[so+2];
+      }
+    }
+    plateReady=true; plateAcc=LEARN_S; phase='play';
+  } else { plateReady=false; plateAcc=0; }
+  return true;
+}
+function buildStraw(){
+  var x,y;
+  for (x=0;x<PW;x++){
+    var a=h2(x*1.37,11.3), b=h2(x*0.61,4.7), c=h2(x*3.11,19.1);
+    var colBias=a*0.62+b*0.26;
+    for (y=0;y<PH;y++){
+      var v=colBias+0.16*Math.sin(y*0.055+a*TAU+x*0.02)+0.10*c*Math.sin(y*0.19+b*TAU);
+      STRAW[y*PW+x]=clamp(v,0,1);
+    }
+  }
+}
+
+// adaptive resolution, averaged over 30 frames
+var costAcc=0, costN=0, costAvg=0, lvlHold=0;
+function noteCost(ms,dt){
+  if (!fin(ms)) return;
+  // NEVER while learning. The plate is rebuilt from scratch on a resolution
+  // change, so adapting mid-learn resets the three-second countdown — and on
+  // a fast device the level steps up within the first thirty frames, so the
+  // countdown could restart again and again and the piece would never start.
+  if (phase!=='play'){ costAcc=0; costN=0; return; }
+  costAcc+=ms; costN++;
+  if (costN<30) return;
+  costAvg=costAcc/costN; costAcc=0; costN=0;
+  if (lvlHold>0){ lvlHold-=1; return; }
+  if (costAvg>23 && lvl<LEVELS.length-1){ lvl++; allocBuffers(true); lvlHold=3; }
+  else if (costAvg<9 && lvl>0){ lvl--; allocBuffers(true); lvlHold=3; }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  THE PLATE AND THE MASK  ── the KAKUREMINO engine, unchanged.
+//  Chromaticity first and luminance second, so a person's own shadow on
+//  the wall does not tear a person-shaped hole; the plate keeps learning
+//  but only where the mask is confident it is background, with a cubic
+//  falloff rather than a hard gate (a hard gate strands every pixel that
+//  settles just above the line); and a global lighting change is caught by
+//  the WEAKEST of the four edges of the picture, because light reaches all
+//  four edges and a person, however close, does not.
+// ═══════════════════════════════════════════════════════════════════════
+var EDGE_BAD=0.55, FG_BAD=0.45, FG_BAD_S=1.2, RUSH_S=1.6, RING=2;
+var fgFrac=0, edgeFrac=0, badT=0, rushT=0;
+var sens=0.46;
+
+var LEARN_S=3.0;
+var phase='idle';
+var learnT=0;
+
+function startLearn(){
+  phase='learn'; learnT=0; plateAcc=0; plateReady=false;
+  fgFrac=0; edgeFrac=0; badT=0; rushT=0;
+  if (PLATE) PLATE.fill(0);
+  if (MASK) MASK.fill(0);
+  if (ERASE) ERASE.fill(0);
+  learnBox.classList.add('on');
+  lBig.textContent='画面から出てください';
+}
+function grabFrame(){
+  if (!srcCtx||!video) return null;
+  var vw=video.videoWidth||0, vh=video.videoHeight||0;
+  if (!(vw>0&&vh>0)) return null;
+  try{
+    srcCtx.save();
+    if (mirror){ srcCtx.translate(PW,0); srcCtx.scale(-1,1); }
+    srcCtx.drawImage(video,0,0,PW,PH);
+    srcCtx.restore();
+    return srcCtx.getImageData(0,0,PW,PH);
+  }catch(e){ return null; }
+}
+function learnStep(src,dt){
+  var d=src.data, i, o;
+  plateAcc+=dt;
+  var w=clamp(dt/Math.max(0.35,Math.min(LEARN_S,plateAcc)), 0.02, 1);
+  for (i=0;i<NPX;i++){
+    o=i*3; var q=i*4;
+    PLATE[o]  += (d[q]  -PLATE[o]  )*w;
+    PLATE[o+1]+= (d[q+1]-PLATE[o+1])*w;
+    PLATE[o+2]+= (d[q+2]-PLATE[o+2])*w;
+  }
+  if (plateAcc>=LEARN_S){
+    plateReady=true; phase='play';
+    learnBox.classList.remove('on');
+    sfxSettle();
+  }
+}
+function maskStep(src,dt){
+  var d=src.data, i;
+  var thr=lerp(26,7,sens);
+  var wid=lerp(22,9,sens);
+  var mixK=clamp(dt/0.055,0,1);
+  var learnRate=clamp(dt*0.9,0,0.05);
+  var rushing=rushT>0;
+  var rushRate=clamp(dt*3.4,0,0.4);
+  var fgN=0;
+  for (i=0;i<NPX;i++){
+    var q=i*4, o=i*3;
+    var r=d[q], g=d[q+1], b=d[q+2];
+    var pr=PLATE[o], pg=PLATE[o+1], pb=PLATE[o+2];
+    var l=r+g+b+1, pl=pr+pg+pb+1;
+    var dc=(Math.abs(r/l-pr/pl)+Math.abs(g/l-pg/pl)+Math.abs(b/l-pb/pl))*430;
+    var dl=Math.abs(l-pl)/3;
+    var lw=0.42;
+    if (l<pl && l>pl*0.32){
+      var hueMatch=1-dc/6;
+      if (hueMatch>0) lw=0.42+(0.03-0.42)*(hueMatch>1?1:hueMatch);
+    }
+    var dist=dc+dl*lw;
+    var m=(dist-thr)/wid;
+    m=m<0?0:(m>1?1:m);
+    m=m*m*(3-2*m);
+    var prev=MASK[i];
+    var mv=prev+(m-prev)*mixK;
+    MASK[i]=mv;
+    if (mv>0.5) fgN++;
+    var lr;
+    if (rushing) lr=rushRate;
+    else { var wgt=1-mv; wgt=wgt*wgt*wgt; lr=learnRate*(0.004+0.996*wgt); }
+    PLATE[o]  += (r-pr)*lr;
+    PLATE[o+1]+= (g-pg)*lr;
+    PLATE[o+2]+= (b-pb)*lr;
+  }
+  fgFrac=NPX>0?fgN/NPX:0;
+  edgeFrac=weakestEdge();
+  if (rushT>0){ rushT-=dt; badT=0; }
+  else if (edgeFrac>EDGE_BAD && fgFrac>FG_BAD){
+    badT+=dt; if (badT>FG_BAD_S){ rushT=RUSH_S; badT=0; }
+  }
+  else badT=0;
+  blurMask();
+}
+function weakestEdge(){
+  var top=0,bot=0,lef=0,rig=0,nH=0,nV=0,x,y,k;
+  for (k=0;k<RING;k++){
+    for (x=0;x<PW;x++){
+      if (MASK[k*PW+x]>0.5) top++;
+      if (MASK[(PH-1-k)*PW+x]>0.5) bot++;
+      nH++;
+    }
+    for (y=RING;y<PH-RING;y++){
+      if (MASK[y*PW+k]>0.5) lef++;
+      if (MASK[y*PW+(PW-1-k)]>0.5) rig++;
+      nV++;
+    }
+  }
+  if (nH<1||nV<1) return 0;
+  var a=top/nH, b=bot/nH, c=lef/nV, e=rig/nV;
+  var m=a; if (b<m) m=b; if (c<m) m=c; if (e<m) m=e;
+  return m;
+}
+function blurMask(){
+  var x,y;
+  for (y=0;y<PH;y++){
+    var row=y*PW;
+    for (x=0;x<PW;x++){
+      var a=MASK[row+(x>0?x-1:0)], b=MASK[row+x], c=MASK[row+(x<PW-1?x+1:PW-1)];
+      MTMP[row+x]=(a+b+b+c)*0.25;
+    }
+  }
+  for (x=0;x<PW;x++){
+    for (y=0;y<PH;y++){
+      var up=MTMP[(y>0?y-1:0)*PW+x], mid=MTMP[y*PW+x], dn=MTMP[(y<PH-1?y+1:PH-1)*PW+x];
+      MASK[y*PW+x]=(up+mid+mid+dn)*0.25;
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  THE GESTURE LAYER ─ this is the whole control surface of the piece.
+//
+//  Four things have to be told apart with no buttons to fall back on, and
+//  they are separated along two axes rather than by shape alone:
+//      HOW MANY HANDS   one hand = choose / erase,  two hands = set / reset
+//      MOVING OR STILL  an open palm HELD is a selection,
+//                       the same open palm STROKING is an eraser
+//  Without the second axis the piece is unusable: raising four fingers to
+//  choose 移 and wiping to erase are the same hand shape.
+// ═══════════════════════════════════════════════════════════════════════
+var MODE=0, prevMODE=0;
+var MODEN=['隠','彩','染','移'];
+var MODED=['撫でた所から消える','自分だけが染まる','部屋だけが染まる','自分の形に部屋が透ける'];
+var HOLD_S=0.62, STILL_V=0.22, FIST_S=0.90, WASH_S=0.55;
+var GES={ cnt:-1, hold:0, armed:true, fistT:0, hand:-1 };
+// An open palm is BOTH the eraser and the four-finger sign for 移, told
+// apart by motion. That is nearly enough, and the gap it leaves is the one
+// a real player falls into: stroke, pause for half a second to aim the next
+// stroke, and the piece jumps to 移. So the four-finger sign alone is held
+// off for a moment after the palm was last actually rubbing. Every other
+// count is unambiguous and stays available immediately.
+var eraseHot=0, ERASE_HOT_S=0.75;
+var wash={ on:false, t:0, x:0.5, y:0.5 };
+var hueDial=0, hueTarget=0, sensTarget=0.46;
+var twoHandT=0;
+
+function resetGestures(){
+  GES.cnt=-1; GES.hold=0; GES.armed=true; GES.fistT=0; GES.hand=-1;
+  twoHandT=0; eraseHot=0;
+}
+function setMode(m,hx,hy){
+  m=clamp(Math.round(m),0,3);
+  if (m===MODE) return;
+  prevMODE=MODE; MODE=m;
+  wash.on=true; wash.t=0;
+  wash.x=fin(hx)?clamp(hx,-0.2,1.2):0.5;
+  wash.y=fin(hy)?clamp(hy,-0.2,1.2):0.5;
+  sfxChange();
+}
+function gestureStep(dt){
+  var i, live=[], Hd;
+  if (eraseHot>0) eraseHot-=dt;
+  for (i=0;i<2;i++){
+    Hd=HA[i];
+    if (!handLive(i)){ Hd.still=0; continue; }
+    if (Hd.speed<STILL_V) Hd.still+=dt; else Hd.still=0;
+    live.push(i);
+  }
+  if (wash.on){ wash.t+=dt; if (wash.t>=WASH_S){ wash.on=false; wash.t=0; } }
+
+  // ── two hands ────────────────────────────────────────────────────
+  if (live.length===2){
+    var A=HA[live[0]], B=HA[live[1]];
+    twoHandT+=dt;
+    GES.cnt=-1; GES.hold=0;                 // no single-hand selection now
+    if (A.cnt<=0 && B.cnt<=0 && A.still>0.12 && B.still>0.12){
+      GES.fistT+=dt;
+      if (GES.fistT>=FIST_S){ GES.fistT=0; resetGestures(); startLearn(); return; }
+    } else {
+      GES.fistT=0;
+      if (A.cnt>=3 && B.cnt>=3){
+        var AS=camAspect();
+        var dd=Math.hypot((A.x-B.x)*AS, A.y-B.y);
+        var s=clamp((dd-0.30)/0.70, 0, 1);
+        sensTarget=lerp(0.10,0.92,s);
+      }
+    }
+  } else {
+    twoHandT=0; GES.fistT=0;
+  }
+
+  // ── one hand: choose a body by holding N fingers still ───────────
+  if (live.length===1){
+    Hd=HA[live[0]];
+    var n=Hd.cnt;
+    if (n===4 && eraseHot>0){
+      GES.cnt=-1; GES.hold=0; GES.hand=-1;
+    } else if (n>=1 && n<=4 && Hd.still>0.05){
+      if (GES.cnt!==n || GES.hand!==live[0]){
+        GES.cnt=n; GES.hold=0; GES.hand=live[0];
+        GES.armed=(n-1)!==MODE;
+      }
+      GES.hold+=dt;
+      if (GES.armed && GES.hold>=HOLD_S){
+        setMode(n-1, Hd.x, Hd.y);
+        GES.armed=false;
+      }
+    } else {
+      GES.cnt=-1; GES.hold=0; GES.hand=-1; GES.armed=true;
+    }
+  } else if (live.length!==2){
+    GES.cnt=-1; GES.hold=0; GES.hand=-1; GES.armed=true;
+  }
+
+  // ── the colour dial ──────────────────────────────────────────────
+  // Absolute, not integrated: an absolute mapping can be aimed and
+  // remembered ("upright is no shift"), where an integrated one drifts and
+  // can never be put back without watching the readout.
+  if (MODE!==0 && live.length>=1){
+    var Hc=HA[live[0]];
+    var rel=Hc.ang+Math.PI/2;
+    while (rel>Math.PI) rel-=TAU;
+    while (rel<-Math.PI) rel+=TAU;
+    hueTarget=clamp(rel*1.5,-Math.PI,Math.PI);
+  }
+  var dlt=hueTarget-hueDial;
+  while (dlt>Math.PI) dlt-=TAU;
+  while (dlt<-Math.PI) dlt+=TAU;
+  hueDial+=dlt*clamp(1-Math.exp(-dt/0.12),0,1);
+  while (hueDial>Math.PI) hueDial-=TAU;
+  while (hueDial<-Math.PI) hueDial+=TAU;
+  if (!fin(hueDial)) hueDial=0;
+
+  sens+=(sensTarget-sens)*clamp(1-Math.exp(-dt/0.25),0,1);
+  sens=clamp(sens,0,1);
+}
+
+// ── the erase field ─────────────────────────────────────────────────
+// A palm only rubs while it is MOVING. A still palm is a selection, and
+// erasing under it would mean you cannot raise four fingers to choose 移
+// without wiping a hole in yourself first.
+function eraseStep(dt){
+  var i, n=EW*EH;
+  var dec=Math.exp(-dt/1.5);
+  for (i=0;i<n;i++) ERASE[i]*=dec;
+  if (MODE!==0) return;
+  for (var hi=0;hi<2;hi++){
+    if (!handLive(hi)) continue;
+    var Hd=HA[hi];
+    var moveK=clamp((Hd.speed-0.10)/0.25,0,1);
+    moveK=moveK*moveK*(3-2*moveK);
+    if (moveK<=0.01) continue;
+    if (moveK>0.20) eraseHot=ERASE_HOT_S;
+    var cx=Hd.x*EW, cy=Hd.y*EH;
+    var rr=Math.max(1.4, Hd.r*EW*0.85);
+    var open=0.45+0.55*Hd.open;
+    var x0=Math.max(0,Math.floor(cx-rr)), x1=Math.min(EW-1,Math.ceil(cx+rr));
+    var y0=Math.max(0,Math.floor(cy-rr)), y1=Math.min(EH-1,Math.ceil(cy+rr));
+    for (var y=y0;y<=y1;y++){
+      for (var x=x0;x<=x1;x++){
+        var dx=(x-cx)/rr, dy=(y-cy)/rr;
+        var t=1-(dx*dx+dy*dy);
+        if (t<=0) continue;
+        var k=y*EW+x;
+        var v=ERASE[k]+t*t*dt*3.4*open*moveK;
+        ERASE[k]=v>1?1:v;
+      }
+    }
+  }
+}
+function eraseAt(px,py){
+  var fx=px/PW*EW-0.5, fy=py/PH*EH-0.5;
+  var x0=Math.floor(fx), y0=Math.floor(fy);
+  var tx=fx-x0, ty=fy-y0;
+  var xa=x0<0?0:(x0>EW-1?EW-1:x0), xb=(x0+1)<0?0:((x0+1)>EW-1?EW-1:x0+1);
+  var ya=y0<0?0:(y0>EH-1?EH-1:y0), yb=(y0+1)<0?0:((y0+1)>EH-1?EH-1:y0+1);
+  var a=ERASE[ya*EW+xa], b=ERASE[ya*EW+xb], c=ERASE[yb*EW+xa], e=ERASE[yb*EW+xb];
+  var top=a+(b-a)*tx, bot=c+(e-c)*tx;
+  return top+(bot-top)*ty;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  COLOUR.  A YIQ hue rotation, its nine coefficients computed once per
+//  frame rather than per pixel, so turning the dial costs nothing.
+// ═══════════════════════════════════════════════════════════════════════
+var HM=new Float32Array(9);
+function hueMatrix(h){
+  if (!fin(h)) h=0;
+  var U=Math.cos(h), V=Math.sin(h);
+  HM[0]=0.299+0.701*U+0.168*V; HM[1]=0.587-0.587*U+0.330*V; HM[2]=0.114-0.114*U-0.497*V;
+  HM[3]=0.299-0.299*U-0.328*V; HM[4]=0.587+0.413*U+0.035*V; HM[5]=0.114-0.114*U+0.292*V;
+  HM[6]=0.299-0.300*U+1.250*V; HM[7]=0.587-0.588*U-1.050*V; HM[8]=0.114+0.886*U-0.203*V;
+}
+var accR=217, accG=164, accB=65;
+function accentFromHue(h){
+  // the instrument's own colour IS the dial, so the chrome can never be a
+  // different colour from the thing it is setting
+  var U=Math.cos(h), V=Math.sin(h);
+  var r=217, g=164, b=65;
+  var m0=0.299+0.701*U+0.168*V, m1=0.587-0.587*U+0.330*V, m2=0.114-0.114*U-0.497*V;
+  var m3=0.299-0.299*U-0.328*V, m4=0.587+0.413*U+0.035*V, m5=0.114-0.114*U+0.292*V;
+  var m6=0.299-0.300*U+1.250*V, m7=0.587-0.588*U-1.050*V, m8=0.114+0.886*U-0.203*V;
+  accR=clamp(r*m0+g*m1+b*m2,0,255);
+  accG=clamp(r*m3+g*m4+b*m5,0,255);
+  accB=clamp(r*m6+g*m7+b*m8,0,255);
+}
+function accCss(a){ return 'rgba('+(accR|0)+','+(accG|0)+','+(accB|0)+','+a+')'; }
+
+// ═══════════════════════════════════════════════════════════════════════
+//  THE COMPOSITOR.  One body is cheap; during a 変わり身 wash two bodies
+//  are evaluated for the pixels the wavefront is crossing and blended, so
+//  the extra cost lasts 0.55s and never becomes the steady state.
+//  Every plate fetch is clamped into the buffer before it is used.
+// ═══════════════════════════════════════════════════════════════════════
+var _or=0,_og=0,_ob=0,_oh=0;
+function platePx(fx,fy,c){
+  var x=fx<0?0:(fx>PW-1?PW-1:fx);
+  var y=fy<0?0:(fy>PH-1?PH-1:fy);
+  x=x|0; y=y|0;
+  return PLATE[(y*PW+x)*3+c];
+}
+function shadePx(mode,x,y,i,q,o,d,m,gx,gy,edge){
+  var cr=d[q], cg=d[q+1], cb=d[q+2];
+  var hide, k, sr, sg, sb;
+  if (mode===0){
+    var e=eraseAt(x,y)-STRAW[i]*0.42;
+    e=(e-0.06)/0.34; e=e<0?0:(e>1?1:e);
+    hide=m*(e*e*(3-2*e));
+    k=2.6*edge;
+    if (k>0.35){
+      sr=platePx(x-gx*k,y-gy*k,0);
+      sg=platePx(x-gx*k*0.88,y-gy*k*0.88,1);
+      sb=platePx(x-gx*k*0.76,y-gy*k*0.76,2);
+    } else { sr=PLATE[o]; sg=PLATE[o+1]; sb=PLATE[o+2]; }
+    _or=cr+(sr-cr)*hide; _og=cg+(sg-cg)*hide; _ob=cb+(sb-cb)*hide;
+    _oh=hide;
+    return;
+  }
+  var s=(m-STRAW[i]*0.07-0.10)/0.42;
+  s=s<0?0:(s>1?1:s);
+  s=s*s*(3-2*s);
+  if (mode===1){                                   // 彩 — you are repainted
+    if (s>0.004){
+      var rr=cr*HM[0]+cg*HM[1]+cb*HM[2];
+      var rg=cr*HM[3]+cg*HM[4]+cb*HM[5];
+      var rb=cr*HM[6]+cg*HM[7]+cb*HM[8];
+      _or=cr+(rr-cr)*s; _og=cg+(rg-cg)*s; _ob=cb+(rb-cb)*s;
+    } else { _or=cr; _og=cg; _ob=cb; }
+    _oh=s;
+  } else if (mode===2){                            // 染 — the room is repainted
+    if (s<0.996){
+      var qr=cr*HM[0]+cg*HM[1]+cb*HM[2];
+      var qg=cr*HM[3]+cg*HM[4]+cb*HM[5];
+      var qb=cr*HM[6]+cg*HM[7]+cb*HM[8];
+      _or=qr+(cr-qr)*s; _og=qg+(cg-qg)*s; _ob=qb+(cb-qb)*s;
+    } else { _or=cr; _og=cg; _ob=cb; }
+    _oh=1-s;
+  } else {                                         // 移 — the room shows through you
+    k=7.5*edge*(0.35+m);
+    var pr=platePx(x-gx*k,y-gy*k,0);
+    var pg=platePx(x-gx*k*0.86,y-gy*k*0.86,1);
+    var pb=platePx(x-gx*k*0.72,y-gy*k*0.72,2);
+    var tr=pr*HM[0]+pg*HM[1]+pb*HM[2];
+    var tg=pr*HM[3]+pg*HM[4]+pb*HM[5];
+    var tb=pr*HM[6]+pg*HM[7]+pb*HM[8];
+    _or=cr+(tr-cr)*s; _og=cg+(tg-cg)*s; _ob=cb+(tb-cb)*s;
+    _oh=s;
+  }
+}
+var changedFrac=0;
+function composite(src){
+  var d=src.data, x, y, i, o, q;
+  hueMatrix(hueDial);
+  accentFromHue(hueDial);
+  var washing=wash.on;
+  var wx=0, wy=0, wr=0, rimW=1;
+  if (washing){
+    var p=clamp(wash.t/WASH_S,0,1);
+    var ease=1-Math.pow(1-p,2.2);
+    wx=wash.x*PW; wy=wash.y*PH;
+    rimW=Math.max(2.5,PW*0.045);
+    wr=ease*(Math.hypot(PW,PH)+rimW*2);
+  }
+  var chg=0;
+  for (y=0;y<PH;y++){
+    var row=y*PW;
+    for (x=0;x<PW;x++){
+      i=row+x; q=i*4; o=i*3;
+      var m=MASK[i];
+      var xl=x>0?x-1:0, xr=x<PW-1?x+1:PW-1;
+      var yu=y>0?y-1:0, yd=y<PH-1?y+1:PH-1;
+      var gx=MASK[row+xr]-MASK[row+xl];
+      var gy=MASK[yd*PW+x]-MASK[yu*PW+x];
+      var edge=Math.abs(gx)+Math.abs(gy);
+
+      shadePx(MODE,x,y,i,q,o,d,m,gx,gy,edge);
+      var ar=_or, ag=_og, ab=_ob, ah=_oh;
+
+      if (washing){
+        var ddx=x-wx, ddy=y-wy;
+        var dd=Math.sqrt(ddx*ddx+ddy*ddy);
+        var f=(wr-dd)/rimW+0.5;
+        f=f<0?0:(f>1?1:f);
+        if (f<0.999){
+          shadePx(prevMODE,x,y,i,q,o,d,m,gx,gy,edge);
+          ar=_or+(ar-_or)*f; ag=_og+(ag-_og)*f; ab=_ob+(ab-_ob)*f;
+          ah=_oh+(ah-_oh)*f;
+        }
+        var rd=dd-wr; if (rd<0) rd=-rd;
+        if (rd<rimW){
+          var rk=1-rd/rimW; rk=rk*rk*0.62;
+          ar+=(accR-ar)*rk; ag+=(accG-ag)*rk; ab+=(accB-ab)*rk;
+        }
+      }
+      chg+=ah;
+      outData[q]  =ar<0?0:(ar>255?255:ar);
+      outData[q+1]=ag<0?0:(ag>255?255:ag);
+      outData[q+2]=ab<0?0:(ab>255?255:ab);
+    }
+  }
+  changedFrac=NPX>0?chg/NPX:0;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  AUDIO ─ almost too quiet to notice, and tied to the one control that
+//  has no other feedback: the colour dial also sets the PITCH, so you can
+//  hear where you have turned your hand to without looking at the readout.
+// ═══════════════════════════════════════════════════════════════════════
+var AC=null, comp=null, master=null, audioOK=false;
+var bedG=null, toneOsc=null, toneOsc2=null, toneG=null, toneF=null;
+var shimSrc=null, shimG=null, noiseBuf=null;
+var SCALE=[0,2,4,7,9];
+function makeNoise(){
+  var sr=AC.sampleRate, n=Math.floor(sr*1.4);
+  var b=AC.createBuffer(1,n,sr), d=b.getChannelData(0);
+  for (var i=0;i<n;i++) d[i]=Math.random()*2-1;
+  return b;
+}
+function initAudio(){
+  if (audioOK) return true;
+  var A=window.AudioContext||window.webkitAudioContext;
+  if (!A) return false;
+  try{
+    AC=new A();
+    comp=AC.createDynamicsCompressor();
+    comp.threshold.value=-19; comp.knee.value=10; comp.ratio.value=4;
+    comp.attack.value=0.005; comp.release.value=0.25;
+    master=AC.createGain(); master.gain.value=0.8;
+    comp.connect(master); master.connect(AC.destination);
+    noiseBuf=makeNoise();
+
+    var bedLP=AC.createBiquadFilter();
+    bedLP.type='lowpass'; bedLP.frequency.value=320; bedLP.Q.value=0.6;
+    bedG=AC.createGain(); bedG.gain.value=0.05;
+    bedLP.connect(bedG); bedG.connect(comp);
+    var bf=[55,82.4];
+    for (var i=0;i<2;i++){
+      var bo=AC.createOscillator(); bo.type='triangle';
+      bo.frequency.value=bf[i]; bo.detune.value=(i?7:-7);
+      var bg=AC.createGain(); bg.gain.value=i?0.34:0.5;
+      bo.connect(bg); bg.connect(bedLP);
+      try{ bo.start(); }catch(e){}
+    }
+    toneF=AC.createBiquadFilter();
+    toneF.type='lowpass'; toneF.frequency.value=2400; toneF.Q.value=0.7;
+    toneG=AC.createGain(); toneG.gain.value=0.0001;
+    toneF.connect(toneG); toneG.connect(comp);
+    toneOsc=AC.createOscillator(); toneOsc.type='sine';
+    toneOsc2=AC.createOscillator(); toneOsc2.type='sine';
+    var tg2=AC.createGain(); tg2.gain.value=0.3;
+    toneOsc.frequency.value=440; toneOsc2.frequency.value=440*2.004;
+    toneOsc.connect(toneF); toneOsc2.connect(tg2); tg2.connect(toneF);
+    try{ toneOsc.start(); toneOsc2.start(); }catch(e){}
+
+    shimSrc=AC.createBufferSource(); shimSrc.buffer=noiseBuf; shimSrc.loop=true;
+    var sbp=AC.createBiquadFilter(); sbp.type='bandpass';
+    sbp.frequency.value=4200; sbp.Q.value=3.2;
+    shimG=AC.createGain(); shimG.gain.value=0.0001;
+    shimSrc.connect(sbp); sbp.connect(shimG); shimG.connect(comp);
+    try{ shimSrc.start(); }catch(e){}
+
+    audioOK=true; return true;
+  }catch(e){ AC=null; audioOK=false; return false; }
+}
+function ramp(p,v,tc){
+  if (!audioOK||!p) return;
+  if (!fin(v)) return;
+  p.setTargetAtTime(v,AC.currentTime,tc>0?tc:0.05);
+}
+function pushAudio(){
+  if (!audioOK) return;
+  var amt=clamp(changedFrac*2.6,0,1);
+  // the dial quantised to a pentatonic, so the colour has a pitch
+  var st=Math.round((hueDial/Math.PI)*7);
+  var oct=Math.floor((st+35)/5)-7, deg=((st%5)+5)%5;
+  var semi=SCALE[deg]+12*oct;
+  var f=clamp(293.66*Math.pow(2,semi/12),80,2400);
+  ramp(toneOsc.frequency,f,0.10);
+  ramp(toneOsc2.frequency,f*2.004,0.10);
+  ramp(toneG.gain,(MODE===0?0.010:0.030)*amt+0.0008,0.18);
+  ramp(toneF.frequency,clamp(900+2600*amt,300,7000),0.22);
+  ramp(shimG.gain,(MODE===0?0.030:0.012)*amt+0.0004,0.14);
+}
+function sfxChange(){
+  if (!audioOK) return;
+  var t=AC.currentTime;
+  var s=AC.createBufferSource(); s.buffer=noiseBuf;
+  var bp=AC.createBiquadFilter(); bp.type='bandpass';
+  bp.frequency.setValueAtTime(700,t);
+  bp.frequency.exponentialRampToValueAtTime(5200,t+0.5);
+  bp.Q.value=1.1;
+  var g=AC.createGain();
+  g.gain.setValueAtTime(0.0001,t);
+  g.gain.exponentialRampToValueAtTime(0.085,t+0.08);
+  g.gain.exponentialRampToValueAtTime(0.0001,t+0.58);
+  s.connect(bp); bp.connect(g); g.connect(comp);
+  s.start(t); s.stop(t+0.7);
+}
+function sfxSettle(){
+  if (!audioOK) return;
+  var t=AC.currentTime;
+  var o=AC.createOscillator(); o.type='sine';
+  o.frequency.setValueAtTime(587.33,t);
+  var g=AC.createGain();
+  g.gain.setValueAtTime(0.0001,t);
+  g.gain.exponentialRampToValueAtTime(0.075,t+0.01);
+  g.gain.exponentialRampToValueAtTime(0.0001,t+1.1);
+  o.connect(g); g.connect(comp);
+  o.start(t); o.stop(t+1.2);
+}
+var lastTick=-9;
+function sfxTick(k){
+  if (!audioOK) return;
+  var t=AC.currentTime;
+  if (t-lastTick<0.10) return;
+  lastTick=t;
+  var o=AC.createOscillator(); o.type='triangle';
+  o.frequency.setValueAtTime(clamp(900+900*k,200,4000),t);
+  var g=AC.createGain();
+  g.gain.setValueAtTime(0.0001,t);
+  g.gain.exponentialRampToValueAtTime(0.020,t+0.004);
+  g.gain.exponentialRampToValueAtTime(0.0001,t+0.07);
+  o.connect(g); g.connect(comp);
+  o.start(t); o.stop(t+0.1);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  CHROME ─ drawn on the canvas, because the piece is not allowed any DOM
+//  controls. The cicada-wing venation tile is the only ornament.
+// ═══════════════════════════════════════════════════════════════════════
+var wingTile=null;
+function buildWingTile(){
+  var s=Math.max(28,Math.round(MN*0.085));
+  var c=document.createElement('canvas');
+  c.width=s; c.height=s;
+  var g=c.getContext('2d');
+  if (!g) return null;
+  g.fillStyle='rgba(242,236,224,0.90)';
+  g.fillRect(0,0,s,s);
+  g.strokeStyle='rgba(107,91,70,0.20)';
+  g.lineWidth=1;
+  for (var k=0;k<5;k++){
+    var y0=(k+0.5)*s/5;
+    g.beginPath();
+    g.moveTo(0,y0);
+    g.bezierCurveTo(s*0.33,y0-s*0.09,s*0.66,y0+s*0.09,s,y0);
+    g.stroke();
+  }
+  for (var j=0;j<4;j++){
+    var x0=(j+0.5)*s/4;
+    g.beginPath();
+    g.moveTo(x0,0);
+    g.bezierCurveTo(x0+s*0.07,s*0.34,x0-s*0.07,s*0.66,x0,s);
+    g.stroke();
+  }
+  return ctx.createPattern(c,'repeat');
+}
+function coverFit(){
+  if (PW<=0||PH<=0) return null;
+  var s=Math.max(W/PW,H/PH);
+  var dw=PW*s, dh=PH*s;
+  return { x:(W-dw)*0.5, y:(H-dh)*0.5, w:dw, h:dh };
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  THE HUD ─ and, more importantly, the gesture feedback. With no buttons
+//  the player has to be able to see a gesture being RECOGNISED before it
+//  fires, or the piece feels like it is changing at random: every charging
+//  gesture draws an arc that fills at the hand doing it.
+// ═══════════════════════════════════════════════════════════════════════
+function drawHands(g,fit){
+  if (!fit) return;
+  var i;
+  for (i=0;i<2;i++){
+    if (!handLive(i)) continue;
+    var Hd=HA[i];
+    var px=fit.x+Hd.x*fit.w, py=fit.y+Hd.y*fit.h;
+    var pr=Math.max(8, Hd.r*fit.w*0.85);
+    if (!fin(px)||!fin(py)||!fin(pr)) continue;
+    var moving=Hd.speed>STILL_V;
+    g.save();
+    g.strokeStyle=accCss(moving?0.62:0.30);
+    g.lineWidth=Math.max(1,MN*0.0032);
+    g.setLineDash([Math.max(3,pr*0.15),Math.max(3,pr*0.22)]);
+    g.beginPath(); g.arc(px,py,pr,0,TAU); g.stroke();
+    g.setLineDash([]);
+    g.fillStyle=accCss(0.9);
+    g.beginPath(); g.arc(px,py,Math.max(1.6,MN*0.005),0,TAU); g.fill();
+
+    // the charge arc for a single-hand selection
+    if (live1()===i && GES.cnt>=1 && GES.cnt<=4 && GES.armed && GES.hold>0){
+      var k=clamp(GES.hold/HOLD_S,0,1);
+      var ek=1-Math.pow(1-k,2.0);
+      g.strokeStyle=accCss(0.95);
+      g.lineWidth=Math.max(2,MN*0.0075);
+      g.lineCap='round';
+      g.beginPath();
+      g.arc(px,py,pr*1.30,-Math.PI/2,-Math.PI/2+TAU*ek);
+      g.stroke();
+      g.font='500 '+Math.round(MN*0.042)+'px Outfit, sans-serif';
+      g.textAlign='center'; g.textBaseline='middle';
+      g.fillStyle=accCss(0.95);
+      g.fillText(String(GES.cnt), px, py-pr*1.85);
+      g.font='600 '+Math.round(MN*0.030)+'px "Klee One", serif';
+      g.fillText(MODEN[GES.cnt-1], px, py+pr*1.90);
+    } else if (Hd.cnt>=1&&Hd.cnt<=4){
+      g.font='300 '+Math.round(MN*0.026)+'px Outfit, sans-serif';
+      g.textAlign='center'; g.textBaseline='middle';
+      g.fillStyle=accCss(0.45);
+      g.fillText(String(Hd.cnt), px, py-pr*1.45);
+    }
+    g.restore();
+  }
+  // the two-fist relearn charge, drawn between the hands
+  if (GES.fistT>0 && handLive(0) && handLive(1)){
+    var ax=fit.x+HA[0].x*fit.w, ay=fit.y+HA[0].y*fit.h;
+    var bx=fit.x+HA[1].x*fit.w, by=fit.y+HA[1].y*fit.h;
+    var mx=(ax+bx)*0.5, my=(ay+by)*0.5;
+    if (fin(mx)&&fin(my)){
+      var kk=clamp(GES.fistT/FIST_S,0,1);
+      g.save();
+      g.strokeStyle=accCss(0.28);
+      g.lineWidth=1;
+      g.beginPath(); g.moveTo(ax,ay); g.lineTo(bx,by); g.stroke();
+      g.strokeStyle=accCss(0.95);
+      g.lineWidth=Math.max(2,MN*0.008); g.lineCap='round';
+      g.beginPath(); g.arc(mx,my,MN*0.055,-Math.PI/2,-Math.PI/2+TAU*kk); g.stroke();
+      g.font='600 '+Math.round(MN*0.024)+'px "Klee One", serif';
+      g.textAlign='center'; g.textBaseline='middle';
+      g.fillStyle='rgba(26,23,20,0.85)';
+      g.fillText('覚え直す', mx, my+MN*0.095);
+      g.restore();
+    }
+  }
+  // the two-hand sensitivity span
+  if (twoHandT>0.1 && handLive(0) && handLive(1) && HA[0].cnt>=3 && HA[1].cnt>=3){
+    var cx0=fit.x+HA[0].x*fit.w, cy0=fit.y+HA[0].y*fit.h;
+    var cx1=fit.x+HA[1].x*fit.w, cy1=fit.y+HA[1].y*fit.h;
+    if (fin(cx0)&&fin(cx1)){
+      g.save();
+      g.strokeStyle=accCss(0.5);
+      g.lineWidth=Math.max(1,MN*0.003);
+      g.setLineDash([MN*0.012,MN*0.012]);
+      g.beginPath(); g.moveTo(cx0,cy0); g.lineTo(cx1,cy1); g.stroke();
+      g.setLineDash([]);
+      g.font='500 '+Math.round(MN*0.022)+'px Outfit, sans-serif';
+      g.textAlign='center'; g.textBaseline='bottom';
+      g.fillStyle=accCss(0.95);
+      g.fillText('SENS '+Math.round(sens*100), (cx0+cx1)*0.5, (cy0+cy1)*0.5-MN*0.014);
+      g.restore();
+    }
+  }
+}
+function live1(){
+  var n=0, idx=-1;
+  for (var i=0;i<2;i++) if (handLive(i)){ n++; idx=i; }
+  return n===1?idx:-1;
+}
+function drawHUD(g){
+  if (!wingTile) wingTile=buildWingTile();
+  var live=handLive(0)||handLive(1);
+  var pad=Math.round(MN*0.032);
+  var bw=Math.min(W-pad*2, MN*0.52), bh=MN*0.135;
+  g.save();
+  g.translate(pad,pad);
+  g.fillStyle=wingTile||'rgba(242,236,224,0.9)';
+  g.fillRect(0,0,bw,bh);
+  g.strokeStyle='rgba(107,91,70,0.35)'; g.lineWidth=1;
+  g.strokeRect(0.5,0.5,bw-1,bh-1);
+
+  g.textBaseline='top'; g.textAlign='left';
+  g.font='600 '+Math.round(MN*0.026)+'px "Klee One", serif';
+  g.fillStyle='#1a1714';
+  g.fillText('空 蝉', MN*0.016, MN*0.014);
+
+  // the four bodies, the live one in the dial's own colour
+  var gx0=MN*0.016, gy0=MN*0.056, step=MN*0.052;
+  for (var i=0;i<4;i++){
+    var on=(i===MODE);
+    g.font=(on?'600 ':'400 ')+Math.round(MN*0.029)+'px "Klee One", serif';
+    g.fillStyle=on?accCss(1):'rgba(140,133,121,0.85)';
+    g.fillText(MODEN[i], gx0+i*step, gy0);
+    g.font='300 '+Math.round(MN*0.016)+'px Outfit, sans-serif';
+    g.fillStyle=on?accCss(0.85):'rgba(140,133,121,0.6)';
+    g.fillText(String(i+1), gx0+i*step+MN*0.031, gy0+MN*0.010);
+  }
+  g.font='400 '+Math.round(MN*0.017)+'px "Klee One", serif';
+  g.fillStyle='rgba(74,66,56,0.9)';
+  g.fillText(MODED[MODE], gx0, gy0+MN*0.040);
+
+  // the dial, as an arc of its own colour
+  var dcx=bw-MN*0.052, dcy=bh*0.5, dr=MN*0.034;
+  g.strokeStyle='rgba(107,91,70,0.28)';
+  g.lineWidth=Math.max(2,MN*0.006);
+  g.beginPath(); g.arc(dcx,dcy,dr,0,TAU); g.stroke();
+  if (MODE!==0){
+    g.strokeStyle=accCss(0.95);
+    g.lineCap='round';
+    var a0=-Math.PI/2;
+    g.beginPath(); g.arc(dcx,dcy,dr,a0,a0+hueDial,hueDial<0); g.stroke();
+    g.fillStyle=accCss(1);
+    g.beginPath();
+    g.arc(dcx+Math.cos(a0+hueDial)*dr, dcy+Math.sin(a0+hueDial)*dr, Math.max(2.5,MN*0.008),0,TAU);
+    g.fill();
+  }
+  g.font='300 '+Math.round(MN*0.015)+'px Outfit, sans-serif';
+  g.textAlign='center'; g.textBaseline='middle';
+  g.fillStyle=MODE!==0?accCss(0.95):'rgba(140,133,121,0.7)';
+  g.fillText(MODE!==0?(Math.round(hueDial*180/Math.PI)+'°'):'—', dcx, dcy);
+  g.restore();
+
+  // the readout strip
+  g.save();
+  g.textAlign='left'; g.textBaseline='bottom';
+  g.font='300 '+Math.round(MN*0.018)+'px Outfit, sans-serif';
+  var by=H-Math.round(MN*0.030);
+  var txt='変 '+Math.round(clamp(changedFrac,0,1)*100)+'%   '+PW+'×'+PH+'   SENS '+Math.round(sens*100);
+  g.fillStyle='rgba(242,236,224,0.72)';
+  var tw=g.measureText(txt).width+MN*0.09;
+  g.fillRect(pad-MN*0.012, by-MN*0.030, Math.min(tw,W-pad*2), MN*0.040);
+  g.fillStyle='rgba(26,23,20,0.88)';
+  g.fillText(txt, pad, by);
+  g.fillStyle=live?accCss(1):'rgba(140,133,121,0.85)';
+  g.beginPath(); g.arc(pad+Math.min(tw,W-pad*2)-MN*0.030, by-MN*0.007, MN*0.0075,0,TAU); g.fill();
+  g.restore();
+
+  if (!live){
+    g.save();
+    g.textAlign='center'; g.textBaseline='middle';
+    g.font='400 '+Math.round(MN*0.022)+'px "Klee One", serif';
+    g.fillStyle='rgba(242,236,224,0.80)';
+    var hint='手をかざしてください';
+    var hw=g.measureText(hint).width;
+    g.fillRect(W*0.5-hw*0.5-MN*0.024, H*0.5-MN*0.026, hw+MN*0.048, MN*0.052);
+    g.fillStyle='rgba(26,23,20,0.9)';
+    g.fillText(hint, W*0.5, H*0.5);
+    g.restore();
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  LOOP
+// ═══════════════════════════════════════════════════════════════════════
+var running=false, lastT=nowS();
+function frame(){
+  requestAnimationFrame(frame);
+  var t=nowS();
+  var dt=t-lastT; lastT=t;
+  if (!(dt>0)) dt=0.016;
+  if (dt>0.08) dt=0.08;
+
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  if (!running||!PLATE){
+    ctx.fillStyle='#15120f'; ctx.fillRect(0,0,W,H);
+    return;
+  }
+  var t0=(typeof performance!=='undefined'&&performance.now)?performance.now():0;
+  var src=grabFrame();
+
+  if (phase==='play') gestureStep(dt);
+
+  if (src&&src.data&&src.data.length>=NPX*4){
+    if (phase==='learn'){
+      learnStep(src,dt);
+      lCnt.textContent=String(Math.ceil(Math.max(0,LEARN_S-plateAcc))||1);
+    } else if (phase==='play'){
+      maskStep(src,dt);
+      eraseStep(dt);
+      composite(src);
+      pushAudio();
+      if (GES.hold>0&&GES.armed&&GES.cnt>=1) sfxTick(clamp(GES.hold/HOLD_S,0,1));
+      else if (GES.fistT>0) sfxTick(clamp(GES.fistT/FIST_S,0,1));
+    }
+  }
+
+  var fit=coverFit();
+  if (phase==='play'&&outImg&&outCtx&&fit){
+    try{ outCtx.putImageData(outImg,0,0); }catch(e){}
+    ctx.imageSmoothingEnabled=true;
+    ctx.drawImage(outCv,fit.x,fit.y,fit.w,fit.h);
+  } else if (srcCv&&fit&&srcCv.width>0){
+    ctx.imageSmoothingEnabled=true;
+    ctx.drawImage(srcCv,fit.x,fit.y,fit.w,fit.h);
+  } else {
+    ctx.fillStyle='#15120f'; ctx.fillRect(0,0,W,H);
+  }
+
+  var t1=(typeof performance!=='undefined'&&performance.now)?performance.now():0;
+  noteCost(t1-t0,dt);
+
+  if (phase==='play'){ drawHands(ctx,fit); drawHUD(ctx); }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  START-SHEET DIAGRAM ─ four beats, one per gesture, because the control
+//  scheme IS the piece and a wall of text would not teach it.
+// ═══════════════════════════════════════════════════════════════════════
+var demoRun=true, demoLast=nowS(), demoT=0;
+function palmPath(g,cx,cy,s,nFing,rot){
+  g.save();
+  g.translate(cx,cy); g.rotate(rot||0);
+  g.strokeStyle='#1a1714'; g.lineWidth=Math.max(2,s*0.10); g.lineCap='round'; g.lineJoin='round';
+  g.beginPath();
+  g.moveTo(-s*0.52,s*0.62); g.lineTo(-s*0.56,-s*0.06);
+  g.lineTo(s*0.56,-s*0.06); g.lineTo(s*0.52,s*0.62);
+  g.closePath(); g.stroke();
+  for (var i=0;i<4;i++){
+    var fx=-s*0.42+i*(s*0.28);
+    var up=(i<nFing);
+    g.beginPath();
+    g.moveTo(fx,-s*0.06);
+    g.lineTo(fx, up?-s*0.95:-s*0.24);
+    g.stroke();
+  }
+  g.beginPath(); g.moveTo(-s*0.56,s*0.18); g.lineTo(-s*0.95,s*0.02); g.stroke();
+  g.restore();
+}
+function demoFrame(){
+  if (!demoRun||!demoCtx) return;
+  requestAnimationFrame(demoFrame);
+  var t=nowS(), dt=Math.min(0.05,t-demoLast); demoLast=t;
+  demoT+=dt;
+  var BEAT=1.5, ph=(demoT%(BEAT*4))/BEAT, beat=Math.floor(ph), fr=ph-beat;
+  var g=demoCtx, DW=demoCv.width, DH=demoCv.height;
+  g.fillStyle='#e8e0d0'; g.fillRect(0,0,DW,DH);
+  g.strokeStyle='rgba(107,91,70,0.18)'; g.lineWidth=1;
+  for (var k=0;k<5;k++){
+    var yy=(k+0.5)*DH/5;
+    g.beginPath(); g.moveTo(0,yy);
+    g.bezierCurveTo(DW*0.33,yy-9,DW*0.66,yy+9,DW,yy); g.stroke();
+  }
+  var cx=DW*0.30, cy=DH*0.56, s=DH*0.36;
+  var label='', sub='';
+  if (beat===0){
+    var n=1+Math.floor(fr*4);
+    palmPath(g,cx,cy,s,n,0);
+    var kk=clamp((fr*4)%1,0,1);
+    g.strokeStyle='rgba(180,110,60,0.95)';
+    g.lineWidth=5; g.lineCap='round';
+    g.beginPath(); g.arc(cx,cy,s*1.30,-Math.PI/2,-Math.PI/2+TAU*kk); g.stroke();
+    label='指を立てて止める'; sub='一 隠 / 二 彩 / 三 染 / 四 移';
+  } else if (beat===1){
+    var sx=cx+Math.sin(fr*TAU*1.5)*DW*0.10;
+    palmPath(g,sx,cy,s,4,0);
+    g.strokeStyle='rgba(180,110,60,0.5)'; g.lineWidth=Math.max(6,s*0.5);
+    g.lineCap='round';
+    g.beginPath(); g.moveTo(cx-DW*0.10,cy); g.lineTo(cx+DW*0.10,cy); g.stroke();
+    label='手のひらで撫でる'; sub='隠 のとき、撫でた所から消える';
+  } else if (beat===2){
+    var rot=Math.sin(fr*TAU)*0.9;
+    palmPath(g,cx,cy,s,4,rot);
+    for (var q=0;q<12;q++){
+      var a=-Math.PI/2+q/12*TAU;
+      g.fillStyle='hsl('+Math.round(((q/12)*360+rot*180/Math.PI*1.5+360)%360)+',62%,52%)';
+      g.beginPath();
+      g.arc(cx+Math.cos(a)*s*1.55, cy+Math.sin(a)*s*1.55, s*0.13,0,TAU);
+      g.fill();
+    }
+    label='手をひねる'; sub='彩・染・移 のとき、色が回る';
+  } else {
+    var sp=DW*0.10;
+    palmPath(g,cx-sp,cy,s*0.9,0,0);
+    palmPath(g,cx+sp,cy,s*0.9,0,0);
+    g.strokeStyle='rgba(180,110,60,0.95)'; g.lineWidth=5; g.lineCap='round';
+    g.beginPath(); g.arc(cx,cy,s*0.62,-Math.PI/2,-Math.PI/2+TAU*clamp(fr,0,1)); g.stroke();
+    label='両手を握る'; sub='部屋を覚え直す';
+  }
+  g.textAlign='left'; g.textBaseline='top';
+  g.fillStyle='#1a1714';
+  g.font='600 20px "Klee One", serif';
+  g.fillText(label, DW*0.52, DH*0.36);
+  g.fillStyle='rgba(74,66,56,0.9)';
+  g.font='400 14px "Klee One", serif';
+  g.fillText(sub, DW*0.52, DH*0.53);
+  g.fillStyle='rgba(140,133,121,0.9)';
+  g.font='500 11px Outfit, sans-serif';
+  g.fillText('NO BUTTONS', DW*0.52, DH*0.18);
+}
+if (demoCtx) demoFrame();
+
+// ═══════════════════════════════════════════════════════════════════════
+//  START
+// ═══════════════════════════════════════════════════════════════════════
+goBtn.addEventListener('click',function(){
+  if (running) return;
+  running=true; demoRun=false;
+  initAudio();
+  if (AC&&AC.state==='suspended'){ var r=AC.resume(); if (r&&r.then) r.catch(function(){}); }
+  sheet.classList.add('gone');
+  allocBuffers(false);
+  startLearn();
+  initHands();
+  startStream().then(startMpCamera).catch(showError);
+  lastT=nowS();
+});
+
+resize();
+lastT=nowS();
+frame();
+</script>
+</body>
+</html>
