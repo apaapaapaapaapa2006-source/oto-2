@@ -1,0 +1,1130 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>SUKASHI ─ 手にあたった光だけが鳴る</title>
+<meta name="description" content="障子の裏から灯りが当たっている。手をかざすと、あたったところだけが光る。三十六本の光の筋はそのまま三十六の帯域で、見えている明るさが聞こえている音量そのもの。横は音色、縦は音の高さ、手の形はそのまま音の形。にぎればひと続きの太い音、指をひらけば櫛の歯に割れた音。かざさなければ無音。">
+<meta name="theme-color" content="#f7f4ec">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Zen+Maru+Gothic:wght@300;400;500;700&display=swap" rel="stylesheet">
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  SUKASHI ─ 手にあたった光だけが鳴る                ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  PALETTE   障子白 shojishiro #f7f4ec  the ground, and nearly the whole
+                                       screen. This piece is HIGH-KEY: the
+                                       brightest thing in either gallery.
+                                       Paper, not a light source.
+            日向   hinata     #ffd48a  the lamp behind the paper. Warm, and
+                                       the ONLY saturated thing here — it is
+                                       allowed to bloom because it is
+                                       literally light coming through.
+            淡墨   usuzumi    #6f6a60  the fibres, the type, the hand. A warm
+                                       grey; there is no black in this file.
+            空     sora       #9fbccb  the shadow side. Shadows on white
+                                       paper go BLUE, never grey, and getting
+                                       that right is most of why the paper
+                                       reads as paper.
+            金泥   kindei     #bb8b2c  band ticks and the live readout only.
+            MOOD: a shoji screen at ten in the morning. Airy, quiet, almost
+            weightless. Nothing here is dark, nothing snaps, nothing flashes.
+            Deliberately the opposite end of the gallery from every dark
+            piece in it.
+  BACKGROUND  Real washi: a warm off-white base, long 楮 fibres laid in at
+            random angles, a faint laid-line grid from the screen, and the
+            lamp behind rendered as a broad soft warm field rather than a
+            vignette. Painted once per resize; one drawImage per frame.
+  TYPE      Zen Maru Gothic — a ROUNDED gothic, light weights, wide tracking.
+            Chosen to be as far as possible from the heavy mincho of the
+            gallery's lacquer-and-gold pieces: this instrument should feel
+            like breath, not like calligraphy.
+  MOTION    Floaty and slow throughout. Every tween is 400-700ms and eased;
+            the light breathes on a 9-second cycle; notes glide rather than
+            step. There is not one snappy transition in the piece — an
+            instrument you can hurt yourself on is not this instrument.
+  SIGNATURE THE SPECTRUM IS THE LIGHT. Twenty-four shafts of lamp light
+            stand behind the paper and twenty-four bandpass filters stand
+            across the audible range, and they are not merely correlated —
+            the number that lights the shaft IS the number on the filter's
+            gain node. The lamp only reaches what you hold up to it, so the
+            SHAPE of your hand is the shape of the spectrum: a fist is one
+            unbroken band you can slide along the harmonic series, and spread
+            fingers split that same band into a comb you can both see and
+            hear, tooth for tooth. Two hands are two windows at once.
+            The 36 shafts are spaced at 0.155 of an octave for exactly this
+            reason — coarse enough to draw as light, fine enough that five
+            fingers land in five different bands.
+            Hold nothing up and there is nothing to hear — the paper is blank
+            and the room is silent. Nothing here is a visualisation of
+            anything: it is one quantity, drawn once and heard once.
+            The two axes stay independent on purpose — ACROSS chooses which
+            part of the spectrum is lit, UP chooses the fundamental — so one
+            hand is the timbre hand and the pitch hand at the same time.
+  WHY NO getImageData  The coverage is solved analytically — every bone is a
+            capsule, every capsule is sampled into ELLIPSES sized in
+            aspect-corrected camera units, and each ellipse sets bits in a
+            per-column 32-cell vertical bitmask. Coverage is a popcount. No
+            canvas readback, no per-frame allocation, and the silhouette that
+            gets drawn is built from the very same ellipses, so what you see
+            and what you hear cannot drift apart.
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<style>
+  *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body{ margin:0; padding:0; height:100%; overflow:hidden; background:#f7f4ec; }
+  body{
+    font-family:"Zen Maru Gothic", sans-serif; color:#6f6a60;
+    -webkit-font-smoothing:antialiased; touch-action:none;
+  }
+  #view{ position:fixed; inset:0; width:100%; height:100%; display:block; }
+  #video{ position:fixed; width:2px; height:2px; opacity:0.01; pointer-events:none; left:-10px; top:-10px; }
+
+  #flip{
+    position:fixed; right:12px; top:12px; z-index:30;
+    font-family:inherit; font-size:12.5px; font-weight:500; letter-spacing:.16em;
+    color:#6f6a60; background:rgba(255,255,255,.72);
+    border:1px solid rgba(111,106,96,.3); border-radius:999px;
+    padding:8px 15px; cursor:pointer; backdrop-filter:blur(3px);
+    transition:background .5s cubic-bezier(.25,.8,.35,1), color .5s linear;
+  }
+  #flip:active{ background:rgba(255,212,138,.55); }
+
+  #err{
+    display:none; position:fixed; left:50%; top:50%; transform:translate(-50%,-50%);
+    z-index:60; max-width:min(86vw,460px); white-space:pre-wrap;
+    background:#fffdf7; color:#6f6a60; border:1px solid #bb8b2c;
+    padding:18px 20px; font-size:14px; line-height:1.9; letter-spacing:.03em;
+    border-radius:4px; box-shadow:0 12px 40px rgba(111,106,96,.16);
+  }
+
+  /* ── control strip ───────────────────────────────────────────── */
+  #panel{
+    position:fixed; left:0; right:0; bottom:0; z-index:25;
+    display:flex; flex-direction:column; gap:11px; align-items:center;
+    padding:14px 16px calc(15px + env(safe-area-inset-bottom));
+    opacity:0; transform:translateY(14px); pointer-events:none;
+    transition:opacity .6s cubic-bezier(.25,.8,.35,1), transform .6s cubic-bezier(.25,.8,.35,1);
+  }
+  #panel.on{ opacity:1; transform:none; pointer-events:auto; }
+  .modes{ display:flex; gap:8px; }
+  .modes button{
+    font-family:inherit; font-size:14px; font-weight:500; letter-spacing:.24em;
+    text-indent:.24em; color:#6f6a60; background:rgba(255,255,255,.66);
+    border:1px solid rgba(111,106,96,.26); border-radius:999px;
+    padding:8px 19px; cursor:pointer;
+    transition:background .5s cubic-bezier(.25,.8,.35,1), color .5s linear, border-color .5s linear;
+  }
+  .modes button.on{ background:#ffd48a; border-color:rgba(187,139,44,.5); color:#5a4a24; }
+  .knob{ display:flex; align-items:center; gap:11px; width:min(340px,84vw); }
+  .knob label{ font-size:11px; letter-spacing:.3em; font-weight:500; white-space:nowrap; }
+  .knob input{
+    -webkit-appearance:none; appearance:none; flex:1; height:2px;
+    background:rgba(111,106,96,.3); border-radius:2px; outline:none;
+  }
+  .knob input::-webkit-slider-thumb{
+    -webkit-appearance:none; width:18px; height:18px; border-radius:50%;
+    background:#ffd48a; border:1px solid rgba(187,139,44,.6); cursor:pointer;
+  }
+  .knob input::-moz-range-thumb{
+    width:18px; height:18px; border-radius:50%; border:1px solid rgba(187,139,44,.6);
+    background:#ffd48a; cursor:pointer;
+  }
+  #read{
+    font-size:11.5px; letter-spacing:.2em; font-weight:400; text-align:center;
+    color:rgba(111,106,96,.78);
+  }
+  #read b{ color:#bb8b2c; font-weight:700; letter-spacing:.06em; }
+
+  /* ── start sheet ─────────────────────────────────────────────── */
+  #sheet{
+    position:fixed; inset:0; z-index:50; display:flex;
+    align-items:center; justify-content:center; padding:16px;
+    background:#f7f4ec;
+    transition:opacity .62s cubic-bezier(.25,.8,.35,1);
+  }
+  #sheet.gone{ opacity:0; pointer-events:none; }
+  #sheet .card{
+    width:min(560px,100%); max-height:94vh; overflow-y:auto;
+    background:#fffdf7; border:1px solid rgba(111,106,96,.22);
+    border-radius:6px; box-shadow:0 20px 60px rgba(111,106,96,.13);
+    padding:28px 26px 24px;
+  }
+  #sheet .cap{
+    display:flex; justify-content:space-between; align-items:baseline;
+    font-size:10px; letter-spacing:.34em; font-weight:500;
+    color:rgba(111,106,96,.6); padding-bottom:14px; margin-bottom:18px;
+    border-bottom:1px solid rgba(111,106,96,.16);
+  }
+  #sheet .cap b{ color:#bb8b2c; font-weight:700; }
+  #sheet h1{
+    margin:0 0 6px; font-size:clamp(25px,6.6vw,35px); font-weight:500;
+    letter-spacing:.07em; line-height:1.42; color:#5c574e;
+  }
+  #sheet .sub{ margin:0 0 18px; font-size:10.5px; letter-spacing:.46em; color:rgba(111,106,96,.55); }
+  #sheet p.lead{ margin:0 0 17px; font-size:14.5px; line-height:2.05; letter-spacing:.035em; font-weight:400; }
+  #sheet p.lead em{ font-style:normal; color:#bb8b2c; font-weight:700; }
+  #demo{
+    display:block; width:100%; height:auto; aspect-ratio:640/196;
+    border-radius:4px; background:#f7f4ec; margin-bottom:17px;
+    border:1px solid rgba(111,106,96,.14);
+  }
+  #sheet .spec{
+    font-size:12.5px; line-height:2.05; letter-spacing:.03em;
+    border-top:1px solid rgba(111,106,96,.16); padding-top:14px; margin-bottom:21px;
+  }
+  #sheet .spec span{ display:inline-block; min-width:5.6em; color:#bb8b2c; font-weight:700; }
+  #go{
+    display:block; width:100%; font-family:inherit;
+    font-size:17px; font-weight:500; letter-spacing:.52em; text-indent:.52em;
+    color:#5a4a24; background:#ffd48a; border:none; border-radius:999px;
+    padding:15px 0; cursor:pointer;
+    transition:transform .5s cubic-bezier(.25,.8,.35,1), background .5s linear;
+  }
+  #go:active{ transform:scale(.985); background:#ffc866; }
+
+  @media (max-width:420px){
+    #sheet .card{ padding:21px 17px 19px; }
+    #sheet p.lead{ font-size:13.5px; line-height:1.98; }
+    .modes button{ padding:8px 15px; font-size:13px; }
+  }
+</style>
+</head>
+<body>
+
+<canvas id="view"></canvas>
+<video id="video" playsinline muted autoplay></video>
+<button id="flip">⟲ カメラ</button>
+<div id="err"></div>
+
+<div id="panel">
+  <div class="modes">
+    <button id="m0" class="on">律</button>
+    <button id="m1">呂</button>
+    <button id="m2">陰</button>
+  </div>
+  <div class="knob">
+    <label for="nij">に じ み</label>
+    <input type="range" id="nij" min="0" max="100" value="42">
+  </div>
+  <div id="read">音 <b id="rNote">—</b>　明るさ <b id="rOpen">—</b>%　鳴っている帯 <b id="rBands">—</b>／36</div>
+</div>
+
+<div id="sheet">
+  <div class="card">
+    <div class="cap"><span>OTO-II ／ 透かし</span><span>36-BAND <b>SPECTRAL SIEVE</b></span></div>
+    <h1>光に透かした手が<br>音の形になる</h1>
+    <div class="sub">SUKASHI</div>
+    <p class="lead">
+      障子の裏から灯りが当たっています。<br>
+      かざした手の、<em>光があたったところだけ</em>が鳴ります。<br>
+      光の筋は<em>そのまま音の帯</em>。見えている明るさが、聞こえている音量です。
+    </p>
+    <canvas id="demo" width="640" height="196"></canvas>
+    <div class="spec">
+      <span>手を横へ</span>鳴る帯が動きます（音色）<br>
+      <span>手の高さ</span>音の高さ（音階から外れません）<br>
+      <span>にぎる</span>ひと続きの太い音<br>
+      <span>指をひらく</span>櫛の歯に割れた音（にじみを上げるほど鋭く）<br>
+      <span>もう一方の手</span>もう一つの窓と、低い持続音<br>
+      <span>かざさなければ</span>無音です
+    </div>
+    <button id="go">あ か り を と も す</button>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+<script>
+'use strict';
+// ═══════════════════════════════════════════════════════════════════════
+//  SUKASHI ─ 光に透かした手が音の形になる
+//
+//  One quantity, drawn once and heard once.  There are 36 shafts of lamp
+//  light behind the paper and NB bandpass filters across the audible
+//  range; LIT[b] is how much of column b your hand is holding up to the
+//  lamp, and that same number is both the shaft's brightness and the
+//  filter's gain.  The lamp reaches only what is held up to it, so an
+//  empty frame is a blank sheet and a silent room.
+//  There is no "visualiser" here — the picture IS the transfer function.
+// ═══════════════════════════════════════════════════════════════════════
+var TAU=Math.PI*2;
+function clamp(v,a,b){ return v<a?a:(v>b?b:v); }
+function lerp(a,b,t){ return a+(b-a)*t; }
+function smooth(t){ t=clamp(t,0,1); return t*t*(3-2*t); }
+function nowS(){ return (typeof performance!=='undefined'&&performance.now)?performance.now()/1000:Date.now()/1000; }
+function h2(x,y){ var n=Math.sin(x*127.1+y*311.7)*43758.5453; return n-Math.floor(n); }
+
+var view=document.getElementById('view');
+var ctx=view.getContext('2d');
+var video=document.getElementById('video');
+var flipBtn=document.getElementById('flip');
+var errBox=document.getElementById('err');
+var panel=document.getElementById('panel');
+var sheet=document.getElementById('sheet');
+var goBtn=document.getElementById('go');
+var demoCv=document.getElementById('demo');
+var demoCtx=demoCv.getContext('2d');
+var nijEl=document.getElementById('nij');
+var rNote=document.getElementById('rNote');
+var rOpen=document.getElementById('rOpen');
+var rBands=document.getElementById('rBands');
+var mBtn=[document.getElementById('m0'),document.getElementById('m1'),document.getElementById('m2')];
+
+var W=0,H=0,DPR=1,MN=1;
+function resize(){
+  DPR=Math.min(window.devicePixelRatio||1,2);
+  W=Math.max(240,window.innerWidth); H=Math.max(320,window.innerHeight);
+  view.width=Math.max(1,Math.round(W*DPR));
+  view.height=Math.max(1,Math.round(H*DPR));
+  view.style.width=W+'px'; view.style.height=H+'px';
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  MN=Math.min(W,H);
+  washi=null;
+}
+window.addEventListener('resize',resize);
+window.addEventListener('orientationchange',function(){ setTimeout(resize,180); });
+
+// ═══════════════════════════════════════════════════════════════════════
+//  CAMERA
+// ═══════════════════════════════════════════════════════════════════════
+var facing='user', mirror=true, stream=null;
+function showError(e){
+  var msg=(e&&e.message)?e.message:String(e||'unknown');
+  errBox.style.display='block';
+  errBox.textContent='カメラを起動できませんでした：'+msg+
+    '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+}
+function startStream(){
+  var md=navigator.mediaDevices;
+  if (!md||!md.getUserMedia) return Promise.reject(new Error('getUserMedia is unavailable'));
+  if (stream&&stream.getTracks) stream.getTracks().forEach(function(t){ t.stop(); });
+  return md.getUserMedia({
+    video:{ facingMode:{ ideal:facing }, width:{ ideal:640 }, height:{ ideal:480 } },
+    audio:false
+  }).then(function(st){
+    stream=st; video.srcObject=st; mirror=(facing==='user');
+    var p=video.play();
+    return (p&&p.then)?p.catch(function(){}):null;
+  });
+}
+flipBtn.addEventListener('click',function(){
+  facing=(facing==='user')?'environment':'user';
+  loseHands();
+  startStream().then(startMpCamera).catch(showError);
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+//  HANDS
+// ═══════════════════════════════════════════════════════════════════════
+var hands=null, mpCamera=null, mpReady=false;
+var LOST_S=0.34;
+var HB=[[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],
+        [9,13],[13,14],[14,15],[15,16],[13,17],[17,18],[18,19],[19,20],[0,17]];
+var PALM=[0,1,2,5,9,13,17];
+
+function mkHand(){
+  var pts=new Array(21);
+  for (var i=0;i<21;i++) pts[i]={x:0,y:0};
+  return { on:false, t:-1e9, pts:pts, span:0.13, spanPx:60, open:0.5, cy:0.5 };
+}
+var HA=[mkHand(), mkHand()];
+
+function loseHands(){ HA[0].on=false; HA[1].on=false; }
+
+function lmOK(L,i){
+  if (!L||L.length<21) return false;
+  var p=L[i];
+  return !!p && typeof p.x==='number' && typeof p.y==='number' && isFinite(p.x) && isFinite(p.y);
+}
+function camAspect(){
+  var a=1.3333;
+  if (video && video.videoWidth>0 && video.videoHeight>0) a=video.videoWidth/video.videoHeight;
+  if (!isFinite(a)||a<0.2||a>5) a=1.3333;
+  return a;
+}
+
+var NEED=[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20];
+function onHands(res){
+  var t=nowS();
+  var list=(res&&res.multiHandLandmarks)?res.multiHandLandmarks:[];
+  var AS=camAspect();
+  var used=0, k, i;
+  for (k=0;k<list.length && used<2;k++){
+    var L=list[k], ok=true;
+    for (i=0;i<NEED.length;i++){ if (!lmOK(L,NEED[i])){ ok=false; break; } }
+    if (!ok) continue;
+    var Hd=HA[used];
+    for (i=0;i<21;i++){
+      var nx=mirror?(1-L[i].x):L[i].x;
+      nx=clamp(nx,-0.4,1.4);
+      var ny=clamp(L[i].y,-0.4,1.4);
+      Hd.pts[i].x=nx*W; Hd.pts[i].y=ny*H;
+    }
+    // scale-free measures live in aspect-corrected camera space, never in
+    // stretched screen pixels
+    var ax0=(mirror?(1-L[0].x):L[0].x)*AS, ay0=L[0].y;
+    var ax9=(mirror?(1-L[9].x):L[9].x)*AS, ay9=L[9].y;
+    var sp=Math.hypot(ax9-ax0, ay9-ay0);
+    if (!isFinite(sp)||sp<0.02) sp=0.02;
+    Hd.span=sp;
+    Hd.spanPx=Math.max(6, Math.hypot(Hd.pts[9].x-Hd.pts[0].x, Hd.pts[9].y-Hd.pts[0].y));
+    // openness: mean fingertip distance from the wrist, in spans
+    var acc=0, TIP=[8,12,16,20];
+    for (i=0;i<4;i++){
+      var axt=(mirror?(1-L[TIP[i]].x):L[TIP[i]].x)*AS;
+      acc+=Math.hypot(axt-ax0, L[TIP[i]].y-ay0);
+    }
+    Hd.open=clamp((acc/4/sp-1.30)/1.15, 0, 1);
+    Hd.cy=clamp(L[0].y*0.45+L[9].y*0.55, 0, 1);
+    Hd.on=true; Hd.t=t;
+    used++;
+  }
+  for (k=used;k<2;k++) HA[k].on=false;
+}
+function handLive(i){ return HA[i].on && (nowS()-HA[i].t)<LOST_S; }
+
+function initHands(){
+  if (typeof window.Hands!=='function') return false;
+  try{
+    hands=new window.Hands({ locateFile:function(f){
+      return 'https://cdn.jsdelivr.net/npm/@mediapipe/hands/'+f;
+    }});
+    hands.setOptions({ maxNumHands:2, modelComplexity:0,
+                       minDetectionConfidence:0.55, minTrackingConfidence:0.5 });
+    hands.onResults(onHands);
+    mpReady=true; return true;
+  }catch(e){ hands=null; return false; }
+}
+function startMpCamera(){
+  if (!mpReady||!hands||mpCamera) return;
+  if (typeof window.Camera!=='function') return;
+  try{
+    mpCamera=new window.Camera(video,{
+      onFrame:function(){
+        if (!hands) return Promise.resolve();
+        try{ return hands.send({image:video}); }catch(e){ return Promise.resolve(); }
+      },
+      width:640, height:480
+    });
+    mpCamera.start();
+  }catch(e){ mpCamera=null; }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  THE SIEVE.  Twenty-four columns of lamp light, each divided into 32
+//  vertical cells and stored as one 32-bit mask.  Every bone of every
+//  hand is a capsule, every capsule is sampled into discs, and every disc
+//  sets the bits of the cells it covers.  Coverage is then a popcount.
+//
+//  No canvas readback and no allocation per frame — and, more to the
+//  point, the silhouette that gets DRAWN is assembled from the very same
+//  discs, so the picture and the transfer function cannot drift apart.
+// ═══════════════════════════════════════════════════════════════════════
+var NB=36, VC=32;
+// Each band is sampled at SS vertical lines across its width, not one.
+// A single centre sample aliases: when the finger pitch lands near the
+// column pitch, some column centres fall in a one-pixel gap and some do
+// not, and the profile grows teeth that are not on the hand. That is a
+// comb made of sampling error, and it is audible.
+var SS=3;
+var COVER=new Uint32Array(NB*SS);
+var LIT=new Float32Array(NB);
+var LITT=new Float32Array(NB);
+var TILT=new Float32Array(NB);
+var BR=new Float32Array(NB);   // the lamp's slow breath, per shaft
+var FREQ=new Float32Array(NB);
+var POP8=new Uint8Array(256);
+(function(){
+  for (var i=0;i<256;i++){
+    var c=0, v=i;
+    while (v){ c+=v&1; v>>=1; }
+    POP8[i]=c;
+  }
+  for (var b=0;b<NB;b++){
+    FREQ[b]=140*Math.pow(6000/140, NB>1?(b/(NB-1)):0);
+    // a gentle -3dB/oct tilt, so a completely unblocked lamp sounds warm
+    // rather than like a sawtooth shouting at you
+    TILT[b]=Math.pow(200/FREQ[b], 0.30);
+    LIT[b]=0; LITT[b]=0; BR[b]=1;
+  }
+})();
+function pop32(v){
+  return POP8[v&255]+POP8[(v>>>8)&255]+POP8[(v>>>16)&255]+POP8[(v>>>24)&255];
+}
+function bitRange(a,b){
+  if (b<a) return 0;
+  var n=b-a+1;
+  if (n>=32) return 0xFFFFFFFF>>>0;
+  return (((1<<n)-1)<<a)>>>0;
+}
+
+var winY0=0, winY1=0, winH=1;
+function winMetrics(){
+  winY0=H*0.045; winY1=H*0.815;
+  winH=Math.max(1, winY1-winY0);
+}
+
+// The blobs are rebuilt each frame and reused for BOTH the mask and the
+// silhouette: [x, y, rx, ry, hand] quintuples in a flat, pre-grown array.
+//
+// They are ELLIPSES, not circles, and that is not a stylistic choice. The
+// landmarks arrive normalised to the FRAME's width and height separately
+// and are then stretched onto a screen with its own aspect, so a finger —
+// physically round — is not round on screen. Sizing it from the
+// wrist-to-knuckle span measured in screen pixels (a mostly VERTICAL
+// vector) makes fingers about twice as fat as they should be on a portrait
+// phone, they merge into one blob, and the comb the whole instrument is
+// built on disappears. So the radius is chosen in aspect-corrected camera
+// units and then mapped out to each axis separately.
+var BLOB=new Float32Array(5*360);
+var nBlob=0;
+function pushBlob(x,y,rx,ry,hi){
+  if (nBlob>=360) return;
+  if (!isFinite(x)||!isFinite(y)||!isFinite(rx)||!isFinite(ry)) return;
+  if (rx<=0.2||ry<=0.2) return;
+  var o=nBlob*5;
+  BLOB[o]=x; BLOB[o+1]=y; BLOB[o+2]=rx; BLOB[o+3]=ry; BLOB[o+4]=hi;
+  nBlob++;
+}
+// each hand gets its own slit through the paper
+var SLIT=[{on:false,y0:0,y1:1},{on:false,y0:0,y1:1}];
+var MCPS=[5,9,13,17], TIPS=[8,12,16,20];
+
+function buildBlobs(){
+  nBlob=0;
+  var AS=camAspect();
+  for (var hi=0;hi<2;hi++){
+    SLIT[hi].on=false;
+    if (!handLive(hi)) continue;
+    var Hd=HA[hi], p=Hd.pts;
+    var rcF=Hd.span*0.115, rcP=Hd.span*0.215;
+    var fx=Math.max(1.2, rcF/AS*W), fy=Math.max(1.2, rcF*H);
+    var px=Math.max(1.6, rcP/AS*W), py=Math.max(1.6, rcP*H);
+    var i,j;
+    for (i=0;i<PALM.length;i++){
+      var a=p[PALM[i]];
+      pushBlob(a.x,a.y,px,py,hi);
+      var bn=p[PALM[(i+1)%PALM.length]];
+      pushBlob((a.x+bn.x)*0.5,(a.y+bn.y)*0.5,px*0.92,py*0.92,hi);
+    }
+    pushBlob((p[0].x+p[9].x)*0.5,(p[0].y+p[9].y)*0.5,px*1.06,py*1.06,hi);
+    for (i=0;i<HB.length;i++){
+      var q=p[HB[i][0]], r2=p[HB[i][1]];
+      var dx=r2.x-q.x, dy=r2.y-q.y;
+      var len=Math.hypot(dx,dy);
+      var K=clamp(Math.ceil(len/Math.max(2,fy*0.62)),2,9);
+      for (j=0;j<=K;j++){
+        var t=j/K;
+        pushBlob(q.x+dx*t, q.y+dy*t, fx, fy, hi);
+      }
+    }
+    // ── THE SLIT ────────────────────────────────────────────────────
+    // The lamp is not a window, it is a slit, and the slit rides with the
+    // hand. This is what makes the comb real. Measuring coverage down the
+    // WHOLE height averages the wedge-shaped gaps between spread fingers
+    // together with the solid palm beneath them, and the teeth vanish into
+    // one plateau — which is exactly what the harness measured before this
+    // existed. Reading across a band that sits on the fingers instead
+    // gives finger, gap, finger, gap, and the comb is audible.
+    var mcpY=0, tipY=0;
+    for (i=0;i<4;i++){ mcpY+=p[MCPS[i]].y; tipY+=p[TIPS[i]].y; }
+    mcpY*=0.25; tipY*=0.25;
+    var reach=mcpY-tipY;
+    var half=Math.max(Hd.spanPx*0.30, Math.abs(reach)*0.42);
+    var yc=mcpY-reach*0.58;
+    if (!isFinite(yc)||!isFinite(half)||half<2){ continue; }
+    SLIT[hi].on=true;
+    SLIT[hi].y0=yc-half; SLIT[hi].y1=yc+half;
+  }
+}
+function buildCover(){
+  var b,hi;
+  for (b=0;b<NB;b++) LITT[b]=0;
+  var colW=W/NB;
+  for (hi=0;hi<2;hi++){
+    if (!SLIT[hi].on) continue;
+    var sy0=SLIT[hi].y0, sh=Math.max(1, SLIT[hi].y1-sy0);
+    for (b=0;b<NB*SS;b++) COVER[b]=0;
+    for (var d=0;d<nBlob;d++){
+      var o=d*5;
+      if (BLOB[o+4]!==hi) continue;
+      var cx=BLOB[o], cy=BLOB[o+1], rx=BLOB[o+2], ry=BLOB[o+3];
+      var s0=Math.floor((cx-rx)/colW*SS), s1=Math.floor((cx+rx)/colW*SS);
+      if (s1<0||s0>=NB*SS) continue;
+      if (s0<0) s0=0;
+      if (s1>NB*SS-1) s1=NB*SS-1;
+      for (var q=s0;q<=s1;q++){
+        var xc=(q+0.5)*colW/SS;
+        var u=(xc-cx)/rx;
+        var t=1-u*u;
+        if (t<=0) continue;
+        var hh=ry*Math.sqrt(t);
+        var c0=Math.floor((cy-hh-sy0)/sh*VC);
+        var c1=Math.floor((cy+hh-sy0)/sh*VC);
+        if (c1<0||c0>VC-1) continue;
+        if (c0<0) c0=0;
+        if (c1>VC-1) c1=VC-1;
+        COVER[q]=(COVER[q]|bitRange(c0,c1))>>>0;
+      }
+    }
+    // A knee, so a column the slit barely clips goes properly dark rather
+    // than lingering at a third of full and smearing the comb shut.
+    for (b=0;b<NB;b++){
+      var acc=0;
+      for (var k2=0;k2<SS;k2++) acc+=pop32(COVER[b*SS+k2]);
+      var cov=acc/(VC*SS);
+      var v=clamp((cov-0.16)/0.62,0,1);
+      v=v*v*(3-2*v);
+      if (v>LITT[b]) LITT[b]=v;
+    }
+  }
+}
+function smoothLit(dt){
+  var k=1-Math.exp(-clamp(dt,0.001,0.1)/0.055);
+  for (var b=0;b<NB;b++){
+    var v=LIT[b]+(LITT[b]-LIT[b])*k;
+    LIT[b]=isFinite(v)?clamp(v,0,1):0;
+    // A real lamp behind paper is never perfectly steady.  Each shaft
+    // breathes on its own phase — and because the SAME array feeds the
+    // gain nodes and the gradient alphas, you hear the flicker you see.
+    // Across 24 bands at slightly different phases it reads as a very
+    // slow chorus rather than as tremolo.
+    BR[b]=0.90+0.10*Math.sin(breathe+b*0.31);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  AUDIO ─ SOUND DESIGN: a detuned saw stack driven through a 24-band
+//  parallel bandpass sieve.  This is SUBTRACTIVE, and specifically it is
+//  spectral: the source never changes character, only which of its
+//  harmonics are allowed out.  Spread fingers give narrow passbands
+//  spaced like a comb, which is why an open hand sounds vowel-like and a
+//  closed one sounds like nothing at all.
+//
+//    源   five sawtooths at 0, ±7, ±15 cents plus a pink-noise breath
+//         layer at -22dB.  Detuning is what stops the comb sounding
+//         like a ring modulator.
+//    篩   36 bandpass filters, 140Hz..6kHz logarithmic — 0.155 of an
+//         octave apart, which is deliberately just fine enough that five
+//         spread fingers resolve into separate teeth instead of one
+//         smear.  Q comes from the にじみ control (4 .. 18): at the low
+//         end adjacent bands overlap and the comb fuses into a vowel, at
+//         the high end they separate and you hear the teeth. That control
+//         is therefore not a tone knob, it is the resolving power of the
+//         sieve.  Each band has its own gain node fed by LIT[b]*BR[b]
+//         and a fixed -3dB/oct tilt.
+//    枕   the pedal: a triangle + saw pair on the tonic two octaves down,
+//         through its own lowpass, level from the second hand.  It is on
+//         the tonic by construction, so it can never disagree with the
+//         melody.
+//
+//  One compressor at the end; twenty-four bands summing at once is
+//  exactly the case that needs it.
+// ═══════════════════════════════════════════════════════════════════════
+var AC=null, comp=null, master=null, audioOK=false;
+var bus=null, busGain=null, sumBus=null, outLp=null;
+var saws=[], noiseSrc=null, noiseGain=null;
+var BPF=[], BPG=[];
+var pedA=null, pedB=null, pedGain=null, pedLp=null;
+var DET=[0,7,-7,15,-15];
+
+function makePink(){
+  var n=Math.floor(AC.sampleRate*2);
+  if (n<1) n=1;
+  var b=AC.createBuffer(1,n,AC.sampleRate);
+  var d=b.getChannelData(0);
+  var b0=0,b1=0,b2=0;
+  for (var i=0;i<n;i++){
+    var wn=Math.random()*2-1;
+    b0=0.99765*b0+wn*0.0990460;
+    b1=0.96300*b1+wn*0.2965164;
+    b2=0.57000*b2+wn*1.0526913;
+    d[i]=clamp((b0+b1+b2+wn*0.1848)*0.22,-1,1);
+  }
+  return b;
+}
+
+function initAudio(){
+  if (AC){ if (AC.state==='suspended'&&AC.resume){ try{AC.resume();}catch(e){} } return true; }
+  var C=window.AudioContext||window.webkitAudioContext;
+  if (!C) return false;
+  try{ AC=new C(); }catch(e){ AC=null; return false; }
+  if (AC.state==='suspended'&&AC.resume){ try{AC.resume();}catch(e){} }
+  try{
+    comp=AC.createDynamicsCompressor();
+    comp.threshold.value=-19; comp.knee.value=26; comp.ratio.value=5.5;
+    comp.attack.value=0.012; comp.release.value=0.28;
+    master=AC.createGain(); master.gain.value=0.62;
+    comp.connect(master); master.connect(AC.destination);
+
+    outLp=AC.createBiquadFilter();
+    outLp.type='lowpass'; outLp.frequency.value=9200; outLp.Q.value=0.6;
+    outLp.connect(comp);
+
+    sumBus=AC.createGain(); sumBus.gain.value=1;
+    sumBus.connect(outLp);
+
+    bus=AC.createGain(); bus.gain.value=1;
+    busGain=AC.createGain(); busGain.gain.value=0.0001;
+    bus.connect(busGain);
+
+    var i;
+    for (i=0;i<DET.length;i++){
+      var o=AC.createOscillator();
+      o.type='sawtooth';
+      o.frequency.value=220; o.detune.value=DET[i];
+      var g=AC.createGain(); g.gain.value=0.17;
+      o.connect(g); g.connect(bus);
+      try{ o.start(); }catch(e){}
+      saws.push({o:o,g:g});
+    }
+    var pink=makePink();
+    noiseSrc=AC.createBufferSource();
+    noiseSrc.buffer=pink; noiseSrc.loop=true;
+    noiseGain=AC.createGain(); noiseGain.gain.value=0.085;
+    noiseSrc.connect(noiseGain); noiseGain.connect(bus);
+    try{ noiseSrc.start(); }catch(e){}
+
+    for (i=0;i<NB;i++){
+      var f=AC.createBiquadFilter();
+      f.type='bandpass'; f.frequency.value=FREQ[i]; f.Q.value=5;
+      var bg=AC.createGain(); bg.gain.value=0.0001;
+      busGain.connect(f); f.connect(bg); bg.connect(sumBus);
+      BPF.push(f); BPG.push(bg);
+    }
+
+    pedLp=AC.createBiquadFilter();
+    pedLp.type='lowpass'; pedLp.frequency.value=460; pedLp.Q.value=0.8;
+    pedGain=AC.createGain(); pedGain.gain.value=0.0001;
+    pedLp.connect(pedGain); pedGain.connect(comp);
+    pedA=AC.createOscillator(); pedA.type='triangle'; pedA.frequency.value=73;
+    pedB=AC.createOscillator(); pedB.type='sawtooth'; pedB.frequency.value=73; pedB.detune.value=-6;
+    var pa=AC.createGain(); pa.gain.value=0.5;
+    var pb=AC.createGain(); pb.gain.value=0.16;
+    pedA.connect(pa); pa.connect(pedLp);
+    pedB.connect(pb); pb.connect(pedLp);
+    try{ pedA.start(); pedB.start(); }catch(e){}
+
+    audioOK=true;
+  }catch(e){ audioOK=false; }
+  return audioOK;
+}
+function ramp(param,v,tc){
+  if (!param||typeof v!=='number'||!isFinite(v)) return;
+  try{ param.setTargetAtTime(v, AC.currentTime, Math.max(0.006, tc||0.04)); }catch(e){}
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  PITCH.  Height picks a scale degree, never a frequency — so there is
+//  no wrong note to land on.  A degree only changes once the hand has
+//  crossed a whole step PAST the boundary, which is the difference
+//  between an instrument and a siren, and the note then GLIDES rather
+//  than jumps.
+// ═══════════════════════════════════════════════════════════════════════
+var SCALES=[
+  { key:'律', deg:[0,2,5,7,9] },
+  { key:'呂', deg:[0,2,4,7,9] },
+  { key:'陰', deg:[0,2,3,7,8] }
+];
+var scaleIx=0;
+var ROOT=50;              // D3
+var NOTES=11;
+var noteIx=5, noteMidi=ROOT, glide=0.07;
+var NAMES=['C','C♯','D','D♯','E','F','F♯','G','G♯','A','A♯','B'];
+
+function degToMidi(ix){
+  var d=SCALES[scaleIx].deg;
+  var n=d.length;
+  var oct=Math.floor(ix/n), k=ix-oct*n;
+  if (k<0){ k+=n; oct-=1; }
+  return ROOT + oct*12 + d[k];
+}
+function midiHz(m){ return 440*Math.pow(2,(m-69)/12); }
+function noteName(m){
+  var mi=Math.round(m);
+  return NAMES[((mi%12)+12)%12] + String(Math.floor(mi/12)-1);
+}
+function pickNote(cy){
+  // cy 0 (top) .. 1 (bottom).  Bottom is low.
+  var f=clamp((0.86-cy)/(0.86-0.10),0,1);
+  var raw=f*(NOTES-1);
+  var d=raw-noteIx;
+  if (d>0.62) noteIx=Math.min(NOTES-1, noteIx+Math.round(d));
+  else if (d<-0.62) noteIx=Math.max(0, noteIx+Math.round(d));
+  noteIx=clamp(noteIx,0,NOTES-1);
+  noteMidi=degToMidi(noteIx);
+}
+
+var nijimi=0.42;
+function readNij(){
+  var v=parseFloat(nijEl.value);
+  nijimi=clamp(isFinite(v)?v/100:0.42, 0, 1);
+}
+nijEl.addEventListener('input',readNij);
+nijEl.addEventListener('change',readNij);
+
+for (var mi2=0;mi2<3;mi2++){
+  (function(ix){
+    mBtn[ix].addEventListener('click',function(){
+      scaleIx=ix;
+      for (var j=0;j<3;j++){
+        if (j===ix) mBtn[j].classList.add('on'); else mBtn[j].classList.remove('on');
+      }
+      noteMidi=degToMidi(noteIx);
+    });
+  })(mi2);
+}
+
+var litLevel=0;           // 0 .. 1, how present the player is
+function pushAudio(dt){
+  if (!audioOK) return;
+  var live=handLive(0)||handLive(1);
+  var target=live?1:0;
+  litLevel+=(target-litLevel)*(1-Math.exp(-clamp(dt,0.001,0.1)/0.42));
+  if (!isFinite(litLevel)) litLevel=0;
+
+  var f0=midiHz(noteMidi);
+  if (!isFinite(f0)||f0<20) f0=146.83;
+  var i;
+  for (i=0;i<saws.length;i++) ramp(saws[i].o.frequency, f0, glide);
+
+  // nothing held up, nothing lit, nothing to drive
+  ramp(busGain.gain, lerp(0.04,0.92,litLevel), 0.16);
+
+  var Q=lerp(4.0,18.0,nijimi);
+  var sum=0;
+  for (i=0;i<NB;i++){
+    var g=LIT[i]*BR[i];
+    var v=clamp(g*TILT[i]*0.52, 0, 1.2);
+    sum+=g;
+    ramp(BPG[i].gain, Math.max(0.00008,v), 0.030);
+    ramp(BPF[i].Q, Q, 0.12);
+  }
+  ramp(noiseGain.gain, lerp(0.055,0.11,nijimi), 0.2);
+
+  // pedal: only when a SECOND hand is up, and always on the tonic
+  var ped=0;
+  if (handLive(1)) ped=clamp(HA[1].open,0,1);
+  var pf=midiHz(ROOT-12);
+  ramp(pedA.frequency, pf, 0.14);
+  ramp(pedB.frequency, pf, 0.14);
+  ramp(pedGain.gain, Math.max(0.00008, 0.30*ped*litLevel), 0.28);
+  ramp(pedLp.frequency, lerp(300,760,ped), 0.3);
+  return sum;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  THE PAPER.  Warm off-white, long 楮 fibres at random angles, faint
+//  laid lines from the screen frame.  Built once per resize.
+// ═══════════════════════════════════════════════════════════════════════
+var washi=null;
+function buildWashi(){
+  var cv=document.createElement('canvas');
+  cv.width=Math.max(1,Math.round(W*DPR)); cv.height=Math.max(1,Math.round(H*DPR));
+  var g=cv.getContext('2d');
+  if (!g) return null;
+  g.setTransform(DPR,0,0,DPR,0,0);
+  g.fillStyle='#f7f4ec'; g.fillRect(0,0,W,H);
+  // faint blue in the paper's shadow side keeps it reading as PAPER
+  var sh=g.createLinearGradient(0,0,0,H);
+  sh.addColorStop(0,'rgba(159,188,203,0.10)');
+  sh.addColorStop(0.55,'rgba(159,188,203,0.02)');
+  sh.addColorStop(1,'rgba(159,188,203,0.14)');
+  g.fillStyle=sh; g.fillRect(0,0,W,H);
+  // 楮 fibres
+  var i, N=Math.round(W*H/2600);
+  if (N>1400) N=1400;
+  g.lineCap='round';
+  for (i=0;i<N;i++){
+    var x=h2(i*1.13,2.7)*W, y=h2(i*2.31,5.3)*H;
+    var a=h2(i*3.77,8.1)*Math.PI;
+    var l=MN*(0.008+h2(i*4.19,1.9)*0.055);
+    var dark=h2(i*5.51,3.3);
+    g.strokeStyle = dark>0.66 ? 'rgba(111,106,96,0.062)' : 'rgba(255,255,255,0.55)';
+    g.lineWidth=Math.max(0.5, MN*(0.0007+h2(i*6.13,7.7)*0.0016));
+    g.beginPath();
+    g.moveTo(x-Math.cos(a)*l*0.5, y-Math.sin(a)*l*0.5);
+    g.lineTo(x+Math.cos(a)*l*0.5, y+Math.sin(a)*l*0.5);
+    g.stroke();
+  }
+  // laid lines
+  g.lineWidth=1;
+  var LS=Math.max(9,MN*0.030);
+  for (var y2=0;y2<H;y2+=LS){
+    g.strokeStyle='rgba(111,106,96,0.030)';
+    g.beginPath(); g.moveTo(0,y2+0.5); g.lineTo(W,y2+0.5); g.stroke();
+  }
+  var CS=Math.max(40,MN*0.30);
+  for (var x2=CS;x2<W;x2+=CS){
+    g.strokeStyle='rgba(111,106,96,0.05)';
+    g.beginPath(); g.moveTo(x2+0.5,0); g.lineTo(x2+0.5,H); g.stroke();
+  }
+  return cv;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  RENDER.  The shafts are drawn from LIT[] — the same array the gain
+//  nodes are fed from — so brightness and loudness are one number.
+// ═══════════════════════════════════════════════════════════════════════
+var breathe=0, running=false;
+var lastT=nowS();
+
+function drawShafts(g){
+  var colW=W/NB;
+  for (var b=0;b<NB;b++){
+    var o=clamp(LIT[b]*BR[b],0,1);
+    if (o<=0.004) continue;
+    var x=b*colW;
+    // the lamp breathes very slowly; each shaft on its own phase
+    var a=o;
+    var gr=g.createLinearGradient(0,winY0,0,winY1);
+    gr.addColorStop(0,   'rgba(255,224,166,'+(clamp(a*0.16,0,1)).toFixed(4)+')');
+    gr.addColorStop(0.42,'rgba(255,212,138,'+(clamp(a*0.50,0,1)).toFixed(4)+')');
+    gr.addColorStop(1,   'rgba(255,201,110,'+(clamp(a*0.20,0,1)).toFixed(4)+')');
+    g.fillStyle=gr;
+    g.fillRect(x, winY0, colW+0.7, winH);
+    // the hot core of a bright shaft
+    if (o>0.4){
+      var cg=g.createLinearGradient(x,0,x+colW,0);
+      var ca=clamp((o-0.4)/0.6*0.30,0,1);
+      cg.addColorStop(0,'rgba(255,240,200,0)');
+      cg.addColorStop(0.5,'rgba(255,246,220,'+ca.toFixed(4)+')');
+      cg.addColorStop(1,'rgba(255,240,200,0)');
+      g.fillStyle=cg;
+      g.fillRect(x, winY0, colW+0.7, winH);
+    }
+  }
+  // band ticks along the foot of the window
+  g.save();
+  g.strokeStyle='rgba(187,139,44,0.30)'; g.lineWidth=1;
+  for (var t2=0;t2<=NB;t2++){
+    var xx=Math.round(t2*colW)+0.5;
+    var hgt=(t2%6===0)?MN*0.018:MN*0.008;
+    g.beginPath(); g.moveTo(xx,winY1); g.lineTo(xx,winY1+hgt); g.stroke();
+  }
+  g.restore();
+}
+
+function drawSlit(g){
+  for (var hi=0;hi<2;hi++){
+    if (!SLIT[hi].on) continue;
+    var y0=SLIT[hi].y0, y1=SLIT[hi].y1;
+    if (!(y1>y0)) continue;
+    var gr=g.createLinearGradient(0,y0,0,y1);
+    gr.addColorStop(0,'rgba(255,212,138,0)');
+    gr.addColorStop(0.5,'rgba(255,222,160,0.30)');
+    gr.addColorStop(1,'rgba(255,212,138,0)');
+    g.fillStyle=gr;
+    g.fillRect(0,y0,W,y1-y0);
+    g.strokeStyle='rgba(187,139,44,0.20)'; g.lineWidth=1;
+    g.beginPath(); g.moveTo(0,y0+0.5); g.lineTo(W,y0+0.5);
+    g.moveTo(0,y1-0.5); g.lineTo(W,y1-0.5);
+    g.stroke();
+  }
+}
+
+function drawSilhouette(g){
+  if (nBlob<=0) return;
+  // The hand is not a shadow here — it is the thing the lamp has reached.
+  // Four passes: a wide warm bloom spilling onto the paper, a bright body,
+  // a cool rim (light through a hand goes warm in the middle and blue-grey
+  // at the edge) and a hot core. Same ellipses as the mask, so the picture
+  // and the sound cannot come apart.
+  var d,o,k;
+  var LAYER=[[2.35,'rgba(255,206,124,0.13)',0],
+             [1.30,'rgba(255,229,175,0.40)',0],
+             [1.02,'rgba(159,188,203,0.26)',0],
+             [0.70,'rgba(255,247,229,0.62)',-0.14]];
+  g.save();
+  for (k=0;k<LAYER.length;k++){
+    var f=LAYER[k][0], off=LAYER[k][2];
+    g.fillStyle=LAYER[k][1];
+    for (d=0;d<nBlob;d++){
+      o=d*5;
+      var rx=BLOB[o+2]*f, ry=BLOB[o+3]*f;
+      if (rx<=0||ry<=0) continue;
+      g.beginPath();
+      g.ellipse(BLOB[o], BLOB[o+1]+ry*off, rx, ry, 0, 0, TAU);
+      g.fill();
+    }
+  }
+  g.restore();
+}
+
+function frame(){
+  requestAnimationFrame(frame);
+  var t=nowS();
+  var dt=t-lastT; lastT=t;
+  if (!(dt>0)) dt=0.016;
+  if (dt>0.05) dt=0.05;
+  breathe+=dt*(TAU/9);
+
+  winMetrics();
+  if (!washi) washi=buildWashi();
+
+  buildBlobs();
+  buildCover();
+  smoothLit(dt);
+
+  var live0=handLive(0), live1=handLive(1);
+  if (live0) pickNote(HA[0].cy);
+  if (running) pushAudio(dt);
+
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  if (washi) ctx.drawImage(washi,0,0,W,H);
+  else { ctx.fillStyle='#f7f4ec'; ctx.fillRect(0,0,W,H); }
+
+  drawShafts(ctx);
+  drawSlit(ctx);
+  drawSilhouette(ctx);
+
+  if (running) drawHUD(ctx);
+}
+
+function drawHUD(g){
+  var live1=handLive(1);
+  var live=handLive(0)||live1;
+  var sumLit=0, nOpen=0, b;
+  for (b=0;b<NB;b++){ sumLit+=LIT[b]; if (LIT[b]>0.35) nOpen++; }
+  var pct=Math.round(sumLit/NB*100);
+
+  rNote.textContent = live ? noteName(noteMidi) : '—';
+  rOpen.textContent = String(pct);
+  rBands.textContent = String(nOpen);
+
+  g.save();
+  g.textBaseline='top';
+  var pad=Math.round(MN*0.038);
+  g.font='500 '+Math.round(MN*0.021)+'px "Zen Maru Gothic", sans-serif';
+  g.fillStyle='rgba(111,106,96,0.55)';
+  g.textAlign='left';
+  g.fillText('透 か し', pad, pad*0.7);
+
+  // tracking tell
+  g.beginPath();
+  g.arc(pad+MN*0.007, pad*0.7+MN*0.048, MN*0.007, 0, TAU);
+  g.fillStyle = live ? '#bb8b2c' : 'rgba(111,106,96,0.22)';
+  g.fill();
+  g.font='400 '+Math.round(MN*0.018)+'px "Zen Maru Gothic", sans-serif';
+  g.fillStyle='rgba(111,106,96,0.5)';
+  g.fillText(live ? (live1 ? '両手が見えています' : '手が見えています') : 'かざしてください',
+             pad+MN*0.022, pad*0.7+MN*0.040);
+
+  // the note, set large and quiet on the right
+  if (live){
+    g.textAlign='right';
+    g.font='300 '+Math.round(MN*0.075)+'px "Zen Maru Gothic", sans-serif';
+    g.fillStyle='rgba(187,139,44,0.60)';
+    g.fillText(noteName(noteMidi), W-pad, pad*0.7+MN*0.02);
+    g.font='400 '+Math.round(MN*0.019)+'px "Zen Maru Gothic", sans-serif';
+    g.fillStyle='rgba(111,106,96,0.45)';
+    g.fillText(SCALES[scaleIx].key+' の 調子', W-pad, pad*0.7+MN*0.104);
+  }
+  g.restore();
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  THE DIAGRAM.  A hand closes and opens in front of the lamp; the
+//  shafts between the fingers appear and vanish with it.  Three seconds,
+//  and it is the whole instrument.
+// ═══════════════════════════════════════════════════════════════════════
+var demoRun=true, demoT0=nowS();
+function demoFrame(){
+  if (!demoRun) return;
+  var g=demoCtx;
+  if (!g) return;
+  var w=demoCv.width, h=demoCv.height;
+  var t=(nowS()-demoT0)%5.4;
+  g.fillStyle='#f7f4ec'; g.fillRect(0,0,w,h);
+
+  // 0.0-1.2 open the fingers   1.2-3.0 slide across   3.0-4.0 close to a fist
+  var sp, slide;
+  if (t<1.2){ sp=smooth(t/1.2); slide=0; }
+  else if (t<3.0){ sp=1; slide=smooth((t-1.2)/1.8); }
+  else if (t<4.0){ sp=1-smooth((t-3.0)/1.0); slide=1; }
+  else { sp=0; slide=1-smooth((t-4.0)/1.4); }
+
+  var cx=w*(0.30+0.40*slide), cy=h*0.60;
+  var NBD=18, colW=w/NBD;
+  var fing=[-0.62,-0.30,0.02,0.34,0.64];
+  var i, fx=[];
+  for (i=0;i<5;i++) fx.push(cx+fing[i]*w*0.125*(0.26+0.74*sp));
+  var fw=w*0.026;
+  var palmR=w*0.088*(0.52+0.48*(1-sp))+w*0.020;
+
+  for (var b=0;b<NBD;b++){
+    var x=(b+0.5)*colW, lit=0;
+    if (Math.abs(x-cx)<palmR) lit=0.55;
+    for (i=0;i<5;i++){ if (Math.abs(x-fx[i])<fw*1.4) lit=Math.max(lit, 0.35+0.65*sp); }
+    if (lit<=0.02) continue;
+    var gr=g.createLinearGradient(0,h*0.05,0,h*0.92);
+    gr.addColorStop(0,'rgba(255,224,166,'+(lit*0.18).toFixed(3)+')');
+    gr.addColorStop(0.45,'rgba(255,212,138,'+(lit*0.72).toFixed(3)+')');
+    gr.addColorStop(1,'rgba(255,201,110,'+(lit*0.26).toFixed(3)+')');
+    g.fillStyle=gr;
+    g.fillRect(b*colW,h*0.05,colW+0.6,h*0.87);
+  }
+
+  // the hand, lit
+  g.fillStyle='rgba(255,206,124,0.16)';
+  g.beginPath(); g.ellipse(cx,cy,palmR*1.9,h*0.30,0,0,TAU); g.fill();
+  for (i=0;i<5;i++){
+    var top=cy-h*0.15-h*0.30*(0.22+0.78*sp)*(1-Math.abs(fing[i])*0.28);
+    g.strokeStyle='rgba(255,229,175,0.55)'; g.lineCap='round';
+    g.lineWidth=fw*2.4;
+    g.beginPath(); g.moveTo(fx[i],cy); g.lineTo(fx[i],top); g.stroke();
+    g.strokeStyle='rgba(159,188,203,0.30)'; g.lineWidth=fw*1.7;
+    g.beginPath(); g.moveTo(fx[i],cy); g.lineTo(fx[i],top); g.stroke();
+    g.strokeStyle='rgba(255,247,229,0.66)'; g.lineWidth=fw*0.95;
+    g.beginPath(); g.moveTo(fx[i],cy); g.lineTo(fx[i],top); g.stroke();
+  }
+  g.fillStyle='rgba(255,229,175,0.52)';
+  g.beginPath(); g.ellipse(cx,cy,palmR,h*0.185,0,0,TAU); g.fill();
+  g.fillStyle='rgba(159,188,203,0.26)';
+  g.beginPath(); g.ellipse(cx,cy,palmR*0.82,h*0.150,0,0,TAU); g.fill();
+  g.fillStyle='rgba(255,247,229,0.62)';
+  g.beginPath(); g.ellipse(cx,cy-h*0.012,palmR*0.56,h*0.105,0,0,TAU); g.fill();
+
+  g.fillStyle='rgba(111,106,96,0.62)';
+  g.font='500 '+Math.round(h*0.094)+'px "Zen Maru Gothic", sans-serif';
+  g.textAlign='left'; g.textBaseline='top';
+  var cap = (t<1.2) ? 'ひらくと 櫛の歯' : (t<3.0 ? '横へ すべらせると 音色' : 'にぎると ひと続き');
+  g.fillText(cap, h*0.07, h*0.05);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  WIRING
+// ═══════════════════════════════════════════════════════════════════════
+goBtn.addEventListener('click',function(){
+  if (running) return;
+  demoRun=false;
+  initAudio();
+  readNij();
+  sheet.classList.add('gone');
+  setTimeout(function(){ sheet.style.display='none'; },640);
+  panel.classList.add('on');
+  running=true;
+  startStream()
+    .then(function(){ if (initHands()) startMpCamera(); })
+    .catch(showError);
+});
+
+document.addEventListener('visibilitychange',function(){
+  if (document.hidden) loseHands();
+});
+
+function tick(){
+  requestAnimationFrame(tick);
+  if (demoRun) demoFrame();
+}
+
+resize();
+winMetrics();
+readNij();
+requestAnimationFrame(frame);
+requestAnimationFrame(tick);
+</script>
+</body>
+</html>
