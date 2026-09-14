@@ -1,0 +1,1123 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>KAKUREMINO ─ 撫でたところから消える</title>
+<meta name="description" content="はじめに部屋だけを三秒おぼえさせる。あとは手のひらで撫でたところから体が消えていく。消えた先に見えているのは録画ではなく、あなたがいなかったときの部屋そのもの。消え際は蓑の藁のようにほつれ、縁では光が曲がる。蓑・全・陽炎の三つ。">
+<meta name="theme-color" content="#141c25">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=M+PLUS+1+Code:wght@300;400;500;700&display=swap" rel="stylesheet">
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  KAKUREMINO ─ 撫でたところから消える               ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  PALETTE   紺鉄  kontetsu #141c25  the chrome. A cold blue-black — this is
+                                    the ONE dark piece of the three shipped
+                                    tonight, and it earns it: the subject is
+                                    concealment, and every control has to
+                                    disappear against the camera feed rather
+                                    than sit on top of it.
+            苔    koke     #6b7a4a  the straw cloak. A dull sappy green that
+                                    reads as dried grass, never as foliage.
+            生成  kinari   #e8e0cd  every glyph. Unbleached, so the type sits
+                                    on the feed without glaring.
+            鈍色  nibiiro  #7d8790  inactive controls and rules.
+            灯    tomoshi  #d9a441  the live tick and the hidden-percentage
+                                    readout ONLY. It is the single warm
+                                    thing on screen and it means "working".
+            MOOD: a field hide at dusk. Technical, cold, watchful. Nothing
+            decorative survives — the camera feed is the whole picture and
+            the chrome is a thin instrument laid over it.
+  BACKGROUND  There isn't one: the processed camera fills the frame. The
+            control strip is a woven straw band (real over-under weave drawn
+            once into a pattern tile) at 紺鉄 with 苔 threads, so the only
+            texture in the piece is the cloak itself.
+  TYPE      M PLUS 1 Code — a Japanese MONOSPACE, and the third distinct
+            voice of the night against the heavy mincho and the rounded
+            gothic. Numbers line up in a monospace, which matters here
+            because the readout is a live measurement.
+  MOTION    Two speeds on purpose. The chrome is snappy and mechanical:
+            140ms, no easing games, a mode change is a hard cut. The
+            DISAPPEARANCE is the opposite — the erase field decays over
+            about four seconds, so you fade back into view slowly enough to
+            watch it happen.
+  SIGNATURE THE STRAW FRAY. The boundary of the erased region is not a cut.
+            A precomputed anisotropic noise — strongly correlated down each
+            column and barely at all across them — is subtracted from the
+            erase field before it is thresholded, so the edge breaks into
+            hanging vertical strands exactly like the hem of a 蓑. Combined
+            with the second signature — the refractive rim, where the plate
+            is resampled along the mask's gradient with the red and blue
+            channels bent by different amounts — the boundary reads as woven
+            straw over bent glass rather than as a matte.
+  THE REAL TRICK  The pixels you vanish into are not a still, a blur, or a
+            fill: they are a genuine background plate, learned from three
+            seconds of the empty room and then kept alive. Every frame, the
+            pixels the mask is confident are background nudge the plate a
+            couple of percent towards what the camera sees now, and the
+            pixels it thinks are YOU are frozen out of that update. So the
+            plate survives the light changing and the exposure hunting, but
+            it never quietly absorbs the person standing still in front of
+            it. The mask itself compares CHROMATICITY first and luminance
+            second, which is what lets your own shadow fall across the wall
+            without tearing a hole in you.
+  PERFORMANCE  Every buffer is allocated once per resolution change and
+            reused; there is one getImageData and one putImageData per
+            frame and no other allocation in the loop. The working
+            resolution is adaptive: the frame cost is averaged over 30
+            frames and the buffer steps down through 352x264 / 288x216 /
+            224x168 / 176x132 when it cannot hold the budget, and back up
+            when it can. A phone that cannot do 352 wide simply runs at 224
+            and still holds 30fps.
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<style>
+  *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body{ margin:0; padding:0; height:100%; overflow:hidden; background:#141c25; }
+  body{
+    font-family:"M PLUS 1 Code", ui-monospace, monospace; color:#e8e0cd;
+    -webkit-font-smoothing:antialiased; touch-action:none;
+  }
+  #view{ position:fixed; inset:0; width:100%; height:100%; display:block; }
+  #video{ position:fixed; width:2px; height:2px; opacity:0.01; pointer-events:none; left:-10px; top:-10px; }
+
+  #flip{
+    position:fixed; right:11px; top:11px; z-index:30;
+    font-family:inherit; font-size:12px; font-weight:500; letter-spacing:.1em;
+    color:#e8e0cd; background:rgba(20,28,37,.78);
+    border:1px solid rgba(232,224,205,.28); border-radius:2px;
+    padding:7px 11px; cursor:pointer;
+    transition:background .14s linear;
+  }
+  #flip:active{ background:rgba(20,28,37,.96); }
+
+  #err{
+    display:none; position:fixed; left:50%; top:50%; transform:translate(-50%,-50%);
+    z-index:60; max-width:min(86vw,460px); white-space:pre-wrap;
+    background:#141c25; color:#e8e0cd; border:1px solid #d9a441;
+    padding:17px 19px; font-size:13px; line-height:1.85; letter-spacing:.02em;
+  }
+
+  #panel{
+    position:fixed; left:0; right:0; bottom:0; z-index:25;
+    display:flex; flex-direction:column; gap:9px; align-items:center;
+    padding:11px 14px calc(12px + env(safe-area-inset-bottom));
+    background:rgba(20,28,37,.80);
+    border-top:1px solid rgba(107,122,74,.5);
+    opacity:0; transform:translateY(100%); pointer-events:none;
+    transition:opacity .14s linear, transform .16s cubic-bezier(.3,.8,.4,1);
+  }
+  #panel.on{ opacity:1; transform:none; pointer-events:auto; }
+  .row{ display:flex; gap:7px; align-items:center; }
+  .row button{
+    font-family:inherit; font-size:13px; font-weight:500; letter-spacing:.2em;
+    text-indent:.2em; color:#7d8790; background:transparent;
+    border:1px solid rgba(125,135,144,.45); border-radius:2px;
+    padding:7px 15px; cursor:pointer;
+    transition:color .14s linear, border-color .14s linear, background .14s linear;
+  }
+  .row button.on{ color:#141c25; background:#6b7a4a; border-color:#6b7a4a; }
+  #relearn{
+    font-family:inherit; font-size:11.5px; letter-spacing:.12em; font-weight:400;
+    color:#d9a441; background:transparent; border:1px solid rgba(217,164,65,.5);
+    border-radius:2px; padding:7px 11px; cursor:pointer;
+    transition:background .14s linear;
+  }
+  #relearn:active{ background:rgba(217,164,65,.2); }
+  .knob{ display:flex; align-items:center; gap:9px; width:min(340px,86vw); }
+  .knob label{ font-size:10.5px; letter-spacing:.2em; white-space:nowrap; color:#7d8790; }
+  .knob input{
+    -webkit-appearance:none; appearance:none; flex:1; height:2px;
+    background:rgba(125,135,144,.5); border-radius:2px; outline:none;
+  }
+  .knob input::-webkit-slider-thumb{
+    -webkit-appearance:none; width:15px; height:15px; border-radius:2px;
+    background:#6b7a4a; border:1px solid rgba(232,224,205,.5); cursor:pointer;
+  }
+  .knob input::-moz-range-thumb{
+    width:15px; height:15px; border-radius:2px; border:1px solid rgba(232,224,205,.5);
+    background:#6b7a4a; cursor:pointer;
+  }
+  #read{ font-size:10.5px; letter-spacing:.11em; color:rgba(232,224,205,.68); }
+  #read b{ color:#d9a441; font-weight:700; }
+
+  #sheet{
+    position:fixed; inset:0; z-index:50; display:flex;
+    align-items:center; justify-content:center; padding:16px;
+    background:#141c25;
+    transition:opacity .22s linear;
+  }
+  #sheet.gone{ opacity:0; pointer-events:none; }
+  #sheet .card{
+    width:min(560px,100%); max-height:94vh; overflow-y:auto;
+    background:#1b2733; border:1px solid rgba(107,122,74,.55);
+    padding:24px 22px 22px;
+  }
+  #sheet .cap{
+    display:flex; justify-content:space-between; align-items:baseline;
+    font-size:9.5px; letter-spacing:.24em; color:#7d8790;
+    padding-bottom:11px; margin-bottom:16px;
+    border-bottom:1px solid rgba(125,135,144,.3);
+  }
+  #sheet .cap b{ color:#6b7a4a; font-weight:700; }
+  #sheet h1{
+    margin:0 0 5px; font-size:clamp(23px,6.2vw,32px); font-weight:700;
+    letter-spacing:.04em; line-height:1.44;
+  }
+  #sheet .sub{ margin:0 0 16px; font-size:10px; letter-spacing:.4em; color:#7d8790; }
+  #sheet p.lead{ margin:0 0 15px; font-size:13.5px; line-height:1.95; letter-spacing:.02em; font-weight:300; }
+  #sheet p.lead em{ font-style:normal; color:#d9a441; font-weight:700; }
+  #demo{
+    display:block; width:100%; height:auto; aspect-ratio:640/190;
+    background:#0f151c; margin-bottom:15px; border:1px solid rgba(125,135,144,.28);
+  }
+  #sheet .spec{
+    font-size:11.5px; line-height:1.95; letter-spacing:.02em; font-weight:300;
+    border-top:1px solid rgba(125,135,144,.3); padding-top:12px; margin-bottom:19px;
+  }
+  #sheet .spec span{ display:inline-block; min-width:5.2em; color:#6b7a4a; font-weight:700; }
+  #go{
+    display:block; width:100%; font-family:inherit;
+    font-size:15px; font-weight:700; letter-spacing:.36em; text-indent:.36em;
+    color:#141c25; background:#6b7a4a; border:none; border-radius:2px;
+    padding:14px 0; cursor:pointer;
+    transition:background .14s linear, transform .12s linear;
+  }
+  #go:active{ transform:scale(.99); background:#7d8f56; }
+
+  #learn{
+    position:fixed; inset:0; z-index:40; display:none;
+    flex-direction:column; align-items:center; justify-content:center; gap:14px;
+    background:rgba(20,28,37,.88); text-align:center; padding:20px;
+  }
+  #learn.on{ display:flex; }
+  #learn .big{ font-size:clamp(20px,5.6vw,28px); font-weight:700; letter-spacing:.06em; }
+  #learn .cnt{ font-size:clamp(52px,17vw,86px); font-weight:300; color:#d9a441; line-height:1; }
+  #learn .small{ font-size:12px; color:#7d8790; letter-spacing:.1em; line-height:1.9; font-weight:300; }
+
+  @media (max-width:420px){
+    #sheet .card{ padding:18px 15px 16px; }
+    .row button{ padding:7px 12px; font-size:12px; }
+  }
+</style>
+</head>
+<body>
+
+<canvas id="view"></canvas>
+<video id="video" playsinline muted autoplay></video>
+<button id="flip">⟲ カメラ</button>
+<div id="err"></div>
+
+<div id="panel">
+  <div class="row">
+    <button id="m0" class="on">蓑</button>
+    <button id="m1">全</button>
+    <button id="m2">陽炎</button>
+    <button id="relearn">部屋を覚えなおす</button>
+  </div>
+  <div class="knob">
+    <label for="sens">かんど</label>
+    <input type="range" id="sens" min="0" max="100" value="46">
+  </div>
+  <div id="read">消えている <b id="rHid">0</b>%　解像 <b id="rRes">—</b>　<b id="rTrk">—</b></div>
+</div>
+
+<div id="learn">
+  <div class="big" id="lBig">画面から出てください</div>
+  <div class="cnt" id="lCnt">3</div>
+  <div class="small">いない部屋を覚えます。<br>カメラは動かさないでください。</div>
+</div>
+
+<div id="sheet">
+  <div class="card">
+    <div class="cap"><span>OTO-II ／ 隠れ蓑</span><span>LEARNED <b>BACKGROUND PLATE</b></span></div>
+    <h1>撫でたところから<br>消える</h1>
+    <div class="sub">KAKUREMINO</div>
+    <p class="lead">
+      はじめに、<em>あなたのいない部屋</em>を三秒おぼえます。<br>
+      あとは手のひらで<em>撫でたところ</em>から、体が消えていきます。<br>
+      消えた先に見えているのは録画ではなく、<em>そのときの部屋そのもの</em>。
+    </p>
+    <canvas id="demo" width="640" height="190"></canvas>
+    <div class="spec">
+      <span>蓑</span>手のひらで撫でたところが消える（数秒で戻る）<br>
+      <span>全</span>体ぜんぶが消える<br>
+      <span>陽炎</span>消えずに、ガラスのように光を曲げる<br>
+      <span>消え際</span>蓑の藁のようにほつれ、縁で光が曲がります<br>
+      <span>注意</span>カメラを動かしたら「覚えなおす」を押してください<br>
+      <span>ちなみに</span>背景と同じ色の服を着ていると、本当に見つかりません
+    </div>
+    <button id="go">部 屋 を 覚 え る</button>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+<script>
+'use strict';
+// ═══════════════════════════════════════════════════════════════════════
+//  KAKUREMINO ─ 撫でたところから消える
+//
+//  The pixels you vanish into are a real background plate: three seconds
+//  of the empty room, then kept alive frame by frame from the pixels the
+//  mask is confident about.  Not a still, not a blur, not a fill.
+// ═══════════════════════════════════════════════════════════════════════
+var TAU=Math.PI*2;
+function clamp(v,a,b){ return v<a?a:(v>b?b:v); }
+function lerp(a,b,t){ return a+(b-a)*t; }
+function smooth(t){ t=clamp(t,0,1); return t*t*(3-2*t); }
+function nowS(){ return (typeof performance!=='undefined'&&performance.now)?performance.now()/1000:Date.now()/1000; }
+function h2(x,y){ var n=Math.sin(x*127.1+y*311.7)*43758.5453; return n-Math.floor(n); }
+
+var view=document.getElementById('view');
+var ctx=view.getContext('2d');
+var video=document.getElementById('video');
+var flipBtn=document.getElementById('flip');
+var errBox=document.getElementById('err');
+var panel=document.getElementById('panel');
+var sheet=document.getElementById('sheet');
+var goBtn=document.getElementById('go');
+var demoCv=document.getElementById('demo');
+var demoCtx=demoCv.getContext('2d');
+var learnBox=document.getElementById('learn');
+var lBig=document.getElementById('lBig');
+var lCnt=document.getElementById('lCnt');
+var sensEl=document.getElementById('sens');
+var relearnBtn=document.getElementById('relearn');
+var rHid=document.getElementById('rHid');
+var rRes=document.getElementById('rRes');
+var rTrk=document.getElementById('rTrk');
+var mBtn=[document.getElementById('m0'),document.getElementById('m1'),document.getElementById('m2')];
+
+var W=0,H=0,DPR=1,MN=1;
+function resize(){
+  DPR=Math.min(window.devicePixelRatio||1,2);
+  W=Math.max(240,window.innerWidth); H=Math.max(320,window.innerHeight);
+  view.width=Math.max(1,Math.round(W*DPR));
+  view.height=Math.max(1,Math.round(H*DPR));
+  view.style.width=W+'px'; view.style.height=H+'px';
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  ctx.imageSmoothingEnabled=true;
+  MN=Math.min(W,H);
+  strawTile=null;
+}
+window.addEventListener('resize',resize);
+window.addEventListener('orientationchange',function(){ setTimeout(resize,180); });
+
+// ═══════════════════════════════════════════════════════════════════════
+//  CAMERA
+// ═══════════════════════════════════════════════════════════════════════
+var facing='user', mirror=true, stream=null;
+function showError(e){
+  var msg=(e&&e.message)?e.message:String(e||'unknown');
+  errBox.style.display='block';
+  errBox.textContent='カメラを起動できませんでした：'+msg+
+    '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+}
+function startStream(){
+  var md=navigator.mediaDevices;
+  if (!md||!md.getUserMedia) return Promise.reject(new Error('getUserMedia is unavailable'));
+  if (stream&&stream.getTracks) stream.getTracks().forEach(function(t){ t.stop(); });
+  return md.getUserMedia({
+    video:{ facingMode:{ ideal:facing }, width:{ ideal:640 }, height:{ ideal:480 } },
+    audio:false
+  }).then(function(st){
+    stream=st; video.srcObject=st; mirror=(facing==='user');
+    var p=video.play();
+    return (p&&p.then)?p.catch(function(){}):null;
+  });
+}
+flipBtn.addEventListener('click',function(){
+  facing=(facing==='user')?'environment':'user';
+  loseHands();
+  startLearn();                       // a new camera is a new room
+  startStream().then(startMpCamera).catch(showError);
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+//  HANDS ─ only the palms matter here; they are the erasers
+// ═══════════════════════════════════════════════════════════════════════
+var hands=null, mpCamera=null, mpReady=false;
+var LOST_S=0.34;
+var PALMPTS=[0,5,9,13,17];
+function mkHand(){ return { on:false, t:-1e9, x:0.5, y:0.5, r:0.1, open:0.5 }; }
+var HA=[mkHand(),mkHand()];
+function loseHands(){ HA[0].on=false; HA[1].on=false; }
+function handLive(i){ return HA[i].on && (nowS()-HA[i].t)<LOST_S; }
+function lmOK(L,i){
+  if (!L||L.length<21) return false;
+  var p=L[i];
+  return !!p && typeof p.x==='number' && typeof p.y==='number' && isFinite(p.x) && isFinite(p.y);
+}
+function camAspect(){
+  var a=1.3333;
+  if (video && video.videoWidth>0 && video.videoHeight>0) a=video.videoWidth/video.videoHeight;
+  if (!isFinite(a)||a<0.2||a>5) a=1.3333;
+  return a;
+}
+var NEED=[0,4,5,8,9,12,13,16,17,20];
+function onHands(res){
+  var t=nowS();
+  var list=(res&&res.multiHandLandmarks)?res.multiHandLandmarks:[];
+  var AS=camAspect(), used=0, k, i;
+  for (k=0;k<list.length && used<2;k++){
+    var L=list[k], ok=true;
+    for (i=0;i<NEED.length;i++){ if (!lmOK(L,NEED[i])){ ok=false; break; } }
+    if (!ok) continue;
+    var cx=0, cy=0;
+    for (i=0;i<PALMPTS.length;i++){ cx+=L[PALMPTS[i]].x; cy+=L[PALMPTS[i]].y; }
+    cx/=PALMPTS.length; cy/=PALMPTS.length;
+    // scale-free size in aspect-corrected camera space, as everywhere else
+    var sp=Math.hypot((L[9].x-L[0].x)*AS, L[9].y-L[0].y);
+    if (!isFinite(sp)||sp<0.02) sp=0.02;
+    var acc=0, TIP=[8,12,16,20];
+    for (i=0;i<4;i++) acc+=Math.hypot((L[TIP[i]].x-L[0].x)*AS, L[TIP[i]].y-L[0].y);
+    var Hd=HA[used];
+    Hd.x=clamp(mirror?(1-cx):cx, -0.3, 1.3);
+    Hd.y=clamp(cy, -0.3, 1.3);
+    Hd.r=clamp(sp*1.35, 0.02, 0.6);
+    Hd.open=clamp((acc/4/sp-1.30)/1.15, 0, 1);
+    Hd.on=true; Hd.t=t;
+    used++;
+  }
+  for (k=used;k<2;k++) HA[k].on=false;
+}
+function initHands(){
+  if (typeof window.Hands!=='function') return false;
+  try{
+    hands=new window.Hands({ locateFile:function(f){
+      return 'https://cdn.jsdelivr.net/npm/@mediapipe/hands/'+f;
+    }});
+    hands.setOptions({ maxNumHands:2, modelComplexity:0,
+                       minDetectionConfidence:0.55, minTrackingConfidence:0.5 });
+    hands.onResults(onHands);
+    mpReady=true; return true;
+  }catch(e){ hands=null; return false; }
+}
+function startMpCamera(){
+  if (!mpReady||!hands||mpCamera) return;
+  if (typeof window.Camera!=='function') return;
+  try{
+    mpCamera=new window.Camera(video,{
+      onFrame:function(){
+        if (!hands) return Promise.resolve();
+        try{ return hands.send({image:video}); }catch(e){ return Promise.resolve(); }
+      },
+      width:640, height:480
+    });
+    mpCamera.start();
+  }catch(e){ mpCamera=null; }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  THE BUFFERS.  Everything here is allocated once per resolution change
+//  and never again.  The frame loop performs exactly one getImageData and
+//  one putImageData and allocates nothing at all.
+// ═══════════════════════════════════════════════════════════════════════
+var LEVELS=[[352,264],[288,216],[224,168],[176,132]];
+var lvl=1;
+var PW=0, PH=0, NPX=0;
+var srcCv=null, srcCtx=null, outCv=null, outCtx=null;
+var outImg=null, outData=null;
+var PLATE=null;      // Float32Array NPX*3 — the room without you
+var MASK=null;       // Float32Array NPX   — 1 where the camera thinks you are
+var MTMP=null;       // Float32Array NPX   — blur scratch
+var STRAW=null;      // Float32Array NPX   — the anisotropic fray field
+var plateReady=false, plateAcc=0;
+
+var EW=0, EH=0;
+var ERASE=null;      // Float32Array EW*EH — where the palm has rubbed
+
+function allocBuffers(){
+  PW=LEVELS[lvl][0]; PH=LEVELS[lvl][1]; NPX=PW*PH;
+  if (!srcCv){
+    srcCv=document.createElement('canvas'); srcCtx=srcCv.getContext('2d',{willReadFrequently:true});
+    outCv=document.createElement('canvas'); outCtx=outCv.getContext('2d');
+  }
+  srcCv.width=PW; srcCv.height=PH;
+  outCv.width=PW; outCv.height=PH;
+  if (!srcCtx||!outCtx) return false;
+  outImg=outCtx.createImageData(PW,PH);
+  outData=outImg.data;
+  PLATE=new Float32Array(NPX*3);
+  MASK=new Float32Array(NPX);
+  MTMP=new Float32Array(NPX);
+  STRAW=new Float32Array(NPX);
+  buildStraw();
+  EW=Math.max(8,Math.round(PW/6)); EH=Math.max(6,Math.round(PH/6));
+  ERASE=new Float32Array(EW*EH);
+  plateReady=false; plateAcc=0;
+  // alpha is constant for the life of the buffer
+  for (var i=0;i<NPX;i++) outData[i*4+3]=255;
+  return true;
+}
+
+// ── the fray ─────────────────────────────────────────────────────────
+// Strongly correlated DOWN a column and barely at all ACROSS columns, so
+// thresholding against it breaks the erase boundary into hanging strands
+// instead of cutting it clean.  This is the whole look of the piece and it
+// costs one precomputed array.
+function buildStraw(){
+  var x,y;
+  for (x=0;x<PW;x++){
+    var a=h2(x*1.37, 11.3), b=h2(x*0.61, 4.7), c=h2(x*3.11, 19.1);
+    var colBias=a*0.62+b*0.26;
+    for (y=0;y<PH;y++){
+      var v=colBias
+          + 0.16*Math.sin(y*0.055 + a*TAU + x*0.02)
+          + 0.10*c*Math.sin(y*0.19 + b*TAU);
+      STRAW[y*PW+x]=clamp(v,0,1);
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  ADAPTIVE RESOLUTION.  The frame cost is averaged over 30 frames; when
+//  it will not fit the budget the buffer steps down, and when there is
+//  headroom to spare it steps back up.  A phone that cannot manage 352
+//  wide simply runs at 224 and still holds 30fps.
+// ═══════════════════════════════════════════════════════════════════════
+var costAcc=0, costN=0, costAvg=0, lvlHold=0;
+function noteCost(ms, dt){
+  if (!isFinite(ms)||ms<0) return;
+  costAcc+=ms; costN++;
+  if (costN<30) return;
+  costAvg=costAcc/costN; costAcc=0; costN=0;
+  lvlHold-=1;
+  if (lvlHold>0) return;
+  if (costAvg>20 && lvl<LEVELS.length-1){ lvl++; allocBuffers(); lvlHold=4; }
+  else if (costAvg<8 && lvl>0){ lvl--; allocBuffers(); lvlHold=6; }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  THE PLATE AND THE MASK
+//
+//  The comparison is CHROMATICITY first and luminance second.  A person's
+//  shadow falling on the wall changes the wall's brightness by a lot and
+//  its colour by almost nothing, so a plain RGB distance tears a
+//  person-shaped hole wherever they cast a shadow.  Comparing the
+//  normalised colour lets the shadow through and still catches a subject
+//  whose brightness happens to match the wall behind them.
+//
+//  The plate then keeps learning, but ONLY where the mask is confident it
+//  is looking at background.  That is what lets it survive the lights
+//  changing and the camera's exposure hunting without slowly absorbing a
+//  person who is standing still.
+// ═══════════════════════════════════════════════════════════════════════
+// ── the deadlock, and the way out ───────────────────────────────────
+// The plate only learns where the mask is confident it is looking at
+// background. That is what stops a motionless person being absorbed — and
+// on its own it is also a trap: turn a lamp on and the WHOLE frame reads
+// as foreground, so nothing is confident, so nothing learns, so the frame
+// stays foreground for ever. Measured before this existed: a lighting
+// change left the wall at mask 0.855 permanently.
+// The soft gate is enough for an exposure change, but a real change of
+// LIGHT — a lamp switched on, a different colour temperature — shifts
+// chromaticity too, and then a large part of the frame is foreground and
+// bleeds back only over tens of seconds. That needs catching outright.
+//
+// Total foreground area is a poor test: a person leaning into the lens can
+// fill three-quarters of the frame, and absorbing them would be exactly
+// wrong. What separates the two cases is that a lighting change is GLOBAL.
+// So the trigger is the WEAKEST of the four edges of the picture. A change
+// of light reaches top, bottom, left and right alike, so the weakest edge
+// is still strongly foreground; a person — even one filling most of the
+// frame — leaves at least one edge, almost always the top, as background.
+// Whole-ring coverage was tried first and is not enough on its own: a real
+// colour shift only drove it to 0.74, well under any threshold that a
+// close-up person would not also reach.
+var EDGE_BAD=0.55, FG_BAD=0.45, FG_BAD_S=1.2, RUSH_S=1.6, RING=2;
+var fgFrac=0, edgeFrac=0, badT=0, rushT=0;
+
+var sens=0.46;
+function readSens(){
+  var v=parseFloat(sensEl.value);
+  sens=clamp(isFinite(v)?v/100:0.46, 0, 1);
+}
+sensEl.addEventListener('input',readSens);
+sensEl.addEventListener('change',readSens);
+
+var LEARN_S=3.0;
+var phase='idle';           // idle | learn | play
+var learnT=0;
+
+function startLearn(){
+  phase='learn'; learnT=0; plateAcc=0; plateReady=false;
+  fgFrac=0; edgeFrac=0; badT=0; rushT=0;
+  if (PLATE) PLATE.fill(0);
+  if (MASK) MASK.fill(0);
+  if (ERASE) ERASE.fill(0);
+  learnBox.classList.add('on');
+  lBig.textContent='画面から出てください';
+}
+
+function grabFrame(){
+  if (!srcCtx||!video) return null;
+  var vw=video.videoWidth||640, vh=video.videoHeight||480;
+  if (!(vw>0&&vh>0)) return null;
+  try{
+    srcCtx.save();
+    if (mirror){ srcCtx.translate(PW,0); srcCtx.scale(-1,1); }
+    srcCtx.drawImage(video,0,0,PW,PH);
+    srcCtx.restore();
+    return srcCtx.getImageData(0,0,PW,PH);
+  }catch(e){ return null; }
+}
+
+function learnStep(src,dt){
+  var d=src.data, i, o;
+  plateAcc+=dt;
+  var w=clamp(dt/Math.max(0.35,Math.min(LEARN_S,plateAcc)), 0.02, 1);
+  for (i=0;i<NPX;i++){
+    o=i*3;
+    var q=i*4;
+    PLATE[o]  += (d[q]  -PLATE[o]  )*w;
+    PLATE[o+1]+= (d[q+1]-PLATE[o+1])*w;
+    PLATE[o+2]+= (d[q+2]-PLATE[o+2])*w;
+  }
+  if (plateAcc>=LEARN_S){ plateReady=true; phase='play'; learnBox.classList.remove('on'); sfxSettle(); }
+}
+
+function maskStep(src,dt){
+  var d=src.data, i;
+  var thr=lerp(26,7,sens);          // chromatic distance threshold
+  var wid=lerp(22,9,sens);
+  var mixK=clamp(dt/0.055,0,1);     // temporal smoothing of the mask
+  var learnRate=clamp(dt*0.9,0,0.05);
+  var rushing=rushT>0;
+  var rushRate=clamp(dt*3.4,0,0.4);
+  var fgN=0;
+  for (i=0;i<NPX;i++){
+    var q=i*4, o=i*3;
+    var r=d[q], g=d[q+1], b=d[q+2];
+    var pr=PLATE[o], pg=PLATE[o+1], pb=PLATE[o+2];
+    var l=r+g+b+1, pl=pr+pg+pb+1;
+    var dc=(Math.abs(r/l-pr/pl)+Math.abs(g/l-pg/pl)+Math.abs(b/l-pb/pl))*430;
+    var dl=Math.abs(l-pl)/3;
+    // A shadow only ever makes a surface DARKER, and it leaves the hue
+    // alone. So the luminance term is discounted exactly in the case that
+    // describes — darker than the plate AND the same chromaticity — and
+    // carries full weight otherwise. Symmetric weighting cannot tell a
+    // person from their own shadow on the wall behind them; measured, a
+    // 55%-darker patch of identical hue read 0.69 before this existed.
+    // A very deep drop is not a shadow but something opaque, so below a
+    // third of the plate's brightness the discount is withdrawn.
+    var lw=0.42;
+    if (l<pl && l>pl*0.32){
+      var hueMatch=1-dc/6;
+      if (hueMatch>0) lw=0.42+(0.03-0.42)*(hueMatch>1?1:hueMatch);
+    }
+    var dist=dc+dl*lw;
+    var m=(dist-thr)/wid;
+    m=m<0?0:(m>1?1:m);
+    m=m*m*(3-2*m);
+    var prev=MASK[i];
+    var mv=prev+(m-prev)*mixK;
+    MASK[i]=mv;
+    if (mv>0.5) fgN++;
+    // keep the plate alive, but only from pixels we are sure about —
+    // unless the whole picture has gone wrong, in which case take it all
+    var lr;
+    if (rushing) lr=rushRate;
+    else {
+      // A HARD gate ("learn only where mask < 0.11") strands every pixel
+      // that settles just above the line: it is foreground, so it never
+      // learns, so it stays foreground. Measured, that left a permanent
+      // 0.160 of the wall stuck after a mere exposure change. A cubic
+      // falloff has no cliff to get stranded on — a pixel the mask is
+      // unsure about still learns at a good fraction of full rate, while a
+      // pixel it is certain is a person learns at 0.4% and needs minutes
+      // to be absorbed, which is far longer than anyone stands still.
+      var wgt=1-mv; wgt=wgt*wgt*wgt;
+      lr=learnRate*(0.004+0.996*wgt);
+    }
+    PLATE[o]  += (r-pr)*lr;
+    PLATE[o+1]+= (g-pg)*lr;
+    PLATE[o+2]+= (b-pb)*lr;
+  }
+  fgFrac=NPX>0?fgN/NPX:0;
+  edgeFrac=weakestEdge();
+  if (rushT>0){ rushT-=dt; badT=0; }
+  else if (edgeFrac>EDGE_BAD && fgFrac>FG_BAD){
+    badT+=dt; if (badT>FG_BAD_S){ rushT=RUSH_S; badT=0; }
+  }
+  else badT=0;
+  blurMask();
+}
+
+// foreground coverage of the WEAKEST of the four edges of the picture
+function weakestEdge(){
+  var top=0,bot=0,lef=0,rig=0,nH=0,nV=0,x,y,k;
+  for (k=0;k<RING;k++){
+    for (x=0;x<PW;x++){
+      if (MASK[k*PW+x]>0.5) top++;
+      if (MASK[(PH-1-k)*PW+x]>0.5) bot++;
+      nH++;
+    }
+    for (y=RING;y<PH-RING;y++){
+      if (MASK[y*PW+k]>0.5) lef++;
+      if (MASK[y*PW+(PW-1-k)]>0.5) rig++;
+      nV++;
+    }
+  }
+  if (nH<1||nV<1) return 0;
+  var a=top/nH, b=bot/nH, c=lef/nV, d=rig/nV;
+  var m=a;
+  if (b<m) m=b;
+  if (c<m) m=c;
+  if (d<m) m=d;
+  return m;
+}
+
+// separable 3-tap box, twice — soft edges without a big kernel
+function blurMask(){
+  var x,y,i;
+  for (y=0;y<PH;y++){
+    var row=y*PW;
+    for (x=0;x<PW;x++){
+      var a=MASK[row+(x>0?x-1:0)], b=MASK[row+x], c=MASK[row+(x<PW-1?x+1:PW-1)];
+      MTMP[row+x]=(a+b+b+c)*0.25;
+    }
+  }
+  for (x=0;x<PW;x++){
+    for (y=0;y<PH;y++){
+      var up=MTMP[(y>0?y-1:0)*PW+x], mid=MTMP[y*PW+x], dn=MTMP[(y<PH-1?y+1:PH-1)*PW+x];
+      MASK[y*PW+x]=(up+mid+mid+dn)*0.25;
+    }
+  }
+}
+
+// ── the erase field ─────────────────────────────────────────────────
+var MODE=0;                 // 0 蓑 / 1 全 / 2 陽炎
+function eraseStep(dt){
+  var i, n=EW*EH;
+  var dec=Math.exp(-dt/1.5);            // fully faded in about four seconds
+  for (i=0;i<n;i++) ERASE[i]*=dec;
+  if (MODE!==0) return;
+  for (var hi=0;hi<2;hi++){
+    if (!handLive(hi)) continue;
+    var Hd=HA[hi];
+    var cx=Hd.x*EW, cy=Hd.y*EH;
+    var rr=Math.max(1.4, Hd.r*EW*0.85);
+    var open=0.45+0.55*Hd.open;         // an open palm rubs, a fist barely
+    var x0=Math.max(0,Math.floor(cx-rr)), x1=Math.min(EW-1,Math.ceil(cx+rr));
+    var y0=Math.max(0,Math.floor(cy-rr)), y1=Math.min(EH-1,Math.ceil(cy+rr));
+    for (var y=y0;y<=y1;y++){
+      for (var x=x0;x<=x1;x++){
+        var dx=(x-cx)/rr, dy=(y-cy)/rr;
+        var t=1-(dx*dx+dy*dy);
+        if (t<=0) continue;
+        var add=t*t*dt*3.1*open;
+        var k=y*EW+x;
+        var v=ERASE[k]+add;
+        ERASE[k]=v>1?1:v;
+      }
+    }
+  }
+}
+function eraseAt(px,py){
+  // bilinear, in buffer pixel coords
+  var fx=px/PW*EW-0.5, fy=py/PH*EH-0.5;
+  var x0=Math.floor(fx), y0=Math.floor(fy);
+  var tx=fx-x0, ty=fy-y0;
+  var xa=x0<0?0:(x0>EW-1?EW-1:x0), xb=x0+1<0?0:(x0+1>EW-1?EW-1:x0+1);
+  var ya=y0<0?0:(y0>EH-1?EH-1:y0), yb=y0+1<0?0:(y0+1>EH-1?EH-1:y0+1);
+  var a=ERASE[ya*EW+xa], b=ERASE[ya*EW+xb], c=ERASE[yb*EW+xa], e=ERASE[yb*EW+xb];
+  return (a+(b-a)*tx)+((c+(e-c)*tx)-(a+(b-a)*tx))*ty;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  THE COMPOSITOR.
+//
+//  Per pixel: decide how hidden it is, bend the plate along the mask's
+//  gradient (red and blue by different amounts, so the rim splits), and
+//  mix.  Every index is clamped into the buffer before it is used — a
+//  displacement that walks off the edge must fetch an edge pixel, never
+//  wrap into the row above or read past the end of the array.
+// ═══════════════════════════════════════════════════════════════════════
+var hiddenFrac=0;
+function composite(src){
+  var d=src.data;
+  var x,y,i,o,q;
+  var strawAmt = (MODE===0) ? 0.42 : 0.13;
+  var refr     = (MODE===2) ? 9.5  : 2.6;      // rim bend, in buffer pixels
+  var hid=0;
+  for (y=0;y<PH;y++){
+    var row=y*PW;
+    for (x=0;x<PW;x++){
+      i=row+x; q=i*4; o=i*3;
+      var m=MASK[i];
+      var hide;
+      if (MODE===0){
+        var e=eraseAt(x,y)-STRAW[i]*strawAmt;
+        e=(e-0.06)/0.34;
+        e=e<0?0:(e>1?1:e);
+        hide=m*(e*e*(3-2*e));
+      } else if (MODE===1){
+        var s1=(m-STRAW[i]*strawAmt*0.5-0.10)/0.42;
+        s1=s1<0?0:(s1>1?1:s1);
+        hide=s1*s1*(3-2*s1);
+      } else {
+        hide=m;                                 // 陽炎 never erases, it bends
+      }
+      hid+=hide;
+
+      // mask gradient — the rim
+      var xl=x>0?x-1:0, xr=x<PW-1?x+1:PW-1;
+      var yu=y>0?y-1:0, yd=y<PH-1?y+1:PH-1;
+      var gx=MASK[row+xr]-MASK[row+xl];
+      var gy=MASK[yd*PW+x]-MASK[yu*PW+x];
+      var edge=Math.abs(gx)+Math.abs(gy);
+      var k=refr*edge*(MODE===2?(0.35+m):1);
+
+      var sr,sg,sb;
+      if (MODE===2){
+        // glass: the room behind, resampled along the bend
+        sr=platePx(x-gx*k*1.00, y-gy*k*1.00, 0);
+        sg=platePx(x-gx*k*0.86, y-gy*k*0.86, 1);
+        sb=platePx(x-gx*k*0.72, y-gy*k*0.72, 2);
+      } else if (k>0.35){
+        sr=platePx(x-gx*k*1.00, y-gy*k*1.00, 0);
+        sg=platePx(x-gx*k*0.88, y-gy*k*0.88, 1);
+        sb=platePx(x-gx*k*0.76, y-gy*k*0.76, 2);
+      } else {
+        sr=PLATE[o]; sg=PLATE[o+1]; sb=PLATE[o+2];
+      }
+
+      var h=hide;
+      outData[q]  =d[q]  +(sr-d[q]  )*h;
+      outData[q+1]=d[q+1]+(sg-d[q+1])*h;
+      outData[q+2]=d[q+2]+(sb-d[q+2])*h;
+      // alpha is already 255 for the life of the buffer
+    }
+  }
+  hiddenFrac=NPX>0?hid/NPX:0;
+}
+// clamped fetch — an index is never allowed to leave the buffer
+function platePx(fx,fy,c){
+  var x=fx<0?0:(fx>PW-1?PW-1:fx);
+  var y=fy<0?0:(fy>PH-1?PH-1:fy);
+  x=x|0; y=y|0;
+  return PLATE[(y*PW+x)*3+c];
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  AUDIO ─ a designed ambience, deliberately almost too quiet to notice.
+//  Filtered noise shaped like dry grass: a bandpass around 1.4kHz over a
+//  low bed, and its level is the fraction of you that is currently gone.
+//  Vanish and the straw rustles; come back and the room goes quiet.
+// ═══════════════════════════════════════════════════════════════════════
+var AC=null, comp=null, master=null, audioOK=false;
+var rustleSrc=null, rustleBp=null, rustleGain=null, bedOsc=null, bedGain=null;
+function makeNoise(){
+  var n=Math.floor(AC.sampleRate*2.5);
+  if (n<1) n=1;
+  var b=AC.createBuffer(1,n,AC.sampleRate);
+  var d=b.getChannelData(0);
+  var b0=0,b1=0,b2=0;
+  for (var i=0;i<n;i++){
+    var wn=Math.random()*2-1;
+    b0=0.99765*b0+wn*0.0990460;
+    b1=0.96300*b1+wn*0.2965164;
+    b2=0.57000*b2+wn*1.0526913;
+    d[i]=clamp((b0+b1+b2+wn*0.1848)*0.2,-1,1);
+  }
+  return b;
+}
+function initAudio(){
+  if (AC){ if (AC.state==='suspended'&&AC.resume){ try{AC.resume();}catch(e){} } return true; }
+  var C=window.AudioContext||window.webkitAudioContext;
+  if (!C) return false;
+  try{ AC=new C(); }catch(e){ AC=null; return false; }
+  if (AC.state==='suspended'&&AC.resume){ try{AC.resume();}catch(e){} }
+  try{
+    comp=AC.createDynamicsCompressor();
+    comp.threshold.value=-24; comp.knee.value=20; comp.ratio.value=4;
+    comp.attack.value=0.01; comp.release.value=0.3;
+    master=AC.createGain(); master.gain.value=0.30;
+    comp.connect(master); master.connect(AC.destination);
+    var buf=makeNoise();
+    rustleSrc=AC.createBufferSource(); rustleSrc.buffer=buf; rustleSrc.loop=true;
+    rustleBp=AC.createBiquadFilter(); rustleBp.type='bandpass';
+    rustleBp.frequency.value=1400; rustleBp.Q.value=0.85;
+    rustleGain=AC.createGain(); rustleGain.gain.value=0.0001;
+    rustleSrc.connect(rustleBp); rustleBp.connect(rustleGain); rustleGain.connect(comp);
+    try{ rustleSrc.start(); }catch(e){}
+    bedOsc=AC.createOscillator(); bedOsc.type='sine'; bedOsc.frequency.value=58;
+    bedGain=AC.createGain(); bedGain.gain.value=0.0001;
+    bedOsc.connect(bedGain); bedGain.connect(comp);
+    try{ bedOsc.start(); }catch(e){}
+    audioOK=true;
+  }catch(e){ audioOK=false; }
+  return audioOK;
+}
+function ramp(param,v,tc){
+  if (!param||typeof v!=='number'||!isFinite(v)) return;
+  try{ param.setTargetAtTime(v, AC.currentTime, Math.max(0.006,tc||0.05)); }catch(e){}
+}
+function pushAudio(){
+  if (!audioOK) return;
+  var h=clamp(hiddenFrac*5.2,0,1);
+  ramp(rustleGain.gain, 0.0001+0.34*h*h, 0.24);
+  ramp(rustleBp.frequency, 900+1500*h, 0.3);
+  ramp(bedGain.gain, 0.0001+0.09*h, 0.4);
+}
+// the room has been memorised
+function sfxSettle(){
+  if (!audioOK) return;
+  var t=AC.currentTime;
+  try{
+    var o=AC.createOscillator(); o.type='sine';
+    o.frequency.setValueAtTime(320,t);
+    o.frequency.exponentialRampToValueAtTime(150,t+0.22);
+    var g=AC.createGain();
+    g.gain.setValueAtTime(0.0001,t);
+    g.gain.linearRampToValueAtTime(0.26,t+0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001,t+0.5);
+    o.connect(g); g.connect(comp);
+    try{ o.start(t); o.stop(t+0.55); }catch(e){}
+  }catch(e){}
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  PRESENTATION.  The processed buffer is drawn cover-fit, so the camera
+//  fills the screen at every aspect without stretching.  The straw band
+//  behind the controls is one cached pattern tile.
+// ═══════════════════════════════════════════════════════════════════════
+var strawTile=null;
+function buildStrawTile(){
+  var S=14;
+  var cv=document.createElement('canvas');
+  cv.width=S; cv.height=S;
+  var g=cv.getContext('2d');
+  if (!g) return null;
+  g.fillStyle='#141c25'; g.fillRect(0,0,S,S);
+  g.fillStyle='rgba(107,122,74,0.30)';
+  g.fillRect(0,0,S*0.5,S*0.5); g.fillRect(S*0.5,S*0.5,S*0.5,S*0.5);
+  g.fillStyle='rgba(107,122,74,0.14)';
+  g.fillRect(S*0.5,0,S*0.5,S*0.5); g.fillRect(0,S*0.5,S*0.5,S*0.5);
+  return cv;
+}
+
+function coverFit(){
+  if (PW<=0||PH<=0) return null;
+  var s=Math.max(W/PW, H/PH);
+  var dw=PW*s, dh=PH*s;
+  return { x:(W-dw)*0.5, y:(H-dh)*0.5, w:dw, h:dh };
+}
+
+var running=false, lastT=nowS(), fps=0;
+function frame(){
+  requestAnimationFrame(frame);
+  var t=nowS();
+  var dt=t-lastT; lastT=t;
+  if (!(dt>0)) dt=0.016;
+  if (dt>0.08) dt=0.08;
+  fps=fps?lerp(fps,1/dt,0.06):(1/dt);
+
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+
+  if (!running || !PLATE){
+    ctx.fillStyle='#141c25'; ctx.fillRect(0,0,W,H);
+    return;
+  }
+
+  var t0=(typeof performance!=='undefined'&&performance.now)?performance.now():0;
+  var src=grabFrame();
+
+  if (src && src.data && src.data.length>=NPX*4){
+    if (phase==='learn'){
+      learnStep(src,dt);
+      var left=Math.max(0,LEARN_S-plateAcc);
+      lCnt.textContent=String(Math.ceil(left)||1);
+    } else if (phase==='play'){
+      maskStep(src,dt);
+      eraseStep(dt);
+      composite(src);
+      pushAudio();
+    }
+  }
+
+  var fit=coverFit();
+  if (phase==='play' && outImg && outCtx && fit){
+    try{ outCtx.putImageData(outImg,0,0); }catch(e){}
+    ctx.imageSmoothingEnabled=true;
+    ctx.drawImage(outCv, fit.x, fit.y, fit.w, fit.h);
+  } else if (srcCv && fit){
+    ctx.imageSmoothingEnabled=true;
+    ctx.drawImage(srcCv, fit.x, fit.y, fit.w, fit.h);
+  } else {
+    ctx.fillStyle='#141c25'; ctx.fillRect(0,0,W,H);
+  }
+
+  var t1=(typeof performance!=='undefined'&&performance.now)?performance.now():0;
+  noteCost(t1-t0, dt);
+
+  if (phase==='play'){
+    drawPalms(ctx,fit);
+    drawHUD(ctx);
+  }
+}
+
+// the palms are drawn so you can always tell the camera has you
+function drawPalms(g,fit){
+  if (!fit) return;
+  for (var hi=0;hi<2;hi++){
+    if (!handLive(hi)) continue;
+    var Hd=HA[hi];
+    var px=fit.x+Hd.x*fit.w, py=fit.y+Hd.y*fit.h;
+    var pr=Math.max(6, Hd.r*fit.w*0.85);
+    g.save();
+    g.strokeStyle='rgba(217,164,65,'+(MODE===0?0.55:0.28)+')';
+    g.lineWidth=Math.max(1,MN*0.0035);
+    g.setLineDash([Math.max(3,pr*0.16), Math.max(3,pr*0.20)]);
+    g.beginPath(); g.arc(px,py,pr,0,TAU); g.stroke();
+    g.setLineDash([]);
+    g.fillStyle='rgba(217,164,65,0.85)';
+    g.beginPath(); g.arc(px,py,Math.max(1.6,MN*0.0055),0,TAU); g.fill();
+    g.restore();
+  }
+}
+
+function drawHUD(g){
+  var live=handLive(0)||handLive(1);
+  rHid.textContent=String(Math.round(clamp(hiddenFrac,0,1)*100));
+  rRes.textContent=PW+'×'+PH;
+  rTrk.textContent=live?'手 ●':'手 ○';
+
+  if (!strawTile) strawTile=buildStrawTile();
+  g.save();
+  g.font='400 '+Math.round(MN*0.019)+'px "M PLUS 1 Code", monospace';
+  g.textBaseline='top'; g.textAlign='left';
+  var pad=Math.round(MN*0.030);
+  g.fillStyle='rgba(20,28,37,0.6)';
+  g.fillRect(pad-6, pad-5, MN*0.30, MN*0.062);
+  g.fillStyle='rgba(232,224,205,0.8)';
+  g.fillText('隠 れ 蓑  '+(MODE===0?'蓑':(MODE===1?'全':'陽炎')), pad, pad);
+  g.fillStyle=live?'#d9a441':'rgba(125,135,144,0.7)';
+  g.fillText(live?'● 手を見ています':'○ 手が見えません', pad, pad+MN*0.028);
+  if (rushT>0){
+    g.fillStyle='#d9a441';
+    g.fillText('部屋が変わりました — 追随中', pad, pad+MN*0.056);
+  }
+  g.restore();
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  THE DIAGRAM.  A figure in a room, a palm passing over it, the figure
+//  going away in strands and coming back.
+// ═══════════════════════════════════════════════════════════════════════
+var demoRun=true, demoT0=nowS();
+function demoFrame(){
+  if (!demoRun) return;
+  var g=demoCtx;
+  if (!g) return;
+  var w=demoCv.width, h=demoCv.height;
+  var t=(nowS()-demoT0)%5.0;
+  // the room
+  g.fillStyle='#26313d'; g.fillRect(0,0,w,h);
+  g.fillStyle='#1d2731'; g.fillRect(0,h*0.70,w,h*0.30);
+  g.strokeStyle='rgba(125,135,144,0.30)'; g.lineWidth=1;
+  for (var k=0;k<5;k++){
+    g.beginPath(); g.moveTo(w*(0.10+k*0.2),0); g.lineTo(w*(0.10+k*0.2),h*0.70); g.stroke();
+  }
+  g.fillStyle='rgba(107,122,74,0.35)';
+  g.fillRect(w*0.78,h*0.30,w*0.13,h*0.40);
+
+  // the figure
+  var cx=w*0.40, cy=h*0.52;
+  var bw=w*0.10, bh=h*0.56;
+  // erase sweep: a palm crossing left to right during 1.0..3.0
+  var sweep=clamp((t-1.0)/2.0,0,1);
+  var handX=cx-bw*1.5+ (bw*3.4)*sweep;
+  var fade=(t>3.6)? clamp(1-(t-3.6)/1.4,0,1) : 1;
+
+  g.save();
+  for (var i=0;i<44;i++){
+    var fx=cx-bw*0.5+(i/43)*bw;
+    // straw strands: each column has its own threshold
+    var thr=0.30+0.55*h2(i*2.7,3.1);
+    var reached = (t>1.0) && (fx < handX);
+    var gone = reached ? clamp((handX-fx)/(bw*0.55),0,1) : 0;
+    gone*= fade;
+    var vis = 1-clamp((gone-thr*0.5)/0.5,0,1);
+    if (vis<=0.02) continue;
+    g.globalAlpha=clamp(vis,0,1);
+    g.fillStyle='#e8e0cd';
+    var top=cy-bh*0.5+ (1-vis)*h*0.03*h2(i*1.3,7.7);
+    g.fillRect(fx, top, bw/44+0.7, bh);
+  }
+  g.restore();
+  // head
+  var headVis=1-clamp(((t>1.0?clamp((handX-cx)/(bw*0.55),0,1):0)*fade-0.25)/0.6,0,1);
+  g.globalAlpha=clamp(headVis,0,1);
+  g.fillStyle='#e8e0cd';
+  g.beginPath(); g.arc(cx,cy-bh*0.5-h*0.09,h*0.085,0,TAU); g.fill();
+  g.globalAlpha=1;
+
+  // the palm
+  if (t>1.0 && t<3.3){
+    g.strokeStyle='#d9a441'; g.lineWidth=Math.max(1.5,h*0.014);
+    g.setLineDash([h*0.05,h*0.05]);
+    g.beginPath(); g.arc(handX, cy, h*0.20, 0, TAU); g.stroke();
+    g.setLineDash([]);
+    g.fillStyle='#d9a441';
+    g.beginPath(); g.arc(handX, cy, h*0.022, 0, TAU); g.fill();
+  }
+
+  g.fillStyle='rgba(232,224,205,0.72)';
+  g.font='500 '+Math.round(h*0.095)+'px "M PLUS 1 Code", monospace';
+  g.textAlign='left'; g.textBaseline='top';
+  var cap = t<1.0 ? '① 部屋を覚える' : (t<3.3 ? '② 撫でたところから消える' : '③ 数秒で戻る');
+  g.fillText(cap, h*0.06, h*0.06);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  WIRING
+// ═══════════════════════════════════════════════════════════════════════
+for (var mi=0;mi<3;mi++){
+  (function(ix){
+    mBtn[ix].addEventListener('click',function(){
+      MODE=ix;
+      for (var j=0;j<3;j++){
+        if (j===ix) mBtn[j].classList.add('on'); else mBtn[j].classList.remove('on');
+      }
+    });
+  })(mi);
+}
+relearnBtn.addEventListener('click',function(){ startLearn(); });
+
+goBtn.addEventListener('click',function(){
+  if (running) return;
+  demoRun=false;
+  initAudio();
+  readSens();
+  if (!allocBuffers()){ showError(new Error('canvas 2D context unavailable')); return; }
+  sheet.classList.add('gone');
+  setTimeout(function(){ sheet.style.display='none'; },240);
+  panel.classList.add('on');
+  running=true;
+  startLearn();
+  startStream()
+    .then(function(){ if (initHands()) startMpCamera(); })
+    .catch(showError);
+});
+
+document.addEventListener('visibilitychange',function(){
+  if (document.hidden) loseHands();
+});
+
+function tick(){
+  requestAnimationFrame(tick);
+  if (demoRun) demoFrame();
+}
+
+resize();
+readSens();
+requestAnimationFrame(frame);
+requestAnimationFrame(tick);
+</script>
+</body>
+</html>
