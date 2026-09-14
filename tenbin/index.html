@@ -1,0 +1,1394 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>TENBIN ─ 肩で傾ける珠の秤</title>
+<meta name="description" content="両肩を結ぶ線がそのまま秤の竿になる楽器。傾ければ真鍮の珠が転がり、目盛りを越えるたびに石の板が鳴る。手のひらを竿に近づけると珠はそこで堰き止められ、手を離せば溜まった分が一度に走り出す。竿を水平に戻して珠が止まると、止まった珠は打つのをやめて歌いはじめる。">
+<meta name="theme-color" content="#f4efe2">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@200;400;600&family=BIZ+UDPGothic:wght@400;700&display=swap" rel="stylesheet">
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  TENBIN ─ 肩で傾ける珠の秤                          ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  MOOD      理科室の計器。A brass beam balance on a sheet of millimetre
+            graph paper, under flat daylight. Warm, measured, bright —
+            deliberately NOT the dark stage-lit look, because the companion
+            piece tonight (GIYAMAN) owns the darkness and two dark pieces
+            in one night is how a gallery starts to look like one piece.
+
+  PALETTE   象牙  zouge     #f4efe2  the sheet. Warm ivory, never white.
+            方眼  hougan    #cfd8cd  the millimetre grid. A cold green-grey,
+                                     so the warm brass sits ON the paper
+                                     instead of dissolving into it.
+            真鍮  shinchuu  #b8912f  the beam, the beads, the instrument
+                                     frame. Everything machined is brass.
+            緑青  rokushou  #4f8a74  patina. Reserved for SINGING beads —
+                                     a bead that has stopped rolling and
+                                     started to sustain turns green. The
+                                     player reads the chord by colour.
+            墨    sumi      #2a2620  ink. Text, ticks, the drawn body.
+            朱    shu       #c4452c  RESERVED for impact only: the tick
+                                     that was just struck, the gauge needle,
+                                     a gating palm. Never decorative.
+
+  BACKGROUND  Millimetre graph paper, drawn once into an offscreen tile:
+              1mm faint rules, 5mm firmer rules, plus a very soft paper
+              tone gradient. No vignette anywhere in this piece.
+
+  TYPE      Oswald 200/400/600 for every number and latin label — a
+            condensed grotesque reads as an instrument scale. BIZ UDPGothic
+            for Japanese: an institutional, slightly clinical face, the
+            kind printed on a real measuring device.
+
+  MOTION    MECHANICAL AND WEIGHTED. The beam is a critically damped spring
+            chasing the shoulder line, so it lags the body by ~90ms and
+            settles without wobble. The gauge needle has its own, slower
+            damping and overshoots by a few degrees. Beads obey real
+            gravity, rolling friction and elastic collision. Impacts are
+            snappy: 90ms flashes, quick squash, fast rings. Nothing floats.
+
+  SIGNATURE 転がる珠は打ち、止まった珠は歌う。 A rolling bead is a mallet:
+            it strikes the scale bar of every cell it crosses. A bead that
+            has come to rest is a bowed glass: it fades up a sustained tone
+            at the pitch it stopped on. So levelling the beam does not make
+            silence — it makes a chord, and which chord depends on where
+            the beads happened to stop. There is no wrong note and no fail
+            state; the only question is what you left behind.
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;overflow:hidden;background:#f4efe2}
+  body{
+    font-family:'BIZ UDPGothic',-apple-system,'Hiragino Kaku Gothic ProN',system-ui,sans-serif;
+    color:#2a2620;-webkit-text-size-adjust:100%;
+    -webkit-tap-highlight-color:transparent;
+  }
+  #view{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+  #video{position:fixed;width:2px;height:2px;opacity:.004;pointer-events:none;left:0;top:0}
+
+  #flip{
+    position:fixed;top:calc(env(safe-area-inset-top,0px) + 12px);left:12px;z-index:6;
+    font-family:'Oswald',sans-serif;font-weight:400;font-size:12px;letter-spacing:.18em;
+    color:#2a2620;background:rgba(244,239,226,.82);border:1px solid #b8912f;
+    padding:8px 13px;cursor:pointer;border-radius:2px;
+    transition:background .14s linear,color .14s linear;
+  }
+  #flip:hover{background:#b8912f;color:#f4efe2}
+
+  #err{
+    display:none;position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:20;
+    max-width:min(86vw,430px);white-space:pre-wrap;line-height:1.85;font-size:13px;
+    background:#f4efe2;border:1px solid #c4452c;border-left:4px solid #c4452c;
+    padding:18px 20px;color:#2a2620;
+  }
+
+  /* ── console ─────────────────────────────────────────── */
+  #panel{
+    position:fixed;left:50%;transform:translateX(-50%);
+    bottom:calc(env(safe-area-inset-bottom,0px) + 12px);z-index:5;
+    display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:9px 14px;
+    background:rgba(244,239,226,.9);border:1px solid rgba(184,145,47,.55);
+    padding:9px 14px;border-radius:3px;max-width:min(94vw,690px);
+    backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px);
+  }
+  .grp{display:flex;align-items:center;gap:7px}
+  .grp>label{
+    font-family:'Oswald',sans-serif;font-weight:400;font-size:10px;
+    letter-spacing:.2em;color:#7d7566;
+  }
+  .modes{display:flex;gap:5px}
+  .modes button{
+    font-family:'BIZ UDPGothic',sans-serif;font-weight:700;font-size:13px;
+    color:#7d7566;background:transparent;border:1px solid rgba(184,145,47,.5);
+    padding:5px 12px;cursor:pointer;border-radius:2px;line-height:1;
+    transition:color .14s linear,background .14s linear,border-color .14s linear;
+  }
+  .modes button:hover{color:#2a2620;border-color:#b8912f}
+  .modes button.on{color:#f4efe2;background:#2a2620;border-color:#2a2620}
+  input[type=range]{
+    -webkit-appearance:none;appearance:none;width:76px;height:16px;background:transparent;cursor:pointer;
+  }
+  input[type=range]::-webkit-slider-runnable-track{height:1px;background:#b8912f}
+  input[type=range]::-moz-range-track{height:1px;background:#b8912f}
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none;width:12px;height:12px;margin-top:-6px;border-radius:50%;
+    background:#f4efe2;border:1.5px solid #2a2620;
+  }
+  input[type=range]::-moz-range-thumb{
+    width:12px;height:12px;border-radius:50%;background:#f4efe2;border:1.5px solid #2a2620;
+  }
+  #read{
+    font-family:'Oswald',sans-serif;font-weight:200;font-size:11px;letter-spacing:.1em;
+    color:#7d7566;white-space:nowrap;
+  }
+  #read b{font-weight:600;color:#2a2620;font-variant-numeric:tabular-nums}
+
+  /* ── start sheet ─────────────────────────────────────── */
+  .sheet{
+    position:fixed;inset:0;z-index:30;display:flex;align-items:center;justify-content:center;
+    padding:16px;background:rgba(228,222,207,.94);
+    transition:opacity .34s ease,visibility .34s;
+  }
+  .sheet.gone{opacity:0;visibility:hidden;pointer-events:none}
+  .card{
+    width:min(94vw,470px);background:#f4efe2;border:1px solid #b8912f;
+    box-shadow:0 1px 0 rgba(184,145,47,.4),0 18px 44px rgba(42,38,32,.16);
+  }
+  .cap{
+    display:flex;justify-content:space-between;align-items:center;
+    padding:9px 16px;border-bottom:1px solid rgba(184,145,47,.45);
+    font-family:'Oswald',sans-serif;font-weight:400;font-size:10px;letter-spacing:.24em;
+    color:#7d7566;
+  }
+  .cap b{font-weight:600;color:#b8912f}
+  .bodyw{padding:22px 22px 20px}
+  .ttl{
+    font-family:'BIZ UDPGothic',sans-serif;font-weight:700;
+    font-size:clamp(19px,5.4vw,24px);line-height:1.45;letter-spacing:.02em;margin-bottom:12px;
+  }
+  .lead{font-size:12.5px;line-height:2.0;color:#4a4439}
+  .lead em{font-style:normal;font-weight:700;color:#c4452c}
+  #demo{
+    display:block;width:100%;height:auto;margin:15px 0 13px;
+    border:1px solid rgba(184,145,47,.4);background:#f4efe2;
+  }
+  .spec{
+    font-size:11.5px;line-height:2.05;color:#4a4439;
+    border-top:1px solid rgba(184,145,47,.4);padding-top:11px;
+  }
+  .spec span{
+    display:inline-block;min-width:5.2em;font-weight:700;color:#2a2620;
+  }
+  .go{
+    display:block;width:100%;margin-top:18px;padding:15px;cursor:pointer;
+    font-family:'BIZ UDPGothic',sans-serif;font-weight:700;font-size:15px;letter-spacing:.42em;
+    color:#f4efe2;background:#2a2620;border:none;transition:background .14s linear;
+  }
+  .go:hover{background:#c4452c}
+  @media (max-width:470px){
+    .bodyw{padding:17px 16px 16px}
+    .lead{font-size:12px;line-height:1.95}
+    #panel{gap:7px 10px;padding:8px 11px}
+    input[type=range]{width:62px}
+    #read{font-size:10px}
+  }
+</style>
+</head>
+<body>
+
+<canvas id="view"></canvas>
+<video id="video" playsinline muted autoplay></video>
+<button id="flip">⟲ カメラ</button>
+<div id="err"></div>
+
+<div id="panel">
+  <div class="grp">
+    <label>CHOSHI</label>
+    <div class="modes">
+      <button id="m0" class="on">陽</button>
+      <button id="m1">陰</button>
+      <button id="m2">呂</button>
+    </div>
+  </div>
+  <div class="grp">
+    <label>珠</label>
+    <input type="range" id="nBeads" min="3" max="12" value="7">
+  </div>
+  <div class="grp">
+    <label>撥</label>
+    <input type="range" id="hard" min="0" max="100" value="46">
+  </div>
+  <div id="read">
+    傾き <b id="rTilt">—</b>°　走 <b id="rRun">—</b>　歌 <b id="rSing">—</b>
+  </div>
+</div>
+
+<div class="sheet" id="startSheet">
+  <div class="card">
+    <div class="cap"><span>OTO-II / TENBIN</span><span>BEAM <b>BALANCE</b></span></div>
+    <div class="bodyw">
+      <div class="ttl">肩で傾ける珠の秤</div>
+      <p class="lead">
+        両肩を結ぶ線が、そのまま<em>秤の竿</em>になります。<br>
+        肩を傾ければ真鍮の珠が転がり、目盛りを越えるたびに鳴ります。<br>
+        竿を戻して珠が止まると、止まった珠は<em>歌いはじめ</em>ます。
+      </p>
+      <canvas id="demo" width="660" height="212"></canvas>
+      <div class="spec">
+        <span>肩を傾け</span>珠が転がり、越えた目盛りが鳴ります<br>
+        <span>手のひら</span>竿に近づけると珠を堰き止め、離せば一度に走ります<br>
+        <span>水平に</span>止まった珠はその高さで歌い、和音が残ります<br>
+        <span>体を寄せ</span>近づくほど音は近く、離れるほど堂に響きます
+      </div>
+      <button class="go" id="startBtn">量る</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
+<script>
+'use strict';
+// ═══════════════════════════════════════════════════════════════════════
+//  TENBIN ─ 肩で傾ける珠の秤
+//  The shoulder line IS the beam. Beads roll on it under real gravity and
+//  strike the scale bar of every cell they cross; a bead that comes to
+//  rest stops striking and starts to sing. Palms placed near the beam are
+//  weirs: beads pile against them and release in one run when you lift.
+// ═══════════════════════════════════════════════════════════════════════
+var TAU=Math.PI*2;
+function clamp(v,a,b){ return v<a?a:(v>b?b:v); }
+function lerp(a,b,t){ return a+(b-a)*t; }
+function smooth01(t){ t=clamp(t,0,1); return t*t*(3-2*t); }
+function now(){ return (typeof performance!=='undefined'&&performance.now)?performance.now()/1000:Date.now()/1000; }
+function fin(v){ return typeof v==='number' && isFinite(v); }
+
+var view=document.getElementById('view');
+var ctx=view.getContext('2d');
+var video=document.getElementById('video');
+var flipBtn=document.getElementById('flip');
+var errBox=document.getElementById('err');
+var startSheet=document.getElementById('startSheet');
+var startBtn=document.getElementById('startBtn');
+var demoCv=document.getElementById('demo');
+var demoCtx=demoCv?demoCv.getContext('2d'):null;
+var nBeadsEl=document.getElementById('nBeads');
+var hardEl=document.getElementById('hard');
+var rTilt=document.getElementById('rTilt');
+var rRun=document.getElementById('rRun');
+var rSing=document.getElementById('rSing');
+var mBtn=[document.getElementById('m0'),document.getElementById('m1'),document.getElementById('m2')];
+
+var W=0,H=0,DPR=1,MN=1;
+var RL=1;      // beam half-length, px   — ANCHORED TO THE SHORT EDGE
+var BRAD=1;    // bead radius, px
+var paperTile=null;
+
+function resize(){
+  DPR=Math.min(window.devicePixelRatio||1,2);
+  W=Math.max(1,window.innerWidth); H=Math.max(1,window.innerHeight);
+  view.width=Math.max(1,Math.round(W*DPR));
+  view.height=Math.max(1,Math.round(H*DPR));
+  view.style.width=W+'px'; view.style.height=H+'px';
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  MN=Math.max(1,Math.min(W,H));
+  RL=MN*0.415;
+  BRAD=MN*0.0195;
+  paperTile=null;
+}
+window.addEventListener('resize',resize);
+window.addEventListener('orientationchange',function(){ setTimeout(resize,180); });
+
+// ═══════════════════════════════════════════════════════════════════════
+//  CAMERA
+// ═══════════════════════════════════════════════════════════════════════
+var facing='user', mirror=true, stream=null, camOK=false;
+function showError(e){
+  var msg=(e&&e.message)?e.message:String(e||'unknown');
+  errBox.style.display='block';
+  errBox.textContent='カメラを起動できませんでした：'+msg+
+    '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+}
+function startStream(){
+  var md=navigator.mediaDevices;
+  if (!md||!md.getUserMedia) return Promise.reject(new Error('getUserMedia is unavailable'));
+  if (stream&&stream.getTracks) stream.getTracks().forEach(function(t){ t.stop(); });
+  return md.getUserMedia({
+    video:{ facingMode:{ ideal:facing }, width:{ ideal:640 }, height:{ ideal:480 } },
+    audio:false
+  }).then(function(st){
+    stream=st; video.srcObject=st; mirror=(facing==='user'); camOK=true;
+    var p=video.play();
+    return (p&&p.then)?p.catch(function(){}):null;
+  });
+}
+flipBtn.addEventListener('click',function(){
+  facing=(facing==='user')?'environment':'user';
+  loseBody();
+  startStream().then(startMpCamera).catch(showError);
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+//  COVER MAPPING ─ normalised camera space to screen pixels.
+//
+//  MediaPipe normalises x by the FRAME width and y by the FRAME height.
+//  Taking an angle straight out of those numbers is wrong: on a portrait
+//  phone a 20° shoulder tilt would read as 40°, and on a laptop as 11°.
+//  So every landmark goes through the SAME aspect-preserving cover map we
+//  use to draw the monitor, and every angle, distance and radius in this
+//  file is computed downstream of it, in screen pixels, against MN.
+// ═══════════════════════════════════════════════════════════════════════
+var camAspect=4/3;
+var covS=1, covOX=0, covOY=0;
+function updateCover(){
+  var vw=(video&&video.videoWidth)?video.videoWidth:0;
+  var vh=(video&&video.videoHeight)?video.videoHeight:0;
+  if (vw>0&&vh>0) camAspect=vw/vh;
+  if (!fin(camAspect)||camAspect<=0) camAspect=4/3;
+  // fit a camAspect rectangle over the screen by COVER (crop, never stretch)
+  var rw=W, rh=W/camAspect;
+  if (rh<H){ rh=H; rw=H*camAspect; }
+  covS=rw; covOX=(W-rw)/2; covOY=(H-rh)/2;
+  // covS is the width in px of the full normalised [0,1] x range;
+  // y uses covS/camAspect so that one normalised unit of x and one of y
+  // are the SAME number of pixels in the two axes only after this scale.
+}
+function sx(nx){ return covOX + (mirror?(1-nx):nx)*covS; }
+function sy(ny){ return covOY + ny*(covS/camAspect); }
+
+// ═══════════════════════════════════════════════════════════════════════
+//  POSE
+// ═══════════════════════════════════════════════════════════════════════
+var pose=null, mpCamera=null, mpReady=false;
+var LOST_S=0.55;
+var Bd={
+  on:false, t:-9,
+  sxL:0,syL:0,sxR:0,syR:0,           // shoulders, screen px
+  midX:0,midY:0, width:1, theta:0,
+  wr:[ {on:false,x:0,y:0}, {on:false,x:0,y:0} ],
+  el:[ {on:false,x:0,y:0}, {on:false,x:0,y:0} ],
+  nose:{on:false,x:0,y:0}
+};
+function lmOK(L,i){
+  if (!L||typeof L.length!=='number'||L.length<=i) return false;
+  var p=L[i];
+  if (!p) return false;
+  if (!fin(p.x)||!fin(p.y)) return false;
+  if (typeof p.visibility==='number' && p.visibility<0.35) return false;
+  return true;
+}
+function loseBody(){
+  Bd.on=false; Bd.t=-9;
+  Bd.wr[0].on=false; Bd.wr[1].on=false;
+  Bd.el[0].on=false; Bd.el[1].on=false;
+  Bd.nose.on=false;
+  // gesture state must not survive a dropout: a weir that vanishes while a
+  // bead leans on it would otherwise fire a phantom cascade on reacquire.
+  for (var i=0;i<GATES.length;i++){ GATES[i].on=false; GATES[i].live=0; }
+  tiltTarget=0;
+}
+function onPose(res){
+  var L=res?res.poseLandmarks:null;
+  var t=now();
+  updateCover();
+  if (!lmOK(L,11)||!lmOK(L,12)){ Bd.on=false; return; }
+  var ax=sx(L[11].x), ay=sy(L[11].y);
+  var bx=sx(L[12].x), by=sy(L[12].y);
+  if (!fin(ax)||!fin(ay)||!fin(bx)||!fin(by)) return;
+  // 11 is the subject's LEFT shoulder, which after mirroring appears on the
+  // screen's left or right depending on facing; order by screen x so the
+  // beam angle never flips sign when the camera flips.
+  var lx,ly,rx,ry;
+  if (ax<=bx){ lx=ax; ly=ay; rx=bx; ry=by; } else { lx=bx; ly=by; rx=ax; ry=ay; }
+  Bd.sxL=lx; Bd.syL=ly; Bd.sxR=rx; Bd.syR=ry;
+  Bd.midX=(lx+rx)*0.5; Bd.midY=(ly+ry)*0.5;
+  var dx=rx-lx, dy=ry-ly;
+  Bd.width=Math.max(1,Math.hypot(dx,dy));
+  Bd.theta=Math.atan2(dy,dx);        // screen-space, aspect-correct
+  Bd.on=true; Bd.t=t;
+
+  var WI=[15,16], EI=[13,14];
+  for (var k=0;k<2;k++){
+    if (lmOK(L,WI[k])){
+      var wx=sx(L[WI[k]].x), wy=sy(L[WI[k]].y);
+      if (fin(wx)&&fin(wy)){ Bd.wr[k].on=true; Bd.wr[k].x=wx; Bd.wr[k].y=wy; }
+      else Bd.wr[k].on=false;
+    } else Bd.wr[k].on=false;
+    if (lmOK(L,EI[k])){
+      var ex=sx(L[EI[k]].x), ey=sy(L[EI[k]].y);
+      if (fin(ex)&&fin(ey)){ Bd.el[k].on=true; Bd.el[k].x=ex; Bd.el[k].y=ey; }
+      else Bd.el[k].on=false;
+    } else Bd.el[k].on=false;
+  }
+  if (lmOK(L,0)){
+    var nx=sx(L[0].x), ny=sy(L[0].y);
+    if (fin(nx)&&fin(ny)){ Bd.nose.on=true; Bd.nose.x=nx; Bd.nose.y=ny; }
+    else Bd.nose.on=false;
+  } else Bd.nose.on=false;
+}
+function bodyLive(){ return Bd.on && (now()-Bd.t)<LOST_S; }
+
+function initPose(){
+  if (typeof window.Pose!=='function') return false;
+  try{
+    pose=new window.Pose({ locateFile:function(f){
+      return 'https://cdn.jsdelivr.net/npm/@mediapipe/pose/'+f;
+    }});
+    pose.setOptions({ modelComplexity:0, smoothLandmarks:true,
+                      enableSegmentation:false, selfieMode:false,
+                      minDetectionConfidence:0.5, minTrackingConfidence:0.5 });
+    pose.onResults(onPose);
+    mpReady=true; return true;
+  }catch(e){ pose=null; return false; }
+}
+function startMpCamera(){
+  if (!mpReady||!pose||mpCamera) return;
+  if (typeof window.Camera!=='function') return;
+  try{
+    mpCamera=new window.Camera(video,{
+      onFrame:function(){
+        if (!pose) return Promise.resolve();
+        try{ return pose.send({image:video}); }catch(e){ return Promise.resolve(); }
+      },
+      width:640, height:480
+    });
+    mpCamera.start();
+  }catch(e){ mpCamera=null; }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  AUDIO ─ 打てば石、止まれば硝子
+//
+//  Two synthesis voices, and they are deliberately not the same family:
+//    STRIKE  a struck stone/glass bar. Modal, INHARMONIC — partials at the
+//            free-free bar ratios 1 : 2.756 : 5.404, each with its own
+//            decay, plus a bandpassed noise transient for the mallet. This
+//            is not the harmonic bell ratio used elsewhere in the gallery;
+//            a bar sounds hollow and woody where a bell sounds round.
+//    SING    a bowed glass. Two sines a few cents apart so the pair beats
+//            slowly, plus the 2.757 partial at low level so a singing bead
+//            is audibly the SAME OBJECT as the struck one, just excited a
+//            different way.
+//  Everything lands on one compressor, and the strike amplitude law is
+//  scaled by voice count, so nine beads running at once do not clip.
+// ═══════════════════════════════════════════════════════════════════════
+var ac=null, master=null, comp=null, dryG=null, wetG=null, conv=null;
+var strikeBus=null, droneBus=null, droneLP=null, noiseBuf=null;
+var audioOK=false;
+var SCALES=[ [0,2,5,7,9], [0,1,5,7,8], [0,2,4,7,9] ];
+var SCNAME=['陽','陰','呂'];
+var mode=0;
+var KCELL=15, BASEF=196;
+var strikeEnds=[];
+
+function cellFreq(i){
+  i=clamp(Math.round(i),0,KCELL-1);
+  var sc=SCALES[mode]||SCALES[0];
+  var deg=sc[i%5]+12*Math.floor(i/5);
+  var f=BASEF*Math.pow(2,deg/12);
+  return fin(f)?clamp(f,40,6000):BASEF;
+}
+function makeIR(){
+  var sr=ac.sampleRate, len=Math.floor(sr*2.4);
+  var buf=ac.createBuffer(2,len,sr);
+  for (var c=0;c<2;c++){
+    var d=buf.getChannelData(c);
+    for (var i=0;i<len;i++){
+      var x=i/len;
+      var env=Math.pow(1-x,2.7)*(1-Math.exp(-i/(sr*0.004)));
+      d[i]=(Math.random()*2-1)*env*0.5;
+    }
+    // a few early reflections so the room has a size, not just a tail
+    var er=[0.011,0.019,0.031,0.047,0.063];
+    for (var k=0;k<er.length;k++){
+      var idx=Math.floor(er[k]*sr)+c*7;
+      if (idx<len) d[idx]+=(k%2?-1:1)*0.42/(k+1);
+    }
+  }
+  return buf;
+}
+function makeNoise(){
+  var sr=ac.sampleRate, len=Math.floor(sr*0.35);
+  var buf=ac.createBuffer(1,len,sr);
+  var d=buf.getChannelData(0);
+  for (var i=0;i<len;i++) d[i]=Math.random()*2-1;
+  return buf;
+}
+function initAudio(){
+  if (audioOK) return true;
+  var AC=window.AudioContext||window.webkitAudioContext;
+  if (!AC) return false;
+  try{
+    ac=new AC();
+    comp=ac.createDynamicsCompressor();
+    comp.threshold.value=-15; comp.knee.value=9; comp.ratio.value=4.2;
+    comp.attack.value=0.004; comp.release.value=0.19;
+    master=ac.createGain(); master.gain.value=0.86;
+    comp.connect(master); master.connect(ac.destination);
+
+    conv=ac.createConvolver(); conv.buffer=makeIR();
+    wetG=ac.createGain(); wetG.gain.value=0.34;
+    dryG=ac.createGain(); dryG.gain.value=0.9;
+    conv.connect(wetG); wetG.connect(comp); dryG.connect(comp);
+
+    strikeBus=ac.createGain(); strikeBus.gain.value=0.62;
+    strikeBus.connect(dryG); strikeBus.connect(conv);
+
+    droneLP=ac.createBiquadFilter();
+    droneLP.type='lowpass'; droneLP.frequency.value=2100; droneLP.Q.value=0.5;
+    droneBus=ac.createGain(); droneBus.gain.value=0.30;
+    droneBus.connect(droneLP); droneLP.connect(dryG); droneLP.connect(conv);
+
+    noiseBuf=makeNoise();
+    audioOK=true; return true;
+  }catch(e){ ac=null; audioOK=false; return false; }
+}
+function panNode(p){
+  if (!ac.createStereoPanner) return null;
+  var n=ac.createStereoPanner();
+  n.pan.value=clamp(fin(p)?p:0,-1,1);
+  return n;
+}
+var SR_R=[1,2.756,5.404], SR_A=[1,0.30,0.125], SR_D=[1,0.52,0.30];
+function strike(freq,amp,pan,hard){
+  if (!audioOK||!ac) return;
+  var t=ac.currentTime;
+  while (strikeEnds.length && strikeEnds[0]<=t) strikeEnds.shift();
+  if (strikeEnds.length>20) return;                 // voice cap
+  freq=fin(freq)?clamp(freq,40,6000):BASEF;
+  amp=fin(amp)?clamp(amp,0,1):0.3;
+  hard=fin(hard)?clamp(hard,0,1):0.5;
+  if (amp<=0.002) return;
+  var T=clamp(2.7*Math.pow(220/freq,0.45)*(1-0.22*hard),0.35,3.4);
+  var out=ac.createGain();
+  out.gain.value=1;
+  var pn=panNode(pan);
+  if (pn){ out.connect(pn); pn.connect(strikeBus); } else out.connect(strikeBus);
+  var longest=0;
+  for (var i=0;i<3;i++){
+    var d=T*SR_D[i];
+    var a=amp*SR_A[i]*(i===0?1:(0.45+0.95*hard))*0.42;
+    if (a<0.0009) continue;
+    var o=ac.createOscillator(); o.type='sine';
+    var f=freq*SR_R[i];
+    if (!fin(f)||f>=ac.sampleRate*0.47) continue;
+    o.frequency.setValueAtTime(f,t);
+    var g=ac.createGain();
+    g.gain.setValueAtTime(0.0001,t);
+    g.gain.exponentialRampToValueAtTime(Math.max(0.0012,a),t+0.003);
+    g.gain.exponentialRampToValueAtTime(0.0001,t+d);
+    o.connect(g); g.connect(out);
+    o.start(t); o.stop(t+d+0.05);
+    if (d>longest) longest=d;
+  }
+  // mallet transient
+  if (noiseBuf){
+    var src=ac.createBufferSource(); src.buffer=noiseBuf;
+    var bp=ac.createBiquadFilter(); bp.type='bandpass';
+    bp.frequency.setValueAtTime(clamp(freq*(2.1+5.4*hard),120,ac.sampleRate*0.45),t);
+    bp.Q.value=1.1;
+    var ng=ac.createGain();
+    var na=amp*(0.10+0.20*hard);
+    ng.gain.setValueAtTime(Math.max(0.0012,na),t);
+    ng.gain.exponentialRampToValueAtTime(0.0001,t+0.018+0.020*(1-hard));
+    src.connect(bp); bp.connect(ng); ng.connect(out);
+    src.start(t); src.stop(t+0.1);
+  }
+  strikeEnds.push(t+longest+0.08);
+  strikeEnds.sort(function(a,b){ return a-b; });
+}
+function clack(vel,pan){
+  if (!audioOK||!ac||!noiseBuf) return;
+  var t=ac.currentTime;
+  var a=clamp(vel*0.16,0,0.13);
+  if (a<0.006) return;
+  var src=ac.createBufferSource(); src.buffer=noiseBuf;
+  var bp=ac.createBiquadFilter(); bp.type='bandpass';
+  bp.frequency.setValueAtTime(2300+Math.random()*1500,t); bp.Q.value=2.4;
+  var g=ac.createGain();
+  g.gain.setValueAtTime(a,t);
+  g.gain.exponentialRampToValueAtTime(0.0001,t+0.026);
+  var pn=panNode(pan);
+  src.connect(bp); bp.connect(g);
+  if (pn){ g.connect(pn); pn.connect(strikeBus); } else g.connect(strikeBus);
+  src.start(t); src.stop(t+0.09);
+}
+function thunk(vel,pan){
+  if (!audioOK||!ac) return;
+  var t=ac.currentTime;
+  var a=clamp(vel*0.22,0,0.2);
+  if (a<0.008) return;
+  var o=ac.createOscillator(); o.type='sine';
+  o.frequency.setValueAtTime(96,t);
+  o.frequency.exponentialRampToValueAtTime(52,t+0.13);
+  var g=ac.createGain();
+  g.gain.setValueAtTime(Math.max(0.0012,a),t);
+  g.gain.exponentialRampToValueAtTime(0.0001,t+0.17);
+  var pn=panNode(pan);
+  o.connect(g);
+  if (pn){ g.connect(pn); pn.connect(strikeBus); } else g.connect(strikeBus);
+  o.start(t); o.stop(t+0.22);
+}
+function makeDrone(){
+  if (!audioOK||!ac) return null;
+  var d={};
+  d.g=ac.createGain(); d.g.gain.value=0.0001;
+  d.pan=panNode(0);
+  if (d.pan){ d.g.connect(d.pan); d.pan.connect(droneBus); } else d.g.connect(droneBus);
+  d.o1=ac.createOscillator(); d.o1.type='sine';
+  d.o2=ac.createOscillator(); d.o2.type='sine';
+  d.o3=ac.createOscillator(); d.o3.type='sine';
+  d.g1=ac.createGain(); d.g1.gain.value=0.5;
+  d.g2=ac.createGain(); d.g2.gain.value=0.42;
+  d.g3=ac.createGain(); d.g3.gain.value=0.11;
+  d.o1.connect(d.g1); d.g1.connect(d.g);
+  d.o2.connect(d.g2); d.g2.connect(d.g);
+  d.o3.connect(d.g3); d.g3.connect(d.g);
+  d.o1.frequency.value=BASEF; d.o2.frequency.value=BASEF*1.0037; d.o3.frequency.value=BASEF*2.757;
+  try{ d.o1.start(); d.o2.start(); d.o3.start(); }catch(e){}
+  d.lvl=0; d.freq=BASEF;
+  return d;
+}
+function droneSet(d,freq,lvl,pan){
+  if (!d||!ac) return;
+  var t=ac.currentTime;
+  freq=fin(freq)?clamp(freq,40,4000):BASEF;
+  lvl=fin(lvl)?clamp(lvl,0,1):0;
+  if (Math.abs(freq-d.freq)>0.5){
+    d.o1.frequency.setTargetAtTime(freq,t,0.05);
+    d.o2.frequency.setTargetAtTime(freq*1.0037,t,0.05);
+    d.o3.frequency.setTargetAtTime(freq*2.757,t,0.05);
+    d.freq=freq;
+  }
+  if (Math.abs(lvl-d.lvl)>0.004){
+    d.g.gain.setTargetAtTime(Math.max(0.0001,lvl*0.16),t,0.09);
+    d.lvl=lvl;
+  }
+  if (d.pan) d.pan.pan.setTargetAtTime(clamp(fin(pan)?pan:0,-1,1),t,0.08);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  THE BEAM AND THE BEADS
+//  s runs -1 .. +1 along the beam. Everything below is in that space and
+//  converted to pixels only at draw time, so the simulation is identical
+//  in portrait and landscape.
+// ═══════════════════════════════════════════════════════════════════════
+var GRAV=3.0, FRIC=1.05, WALL_E=0.42, BEAD_E=0.5;
+var MAXB=12;
+var beads=[];
+for (var bi=0;bi<MAXB;bi++) beads.push({
+  s:0, v:0, ci:-1, alive:false, rest:0, sing:0,
+  dr:null, flash:0, squash:0, held:false, side:[0,0]
+});
+var nActive=7, hardness=0.46;
+var tilt=0, tiltV=0, tiltTarget=0;
+var needle=0, needleV=0;
+var pivX=0, pivY=0, pivInit=false;
+var lean=0.5, wetTarget=0.34;
+var shake=0, shakeX=0, shakeY=0;
+var rings=[], sparks=[];
+var GATES=[ {on:false,s:0,live:0,px:0,py:0}, {on:false,s:0,live:0,px:0,py:0} ];
+var lastStrikeAt=0;
+
+function beadRB(){ return BRAD/Math.max(1,RL); }
+function gateR(){ return (MN*0.042)/Math.max(1,RL); }
+
+function setActive(n){
+  n=clamp(Math.round(n),3,MAXB);
+  if (n===nActive) return;
+  var i;
+  if (n>nActive){
+    for (i=nActive;i<n;i++){
+      var b=beads[i];
+      b.alive=true; b.v=0; b.ci=-1; b.rest=0; b.sing=0; b.flash=0; b.squash=0;
+      b.side[0]=0; b.side[1]=0;
+      b.s=clamp(-0.9+1.8*((i+0.5)/n),-0.97,0.97);
+    }
+  } else {
+    for (i=n;i<MAXB;i++){
+      beads[i].alive=false; beads[i].sing=0; beads[i].rest=0;
+      if (beads[i].dr) droneSet(beads[i].dr,beads[i].dr.freq,0,0);
+    }
+  }
+  nActive=n;
+  relaxOverlaps();
+}
+function relaxOverlaps(){
+  var rb=beadRB();
+  var list=[];
+  for (var i=0;i<nActive;i++) if (beads[i].alive) list.push(beads[i]);
+  list.sort(function(a,b){ return a.s-b.s; });
+  for (var k=0;k<40;k++){
+    var moved=false;
+    for (var j=0;j<list.length-1;j++){
+      var d=(list[j+1].s-list[j].s)-2*rb;
+      if (d<0){ list[j].s+=d*0.5; list[j+1].s-=d*0.5; moved=true; }
+    }
+    for (j=0;j<list.length;j++) list[j].s=clamp(list[j].s,-1+rb,1-rb);
+    if (!moved) break;
+  }
+}
+(function(){ for (var i=0;i<7;i++){ beads[i].alive=true; beads[i].s=-0.9+1.8*((i+0.5)/7); } })();
+
+function cellOf(s){
+  var i=Math.floor((clamp(s,-1,1)+1)*0.5*KCELL);
+  return clamp(i,0,KCELL-1);
+}
+function cellCentre(i){ return -1+(2*i+1)/KCELL; }
+
+function updateGates(){
+  // A palm is a weir only when it is genuinely NEAR the beam. The distance
+  // test is a perpendicular distance in screen pixels compared against the
+  // short edge — never against width, or a laptop would need a reach twice
+  // a phone's for the same gesture.
+  var cs=Math.cos(tilt), sn=Math.sin(tilt);
+  var lim=MN*0.115;
+  for (var k=0;k<2;k++){
+    var G=GATES[k], w=Bd.wr[k];
+    var was=G.on;
+    G.on=false;
+    if (bodyLive() && w.on){
+      var dx=w.x-pivX, dy=w.y-pivY;
+      var along=dx*cs+dy*sn;
+      var perp=-dx*sn+dy*cs;
+      if (Math.abs(perp)<lim){
+        var s=along/Math.max(1,RL);
+        if (s>-1.02 && s<1.02){
+          G.on=true; G.s=clamp(s,-1,1);
+          G.px=w.x; G.py=w.y;
+        }
+      }
+    }
+    G.live=clamp(G.live+(G.on?1:-1)*0.14,0,1);
+    if (was&&!G.on){ for (var q=0;q<MAXB;q++) beads[q].side[k]=0; }
+  }
+}
+
+// A palm is a hard obstacle, and a bead may NOT be allowed to wander round
+// it. Which side of the weir a bead is on is therefore remembered, not
+// re-derived from its position every step: without that, the collision pass
+// can shove the front bead of a pile a hair past the palm's centre line, the
+// next step reads it as "already through", and the whole dam drains. The
+// side is only re-read once a bead is genuinely clear of the obstacle.
+function applyWeirs(rb,rg){
+  for (var g=0;g<2;g++){
+    var G=GATES[g], i, b;
+    if (!G.on||G.live<0.35){
+      for (i=0;i<MAXB;i++) beads[i].side[g]=0;
+      continue;
+    }
+    var half=rg*G.live, free=half+rb+0.06;
+    for (i=0;i<nActive;i++){
+      b=beads[i]; if (!b.alive) continue;
+      var d=b.s-G.s;
+      if (b.side[g]===0||Math.abs(d)>free) b.side[g]=(d<0)?-1:1;
+      if (b.side[g]<0){
+        var hi=G.s-half-rb;
+        if (b.s>hi){ b.s=hi; if (b.v>0) b.v*=-0.12; b.held=true; }
+      } else {
+        var lo=G.s+half+rb;
+        if (b.s<lo){ b.s=lo; if (b.v<0) b.v*=-0.12; b.held=true; }
+      }
+    }
+  }
+}
+
+function substep(h){
+  var rb=beadRB(), rg=gateR();
+  var a=GRAV*Math.sin(tilt);
+  var i,b;
+  for (i=0;i<nActive;i++){
+    b=beads[i]; if (!b.alive) continue;
+    b.v+=a*h;
+    b.v*=Math.exp(-FRIC*h);
+    if (Math.abs(a)<0.26){
+      b.v*=Math.exp(-4.2*h);                       // the beam is near level:
+      if (Math.abs(b.v)<0.010) b.v=0;              // let them actually settle
+    }
+    b.s+=b.v*h;
+    // end stops
+    if (b.s<-1+rb){ b.s=-1+rb; if (b.v<-0.16) thunk(-b.v,-0.75); b.v=-b.v*WALL_E; }
+    else if (b.s>1-rb){ b.s=1-rb; if (b.v>0.16) thunk(b.v,0.75); b.v=-b.v*WALL_E; }
+    b.held=false;
+  }
+  applyWeirs(rb,rg);
+  // bead-bead collisions, resolved on the sorted line
+  var list=[];
+  for (i=0;i<nActive;i++) if (beads[i].alive) list.push(beads[i]);
+  list.sort(function(p,q){ return p.s-q.s; });
+  for (var it=0;it<3;it++){
+    for (var j=0;j<list.length-1;j++){
+      var p=list[j], q=list[j+1];
+      var d=(q.s-p.s)-2*rb;
+      if (d<0){
+        p.s+=d*0.5; q.s-=d*0.5;
+        var rel=p.v-q.v;
+        if (rel>0){
+          var imp=rel*(1+BEAD_E)*0.5;
+          p.v-=imp; q.v+=imp;
+          if (it===0&&rel>0.34) clack(rel,clamp(p.s*0.75,-1,1));
+        }
+      }
+    }
+  }
+  for (i=0;i<list.length;i++) list[i].s=clamp(list[i].s,-1+rb,1-rb);
+  applyWeirs(rb,rg);      // again: collision resolution must not tunnel a
+                          // bead through the palm that is holding it back
+
+  // strikes: entering a new cell with enough speed rings that cell's bar
+  for (i=0;i<nActive;i++){
+    b=beads[i]; if (!b.alive) continue;
+    var ci=cellOf(b.s);
+    if (ci!==b.ci){
+      if (b.ci>=0 && Math.abs(b.v)>0.065){
+        var amp=Math.pow(clamp(Math.abs(b.v)/1.55,0,1),0.72);
+        amp*=clamp(1.15-0.045*nActive,0.5,1);
+        strike(cellFreq(ci),amp,clamp(b.s*0.75,-1,1),hardness);
+        b.flash=1; b.squash=clamp(Math.abs(b.v)*0.55,0,0.9);
+        rings.push({s:cellCentre(ci),t:0,a:amp,ci:ci});
+        if (rings.length>44) rings.shift();
+        var nsp=Math.min(7,1+Math.round(amp*7));
+        for (var q2=0;q2<nsp;q2++) sparks.push({
+          s:b.s, off:(Math.random()*2-1)*0.5,
+          vx:(Math.random()*2-1)*1.3, vy:-0.4-Math.random()*1.6,
+          t:0, life:0.30+Math.random()*0.30, a:amp
+        });
+        if (sparks.length>190) sparks.splice(0,sparks.length-190);
+        shake=Math.min(1,shake+amp*0.30);
+        lastStrikeAt=now();
+      }
+      b.ci=ci;
+    }
+  }
+}
+
+function stepPhysics(dt){
+  var n=clamp(Math.ceil(dt/(1/240)),1,10);
+  var h=dt/n;
+  for (var k=0;k<n;k++) substep(h);
+}
+
+function updateSinging(dt){
+  var singing=0, running=0;
+  for (var i=0;i<MAXB;i++){
+    var b=beads[i];
+    if (!b.alive){
+      if (b.dr&&b.dr.lvl>0.001) droneSet(b.dr,b.dr.freq,0,0);
+      continue;
+    }
+    var still=Math.abs(b.v)<0.028 && !b.held;
+    b.rest=clamp(b.rest+(still?dt:-dt*3.4),0,1.0);
+    var target=smooth01((b.rest-0.16)/0.62);
+    // a palm laid over a singing bead damps it, like a hand on a bowl
+    for (var g=0;g<2;g++){
+      var G=GATES[g];
+      if (G.on&&G.live>0.3&&Math.abs(b.s-G.s)<gateR()*1.7+beadRB()) target=0;
+    }
+    b.sing=lerp(b.sing,target,1-Math.exp(-6.0*dt));
+    if (b.sing>0.012){
+      if (!b.dr) b.dr=makeDrone();
+      droneSet(b.dr,cellFreq(cellOf(b.s)),b.sing,clamp(b.s*0.75,-1,1));
+      singing++;
+    } else if (b.dr&&b.dr.lvl>0.0005){
+      droneSet(b.dr,b.dr.freq,0,clamp(b.s*0.75,-1,1));
+    }
+    if (Math.abs(b.v)>0.08) running++;
+    b.flash=Math.max(0,b.flash-dt*7.5);
+    b.squash=Math.max(0,b.squash-dt*5.0);
+  }
+  return {sing:singing,run:running};
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  RENDER
+// ═══════════════════════════════════════════════════════════════════════
+var C_PAPER='#f4efe2', C_GRID='#cfd8cd', C_BRASS='#b8912f',
+    C_PATINA='#4f8a74', C_SUMI='#2a2620', C_SHU='#c4452c';
+
+function buildPaper(){
+  var tile=document.createElement('canvas');
+  var g=tile.getContext('2d');
+  var mm=Math.max(5,Math.round(MN*0.0105));
+  tile.width=mm*5; tile.height=mm*5;
+  g.fillStyle=C_PAPER; g.fillRect(0,0,tile.width,tile.height);
+  g.strokeStyle='rgba(120,150,125,.19)'; g.lineWidth=1;
+  for (var i=1;i<5;i++){
+    g.beginPath(); g.moveTo(i*mm+.5,0); g.lineTo(i*mm+.5,tile.height); g.stroke();
+    g.beginPath(); g.moveTo(0,i*mm+.5); g.lineTo(tile.width,i*mm+.5); g.stroke();
+  }
+  g.strokeStyle='rgba(100,138,110,.38)'; g.lineWidth=1;
+  g.beginPath(); g.moveTo(.5,0); g.lineTo(.5,tile.height); g.stroke();
+  g.beginPath(); g.moveTo(0,.5); g.lineTo(tile.width,.5); g.stroke();
+  paperTile=ctx.createPattern(tile,'repeat');
+}
+function rp(s,out){
+  var cs=Math.cos(tilt), sn=Math.sin(tilt), d=s*RL;
+  out.x=pivX+cs*d; out.y=pivY+sn*d;
+  return out;
+}
+var _p={x:0,y:0}, _p2={x:0,y:0};
+
+function drawBackground(){
+  if (!paperTile) buildPaper();
+  ctx.fillStyle=paperTile||C_PAPER;
+  ctx.fillRect(-4,-4,W+8,H+8);
+  // a very soft daylight falloff — a tone, not a vignette
+  var lg=ctx.createLinearGradient(0,0,0,H);
+  lg.addColorStop(0,'rgba(255,252,242,.55)');
+  lg.addColorStop(0.55,'rgba(255,252,242,0)');
+  lg.addColorStop(1,'rgba(196,186,164,.20)');
+  ctx.fillStyle=lg; ctx.fillRect(0,0,W,H);
+}
+
+function drawBody(){
+  if (!bodyLive()) return;
+  ctx.save();
+  ctx.lineCap='round'; ctx.lineJoin='round';
+  ctx.strokeStyle='rgba(42,38,32,.20)';
+  ctx.lineWidth=Math.max(1.4,MN*0.0042);
+  ctx.beginPath(); ctx.moveTo(Bd.sxL,Bd.syL); ctx.lineTo(Bd.sxR,Bd.syR); ctx.stroke();
+  var sp=[[Bd.sxL,Bd.syL],[Bd.sxR,Bd.syR]];
+  for (var k=0;k<2;k++){
+    var root=sp[k===0?0:1];
+    var e=Bd.el[k], w=Bd.wr[k];
+    ctx.beginPath();
+    ctx.moveTo(root[0],root[1]);
+    if (e.on){ ctx.lineTo(e.x,e.y); if (w.on) ctx.lineTo(w.x,w.y); }
+    else if (w.on) ctx.lineTo(w.x,w.y);
+    ctx.stroke();
+  }
+  for (k=0;k<2;k++){
+    ctx.beginPath(); ctx.arc(sp[k][0],sp[k][1],MN*0.010,0,TAU);
+    ctx.fillStyle='rgba(42,38,32,.22)'; ctx.fill();
+  }
+  if (Bd.nose.on){
+    ctx.beginPath(); ctx.arc(Bd.nose.x,Bd.nose.y,MN*0.030,0,TAU);
+    ctx.strokeStyle='rgba(42,38,32,.15)';
+    ctx.lineWidth=Math.max(1,MN*0.0028); ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawBeam(){
+  var bw=Math.max(4,MN*0.0165);
+
+  // shadow on the paper, thrown straight down — drawn in screen space so
+  // the shake never gets rotated with the beam
+  ctx.save();
+  ctx.translate(shakeX,shakeY);
+  ctx.translate(pivX,pivY+MN*0.020); ctx.rotate(tilt);
+  ctx.fillStyle='rgba(120,110,88,.15)';
+  ctx.fillRect(-RL-bw,-bw*0.5,2*(RL+bw),bw);
+  ctx.restore();
+
+  ctx.save();
+  ctx.translate(shakeX,shakeY);
+  ctx.translate(pivX,pivY); ctx.rotate(tilt);
+
+  // the bar
+  var grd=ctx.createLinearGradient(0,-bw*0.6,0,bw*0.6);
+  grd.addColorStop(0,'#e0c274'); grd.addColorStop(0.32,'#c9a23c');
+  grd.addColorStop(0.62,'#a8811f'); grd.addColorStop(1,'#8a6a1a');
+  ctx.fillStyle=grd;
+  ctx.fillRect(-RL-bw*0.7,-bw*0.5,2*RL+bw*1.4,bw);
+  ctx.strokeStyle='rgba(60,46,12,.42)'; ctx.lineWidth=1;
+  ctx.strokeRect(-RL-bw*0.7+.5,-bw*0.5+.5,2*RL+bw*1.4-1,bw-1);
+  // the channel the beads run in
+  ctx.fillStyle='rgba(72,56,16,.30)';
+  ctx.fillRect(-RL,-bw*0.12,2*RL,bw*0.24);
+
+  // ticks: one per cell boundary, longer at the octave marks
+  ctx.lineCap='butt';
+  for (var i=0;i<=KCELL;i++){
+    var s=-1+2*i/KCELL, x=s*RL;
+    var oct=(i%5===0);
+    var h=oct?bw*1.7:bw*1.05;
+    ctx.strokeStyle=oct?'rgba(42,38,32,.72)':'rgba(42,38,32,.44)';
+    ctx.lineWidth=oct?Math.max(1.4,MN*0.0022):1;
+    ctx.beginPath(); ctx.moveTo(x,bw*0.5); ctx.lineTo(x,bw*0.5+h); ctx.stroke();
+  }
+  // struck ticks flash 朱
+  for (var r=0;r<rings.length;r++){
+    var R=rings[r];
+    var k=1-clamp(R.t/0.22,0,1);
+    if (k<=0) continue;
+    var bx=(-1+2*R.ci/KCELL)*RL, ex=(-1+2*(R.ci+1)/KCELL)*RL;
+    ctx.fillStyle='rgba(196,69,44,'+(0.55*k*clamp(R.a,0,1)).toFixed(3)+')';
+    ctx.fillRect(bx,bw*0.5,ex-bx,bw*1.9);
+  }
+  // scale numerals at the octave marks
+  ctx.fillStyle='rgba(42,38,32,.52)';
+  ctx.font='200 '+Math.round(Math.max(9,MN*0.0185))+'px Oswald, sans-serif';
+  ctx.textAlign='center'; ctx.textBaseline='top';
+  for (i=0;i<=KCELL;i+=5){
+    var xs=(-1+2*i/KCELL)*RL;
+    ctx.fillText(String(i===0?1:i+1),xs,bw*0.5+bw*1.9);
+  }
+  ctx.restore();
+}
+
+function drawFulcrum(){
+  ctx.save();
+  ctx.translate(shakeX,shakeY);
+  var w=MN*0.036, h=MN*0.052;
+  ctx.beginPath();
+  ctx.moveTo(pivX,pivY+MN*0.004);
+  ctx.lineTo(pivX-w*0.5,pivY+h);
+  ctx.lineTo(pivX+w*0.5,pivY+h);
+  ctx.closePath();
+  var g=ctx.createLinearGradient(pivX-w*0.5,0,pivX+w*0.5,0);
+  g.addColorStop(0,'#c9a23c'); g.addColorStop(0.5,'#9c7a1d'); g.addColorStop(1,'#7d6015');
+  ctx.fillStyle=g; ctx.fill();
+  ctx.strokeStyle='rgba(60,46,12,.5)'; ctx.lineWidth=1; ctx.stroke();
+  ctx.fillStyle='rgba(42,38,32,.30)';
+  ctx.fillRect(pivX-w*1.15,pivY+h,w*2.3,Math.max(2,MN*0.0055));
+  ctx.restore();
+}
+
+function drawBeads(){
+  var rb=beadRB();
+  ctx.save(); ctx.translate(shakeX,shakeY);
+  for (var i=0;i<MAXB;i++){
+    var b=beads[i]; if (!b.alive) continue;
+    rp(b.s,_p);
+    var r=BRAD*(1+b.squash*0.16);
+    var ry=BRAD*(1-b.squash*0.20);
+    if (!fin(_p.x)||!fin(_p.y)) continue;
+    // patina halo while singing
+    if (b.sing>0.02){
+      var hr=r*(1.7+0.9*b.sing+0.16*Math.sin(now()*3.1+i));
+      var hg=ctx.createRadialGradient(_p.x,_p.y,r*0.6,_p.x,_p.y,hr);
+      hg.addColorStop(0,'rgba(79,138,116,'+(0.30*b.sing).toFixed(3)+')');
+      hg.addColorStop(1,'rgba(79,138,116,0)');
+      ctx.fillStyle=hg;
+      ctx.beginPath(); ctx.arc(_p.x,_p.y,hr,0,TAU); ctx.fill();
+    }
+    ctx.save();
+    ctx.translate(_p.x,_p.y); ctx.rotate(tilt);
+    ctx.beginPath(); ctx.ellipse(0,0,r,ry,0,0,TAU);
+    var g=ctx.createRadialGradient(-r*0.34,-r*0.40,r*0.08,0,0,r*1.1);
+    if (b.sing>0.35){
+      g.addColorStop(0,'#cfe6d6'); g.addColorStop(0.36,'#7fb49a');
+      g.addColorStop(0.78,'#4f8a74'); g.addColorStop(1,'#33604f');
+    } else {
+      g.addColorStop(0,'#f6e3ac'); g.addColorStop(0.34,'#d6b054');
+      g.addColorStop(0.76,'#a8811f'); g.addColorStop(1,'#6e5412');
+    }
+    ctx.fillStyle=g; ctx.fill();
+    if (b.flash>0.01){
+      ctx.fillStyle='rgba(255,240,214,'+(0.72*b.flash).toFixed(3)+')';
+      ctx.fill();
+    }
+    ctx.strokeStyle='rgba(56,42,10,.46)'; ctx.lineWidth=1; ctx.stroke();
+    ctx.beginPath(); ctx.arc(-r*0.33,-r*0.38,r*0.19,0,TAU);
+    ctx.fillStyle='rgba(255,250,232,.80)'; ctx.fill();
+    ctx.restore();
+  }
+  ctx.restore();
+}
+
+function drawRingsAndSparks(dt){
+  ctx.save(); ctx.translate(shakeX,shakeY);
+  var i,R;
+  for (i=rings.length-1;i>=0;i--){
+    R=rings[i]; R.t+=dt;
+    var k=R.t/0.40;
+    if (k>=1){ rings.splice(i,1); continue; }
+    rp(R.s,_p);
+    if (!fin(_p.x)) continue;
+    var rr=BRAD*(0.8+3.4*smooth01(k));
+    ctx.beginPath(); ctx.arc(_p.x,_p.y,rr,0,TAU);
+    ctx.strokeStyle='rgba(196,69,44,'+(0.55*(1-k)*clamp(R.a,0,1)).toFixed(3)+')';
+    ctx.lineWidth=Math.max(1,MN*0.0032*(1-k));
+    ctx.stroke();
+  }
+  for (i=sparks.length-1;i>=0;i--){
+    var S=sparks[i]; S.t+=dt;
+    if (S.t>=S.life){ sparks.splice(i,1); continue; }
+    S.vy+=dt*3.6;
+    var kk=S.t/S.life;
+    rp(S.s,_p);
+    var px=_p.x+(S.off*BRAD)+S.vx*S.t*MN*0.10;
+    var py=_p.y+S.vy*S.t*MN*0.10;
+    if (!fin(px)||!fin(py)) continue;
+    ctx.fillStyle='rgba(196,69,44,'+(0.6*(1-kk)*clamp(S.a,0,1)).toFixed(3)+')';
+    var sr=Math.max(0.6,MN*0.0030*(1-kk));
+    ctx.beginPath(); ctx.arc(px,py,sr,0,TAU); ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawGates(){
+  ctx.save(); ctx.translate(shakeX,shakeY);
+  for (var k=0;k<2;k++){
+    var G=GATES[k];
+    if (G.live<=0.02) continue;
+    rp(G.s,_p);
+    if (!fin(_p.x)||!fin(_p.y)) continue;
+    var r=MN*0.042*(0.6+0.4*G.live);
+    ctx.beginPath(); ctx.arc(_p.x,_p.y,r,0,TAU);
+    ctx.strokeStyle='rgba(196,69,44,'+(0.72*G.live).toFixed(3)+')';
+    ctx.lineWidth=Math.max(1.6,MN*0.0040);
+    ctx.stroke();
+    ctx.beginPath(); ctx.arc(_p.x,_p.y,r*0.30,0,TAU);
+    ctx.fillStyle='rgba(196,69,44,'+(0.30*G.live).toFixed(3)+')'; ctx.fill();
+    if (G.on&&Bd.wr[k].on){
+      ctx.beginPath();
+      ctx.moveTo(Bd.wr[k].x,Bd.wr[k].y); ctx.lineTo(_p.x,_p.y);
+      ctx.strokeStyle='rgba(196,69,44,'+(0.24*G.live).toFixed(3)+')';
+      ctx.lineWidth=1; ctx.stroke();
+    }
+  }
+  ctx.restore();
+}
+
+function drawGauge(){
+  var cx=MN*0.105, cy=H-MN*0.075-(MN*0.10);
+  if (H<W) cy=H-MN*0.16;
+  var R=MN*0.072;
+  ctx.save();
+  ctx.translate(cx,cy);
+  ctx.beginPath(); ctx.arc(0,0,R,Math.PI,TAU);
+  ctx.closePath();
+  ctx.fillStyle='rgba(244,239,226,.86)'; ctx.fill();
+  ctx.strokeStyle='rgba(184,145,47,.75)'; ctx.lineWidth=1; ctx.stroke();
+  for (var d=-45;d<=45;d+=15){
+    var a=-Math.PI/2+d*Math.PI/180;
+    var big=(d===0);
+    ctx.beginPath();
+    ctx.moveTo(Math.cos(a)*R*(big?0.62:0.76),Math.sin(a)*R*(big?0.62:0.76));
+    ctx.lineTo(Math.cos(a)*R*0.93,Math.sin(a)*R*0.93);
+    ctx.strokeStyle=big?'rgba(42,38,32,.7)':'rgba(42,38,32,.34)';
+    ctx.lineWidth=big?1.6:1; ctx.stroke();
+  }
+  var na=-Math.PI/2+clamp(needle,-0.95,0.95);
+  ctx.beginPath(); ctx.moveTo(0,0);
+  ctx.lineTo(Math.cos(na)*R*0.86,Math.sin(na)*R*0.86);
+  ctx.strokeStyle=C_SHU; ctx.lineWidth=Math.max(1.6,MN*0.0034);
+  ctx.lineCap='round'; ctx.stroke();
+  ctx.beginPath(); ctx.arc(0,0,Math.max(2,MN*0.0055),0,TAU);
+  ctx.fillStyle=C_SUMI; ctx.fill();
+  ctx.restore();
+}
+
+function drawMonitor(){
+  var mw=MN*0.20, mh=mw/Math.max(0.3,camAspect);
+  var mx=W-mw-MN*0.030, my=MN*0.030+(window.innerHeight?0:0);
+  ctx.save();
+  ctx.fillStyle='rgba(42,38,32,.10)';
+  ctx.fillRect(mx-2,my-2,mw+4,mh+4);
+  if (camOK&&video&&video.videoWidth>0){
+    ctx.save();
+    ctx.beginPath(); ctx.rect(mx,my,mw,mh); ctx.clip();
+    if (mirror){ ctx.translate(mx+mw,my); ctx.scale(-1,1); ctx.translate(-mx,-my); }
+    ctx.globalAlpha=0.9;
+    ctx.drawImage(video,mx,my,mw,mh);
+    ctx.restore();
+  } else {
+    ctx.fillStyle='rgba(207,216,205,.7)'; ctx.fillRect(mx,my,mw,mh);
+  }
+  ctx.strokeStyle='rgba(184,145,47,.85)'; ctx.lineWidth=1;
+  ctx.strokeRect(mx+.5,my+.5,mw-1,mh-1);
+  ctx.fillStyle=bodyLive()?C_PATINA:C_SHU;
+  ctx.beginPath(); ctx.arc(mx+mw-MN*0.014,my+MN*0.014,MN*0.005,0,TAU); ctx.fill();
+  ctx.restore();
+  if (!bodyLive()){
+    ctx.save();
+    ctx.font='400 '+Math.round(Math.max(10,MN*0.019))+'px "BIZ UDPGothic", sans-serif';
+    ctx.fillStyle='rgba(42,38,32,.55)';
+    ctx.textAlign='right'; ctx.textBaseline='top';
+    ctx.fillText('上半身がうつるように',W-MN*0.030,my+mh+MN*0.012);
+    ctx.restore();
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  LOOP
+// ═══════════════════════════════════════════════════════════════════════
+var last=now(), started=false;
+function frame(){
+  requestAnimationFrame(frame);
+  var t=now();
+  var dt=t-last; last=t;
+  if (!fin(dt)||dt<0) dt=0.016;
+  dt=Math.min(dt,0.05);
+
+  // ── beam: a critically damped spring chasing the shoulder line ──
+  if (bodyLive()) tiltTarget=clamp(Bd.theta,-0.84,0.84);
+  else tiltTarget*= Math.exp(-2.2*dt);
+  var w0=11.0;
+  tiltV+=(-2*w0*tiltV-w0*w0*(tilt-tiltTarget))*dt;
+  tilt+=tiltV*dt;
+  if (!fin(tilt)){ tilt=0; tiltV=0; }
+  tilt=clamp(tilt,-1.0,1.0);
+
+  // ── gauge needle: slower, and allowed to overshoot ──
+  var w1=7.0, z=0.55;
+  needleV+=(-2*z*w1*needleV-w1*w1*(needle-tilt))*dt;
+  needle+=needleV*dt;
+  if (!fin(needle)){ needle=0; needleV=0; }
+
+  // ── pivot: follows the body but never walks the beam off the sheet ──
+  var mo=Math.max(0,W*0.5-RL*Math.abs(Math.cos(tilt))-MN*0.035);
+  var vext=RL*Math.abs(Math.sin(tilt))+MN*0.09;
+  var loY=vext+MN*0.06, hiY=H-vext-MN*0.17;
+  if (hiY<loY){ loY=hiY=H*0.5; }
+  var tX=W*0.5, tY=clamp(H*0.47,loY,hiY);
+  if (bodyLive()){
+    tX=W*0.5+clamp(Bd.midX-W*0.5,-mo,mo);
+    tY=clamp(Bd.midY,loY,hiY);
+  }
+  if (!pivInit){ pivX=tX; pivY=tY; pivInit=true; }
+  var k=1-Math.exp(-6.5*dt);
+  pivX=lerp(pivX,tX,k); pivY=lerp(pivY,tY,k);
+  if (!fin(pivX)) pivX=W*0.5;
+  if (!fin(pivY)) pivY=H*0.5;
+
+  updateGates();
+  if (started) stepPhysics(dt);
+  var st=updateSinging(dt);
+
+  // ── lean: shoulder width against the SHORT EDGE, so distance reads the
+  //    same in either orientation. Close = dry and intimate; far = a hall.
+  if (bodyLive()){
+    var ln=clamp((Bd.width/MN-0.15)/0.30,0,1);
+    lean=lerp(lean,ln,1-Math.exp(-2.4*dt));
+  }
+  wetTarget=lerp(0.56,0.11,lean);
+  if (audioOK&&ac){
+    wetG.gain.setTargetAtTime(wetTarget,ac.currentTime,0.25);
+    dryG.gain.setTargetAtTime(lerp(0.70,0.98,lean),ac.currentTime,0.25);
+    droneLP.frequency.setTargetAtTime(lerp(1500,2800,lean),ac.currentTime,0.3);
+  }
+
+  shake=Math.max(0,shake-dt*3.6);
+  shakeX=(Math.random()*2-1)*shake*MN*0.0055;
+  shakeY=(Math.random()*2-1)*shake*MN*0.0055;
+
+  drawBackground();
+  drawBody();
+  drawFulcrum();
+  drawBeam();
+  drawRingsAndSparks(dt);
+  drawBeads();
+  drawGates();
+  drawGauge();
+  drawMonitor();
+
+  if (rTilt) rTilt.textContent=(tilt*180/Math.PI).toFixed(1);
+  if (rRun) rRun.textContent=String(st.run);
+  if (rSing) rSing.textContent=String(st.sing);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  CONSOLE WIRING
+// ═══════════════════════════════════════════════════════════════════════
+function setMode(m){
+  mode=clamp(Math.round(m),0,2);
+  for (var i=0;i<3;i++) if (mBtn[i]) mBtn[i].className=(i===mode)?'on':'';
+  for (var b=0;b<MAXB;b++){
+    var bd=beads[b];
+    if (bd.dr&&bd.alive&&bd.sing>0.01) droneSet(bd.dr,cellFreq(cellOf(bd.s)),bd.sing,clamp(bd.s*0.75,-1,1));
+  }
+}
+for (var mi=0;mi<3;mi++) (function(i){
+  if (mBtn[i]) mBtn[i].addEventListener('click',function(){ setMode(i); });
+})(mi);
+if (nBeadsEl) nBeadsEl.addEventListener('input',function(){
+  setActive(parseInt(nBeadsEl.value,10)||7);
+});
+if (hardEl) hardEl.addEventListener('input',function(){
+  var v=parseInt(hardEl.value,10);
+  hardness=clamp((fin(v)?v:46)/100,0,1);
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+//  START-SHEET DIAGRAM ─ three seconds that teach the gesture: shoulders
+//  tip, beads run, a palm stops them, the palm lifts, they run again.
+// ═══════════════════════════════════════════════════════════════════════
+var demoRun=true, demoT=0, demoLast=now();
+var dB=[{s:-0.55,v:0},{s:-0.36,v:0},{s:-0.17,v:0}];
+function demoFrame(){
+  if (!demoRun||!demoCtx) return;
+  requestAnimationFrame(demoFrame);
+  var t=now(), dt=Math.min(0.05,t-demoLast); demoLast=t;
+  demoT+=dt;
+  var P=5.6, ph=(demoT%P)/P;
+  var g=demoCtx, DW=demoCv.width, DH=demoCv.height;
+  var th=Math.sin(ph*TAU)*0.30;
+  var gateOn=(ph>0.30&&ph<0.56);
+  var gs=0.12;
+  var rb=0.055;
+  // physics
+  var a=3.0*Math.sin(th);
+  for (var i=0;i<3;i++){
+    var b=dB[i];
+    b.v+=a*dt; b.v*=Math.exp(-1.05*dt);
+    if (Math.abs(a)<0.26){ b.v*=Math.exp(-4.2*dt); if (Math.abs(b.v)<0.01) b.v=0; }
+    b.s+=b.v*dt;
+    if (b.s<-1+rb){ b.s=-1+rb; b.v=-b.v*0.42; }
+    if (b.s>1-rb){ b.s=1-rb; b.v=-b.v*0.42; }
+    if (gateOn&&b.s<gs&&b.s>gs-0.10-rb){ b.s=gs-0.10-rb; if (b.v>0) b.v*=-0.12; }
+  }
+  for (var it=0;it<3;it++) for (var j=0;j<2;j++){
+    var d=(dB[j+1].s-dB[j].s)-2*rb;
+    if (d<0){ dB[j].s+=d*0.5; dB[j+1].s-=d*0.5;
+      var rel=dB[j].v-dB[j+1].v;
+      if (rel>0){ var im=rel*0.75; dB[j].v-=im; dB[j+1].v+=im; } }
+  }
+  // draw
+  g.fillStyle='#f4efe2'; g.fillRect(0,0,DW,DH);
+  g.strokeStyle='rgba(120,150,125,.24)'; g.lineWidth=1;
+  for (var x=0;x<DW;x+=22){ g.beginPath(); g.moveTo(x+.5,0); g.lineTo(x+.5,DH); g.stroke(); }
+  for (var y=0;y<DH;y+=22){ g.beginPath(); g.moveTo(0,y+.5); g.lineTo(DW,y+.5); g.stroke(); }
+  var cx=DW*0.5, cy=DH*0.54, L=DW*0.40;
+  // shoulders
+  g.save(); g.translate(cx,cy); g.rotate(th);
+  g.strokeStyle='rgba(42,38,32,.22)'; g.lineWidth=9; g.lineCap='round';
+  g.beginPath(); g.moveTo(-L*0.62,0); g.lineTo(L*0.62,0); g.stroke();
+  g.restore();
+  // head
+  g.beginPath(); g.arc(cx-Math.sin(th)*DH*0.20,cy-Math.cos(th)*DH*0.20,DH*0.085,0,TAU);
+  g.strokeStyle='rgba(42,38,32,.22)'; g.lineWidth=5; g.stroke();
+  // beam
+  g.save(); g.translate(cx,cy); g.rotate(th);
+  g.fillStyle='rgba(120,110,88,.14)'; g.fillRect(-L,10,2*L,9);
+  var gr=g.createLinearGradient(0,-6,0,6);
+  gr.addColorStop(0,'#e0c274'); gr.addColorStop(0.5,'#c9a23c'); gr.addColorStop(1,'#8a6a1a');
+  g.fillStyle=gr; g.fillRect(-L,-6,2*L,12);
+  for (var c=0;c<=15;c++){
+    var xs=(-1+2*c/15)*L;
+    g.strokeStyle=(c%5===0)?'rgba(42,38,32,.65)':'rgba(42,38,32,.35)';
+    g.lineWidth=1; g.beginPath(); g.moveTo(xs,6); g.lineTo(xs,(c%5===0)?20:14); g.stroke();
+  }
+  for (i=0;i<3;i++){
+    var bx=dB[i].s*L;
+    var bg=g.createRadialGradient(bx-5,-5,2,bx,0,15);
+    var singing=(Math.abs(dB[i].v)<0.03&&Math.abs(a)<0.26);
+    if (singing){ bg.addColorStop(0,'#cfe6d6'); bg.addColorStop(0.5,'#7fb49a'); bg.addColorStop(1,'#33604f'); }
+    else { bg.addColorStop(0,'#f6e3ac'); bg.addColorStop(0.45,'#d6b054'); bg.addColorStop(1,'#6e5412'); }
+    g.beginPath(); g.arc(bx,0,14,0,TAU); g.fillStyle=bg; g.fill();
+    g.strokeStyle='rgba(56,42,10,.45)'; g.lineWidth=1; g.stroke();
+  }
+  if (gateOn){
+    var gx=gs*L;
+    g.beginPath(); g.arc(gx,0,20,0,TAU);
+    g.strokeStyle='#c4452c'; g.lineWidth=3; g.stroke();
+  }
+  g.restore();
+  g.fillStyle='rgba(42,38,32,.5)';
+  g.font='400 15px Oswald, sans-serif'; g.textAlign='left'; g.textBaseline='top';
+  g.fillText(gateOn?'PALM — HOLD':'TILT — RUN',14,12);
+  g.textAlign='right';
+  g.fillText((th*180/Math.PI).toFixed(0)+'°',DW-14,12);
+}
+if (demoCtx) demoFrame();
+
+// ═══════════════════════════════════════════════════════════════════════
+//  START
+// ═══════════════════════════════════════════════════════════════════════
+startBtn.addEventListener('click',function(){
+  if (started) return;
+  started=true;
+  demoRun=false;
+  initAudio();
+  if (ac&&ac.state==='suspended'){ var r=ac.resume(); if (r&&r.then) r.catch(function(){}); }
+  startSheet.classList.add('gone');
+  initPose();
+  startStream().then(startMpCamera).catch(showError);
+  last=now();
+});
+
+resize();
+updateCover();
+setMode(0);
+setActive(7);
+last=now();
+frame();
+</script>
+</body>
+</html>
