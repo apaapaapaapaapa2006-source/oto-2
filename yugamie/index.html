@@ -1,0 +1,1310 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>YUGAMIE ─ 鏡の中でだけ戻る絵</title>
+<meta name="description" content="カメラ映像をわざと壊して刷った歪み絵。紙の上に伸びた墨の渦は何の絵か分からないが、手のひらが運ぶ銀の鏡の中でだけ、それが今のあなたに戻る。円筒・玉・斜の三通りの歪ませかたがあり、指をつまめば鏡が大きくなり、握れば絵がその一枚に刷り止まる。">
+<meta name="theme-color" content="#efe7d5">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;1,400&family=Zen+Antique&display=swap" rel="stylesheet">
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  YUGAMIE ─ 鏡の中でだけ戻る絵                        ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  MOOD      十八世紀の円筒鏡歪み絵。An anamorphic engraving lying on a
+            table: a copperplate print of something unreadable, and a
+            polished metal cylinder standing on it that is the only place
+            the picture exists. Warm, papery, still, a little scholarly.
+            Deliberately the LIGHT end of the collection — tonight's
+            companion piece TEMOTO owns the dark.
+
+  PALETTE   生成  kinari  #efe7d5  the sheet. Laid paper, warm, never white.
+            墨茶  sumicha #4a3527  the ink. Everything printed is this, and
+                                   the plate is a DUOTONE of exactly this
+                                   ink on exactly that paper — no third
+                                   colour is ever printed.
+            焦    koge    #2b1d14  the deepest bite of the plate, the type,
+                                   the plate mark and the drawn hand.
+            銀    gin     #c9ced6  the mirror, and ONLY the mirror. It is
+                                   the one cold thing in the frame.
+            朱    shu     #b8442e  reserved for impact: the 刷 stamp, the
+                                   moment the print freezes. Never decorative.
+
+            The rule that carries the whole idea: THE PLATE IS SEPIA AND
+            THE MIRROR IS IN COLOUR. The print is dead ink; the reflection
+            is alive. You can tell at a glance which part of the screen is
+            the present tense.
+
+  BACKGROUND  Laid paper, built once into a repeating tile: warm base,
+              horizontal chain lines every 9px, fine random grain, and a
+              faint plate mark ring pressed into the sheet around the
+              print. No vignette, no gradient wash.
+
+  TYPOGRAPHY  EB Garamond (incl. italic) for latin — an actual old-style
+              face, letterspaced for the plate caption, because the labels
+              should read as engraved lettering. Zen Antique for Japanese.
+              Neither has been used in this gallery.
+
+  MOTION      Slow and viscous. The mirror does not follow the hand, it is
+              DRAGGED by it — heavy critical damping, so there is real
+              weight in the metal. Radius eases. Mode changes cross-dissolve
+              the whole plate over 560ms rather than cutting.
+
+  SIGNATURE   The metal itself. A polished disc with a moving specular
+              band, a cold rim, and a cast shadow that falls across the
+              print — and inside it, in full colour, the piece of the world
+              the ink around it has been torn apart to encode.
+
+  THE OPTICS (all three are genuine anamorphic families, not filters)
+    円筒  A cylindrical mirror standing on the plate. The plate is the
+          image wrapped into a ring around it — inverse polar — so the
+          picture is smeared right around the metal. The mirror shows it
+          rectified, with the asin() horizontal compression a real cylinder
+          imposes.
+    玉    A spherical gazing ball. The plate explodes the image radially:
+          the CENTRE of the picture is stretched out into the outermost
+          ring and the edges are crushed against the metal. The ball shows
+          the whole scene squeezed into a fisheye.
+    斜    Holbein's oblique. The image is projected onto the paper from a
+          viewpoint almost level with it, so it stretches away into a long
+          fan that grows wider and fainter with distance. The bead sits at
+          the viewpoint and shows the rectified original.
+
+  ENGINEERING
+    · The whole map is a LUT built in MIRROR-RELATIVE coordinates, so it is
+      rebuilt only when the mode, the radii or the source size change —
+      never because the hand moved. Moving the hand is a pointer offset.
+    · One reused output ImageData; the source frame is copied into one
+      cached Uint8ClampedArray, and while the print is frozen the source is
+      not read at all.
+    · Internal resolution adapts on measured frame time across four steps,
+      so a slow phone loses pixels instead of frames.
+    · Every ratio the gestures use (pinch, curl) is measured in
+      ASPECT-CORRECTED camera space and divided by the hand's own span, so
+      the same physical pinch reads identically in portrait and landscape
+      and at any distance from the lens.
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<style>
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;height:100%;background:#efe7d5;overflow:hidden}
+  body{
+    font-family:'Zen Antique','Hiragino Mincho ProN',serif;
+    color:#2b1d14;-webkit-font-smoothing:antialiased;
+    touch-action:none;user-select:none;-webkit-user-select:none;
+  }
+  #view{position:fixed;inset:0;width:100%;height:100%;display:block}
+  #video{position:fixed;left:-9999px;top:-9999px;width:2px;height:2px;opacity:0}
+
+  #flip{
+    position:fixed;right:12px;top:12px;z-index:6;
+    font-family:'EB Garamond',serif;font-size:14px;letter-spacing:.12em;
+    color:#4a3527;background:rgba(239,231,213,.84);
+    border:1px solid rgba(74,53,39,.36);border-radius:2px;
+    padding:6px 13px;cursor:pointer;
+    transition:background .4s cubic-bezier(.3,.7,.2,1),color .4s;
+  }
+  #flip:hover{background:#4a3527;color:#efe7d5}
+
+  #err{
+    display:none;position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);
+    z-index:40;max-width:min(86vw,440px);white-space:pre-line;
+    background:#efe7d5;border:1px solid #b8442e;
+    border-radius:2px;padding:20px 22px;font-size:13.5px;line-height:2;color:#2b1d14;
+    box-shadow:0 10px 40px rgba(43,29,20,.2);
+  }
+
+  #panel{
+    position:fixed;left:50%;bottom:0;transform:translateX(-50%);z-index:6;
+    display:flex;align-items:center;gap:9px 15px;flex-wrap:wrap;justify-content:center;
+    padding:10px 16px calc(10px + env(safe-area-inset-bottom,0px));
+    background:linear-gradient(to top,rgba(239,231,213,.96),rgba(239,231,213,0));
+    max-width:100vw;
+  }
+  .grp{display:flex;align-items:center;gap:8px}
+  .grp>label{
+    font-family:'EB Garamond',serif;font-style:italic;font-size:12px;
+    letter-spacing:.1em;color:rgba(74,53,39,.62);
+  }
+  .btn{
+    font-family:'Zen Antique',serif;font-size:14px;color:#4a3527;
+    background:transparent;border:1px solid rgba(74,53,39,.34);border-radius:2px;
+    padding:6px 13px;cursor:pointer;line-height:1;
+    transition:background .4s cubic-bezier(.3,.7,.2,1),color .4s,border-color .4s;
+  }
+  .btn:hover{background:rgba(74,53,39,.1)}
+  .btn.on{background:#4a3527;border-color:#4a3527;color:#efe7d5}
+  .btn.ink{border-color:rgba(184,68,46,.5);color:#b8442e}
+  .btn.ink.on{background:#b8442e;border-color:#b8442e;color:#efe7d5}
+  .modes{display:flex;gap:-1px}
+  .modes .btn{padding:6px 12px;min-width:44px;text-align:center;margin-left:-1px}
+  input[type=range]{
+    -webkit-appearance:none;appearance:none;width:84px;height:1px;
+    background:rgba(74,53,39,.42);outline:none;cursor:pointer;
+  }
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none;appearance:none;width:11px;height:11px;border-radius:50%;
+    background:#4a3527;border:none;cursor:pointer;
+  }
+  input[type=range]::-moz-range-thumb{
+    width:11px;height:11px;border-radius:50%;background:#4a3527;border:none;cursor:pointer;
+  }
+
+  #ov{
+    position:fixed;inset:0;z-index:30;display:flex;align-items:center;justify-content:center;
+    background:#efe7d5;padding:20px;
+    transition:opacity .72s cubic-bezier(.3,.7,.2,1);
+  }
+  #ov.gone{opacity:0;pointer-events:none}
+  .sheet{width:min(94vw,480px);text-align:center}
+  .rule{height:1px;background:rgba(74,53,39,.3);margin:0 auto 16px;width:62%}
+  .kicker{
+    font-family:'EB Garamond',serif;font-style:italic;font-size:13px;
+    letter-spacing:.3em;color:rgba(74,53,39,.66);margin:0 0 6px 4px;
+  }
+  h1{
+    font-family:'EB Garamond',serif;font-weight:500;
+    font-size:clamp(34px,10.5vw,56px);letter-spacing:.3em;
+    margin:0 0 0 .3em;line-height:1.05;color:#2b1d14;
+  }
+  .sub{font-size:14px;letter-spacing:.14em;color:rgba(43,29,20,.72);margin:10px 0 0}
+  #diag{display:block;margin:18px auto 4px;border:1px solid rgba(74,53,39,.22)}
+  .lead{
+    font-size:13px;line-height:2.1;color:rgba(43,29,20,.84);
+    margin:12px auto 0;max-width:420px;text-align:left;
+  }
+  .lead b{color:#b8442e;font-weight:400}
+  .go{
+    margin-top:21px;font-family:'Zen Antique',serif;font-size:16px;
+    letter-spacing:.2em;color:#efe7d5;background:#2b1d14;border:none;border-radius:2px;
+    padding:13px 42px;cursor:pointer;
+    transition:transform .45s cubic-bezier(.3,.7,.2,1),background .45s;
+  }
+  .go:hover{transform:translateY(-2px);background:#4a3527}
+  .go:active{transform:scale(.97)}
+  @media (max-width:470px){
+    .lead{font-size:12px;line-height:2}
+    #panel{gap:7px 11px;padding:9px 11px calc(9px + env(safe-area-inset-bottom,0px))}
+    input[type=range]{width:66px}
+  }
+</style>
+</head>
+<body>
+
+<canvas id="view"></canvas>
+<video id="video" playsinline muted autoplay></video>
+<button id="flip">⟲ カメラ</button>
+<div id="err"></div>
+
+<div id="panel">
+  <div class="grp">
+    <div class="modes">
+      <button id="m0" class="btn on">円筒</button>
+      <button id="m1" class="btn">玉</button>
+      <button id="m2" class="btn">斜</button>
+    </div>
+  </div>
+  <div class="grp">
+    <label>歪</label>
+    <input type="range" id="warp" min="0" max="100" value="52">
+  </div>
+  <div class="grp">
+    <label>刷</label>
+    <input type="range" id="ink" min="0" max="100" value="58">
+  </div>
+  <div class="grp">
+    <button id="freeze" class="btn ink">刷る</button>
+  </div>
+</div>
+
+<div id="ov">
+  <div class="sheet">
+    <p class="kicker">OTO II — EFFECT</p>
+    <h1>YUGAMIE</h1>
+    <p class="sub">鏡の中でだけ戻る絵</p>
+    <div class="rule" style="margin-top:16px"></div>
+    <canvas id="diag" width="360" height="152"></canvas>
+    <p class="lead">
+      カメラの映像は紙の上で壊されて刷られます。渦になった墨は何の絵だか分かりませんが、<b>手のひらの上の銀の鏡</b>の中でだけ、それが今のあなたに戻ります。<br>
+      手を動かせば鏡が運ばれ、絵はそのたびに鏡のまわりへ組み直されます。<br>
+      <b>親指と人差し指をひらけば</b>鏡が大きく、<b>握れば</b>絵がその一枚に刷り止まります。
+    </p>
+    <button id="go" class="go">はじめる</button>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+<script>
+(function(){
+'use strict';
+
+// ═══════════════════════════════════════════════════════════════════════
+//  DOM
+// ═══════════════════════════════════════════════════════════════════════
+var view    = document.getElementById('view');
+var video   = document.getElementById('video');
+var flipBtn = document.getElementById('flip');
+var errBox  = document.getElementById('err');
+var ov      = document.getElementById('ov');
+var goBtn   = document.getElementById('go');
+var diag    = document.getElementById('diag');
+var warpEl  = document.getElementById('warp');
+var inkEl   = document.getElementById('ink');
+var frzBtn  = document.getElementById('freeze');
+var modeBtns= [document.getElementById('m0'),
+               document.getElementById('m1'),
+               document.getElementById('m2')];
+
+var ctx  = view.getContext('2d');
+var dctx = diag.getContext('2d');
+
+function fin(v){ return typeof v==='number' && isFinite(v); }
+function clamp(v,a,b){ return v<a?a:(v>b?b:v); }
+
+// ═══════════════════════════════════════════════════════════════════════
+//  GEOMETRY
+// ═══════════════════════════════════════════════════════════════════════
+var W=1, H=1, MN=1, DPR=1;
+function resize(){
+  DPR = Math.min(window.devicePixelRatio||1, 2);
+  W = Math.max(1, window.innerWidth);
+  H = Math.max(1, window.innerHeight);
+  view.width  = Math.max(1, Math.round(W*DPR));
+  view.height = Math.max(1, Math.round(H*DPR));
+  view.style.width  = W+'px';
+  view.style.height = H+'px';
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  ctx.imageSmoothingEnabled = true;
+  MN = Math.max(1, Math.min(W,H));
+  paperPat = null;
+  sizeBuffers();
+}
+window.addEventListener('resize', function(){ resize(); sizeDiag(); });
+window.addEventListener('orientationchange', function(){ setTimeout(function(){ resize(); sizeDiag(); },180); });
+
+// ═══════════════════════════════════════════════════════════════════════
+//  CAMERA
+// ═══════════════════════════════════════════════════════════════════════
+var facing='user', mirror=true, stream=null, camOK=false;
+function showError(e){
+  var msg = (e && e.message) ? e.message : String(e || 'unknown');
+  errBox.style.display='block';
+  errBox.textContent = 'カメラを起動できませんでした：'+msg+
+    '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+}
+function startStream(){
+  var md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) return Promise.reject(new Error('getUserMedia is unavailable'));
+  if (stream && stream.getTracks) stream.getTracks().forEach(function(t){ t.stop(); });
+  return md.getUserMedia({
+    video:{ facingMode:{ ideal:facing }, width:{ ideal:640 }, height:{ ideal:480 } },
+    audio:false
+  }).then(function(st){
+    stream = st; video.srcObject = st;
+    mirror = (facing==='user'); camOK = true;
+    var p = video.play();
+    return (p && p.then) ? p.catch(function(){}) : null;
+  });
+}
+flipBtn.addEventListener('click', function(){
+  facing = (facing==='user') ? 'environment' : 'user';
+  loseHand();
+  startStream().then(startMpCamera).catch(showError);
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+//  BUFFERS
+//  src : the camera frame at the camera's own aspect (so u,v are true).
+//  out : the plate, at SCREEN aspect, scaled up to the view.
+//  Both are allocated once per size change and reused for ever after.
+// ═══════════════════════════════════════════════════════════════════════
+var camAspect = 4/3;
+
+var srcCan = document.createElement('canvas');
+var srcCtx = srcCan.getContext('2d', { willReadFrequently:true });
+var CW=0, CH=0;
+var srcArr = null;              // cached copy of the live frame
+var frozenArr = null;           // the print, once it has been struck
+
+var outCan = document.createElement('canvas');
+var outCtx = outCan.getContext('2d');
+var OW=0, OH=0, ON=1;
+var outImg = null;              // ONE ImageData, reused every frame
+
+// four resolution steps; the piece drops pixels, never frames
+var LEVELS = [104, 140, 184, 232];
+var level = 2;
+
+function sizeBuffers(){
+  var vw = (video && video.videoWidth)  ? video.videoWidth  : 0;
+  var vh = (video && video.videoHeight) ? video.videoHeight : 0;
+  if (vw>0 && vh>0 && isFinite(vw/vh) && vw/vh>0) camAspect = vw/vh;
+  if (!isFinite(camAspect) || camAspect<=0) camAspect = 4/3;
+
+  var nch = 168;
+  var ncw = Math.max(48, Math.round(nch*camAspect));
+  if (ncw!==CW || nch!==CH){
+    CW=ncw; CH=nch;
+    srcCan.width=CW; srcCan.height=CH;
+    srcArr = new Uint8ClampedArray(CW*CH*4);
+    frozenArr = new Uint8ClampedArray(CW*CH*4);
+    frozen = false;
+    lutDirty = true;
+  }
+
+  // The internal resolution is anchored to the SHORT edge of the screen,
+  // never to its width. Anchoring to height would hand a portrait phone a
+  // 92px-wide buffer for the same budget that buys a laptop 318, and the
+  // plate — which is sized off min(OW,OH) — would then be built out of a
+  // quarter of the pixels in portrait for exactly the same gesture.
+  var shortPx = LEVELS[level];
+  var noh, now_;
+  if (W < H){ now_ = shortPx; noh = Math.round(shortPx*(H/Math.max(1,W))); }
+  else      { noh  = shortPx; now_ = Math.round(shortPx*(W/Math.max(1,H))); }
+  now_ = Math.max(48, Math.min(720, now_));
+  noh  = Math.max(48, Math.min(720, noh));
+  if (now_!==OW || noh!==OH){
+    OW=now_; OH=noh; ON=Math.max(1,Math.min(OW,OH));
+    outCan.width=OW; outCan.height=OH;
+    outImg = outCtx.createImageData(OW,OH);
+    lutDirty = true;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  COVER MAP ─ camera (u,v) to OUTPUT pixels.
+//  The output buffer carries the screen's aspect and the camera frame does
+//  not, so nothing may be compared until both have been through this map.
+//  Every gesture RATIO below is instead measured in aspect-corrected
+//  camera space and divided by the hand's own span, which is why a pinch
+//  reads the same in portrait, in landscape, and at any distance.
+// ═══════════════════════════════════════════════════════════════════════
+var covS=1, covOX=0, covOY=0;
+function updateCover(){
+  var fw = camAspect, fh = 1;
+  var s = Math.max(OW/fw, OH/fh);
+  covS=s; covOX=(OW-fw*s)*0.5; covOY=(OH-fh*s)*0.5;
+  if (!isFinite(covS)||covS<=0){ covS=1; covOX=0; covOY=0; }
+}
+function camToOutX(u){
+  var x = covOX + u*camAspect*covS;
+  return mirror ? (OW-x) : x;
+}
+function camToOutY(v){ return covOY + v*covS; }
+
+// ═══════════════════════════════════════════════════════════════════════
+//  HAND
+// ═══════════════════════════════════════════════════════════════════════
+var hands=null, mpCamera=null, mpReady=false;
+var HAND = {
+  on:false, lost:99,
+  u:0.5, v:0.5,
+  pinch:0.5, spin:0,
+  fist:false, fistArmed:false,
+  lm:null,
+  speed:0, pu:0.5, pv:0.5
+};
+function loseHand(){
+  HAND.on=false; HAND.lm=null; HAND.speed=0;
+  HAND.fist=false; HAND.fistArmed=false;   // a hand that returns already
+  HAND.lost=99;                            // clenched must NOT re-trigger
+}
+function okPt(lm,i){
+  return !!(lm && lm.length>i && lm[i] && fin(lm[i].x) && fin(lm[i].y));
+}
+// aspect-corrected distance between two landmarks, in camera space
+function lmDist(lm,a,b){
+  if (!okPt(lm,a) || !okPt(lm,b)) return -1;
+  var dx=(lm[a].x-lm[b].x)*camAspect, dy=(lm[a].y-lm[b].y);
+  return Math.sqrt(dx*dx+dy*dy);
+}
+function onHands(res){
+  var list = res && res.multiHandLandmarks;
+  if (!list || !list.length || !list[0] || list[0].length<21){ return; }
+  var lm = list[0];
+  // the piece only reads 0, 4, 8, 9, and the PIP/TIP pairs; every one of
+  // them is checked before it is touched
+  if (!okPt(lm,0) || !okPt(lm,9) || !okPt(lm,4) || !okPt(lm,8)) return;
+
+  var span = lmDist(lm,0,9);
+  if (!(span>0.008)) return;              // degenerate hand, ignore the frame
+
+  var pinchRaw = lmDist(lm,4,8);
+  if (pinchRaw < 0) return;
+  var ratio = pinchRaw/span;              // dimensionless: orientation-proof
+
+  // curl: a finger is curled when its tip is nearer the wrist than its PIP
+  var tips=[8,12,16,20], pips=[6,10,14,18], curled=0, checked=0;
+  for (var i=0;i<4;i++){
+    var dt=lmDist(lm,tips[i],0), dp=lmDist(lm,pips[i],0);
+    if (dt<0||dp<0) continue;
+    checked++;
+    if (dt < dp*0.98) curled++;
+  }
+  var isFist = (checked>=3) && (curled>=checked-1);
+
+  HAND.pu = HAND.u; HAND.pv = HAND.v;
+  HAND.u = lm[9].x; HAND.v = lm[9].y;
+  HAND.pinch = ratio;
+  HAND.lm = lm;
+  HAND.on = true; HAND.lost = 0;
+
+  if (!isFist) HAND.fistArmed = true;
+  else if (HAND.fistArmed){ HAND.fistArmed = false; toggleFreeze(true); }
+  HAND.fist = isFist;
+}
+function initHands(){
+  if (typeof window.Hands!=='function') return false;
+  try{
+    hands = new window.Hands({ locateFile:function(f){
+      return 'https://cdn.jsdelivr.net/npm/@mediapipe/hands/'+f;
+    }});
+    hands.setOptions({ maxNumHands:1, modelComplexity:0,
+                       minDetectionConfidence:0.6, minTrackingConfidence:0.55 });
+    hands.onResults(onHands);
+    mpReady=true; return true;
+  }catch(e){ hands=null; return false; }
+}
+function startMpCamera(){
+  if (!mpReady || !hands || mpCamera) return;
+  if (typeof window.Camera!=='function') return;
+  try{
+    mpCamera = new window.Camera(video,{
+      onFrame:function(){
+        if (!hands) return Promise.resolve();
+        try{ return hands.send({image:video}); }catch(e){ return Promise.resolve(); }
+      },
+      width:640, height:480
+    });
+    mpCamera.start();
+  }catch(e){ mpCamera=null; }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  THE LUT
+//
+//  Built in MIRROR-RELATIVE coordinates: entry j corresponds to the offset
+//  (dx,dy) from wherever the mirror happens to be. Nothing in it depends on
+//  the mirror's position, so dragging the mirror across the paper costs one
+//  pointer addition per pixel and NOT a rebuild. It is rebuilt only when
+//  the mode, a radius, the warp slider or a buffer size changes.
+//
+//    kind 0  nothing (paper shows through)
+//    kind 1  plate  — plateIdx[j] is an absolute source byte offset
+//    kind 2  mirror — dsx/dsy[j] are source-pixel offsets from the sample
+//                     centre, which is where the hand is
+// ═══════════════════════════════════════════════════════════════════════
+var HS=0, SS=0;                         // half-size, side
+var kindA=null, plateIdx=null, dsxA=null, dsyA=null, alpA=null, shdA=null;
+var lutDirty = true;
+
+var modeIdx = 0;
+var warpN = 0.52, inkN = 0.58;
+var mirRad = 0.30;                      // fraction of plate radius
+var mirRadS = 0.30;
+
+function plateRadius(){ return ON*(0.29 + 0.20*warpN); }
+
+var lutBuilds = 0;
+function buildLUT(){
+  if (!(CW>0 && CH>0 && OW>0 && OH>0)) return;
+  lutBuilds++;
+  var R1 = plateRadius();
+  var R0 = Math.max(6, R1*clamp(mirRadS,0.14,0.50));
+  var tall = (OH > OW);
+  var reach = (modeIdx===2) ? 1.95 : 1.03;
+  HS = Math.max(8, Math.ceil(R1*reach));
+  SS = HS*2+1;
+  var n = SS*SS;
+  if (!kindA || kindA.length!==n){
+    kindA    = new Uint8Array(n);
+    plateIdx = new Int32Array(n);
+    dsxA     = new Int16Array(n);
+    dsyA     = new Int16Array(n);
+    alpA     = new Uint8Array(n);
+    shdA     = new Uint8Array(n);
+  }
+  kindA.fill(0); alpA.fill(0); shdA.fill(128);
+
+  var gamma  = 0.52 + 0.95*(1-warpN);         // radial bite of the smear
+  var feather = Math.max(1.2, R1*0.035);
+  var PI = Math.PI, TAU = PI*2;
+
+  // the plate's cast shadow falls down-right from the metal
+  var shX = R0*0.30, shY = R0*0.34, shR = R0*1.30;
+
+  for (var dy=-HS; dy<=HS; dy++){
+    var rowBase = (dy+HS)*SS + HS;
+    for (var dx=-HS; dx<=HS; dx++){
+      var j = rowBase + dx;
+      var r = Math.sqrt(dx*dx + dy*dy);
+      var u=-1, v=-1, kind=0, a=0;
+
+      if (r <= R0){
+        // ── the mirror ────────────────────────────────────────────────
+        var nx = clamp(dx/R0,-1,1), ny = clamp(dy/R0,-1,1);
+        var du=0, dv=0;
+        if (modeIdx===0){
+          // a real cylinder squeezes the edges: asin() across the face
+          du = (Math.asin(nx)/PI) * 0.62;
+          dv = ny * 0.30;
+        } else if (modeIdx===1){
+          // a sphere shows everything, crushed toward the rim
+          var rho = clamp(r/R0,0,1);
+          var th = Math.atan2(dy,dx);
+          var sr = Math.pow(rho,0.62)*0.42;
+          du = Math.cos(th)*sr/camAspect;
+          dv = Math.sin(th)*sr;
+        } else {
+          // the bead at the viewpoint: a plain rectified window
+          du = nx*0.30;
+          dv = ny*0.30;
+        }
+        var sx = Math.round(du*CW), sy = Math.round(dv*CH);
+        dsxA[j] = sx; dsyA[j] = sy;
+        kind = 2;
+        // rim: a cold dark edge, then a bright inner lip
+        var e = r/R0;
+        var sh = 128;
+        if (e > 0.90) sh = 128*(1 - (e-0.90)/0.10*0.72);
+        else if (e > 0.80) sh = 128*(1 + (e-0.80)/0.10*0.22);
+        shdA[j] = clamp(Math.round(sh),0,255);
+        a = e>0.985 ? Math.round(255*(1-(e-0.985)/0.015)) : 255;
+        if (a<0) a=0;
+
+      } else if (modeIdx!==2 && r <= R1){
+        // ── the ring plate (円筒 / 玉) ────────────────────────────────
+        var t = (r-R0)/Math.max(1e-6,(R1-R0));
+        var tg = Math.pow(clamp(t,0,1), gamma);
+        if (modeIdx===0){
+          var ang = Math.atan2(dx,-dy);                // seam straight down
+          u = (ang+PI)/TAU;
+          v = 1-tg;
+        } else {
+          // the sphere plate: the CENTRE of the picture is thrown outward
+          var th2 = Math.atan2(dy,dx);
+          var sr2 = 0.60*Math.pow(1-tg, 2.1);
+          u = 0.5 + Math.cos(th2)*sr2/camAspect;
+          v = 0.5 + Math.sin(th2)*sr2;
+        }
+        kind = 1;
+        a = (R1-r < feather) ? Math.round(255*((R1-r)/feather)) : 255;
+        if (a<0) a=0;
+        var sd2 = ((dx-shX)*(dx-shX) + (dy-shY)*(dy-shY));
+        if (sd2 < shR*shR){
+          var f = 1 - Math.sqrt(sd2)/shR;
+          shdA[j] = clamp(Math.round(128*(1-0.44*f*f)),0,255);
+        }
+
+      } else if (modeIdx===2 && (tall ? dy : dx) > R0*0.62){
+        // ── Holbein's oblique: a long fan stretching away ─────────────
+        //  The fan runs along the screen's LONG axis — sideways on a
+        //  laptop, downward on a phone — so the same gesture gets the
+        //  same amount of picture either way up.
+        var along  = tall ? dy : dx;
+        var across = tall ? dx : dy;
+        var X = along - R0*0.62;
+        var c = R1*0.50;
+        u = X/(X+c);
+        if (u >= 0.995) { kind=0; }
+        else {
+          var spread = (X+c)/c;
+          v = 0.5 + (across/(R1*0.62))/spread*0.5;
+          if (v<0 || v>1){ kind=0; }
+          else {
+            kind = 1;
+            var edge = Math.min(1, (1-u)/0.10);
+            var side = Math.min(1, (0.5-Math.abs(v-0.5))/0.06);
+            a = Math.round(255*clamp(Math.min(edge,side),0,1));
+            var sd3 = ((dx-shX)*(dx-shX) + (dy-shY)*(dy-shY));
+            if (sd3 < shR*shR){
+              var f3 = 1 - Math.sqrt(sd3)/shR;
+              shdA[j] = clamp(Math.round(128*(1-0.44*f3*f3)),0,255);
+            }
+          }
+        }
+      }
+
+      if (kind===1){
+        var px = Math.round(clamp(u,0,0.99999)*(CW-1));
+        var py = Math.round(clamp(v,0,0.99999)*(CH-1));
+        plateIdx[j] = (py*CW+px)*4;
+      }
+      kindA[j] = kind;
+      alpA[j]  = a;
+    }
+  }
+  lutDirty = false;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  INK
+//  A 256-entry duotone ramp from the paper to the deepest bite, plus an
+//  8x8 engraving hatch that only bites in the midtones. Rebuilt only when
+//  the 刷 slider moves.
+// ═══════════════════════════════════════════════════════════════════════
+var pal = new Uint8Array(256*3);
+var HATCH = new Uint8Array(64);
+(function(){
+  // a diagonal ruling, the way a burin actually lays tone
+  for (var y=0;y<8;y++) for (var x=0;x<8;x++){
+    var d = (x+y*3)%8;
+    HATCH[(y<<3)|x] = Math.round((Math.sin(d/8*Math.PI*2)*0.5+0.5)*63);
+  }
+})();
+var inkDirty = true;
+function buildPal(){
+  var pr=239, pg=231, pb=213;          // 生成
+  var ir=43,  ig=29,  ib=20;           // 焦
+  var mr=74,  mg=53,  mb=39;           // 墨茶
+  var contrast = 0.55 + 1.15*inkN;
+  for (var i=0;i<256;i++){
+    var t = i/255;
+    t = clamp(0.5 + (t-0.5)*contrast, 0, 1);
+    var k = Math.pow(t, 0.85);
+    // paper → 墨茶 → 焦, so the shadows warm into the deep plate colour
+    var r,g,b;
+    if (k > 0.45){
+      var s=(k-0.45)/0.55;
+      r=mr+(pr-mr)*s; g=mg+(pg-mg)*s; b=mb+(pb-mb)*s;
+    } else {
+      var s2=k/0.45;
+      r=ir+(mr-ir)*s2; g=ig+(mg-ig)*s2; b=ib+(mb-ib)*s2;
+    }
+    pal[i*3]=clamp(Math.round(r),0,255);
+    pal[i*3+1]=clamp(Math.round(g),0,255);
+    pal[i*3+2]=clamp(Math.round(b),0,255);
+  }
+  inkDirty = false;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  AUDIO ─ near-silent by design. The mechanic is visual; the sound is
+//  the room the print is lying in, and the press when it is struck.
+// ═══════════════════════════════════════════════════════════════════════
+var AC=null, comp=null, bedGain=null, audioReady=false, noiseBuf=null;
+function initAudio(){
+  var ACtor = window.AudioContext || window.webkitAudioContext;
+  if (!ACtor) return false;
+  AC = new ACtor();
+  comp = AC.createDynamicsCompressor();
+  try{
+    comp.threshold.value=-20; comp.knee.value=24; comp.ratio.value=6;
+    comp.attack.value=0.005; comp.release.value=0.3;
+  }catch(e){}
+  comp.connect(AC.destination);
+
+  var len = Math.max(1, Math.floor(AC.sampleRate*2));
+  noiseBuf = AC.createBuffer(1,len,AC.sampleRate);
+  var d = noiseBuf.getChannelData(0);
+  for (var i=0;i<len;i++) d[i]=Math.random()*2-1;
+
+  var src = AC.createBufferSource();
+  src.buffer = noiseBuf; src.loop = true;
+  var lp = AC.createBiquadFilter();
+  lp.type='lowpass'; lp.frequency.value=520; lp.Q.value=0.5;
+  bedGain = AC.createGain(); bedGain.gain.value=0.004;
+  src.connect(lp); lp.connect(bedGain); bedGain.connect(comp);
+  try{ src.start(); }catch(e){}
+  audioReady = true;
+  return true;
+}
+function setP(p,v,tc){
+  if (!p || !fin(v)) return;
+  try{ p.setTargetAtTime(v, AC?AC.currentTime:0, tc); }catch(e){ try{ p.value=v; }catch(e2){} }
+}
+function press(hard){
+  if (!audioReady || !AC || !noiseBuf) return;
+  var t = AC.currentTime, s = hard?1:0.55;
+  var n = AC.createBufferSource(); n.buffer=noiseBuf;
+  var bp = AC.createBiquadFilter();
+  bp.type='lowpass'; bp.frequency.value = hard?900:600; bp.Q.value=0.8;
+  var g = AC.createGain(); g.gain.value=0;
+  n.connect(bp); bp.connect(g); g.connect(comp);
+  var o = AC.createOscillator(); o.type='sine'; o.frequency.value = hard?84:66;
+  var og = AC.createGain(); og.gain.value=0;
+  o.connect(og); og.connect(comp);
+  try{
+    g.gain.setValueAtTime(0.0001,t);
+    g.gain.exponentialRampToValueAtTime(0.14*s+0.0001,t+0.008);
+    g.gain.exponentialRampToValueAtTime(0.0001,t+0.30);
+    n.start(t); n.stop(t+0.34);
+    og.gain.setValueAtTime(0.0001,t);
+    og.gain.exponentialRampToValueAtTime(0.13*s+0.0001,t+0.012);
+    og.gain.exponentialRampToValueAtTime(0.0001,t+0.42);
+    o.start(t); o.stop(t+0.46);
+  }catch(e){}
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  STATE
+// ═══════════════════════════════════════════════════════════════════════
+var frozen=false, freezeFlash=0, stampT=0;
+var mx=0.5, my=0.5;              // mirror centre, in camera space, damped
+var mxT=0.5, myT=0.5;
+var shake=0, tGlobal=0, fade=1;
+var haveSrc=false;
+
+function toggleFreeze(fromGesture){
+  if (!frozen){
+    if (!haveSrc) return;
+    frozenArr.set(srcArr);
+    frozen = true;
+    freezeFlash = 1; stampT = 1.6; shake = Math.min(1, shake+0.6);
+    press(true);
+  } else {
+    frozen = false;
+    freezeFlash = 0.45;
+    press(false);
+  }
+  frzBtn.classList.toggle('on', frozen);
+  frzBtn.textContent = frozen ? '戻す' : '刷る';
+  return fromGesture;
+}
+frzBtn.addEventListener('click', function(){ toggleFreeze(false); });
+
+warpEl.addEventListener('input', function(){
+  var v = parseFloat(warpEl.value);
+  warpN = fin(v) ? clamp(v/100,0,1) : 0.52;
+  lutDirty = true;
+});
+inkEl.addEventListener('input', function(){
+  var v = parseFloat(inkEl.value);
+  inkN = fin(v) ? clamp(v/100,0,1) : 0.58;
+  inkDirty = true;
+});
+for (var mi2=0; mi2<modeBtns.length; mi2++){
+  (function(k){
+    modeBtns[k].addEventListener('click', function(){
+      if (modeIdx===k) return;
+      modeIdx = k;
+      for (var j=0;j<modeBtns.length;j++) modeBtns[j].classList.toggle('on', j===k);
+      lutDirty = true;
+      fade = 0;                          // cross-dissolve, never a cut
+      press(false);
+    });
+  })(mi2);
+}
+
+function damp(cur,tgt,k,dt){
+  if (!fin(tgt)) return cur;
+  return cur + (tgt-cur)*(1-Math.pow(k,dt));
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  FRAME GRAB
+// ═══════════════════════════════════════════════════════════════════════
+function grab(){
+  if (frozen){ return; }                       // a struck print reads nothing
+  if (!camOK || !video || !video.videoWidth || CW<=0) return;
+  try{
+    srcCtx.drawImage(video, 0, 0, CW, CH);
+    var d = srcCtx.getImageData(0,0,CW,CH);
+    if (d && d.data && d.data.length===CW*CH*4){ srcArr.set(d.data); haveSrc=true; }
+  }catch(e){ /* a frame we did not get changes nothing */ }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  RENDER THE PLATE  ─ one tight gather per frame
+// ═══════════════════════════════════════════════════════════════════════
+var colSpec=null, rowShade=null;
+function renderPlate(){
+  if (!outImg || !kindA || !haveSrc) return;
+  var o = outImg.data;
+  o.fill(0);
+
+  var S = frozen ? frozenArr : srcArr;
+
+  // the mirror's sample centre in SOURCE pixels: the mirror is a lens held
+  // over a place, so it shows what is under it, not always the middle
+  var scx = Math.round(clamp(mx,0.08,0.92)*(CW-1));
+  var scy = Math.round(clamp(my,0.08,0.92)*(CH-1));
+
+  var ox = Math.round(camToOutX(mx));
+  var oy = Math.round(camToOutY(my));
+
+  // separable chrome shading, recomputed per frame so the highlight LIVES
+  if (!colSpec || colSpec.length!==SS){ colSpec=new Float32Array(SS); rowShade=new Float32Array(SS); }
+  var band = (Math.sin(tGlobal*0.42)*0.42)*SS;
+  var bw = SS*0.13;
+  for (var i=0;i<SS;i++){
+    var d1 = (i-(SS*0.5+band))/bw;
+    colSpec[i] = 84*Math.exp(-d1*d1);
+    rowShade[i] = 0.80 + 0.34*(1 - i/SS);
+  }
+
+  var hAmt = 0.055*(0.35 + 1.5*inkN);
+  var x0 = Math.max(0, ox-HS), x1 = Math.min(OW-1, ox+HS);
+  var y0 = Math.max(0, oy-HS), y1 = Math.min(OH-1, oy+HS);
+  var CWm=CW-1, CHm=CH-1;
+  var srcLen = CW*CH*4;
+
+  for (var y=y0; y<=y1; y++){
+    var jy = (y-oy+HS)*SS + HS;
+    var oyi = y*OW;
+    var rs = rowShade[y-oy+HS] || 1;
+    for (var x=x0; x<=x1; x++){
+      var j = jy + (x-ox);
+      var k = kindA[j];
+      if (k===0) continue;
+      var a = alpA[j];
+      if (a===0) continue;
+      var sh = shdA[j]/128;
+      var di = (oyi+x)*4;
+
+      if (k===1){
+        var si = plateIdx[j];
+        if (si<0 || si+2>=srcLen) continue;
+        var lum = (S[si]*77 + S[si+1]*150 + S[si+2]*29) >> 8;
+        var hv = HATCH[((y&7)<<3)|(x&7)];
+        lum = lum + ((hv-32)*hAmt)|0;
+        if (lum<0) lum=0; else if (lum>255) lum=255;
+        var p3 = lum*3;
+        o[di]   = pal[p3]*sh;
+        o[di+1] = pal[p3+1]*sh;
+        o[di+2] = pal[p3+2]*sh;
+        o[di+3] = a;
+      } else {
+        var sx = scx + dsxA[j]; if (sx<0) sx=0; else if (sx>CWm) sx=CWm;
+        var sy = scy + dsyA[j]; if (sy<0) sy=0; else if (sy>CHm) sy=CHm;
+        var mi = (sy*CW+sx)*4;
+        var sp = colSpec[x-ox+HS]*rs;
+        var g = sh*rs;
+        // living colour, cooled 22% toward the metal, then lit
+        var rr = (S[mi]*0.78 + 201*0.22)*g + sp;
+        var gg = (S[mi+1]*0.78 + 206*0.22)*g + sp;
+        var bb = (S[mi+2]*0.78 + 214*0.22)*g + sp;
+        o[di]   = rr>255?255:rr;
+        o[di+1] = gg>255?255:gg;
+        o[di+2] = bb>255?255:bb;
+        o[di+3] = a;
+      }
+    }
+  }
+  outCtx.putImageData(outImg,0,0);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  PAPER
+// ═══════════════════════════════════════════════════════════════════════
+var paperPat=null;
+function buildPaper(){
+  var t = document.createElement('canvas');
+  t.width=64; t.height=64;
+  var c = t.getContext('2d');
+  c.fillStyle='#efe7d5'; c.fillRect(0,0,64,64);
+  // chain lines
+  c.strokeStyle='rgba(74,53,39,0.055)'; c.lineWidth=1;
+  for (var y=0;y<64;y+=9){
+    c.beginPath(); c.moveTo(0,y+0.5); c.lineTo(64,y+0.5); c.stroke();
+  }
+  // grain
+  for (var i=0;i<260;i++){
+    var a = Math.random()*0.05;
+    c.fillStyle = (Math.random()<0.5) ? 'rgba(74,53,39,'+a.toFixed(3)+')'
+                                      : 'rgba(255,250,238,'+(a*2).toFixed(3)+')';
+    c.fillRect(Math.random()*64|0, Math.random()*64|0, 1, 1);
+  }
+  paperPat = ctx.createPattern(t,'repeat');
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  DRAW
+// ═══════════════════════════════════════════════════════════════════════
+function screenX(u){
+  var s = Math.max(W/camAspect, H);
+  var x = (W-camAspect*s)*0.5 + u*camAspect*s;
+  return mirror ? (W-x) : x;
+}
+function screenY(v){
+  var s = Math.max(W/camAspect, H);
+  return (H-s)*0.5 + v*s;
+}
+function screenScale(){ return Math.max(W/camAspect, H); }
+
+var BONES = [[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],
+             [9,13],[13,14],[14,15],[15,16],[13,17],[17,18],[18,19],[19,20],[0,17]];
+
+function drawHand(){
+  var lm = HAND.lm;
+  if (!HAND.on || !lm || lm.length<21) return;
+  ctx.save();
+  ctx.globalAlpha = 0.34;
+  ctx.strokeStyle = '#4a3527';
+  ctx.lineWidth = MN*0.0026;
+  ctx.lineCap='round';
+  for (var i=0;i<BONES.length;i++){
+    var a=BONES[i][0], b=BONES[i][1];
+    if (!okPt(lm,a)||!okPt(lm,b)) continue;
+    ctx.beginPath();
+    ctx.moveTo(screenX(lm[a].x), screenY(lm[a].y));
+    ctx.lineTo(screenX(lm[b].x), screenY(lm[b].y));
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 0.5;
+  ctx.fillStyle = '#4a3527';
+  for (var k=0;k<21;k++){
+    if (!okPt(lm,k)) continue;
+    ctx.beginPath();
+    ctx.arc(screenX(lm[k].x), screenY(lm[k].y), MN*0.0032, 0, 6.283);
+    ctx.fill();
+  }
+  // the pinch that sets the mirror's size, drawn as a caliper
+  if (okPt(lm,4)&&okPt(lm,8)){
+    ctx.globalAlpha = 0.62;
+    ctx.strokeStyle = frozen ? '#b8442e' : '#2b1d14';
+    ctx.lineWidth = MN*0.0018;
+    ctx.setLineDash([MN*0.006, MN*0.007]);
+    ctx.beginPath();
+    ctx.moveTo(screenX(lm[4].x), screenY(lm[4].y));
+    ctx.lineTo(screenX(lm[8].x), screenY(lm[8].y));
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+  ctx.restore();
+}
+
+function drawPlateMark(){
+  // the impression the copperplate leaves in the sheet, drawn crisp at
+  // full resolution rather than in the pixel buffer
+  var scale = (OW>0) ? (W/OW) : 1;
+  var cx = screenX(mx), cy = screenY(my);
+  var R1 = plateRadius()*scale;
+  ctx.save();
+  ctx.globalAlpha = 0.30;
+  ctx.strokeStyle='#4a3527';
+  ctx.lineWidth = Math.max(1, MN*0.0014);
+  if (modeIdx===2){
+    var rr = R1*0.62;
+    ctx.beginPath();
+    if (H > W){
+      ctx.moveTo(cx-rr, cy); ctx.lineTo(cx-rr*2.1, cy+R1*1.9);
+      ctx.moveTo(cx+rr, cy); ctx.lineTo(cx+rr*2.1, cy+R1*1.9);
+    } else {
+      ctx.moveTo(cx, cy-rr); ctx.lineTo(cx+R1*1.9, cy-rr*2.1);
+      ctx.moveTo(cx, cy+rr); ctx.lineTo(cx+R1*1.9, cy+rr*2.1);
+    }
+    ctx.stroke();
+  } else {
+    ctx.beginPath(); ctx.arc(cx,cy,R1*1.035,0,6.283); ctx.stroke();
+    ctx.globalAlpha = 0.16;
+    for (var i=0;i<48;i++){
+      var a=i/48*6.283;
+      var l=(i%4===0)?R1*0.045:R1*0.022;
+      ctx.beginPath();
+      ctx.moveTo(cx+Math.cos(a)*R1*1.06, cy+Math.sin(a)*R1*1.06);
+      ctx.lineTo(cx+Math.cos(a)*(R1*1.06+l), cy+Math.sin(a)*(R1*1.06+l));
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
+}
+
+var MODE_LABEL = ['CYLINDER','SPHERE','OBLIQUE'];
+var MODE_JA    = ['円筒鏡','玉鏡','斜投影'];
+function drawHud(){
+  ctx.save();
+  var x = Math.max(MN*0.045,16), y = Math.max(MN*0.045,16);
+  ctx.textAlign='left'; ctx.textBaseline='top';
+
+  ctx.globalAlpha=0.72;
+  ctx.fillStyle='#2b1d14';
+  ctx.font='500 '+Math.round(MN*0.026)+'px "EB Garamond",serif';
+  ctx.fillText('Y U G A M I E', x, y);
+
+  ctx.globalAlpha=0.5;
+  ctx.font='italic 400 '+Math.round(MN*0.020)+'px "EB Garamond",serif';
+  ctx.fillText('anamorphosis — '+MODE_LABEL[modeIdx], x, y+MN*0.036);
+
+  ctx.globalAlpha=0.62;
+  ctx.font='400 '+Math.round(MN*0.021)+'px "Zen Antique",serif';
+  ctx.fillText(MODE_JA[modeIdx]+(frozen?' ・ 刷り止め':''), x, y+MN*0.064);
+
+  if (!HAND.on){
+    ctx.globalAlpha=0.5;
+    ctx.font='400 '+Math.round(MN*0.021)+'px "Zen Antique",serif';
+    ctx.fillText('手をかざすと鏡が乗ります', x, y+MN*0.092);
+  }
+  ctx.restore();
+}
+
+function drawStamp(){
+  if (stampT<=0) return;
+  var t = 1-stampT/1.6;
+  var e = 1-Math.pow(1-Math.min(1,t*3.2),3);
+  var sc = 1.5-0.5*e;
+  ctx.save();
+  ctx.globalAlpha = Math.min(1, stampT*1.4)*0.86;
+  ctx.translate(W*0.5, H*0.5);
+  ctx.rotate(-0.14);
+  ctx.scale(sc,sc);
+  ctx.strokeStyle='#b8442e'; ctx.lineWidth=MN*0.004;
+  var s = MN*0.085;
+  ctx.strokeRect(-s,-s,s*2,s*2);
+  ctx.fillStyle='#b8442e';
+  ctx.font='400 '+Math.round(MN*0.10)+'px "Zen Antique",serif';
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillText('刷', 0, MN*0.006);
+  ctx.restore();
+}
+
+function draw(){
+  ctx.save();
+  if (shake>0.001){
+    var m = shake*MN*0.008;
+    ctx.translate((Math.random()-0.5)*m,(Math.random()-0.5)*m);
+  }
+  if (!paperPat) buildPaper();
+  ctx.fillStyle = paperPat || '#efe7d5';
+  ctx.fillRect(-MN*0.02,-MN*0.02,W+MN*0.04,H+MN*0.04);
+
+  drawPlateMark();
+
+  if (OW>0 && OH>0){
+    ctx.globalAlpha = 0.35 + 0.65*fade;
+    ctx.drawImage(outCan, 0, 0, OW, OH, 0, 0, W, H);
+    ctx.globalAlpha = 1;
+  }
+
+  drawHand();
+
+  if (freezeFlash>0.002){
+    ctx.globalAlpha = freezeFlash*0.5;
+    ctx.fillStyle='#fffaf0';
+    ctx.fillRect(0,0,W,H);
+    ctx.globalAlpha=1;
+  }
+  drawHud();
+  drawStamp();
+  ctx.restore();
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  UPDATE
+// ═══════════════════════════════════════════════════════════════════════
+function update(dt){
+  tGlobal += dt;
+
+  HAND.lost += dt;
+  if (HAND.lost > 0.30 && HAND.on) loseHand();
+
+  if (HAND.on){
+    mxT = clamp(HAND.u,0,1); myT = clamp(HAND.v,0,1);
+    // pinch ratio 0.28 (shut) .. 1.05 (wide) → mirror 0.17 .. 0.46 of plate
+    var pr = clamp((HAND.pinch-0.28)/(1.05-0.28),0,1);
+    mirRad = 0.17 + 0.29*pr;
+    var du=(HAND.u-HAND.pu)*camAspect, dv=(HAND.v-HAND.pv);
+    var sp = Math.sqrt(du*du+dv*dv)/Math.max(dt,0.001);
+    HAND.speed = damp(HAND.speed, sp, 0.0001, dt);
+  } else {
+    mxT = 0.5; myT = 0.5;
+    mirRad = damp(mirRad, 0.30, 0.02, dt);
+    HAND.speed = damp(HAND.speed, 0, 0.001, dt);
+  }
+
+  // the metal has weight: it is dragged, not carried
+  mx = damp(mx, mxT, 0.0009, dt);
+  my = damp(my, myT, 0.0009, dt);
+
+  var prevR = mirRadS;
+  mirRadS = damp(mirRadS, mirRad, 0.002, dt);
+  if (Math.abs(mirRadS-prevR) > 0.0022) lutDirty = true;
+
+  fade = Math.min(1, fade + dt/0.56);
+  freezeFlash = Math.max(0, freezeFlash - dt*2.4);
+  stampT = Math.max(0, stampT - dt);
+  shake = Math.max(0, shake - dt*2.4);
+
+  if (audioReady && bedGain){
+    setP(bedGain.gain, 0.0035 + Math.min(0.026, HAND.speed*0.030), 0.25);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  LOOP + adaptive resolution
+// ═══════════════════════════════════════════════════════════════════════
+var running=false, lastT=0, msAvg=16, sinceStep=0;
+function frame(){
+  if (!running) return;
+  var t = (typeof performance!=='undefined'&&performance.now)?performance.now():Date.now();
+  var dt = (t-lastT)/1000;
+  if (!fin(dt)||dt<0) dt=0.016;
+  if (dt>0.1) dt=0.1;
+  lastT = t;
+
+  sizeBuffers();
+  updateCover();
+  if (inkDirty) buildPal();
+  if (lutDirty) buildLUT();
+
+  grab();
+  update(dt);
+  renderPlate();
+  draw();
+
+  var t2 = (typeof performance!=='undefined'&&performance.now)?performance.now():Date.now();
+  var ms = t2-t;
+  if (!fin(ms)||ms<0) ms=16;
+  msAvg = msAvg*0.92 + ms*0.08;
+  sinceStep += dt;
+  if (sinceStep > 1.6){
+    if (msAvg > 27 && level > 0){ level--; sinceStep=0; msAvg=16; }
+    else if (msAvg < 12 && level < LEVELS.length-1){ level++; sinceStep=0; msAvg=16; }
+    else sinceStep = 0;
+  }
+
+  requestAnimationFrame(frame);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  START OVERLAY DIAGRAM
+// ═══════════════════════════════════════════════════════════════════════
+var diagT=0, diagRAF=0, diagLast=0;
+function drawDiag(){
+  var w=diag.width, h=diag.height;
+  dctx.fillStyle='#efe7d5'; dctx.fillRect(0,0,w,h);
+  var LOOP=4.2, t=diagT%LOOP;
+
+  var cx = w*0.34 + Math.sin(t*1.05)*w*0.17;
+  var cy = h*0.52 + Math.cos(t*0.78)*h*0.09;
+  var R1 = 46, R0 = 15;
+
+  // the smear: concentric ink arcs standing in for the wrapped picture
+  dctx.save();
+  for (var i=0;i<20;i++){
+    var rr = R0 + (R1-R0)*(i/19);
+    dctx.globalAlpha = 0.07 + 0.2*Math.abs(Math.sin(i*0.9 + t*0.7));
+    dctx.strokeStyle = '#4a3527';
+    dctx.lineWidth = 1.6;
+    dctx.beginPath();
+    dctx.arc(cx,cy,rr, t*0.4 + i*0.35, t*0.4 + i*0.35 + 2.2 + Math.sin(i)*0.6);
+    dctx.stroke();
+  }
+  dctx.restore();
+
+  // the mirror
+  var fistNow = (t>2.7 && t<3.7);
+  dctx.save();
+  var g = dctx.createLinearGradient(cx-R0,cy-R0,cx+R0,cy+R0);
+  g.addColorStop(0,'#eef1f5'); g.addColorStop(0.45,'#c9ced6'); g.addColorStop(1,'#8e959f');
+  dctx.fillStyle=g;
+  dctx.beginPath(); dctx.arc(cx,cy,R0,0,6.283); dctx.fill();
+  dctx.strokeStyle='#2b1d14'; dctx.globalAlpha=0.5; dctx.lineWidth=1.2;
+  dctx.beginPath(); dctx.arc(cx,cy,R0,0,6.283); dctx.stroke();
+  // a tiny upright face inside — the picture coming back
+  dctx.globalAlpha=0.62; dctx.fillStyle='#2b1d14';
+  dctx.beginPath(); dctx.arc(cx,cy-2,4.4,0,6.283); dctx.fill();
+  dctx.fillRect(cx-4.5, cy+3.4, 9, 6);
+  dctx.restore();
+
+  // the hand carrying it
+  dctx.save();
+  dctx.globalAlpha=0.5; dctx.strokeStyle='#4a3527'; dctx.lineWidth=2; dctx.lineCap='round';
+  var hy = cy + R0 + 16;
+  if (fistNow){
+    dctx.beginPath(); dctx.arc(cx, hy+4, 10, 0, 6.283); dctx.stroke();
+  } else {
+    for (var f=0; f<4; f++){
+      var a0 = -2.5 + f*0.36;
+      dctx.beginPath();
+      dctx.moveTo(cx-14+f*8, hy+14);
+      dctx.quadraticCurveTo(cx-14+f*8+Math.cos(a0)*6, hy+2, cx-12+f*8, hy-6);
+      dctx.stroke();
+    }
+    dctx.beginPath();
+    dctx.moveTo(cx-18, hy+12); dctx.quadraticCurveTo(cx-26, hy+2, cx-22, hy-4);
+    dctx.stroke();
+  }
+  dctx.restore();
+
+  if (fistNow){
+    var st = Math.min(1,(t-2.7)/0.3);
+    dctx.save();
+    dctx.globalAlpha = 0.9*(1-Math.max(0,(t-3.2)/0.5));
+    dctx.translate(w*0.80, h*0.30);
+    dctx.rotate(-0.14);
+    dctx.scale(1.3-0.3*st, 1.3-0.3*st);
+    dctx.strokeStyle='#b8442e'; dctx.lineWidth=2;
+    dctx.strokeRect(-15,-15,30,30);
+    dctx.fillStyle='#b8442e';
+    dctx.font='20px "Zen Antique",serif';
+    dctx.textAlign='center'; dctx.textBaseline='middle';
+    dctx.fillText('刷',0,1);
+    dctx.restore();
+  }
+
+  var cap = fistNow ? '握れば その一枚に刷り止まる'
+          : (t<1.4 ? '紙の上の墨は 読めない' : '鏡の中でだけ 絵が戻る');
+  dctx.globalAlpha=0.75;
+  dctx.fillStyle='#2b1d14';
+  dctx.font='13px "Zen Antique",serif';
+  dctx.textAlign='center'; dctx.textBaseline='bottom';
+  dctx.fillText(cap, w*0.5, h-9);
+  dctx.globalAlpha=1;
+}
+function diagLoop(){
+  var t=(typeof performance!=='undefined'&&performance.now)?performance.now():Date.now();
+  var dt=(t-diagLast)/1000;
+  if (!fin(dt)||dt<0||dt>0.2) dt=0.016;
+  diagLast=t; diagT+=dt;
+  drawDiag();
+  diagRAF = requestAnimationFrame(diagLoop);
+}
+function sizeDiag(){
+  var wpx = Math.min(360, Math.max(240, (window.innerWidth||360)-72));
+  diag.style.width = wpx+'px';
+  diag.style.height = Math.round(wpx*152/360)+'px';
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  BOOT
+// ═══════════════════════════════════════════════════════════════════════
+resize();
+sizeDiag();
+diagLast=(typeof performance!=='undefined'&&performance.now)?performance.now():Date.now();
+diagLoop();
+
+goBtn.addEventListener('click', function(){
+  if (!audioReady){ try{ initAudio(); }catch(e){ audioReady=false; } }
+  if (AC && AC.state==='suspended'){
+    var rp = AC.resume(); if (rp&&rp.catch) rp.catch(function(){});
+  }
+  ov.classList.add('gone');
+  if (diagRAF) cancelAnimationFrame(diagRAF);
+  initHands();
+  startStream().then(startMpCamera).catch(showError);
+  if (!running){
+    running = true;
+    lastT=(typeof performance!=='undefined'&&performance.now)?performance.now():Date.now();
+    requestAnimationFrame(frame);
+  }
+});
+
+// exposed for the headless harness
+if (typeof window!=='undefined'){
+  window.__yugamie = {
+    get HAND(){ return HAND; },
+    get frozen(){ return frozen; },
+    get modeIdx(){ return modeIdx; },
+    get level(){ return level; },
+    get dims(){ return { CW:CW, CH:CH, OW:OW, OH:OH, HS:HS, SS:SS }; },
+    get lut(){ return { kind:kindA, plateIdx:plateIdx, dsx:dsxA, dsy:dsyA, alp:alpA }; },
+    get outImg(){ return outImg; },
+    get mirrorPos(){ return { mx:mx, my:my, r:mirRadS }; },
+    get plateRadius(){ return plateRadius(); },
+    get lutBuilds(){ return lutBuilds; },
+    get AC(){ return AC; },
+    onHands: onHands,
+    toggleFreeze: toggleFreeze,
+    setLevel: function(l){ level=l; },
+    loseHand: loseHand
+  };
+}
+
+})();
+</script>
+</body>
+</html>
