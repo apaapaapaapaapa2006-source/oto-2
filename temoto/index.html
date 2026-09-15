@@ -1,0 +1,1557 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>TEMOTO ─ 手元のものが声になる</title>
+<meta name="description" content="カメラに覚えさせた「色」が声になる楽器。マグでも果物でもペンのキャップでもよい。持ち上げた高さが音程、レンズへ近づけた分だけ声が明るくなり、動かしているあいだだけ膨らむ。机に置けば手を離しても鳴りつづけるので、四つまで並べて和音を組める。">
+<meta name="theme-color" content="#14182b">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Zen+Kurenaido&family=Barlow+Condensed:wght@200;400;600&display=swap" rel="stylesheet">
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  TEMOTO ─ 手元のものが声になる                       ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  MOOD      夜の机。A desk at night, one lamp on somewhere off-frame. The
+            instrument is not drawn on the screen — it is whatever you
+            already own and happen to have within arm's reach. Quiet,
+            warm, patient. Nothing in this piece is neon; the only
+            saturated colour on screen is the colour of YOUR object, so
+            the palette is finished by the player, not by me.
+
+  PALETTE   宵    yoi        #14182b  the night above the desk. Indigo,
+                                      never black — this piece is dark but
+                                      it is dark like a room, not like a
+                                      void. (Tonight's companion piece
+                                      YUGAMIE owns the light end.)
+            榧    kaya       #2c2318  warm dark wood. The desk surface,
+                                      the bottom third of every frame.
+            灯    tomoshibi  #f2c879  lamp warm. All UI type, the ladder
+                                      rungs, the readout. One light source
+                                      and it is this colour.
+            生成  kinari     #ece3d2  paper white. Labels and numerals only,
+                                      so they read as printed, not as glow.
+            群青  gunjou     #4a6fd6  the cold accent. Reserved for ABSENCE:
+                                      an unlearned slot, a voice that has
+                                      been lost, the "見えていません" state.
+                                      Warm = heard, cold = unheard.
+            ＋    the object's own colour, sampled from the camera. Discs,
+                  cords, rung glow and sparks all take it. Four voices means
+                  four colours the player chose by reaching for them.
+
+  BACKGROUND  A vertical gradient (宵 → 榧) with a horizon at 0.72H — the
+              far edge of the desk — plus dust motes drifting slowly right
+              to left, lit from the left so they brighten as they cross.
+              Deliberately NO radial vignette anywhere in this file.
+
+  TYPOGRAPHY  Zen Kurenaido for Japanese — a pen-written face, because the
+              copy should feel like a note left on the desk rather than a
+              product label. Barlow Condensed 200/600 for latin and
+              numerals at wide tracking, for the ladder and the readout.
+
+  MOTION      Floaty and breathing. EVERY tracked quantity is critically
+              damped toward its target with a dt-aware lerp; nothing in
+              this piece snaps. A new voice blooms over 520ms on an
+              ease-out-back scale. A lost voice does not vanish — it cools
+              to 群青 and drains over 400ms.
+
+  SIGNATURE   鳴緒 — the sounding cord. From every tracked object a
+              luminous cord runs to its note on the ladder at the screen
+              edge, and the cord physically vibrates at that voice's own
+              vibrato rate with an amplitude equal to how hard you are
+              moving the object. When two voices land a fourth, a fifth or
+              an octave apart, a thin gold thread strings itself between
+              their discs and breathes. You can SEE the chord being
+              consonant before you have finished hearing it.
+
+  SOUND       Two-operator FM, one voice per object, and nothing else.
+            · carrier sine at the scale pitch; modulator sine at
+              carrier × ratio, where RATIO IS CHOSEN BY THE OBJECT'S HUE
+              (0.5 / 1 / 1.5 / 2 / 2.5 / 3 across the hue wheel), so a red
+              mug and a green apple are genuinely different instruments.
+            · modulation index rides the object's apparent SIZE — bring it
+              towards the lens and the voice gets teeth.
+            · amplitude rides MOVEMENT over a sustaining floor, so a
+              placed object drones and a moved object swells. This is the
+              whole expressive gesture of the piece.
+            · per-voice vibrato LFO 4.4–6.2Hz, depth from movement.
+            · placing an object down fires a mallet: filtered noise burst
+              plus a short high-index FM ping at the same pitch.
+            · shared: a sub drone on the root that fades in behind any
+              voice, a generated-IR convolver, and a compressor before
+              the destination so four voices never clip.
+            · the scale is pentatonic in three modes (陽 / 陰 / 琉球) with
+              hysteresis on the quantiser, so there is no wrong note and
+              no chattering on the boundary between two.
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<style>
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;height:100%;background:#14182b;overflow:hidden}
+  body{
+    font-family:'Zen Kurenaido','Hiragino Sans',sans-serif;
+    color:#ece3d2;-webkit-font-smoothing:antialiased;
+    touch-action:none;user-select:none;-webkit-user-select:none;
+  }
+  #view{position:fixed;inset:0;width:100%;height:100%;display:block}
+  #video{position:fixed;left:-9999px;top:-9999px;width:2px;height:2px;opacity:0}
+
+  .lt{font-family:'Barlow Condensed',sans-serif;letter-spacing:.18em}
+
+  #flip{
+    position:fixed;right:12px;top:12px;z-index:6;
+    font-family:'Barlow Condensed',sans-serif;font-size:13px;letter-spacing:.14em;
+    color:#f2c879;background:rgba(20,24,43,.72);
+    border:1px solid rgba(242,200,121,.34);border-radius:999px;
+    padding:7px 13px;cursor:pointer;backdrop-filter:blur(4px);
+    transition:background .28s cubic-bezier(.22,.9,.3,1),border-color .28s;
+  }
+  #flip:hover{background:rgba(242,200,121,.14);border-color:rgba(242,200,121,.7)}
+
+  #err{
+    display:none;position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);
+    z-index:40;max-width:min(86vw,440px);white-space:pre-line;
+    background:rgba(20,24,43,.95);border:1px solid rgba(74,111,214,.55);
+    border-radius:12px;padding:19px 21px;font-size:13.5px;line-height:1.95;color:#dce3f4;
+  }
+
+  /* ── control shelf ─────────────────────────────────────────── */
+  #panel{
+    position:fixed;left:50%;bottom:0;transform:translateX(-50%);z-index:6;
+    display:flex;align-items:center;gap:9px 13px;flex-wrap:wrap;justify-content:center;
+    padding:9px 15px calc(9px + env(safe-area-inset-bottom,0px));
+    background:linear-gradient(to top,rgba(20,18,14,.9),rgba(20,18,14,0));
+    max-width:100vw;
+  }
+  .grp{display:flex;align-items:center;gap:7px}
+  .grp>label{
+    font-family:'Barlow Condensed',sans-serif;font-size:10px;letter-spacing:.22em;
+    color:rgba(236,227,210,.44);
+  }
+  .btn{
+    font-family:'Zen Kurenaido',sans-serif;font-size:13px;
+    color:#f2c879;background:rgba(242,200,121,.07);
+    border:1px solid rgba(242,200,121,.3);border-radius:8px;
+    padding:6px 12px;cursor:pointer;line-height:1;
+    transition:background .26s cubic-bezier(.22,.9,.3,1),
+               border-color .26s,color .26s,transform .26s cubic-bezier(.3,1.5,.5,1);
+  }
+  .btn:hover{background:rgba(242,200,121,.17)}
+  .btn:active{transform:scale(.94)}
+  .btn.on{background:#f2c879;border-color:#f2c879;color:#20180c}
+  .btn.warm{color:#ece3d2;border-color:rgba(74,111,214,.42);background:rgba(74,111,214,.1)}
+  .btn.warm:hover{background:rgba(74,111,214,.24)}
+  .modes{display:flex;gap:4px}
+  .modes .btn{padding:6px 10px;min-width:38px;text-align:center}
+  input[type=range]{
+    -webkit-appearance:none;appearance:none;width:82px;height:3px;border-radius:2px;
+    background:rgba(236,227,210,.2);outline:none;cursor:pointer;
+  }
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none;appearance:none;width:13px;height:13px;border-radius:50%;
+    background:#f2c879;border:none;cursor:pointer;
+  }
+  input[type=range]::-moz-range-thumb{
+    width:13px;height:13px;border-radius:50%;background:#f2c879;border:none;cursor:pointer;
+  }
+
+  /* ── start overlay ─────────────────────────────────────────── */
+  #ov{
+    position:fixed;inset:0;z-index:30;display:flex;align-items:center;justify-content:center;
+    background:linear-gradient(170deg,#161b2f 0%,#14182b 46%,#241d14 100%);
+    padding:20px;transition:opacity .62s cubic-bezier(.4,0,.2,1);
+  }
+  #ov.gone{opacity:0;pointer-events:none}
+  .sheet{width:min(94vw,470px);text-align:center}
+  .kicker{
+    font-family:'Barlow Condensed',sans-serif;font-weight:200;font-size:11px;
+    letter-spacing:.52em;color:rgba(242,200,121,.62);margin:0 0 10px 4px;
+  }
+  h1{
+    font-family:'Barlow Condensed',sans-serif;font-weight:600;
+    font-size:clamp(40px,12.5vw,66px);letter-spacing:.22em;
+    margin:0;line-height:1;color:#f2c879;
+  }
+  .sub{font-size:13.5px;letter-spacing:.1em;color:rgba(236,227,210,.72);margin:11px 0 0}
+  #diag{display:block;margin:17px auto 3px;border-radius:12px;background:rgba(0,0,0,.2)}
+  .lead{
+    font-size:13px;line-height:2.05;color:rgba(236,227,210,.8);
+    margin:11px auto 0;max-width:410px;text-align:left;
+  }
+  .lead b{color:#f2c879;font-weight:400}
+  .go{
+    margin-top:20px;font-family:'Zen Kurenaido',sans-serif;font-size:16px;
+    letter-spacing:.14em;color:#20180c;background:#f2c879;border:none;border-radius:10px;
+    padding:13px 40px;cursor:pointer;
+    transition:transform .3s cubic-bezier(.3,1.5,.5,1),box-shadow .3s;
+    box-shadow:0 5px 26px rgba(242,200,121,.22);
+  }
+  .go:hover{transform:translateY(-2px);box-shadow:0 9px 34px rgba(242,200,121,.34)}
+  .go:active{transform:scale(.96)}
+  @media (max-width:470px){
+    .lead{font-size:12px;line-height:1.95}
+    #panel{gap:7px 10px;padding:8px 11px calc(8px + env(safe-area-inset-bottom,0px))}
+    input[type=range]{width:64px}
+  }
+</style>
+</head>
+<body>
+
+<canvas id="view"></canvas>
+<video id="video" playsinline muted autoplay></video>
+<button id="flip" class="lt">⟲ カメラ</button>
+<div id="err"></div>
+
+<div id="panel">
+  <div class="grp">
+    <button id="learn" class="btn">＋ おぼえる</button>
+    <button id="forget" class="btn warm">わすれる</button>
+  </div>
+  <div class="grp">
+    <label>CHOSHI</label>
+    <div class="modes">
+      <button id="m0" class="btn on">陽</button>
+      <button id="m1" class="btn">陰</button>
+      <button id="m2" class="btn">琉球</button>
+    </div>
+  </div>
+  <div class="grp">
+    <label>YURAGI</label>
+    <input type="range" id="wob" min="0" max="100" value="46">
+  </div>
+</div>
+
+<div id="ov">
+  <div class="sheet">
+    <p class="kicker">OTO II ─ INSTRUMENT</p>
+    <h1>TEMOTO</h1>
+    <p class="sub">手元のものが声になる</p>
+    <canvas id="diag" width="360" height="150"></canvas>
+    <p class="lead">
+      なんでもよいので、<b>色のはっきりしたもの</b>を手に取ってください。マグ、りんご、ペンのキャップ。<br>
+      〈＋ おぼえる〉を押して輪の中にかざすと、その<b>色</b>に声がひとつ宿ります。<br>
+      <b>高さが音程</b>、<b>レンズへ近づけるほど明るい声</b>、<b>動かしているあいだだけ膨らみ</b>ます。<br>
+      机に<b>置けば鳴りつづける</b>ので、四つまで並べて和音が組めます。
+    </p>
+    <button id="go" class="go">はじめる</button>
+  </div>
+</div>
+
+<script>
+(function(){
+'use strict';
+
+// ═══════════════════════════════════════════════════════════════════════
+//  DOM
+// ═══════════════════════════════════════════════════════════════════════
+var view     = document.getElementById('view');
+var video    = document.getElementById('video');
+var flipBtn  = document.getElementById('flip');
+var errBox   = document.getElementById('err');
+var ov       = document.getElementById('ov');
+var goBtn    = document.getElementById('go');
+var diag     = document.getElementById('diag');
+var learnBtn = document.getElementById('learn');
+var forgetBtn= document.getElementById('forget');
+var wobEl    = document.getElementById('wob');
+var modeBtns = [document.getElementById('m0'),
+                document.getElementById('m1'),
+                document.getElementById('m2')];
+
+var ctx  = view.getContext('2d');
+var dctx = diag.getContext('2d');
+
+// ═══════════════════════════════════════════════════════════════════════
+//  GEOMETRY
+//  MN is the SHORT edge. Every radius, every stroke width and every
+//  distance in this file is a multiple of MN, never of W — otherwise a
+//  laptop would demand twice the gesture a phone does for the same look.
+// ═══════════════════════════════════════════════════════════════════════
+var W=1, H=1, MN=1, DPR=1;
+function resize(){
+  DPR = Math.min(window.devicePixelRatio||1, 2);
+  W = Math.max(1, window.innerWidth);
+  H = Math.max(1, window.innerHeight);
+  view.width  = Math.max(1, Math.round(W*DPR));
+  view.height = Math.max(1, Math.round(H*DPR));
+  view.style.width = W+'px';
+  view.style.height = H+'px';
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  MN = Math.max(1, Math.min(W,H));
+  skyGrad = null;
+}
+window.addEventListener('resize', function(){ resize(); sizeDiag(); });
+window.addEventListener('orientationchange', function(){ setTimeout(resize,180); });
+
+// ═══════════════════════════════════════════════════════════════════════
+//  CAMERA
+// ═══════════════════════════════════════════════════════════════════════
+var facing='user', mirror=true, stream=null, camOK=false;
+
+function showError(e){
+  var msg = (e && e.message) ? e.message : String(e || 'unknown');
+  errBox.style.display='block';
+  errBox.textContent = 'カメラを起動できませんでした：'+msg+
+    '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+}
+function startStream(){
+  var md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) return Promise.reject(new Error('getUserMedia is unavailable'));
+  if (stream && stream.getTracks) stream.getTracks().forEach(function(t){ t.stop(); });
+  return md.getUserMedia({
+    video:{ facingMode:{ ideal:facing }, width:{ ideal:640 }, height:{ ideal:480 } },
+    audio:false
+  }).then(function(st){
+    stream = st;
+    video.srcObject = st;
+    mirror = (facing === 'user');
+    camOK = true;
+    var p = video.play();
+    return (p && p.then) ? p.catch(function(){}) : null;
+  });
+}
+flipBtn.addEventListener('click', function(){
+  facing = (facing==='user') ? 'environment' : 'user';
+  loseAll();
+  startStream().catch(showError);
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+//  COVER MAPPING ─ camera space (u,v in 0..1 of the FRAME) to screen px.
+//
+//  The frame is normalised by frame width and frame height independently,
+//  and the screen has a different aspect, so u and v are NOT comparable
+//  until they have both been through the same cover map. Everything that
+//  is a ratio, a speed or a radius in this file is computed either in
+//  ASPECT-CORRECTED camera space (x scaled by camAspect) or downstream of
+//  this map in screen pixels. Never in raw u/v.
+// ═══════════════════════════════════════════════════════════════════════
+var camAspect = 4/3;
+var covS=1, covOX=0, covOY=0;
+function updateCover(){
+  var vw = (video && video.videoWidth)  ? video.videoWidth  : 0;
+  var vh = (video && video.videoHeight) ? video.videoHeight : 0;
+  if (vw>0 && vh>0 && isFinite(vw/vh)) camAspect = vw/vh;
+  if (!isFinite(camAspect) || camAspect<=0) camAspect = 4/3;
+  // cover: scale so the frame fills the screen, centred, preserving aspect
+  var fw = camAspect, fh = 1;
+  var s = Math.max(W/fw, H/fh);
+  covS = s;
+  covOX = (W - fw*s)*0.5;
+  covOY = (H - fh*s)*0.5;
+  if (!isFinite(covS) || covS<=0) { covS=1; covOX=0; covOY=0; }
+}
+function camX(u){
+  var x = covOX + u*camAspect*covS;
+  return mirror ? (W - x) : x;
+}
+function camY(v){ return covOY + v*covS; }
+
+// ═══════════════════════════════════════════════════════════════════════
+//  SAMPLING CANVAS ─ one fixed low-res buffer, one ImageData, reused.
+//  128x96 is 12288 px; four colour tests over that is trivially realtime
+//  on a phone, and the centroid of a held object does not need more.
+// ═══════════════════════════════════════════════════════════════════════
+var SW=128, SH=96;
+var scan = document.createElement('canvas');
+scan.width = SW; scan.height = SH;
+var sctx = scan.getContext('2d', { willReadFrequently:true });
+var frameData = null;   // reused ImageData
+var haveFrame = false;
+
+function grabFrame(){
+  if (!camOK || !video || !video.videoWidth) { haveFrame=false; return false; }
+  try{
+    sctx.drawImage(video, 0, 0, SW, SH);
+    frameData = sctx.getImageData(0, 0, SW, SH);
+  }catch(e){ haveFrame=false; return false; }
+  haveFrame = !!(frameData && frameData.data && frameData.data.length === SW*SH*4);
+  return haveFrame;
+}
+
+// chromaticity: brightness-independent colour coordinates.
+// A red mug in lamplight and the same mug in shadow land on the same
+// (cr,cg); that is the whole reason this piece tracks colour and not
+// brightness.
+function chroma(r,g,b,out){
+  var s = r+g+b;
+  if (s < 42) { out[0]=-1; out[1]=-1; out[2]=0; return false; }  // too dark to have a colour
+  out[0] = r/s; out[1] = g/s; out[2] = s/3;
+  return true;
+}
+var _c = [0,0,0];
+
+// ═══════════════════════════════════════════════════════════════════════
+//  SCALES  ─ three pentatonic modes. No wrong note exists in any of them.
+// ═══════════════════════════════════════════════════════════════════════
+var MODES = [
+  { name:'陽',   steps:[0,2,5,7,9] },        // D E G A B
+  { name:'陰',   steps:[0,1,5,7,8] },        // D Eb G A Bb
+  { name:'琉球', steps:[0,4,5,7,11] }        // D F# G A C#
+];
+var modeIdx = 0;
+var ROOT_MIDI = 50;      // D3
+var LADDER = 14;         // rungs
+
+function ladderMidi(i){
+  var st = MODES[modeIdx].steps;
+  var n = st.length;
+  var oct = Math.floor(i/n);
+  var k = i - oct*n;
+  if (k<0){ k+=n; oct-=1; }
+  return ROOT_MIDI + oct*12 + st[k];
+}
+function midiHz(m){ return 440*Math.pow(2,(m-69)/12); }
+var NOTE_NAMES = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+function noteLabel(m){
+  var mi = Math.round(m);
+  var pc = ((mi%12)+12)%12;
+  return NOTE_NAMES[pc] + String(Math.floor(mi/12)-1);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  AUDIO
+// ═══════════════════════════════════════════════════════════════════════
+var AC=null, master=null, comp=null, wet=null, dry=null, verb=null;
+var droneOsc=[], droneGain=null, droneFilt=null;
+var audioReady=false;
+
+function makeIR(ac, seconds, decay){
+  var rate = ac.sampleRate;
+  var len  = Math.max(1, Math.floor(rate*seconds));
+  var buf  = ac.createBuffer(2, len, rate);
+  for (var ch=0; ch<2; ch++){
+    var d = buf.getChannelData(ch);
+    for (var i=0;i<len;i++){
+      var t = i/len;
+      // a little early-reflection sparseness, then a smooth tail
+      var g = Math.pow(1-t, decay);
+      var s = (Math.random()*2-1);
+      if (t < 0.02) s *= 0.5 + Math.random();
+      d[i] = s*g;
+    }
+  }
+  return buf;
+}
+
+function initAudio(){
+  var ACtor = window.AudioContext || window.webkitAudioContext;
+  if (!ACtor) return false;
+  AC = new ACtor();
+  comp = AC.createDynamicsCompressor();
+  try{
+    comp.threshold.value = -17;
+    comp.knee.value      = 26;
+    comp.ratio.value     = 5;
+    comp.attack.value    = 0.008;
+    comp.release.value   = 0.24;
+  }catch(e){}
+  master = AC.createGain();
+  master.gain.value = 0.9;
+  comp.connect(master);
+  master.connect(AC.destination);
+
+  verb = AC.createConvolver();
+  verb.buffer = makeIR(AC, 2.4, 2.6);
+  wet = AC.createGain(); wet.gain.value = 0.42;
+  dry = AC.createGain(); dry.gain.value = 0.86;
+  verb.connect(wet); wet.connect(comp); dry.connect(comp);
+
+  // shared sub drone on the root — it never plays alone, it only thickens
+  droneFilt = AC.createBiquadFilter();
+  droneFilt.type='lowpass'; droneFilt.frequency.value = 320; droneFilt.Q.value = 0.6;
+  droneGain = AC.createGain(); droneGain.gain.value = 0;
+  droneFilt.connect(droneGain); droneGain.connect(dry); droneGain.connect(verb);
+  var dets = [-7, 0, 6];
+  for (var i=0;i<3;i++){
+    var o = AC.createOscillator();
+    o.type = 'triangle';
+    o.frequency.value = midiHz(ROOT_MIDI-12);
+    o.detune.value = dets[i];
+    o.connect(droneFilt);
+    try{ o.start(); }catch(e){}
+    droneOsc.push(o);
+  }
+  audioReady = true;
+  return true;
+}
+
+function now(){ return AC ? AC.currentTime : 0; }
+function setP(p, v, tc){
+  if (!p) return;
+  if (!isFinite(v)) return;
+  try{ p.setTargetAtTime(v, now(), tc); }catch(e){ try{ p.value = v; }catch(e2){} }
+}
+
+// ── one FM voice per learned colour ────────────────────────────────────
+function Voice(){
+  this.built = false;
+  this.car=null; this.mod=null; this.modGain=null;
+  this.filt=null; this.amp=null; this.pan=null;
+  this.lfo=null; this.lfoGain=null;
+}
+Voice.prototype.build = function(){
+  if (this.built || !AC) return;
+  var a = AC;
+  this.car = a.createOscillator(); this.car.type='sine';
+  this.mod = a.createOscillator(); this.mod.type='sine';
+  this.modGain = a.createGain(); this.modGain.gain.value = 0;
+  this.mod.connect(this.modGain);
+  this.modGain.connect(this.car.frequency);
+
+  this.lfo = a.createOscillator(); this.lfo.type='sine';
+  this.lfo.frequency.value = 4.4 + Math.random()*1.8;
+  this.lfoGain = a.createGain(); this.lfoGain.gain.value = 0;
+  this.lfo.connect(this.lfoGain);
+  this.lfoGain.connect(this.car.detune);
+
+  this.filt = a.createBiquadFilter();
+  this.filt.type='lowpass'; this.filt.frequency.value=1400; this.filt.Q.value=0.7;
+
+  this.amp = a.createGain(); this.amp.gain.value = 0;
+
+  this.pan = a.createStereoPanner ? a.createStereoPanner() : null;
+
+  this.car.connect(this.filt);
+  this.filt.connect(this.amp);
+  if (this.pan){ this.amp.connect(this.pan); this.pan.connect(dry); this.pan.connect(verb); }
+  else { this.amp.connect(dry); this.amp.connect(verb); }
+
+  try{ this.car.start(); this.mod.start(); this.lfo.start(); }catch(e){}
+  this.built = true;
+};
+
+// ── the mallet that fires the moment an object comes to rest ───────────
+var noiseBuf = null;
+function getNoise(){
+  if (noiseBuf || !AC) return noiseBuf;
+  var len = Math.floor(AC.sampleRate*0.5);
+  noiseBuf = AC.createBuffer(1, len, AC.sampleRate);
+  var d = noiseBuf.getChannelData(0);
+  for (var i=0;i<len;i++) d[i] = (Math.random()*2-1);
+  return noiseBuf;
+}
+function strike(hz, strength){
+  if (!audioReady || !AC || !isFinite(hz) || hz<=0) return;
+  var t = now();
+  var s = Math.max(0.05, Math.min(1, strength||0.5));
+
+  // filtered-noise click: the object touching the desk
+  var nb = getNoise();
+  if (nb){
+    var src = AC.createBufferSource(); src.buffer = nb;
+    var bp = AC.createBiquadFilter();
+    bp.type='bandpass'; bp.frequency.value = Math.min(7000, hz*5.5); bp.Q.value = 1.1;
+    var ng = AC.createGain(); ng.gain.value = 0;
+    src.connect(bp); bp.connect(ng); ng.connect(dry); ng.connect(verb);
+    try{
+      ng.gain.setValueAtTime(0.0001, t);
+      ng.gain.exponentialRampToValueAtTime(0.16*s+0.0001, t+0.006);
+      ng.gain.exponentialRampToValueAtTime(0.0001, t+0.19);
+      src.start(t); src.stop(t+0.24);
+    }catch(e){}
+  }
+
+  // short high-index FM ping at the same pitch, so the mallet is IN key
+  var c = AC.createOscillator(); c.type='sine'; c.frequency.value = hz;
+  var m = AC.createOscillator(); m.type='sine'; m.frequency.value = hz*2.01;
+  var mg = AC.createGain();
+  var g  = AC.createGain(); g.gain.value = 0;
+  m.connect(mg); mg.connect(c.frequency); c.connect(g);
+  g.connect(dry); g.connect(verb);
+  try{
+    mg.gain.setValueAtTime(hz*3.2*s, t);
+    mg.gain.exponentialRampToValueAtTime(hz*0.15, t+0.42);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.2*s+0.0001, t+0.008);
+    g.gain.exponentialRampToValueAtTime(0.0001, t+0.95);
+    c.start(t); m.start(t); c.stop(t+1.0); m.stop(t+1.0);
+  }catch(e){}
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  SLOTS ─ a learned colour and everything that follows from it
+// ═══════════════════════════════════════════════════════════════════════
+var MAXSLOTS = 4;
+var slots = [];
+
+// hue (0..1) → FM modulator ratio. Six buckets across the wheel, so two
+// objects of genuinely different colour are genuinely different voices.
+var RATIOS = [1, 2, 1.5, 3, 2.5, 0.5];
+function hueOf(r,g,b){
+  var mx = Math.max(r,g,b), mn = Math.min(r,g,b), d = mx-mn;
+  if (d < 1e-6) return 0;
+  var h;
+  if (mx===r) h = ((g-b)/d + 6)%6;
+  else if (mx===g) h = (b-r)/d + 2;
+  else h = (r-g)/d + 4;
+  return h/6;
+}
+
+function makeSlot(cr, cg, val, r, g, b){
+  var s = {
+    cr:cr, cg:cg, val:val,
+    r:r, g:g, b:b,
+    css:'rgb('+Math.round(r)+','+Math.round(g)+','+Math.round(b)+')',
+    ratio: RATIOS[Math.min(RATIOS.length-1, Math.floor(hueOf(r,g,b)*RATIOS.length))],
+    // live state
+    seen:false, hold:0, lost:0,
+    u:0.5, v:0.5, area:0,
+    su:0.5, sv:0.5, sarea:0,        // smoothed
+    px:0, py:0,                     // screen px
+    speed:0, sspeed:0,
+    rung:7, rungF:7,
+    bloom:0, present:0,
+    restT:0, moving:false, armed:false,
+    voice:new Voice(),
+    phase:Math.random()*6.283
+  };
+  return s;
+}
+
+function loseAll(){
+  for (var i=0;i<slots.length;i++){
+    var s = slots[i];
+    s.seen=false; s.hold=0; s.lost=999;
+    s.speed=0; s.sspeed=0; s.moving=false; s.armed=false; s.restT=0;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  TRACKING
+//  For each slot, sweep the 128x96 buffer once and accumulate the pixels
+//  whose chromaticity is close enough. Then TRIM: recompute the centroid
+//  using only the pixels inside a disc around the first centroid, which
+//  throws away a stray patch of the same colour on the other side of the
+//  room without needing connected components.
+// ═══════════════════════════════════════════════════════════════════════
+var TH_BASE = 0.052;          // chromaticity radius
+var MIN_PX  = 26;             // below this the object is simply not there
+
+var accX=new Float32Array(MAXSLOTS), accY=new Float32Array(MAXSLOTS), accN=new Float32Array(MAXSLOTS);
+var tmpX=new Float32Array(MAXSLOTS), tmpY=new Float32Array(MAXSLOTS), tmpN=new Float32Array(MAXSLOTS);
+
+function track(dt){
+  var i, s;
+  var n = slots.length;
+  if (!haveFrame || n===0){
+    for (i=0;i<n;i++) markLost(slots[i], dt);
+    return;
+  }
+  var data = frameData.data;
+  for (i=0;i<n;i++){ accX[i]=0; accY[i]=0; accN[i]=0; }
+
+  // widen the gate for a slot that has been missing, so reacquisition is
+  // forgiving without making acquisition sloppy
+  var th2 = [];
+  for (i=0;i<n;i++){
+    var w = TH_BASE * (slots[i].hold>0 ? 1.0 : 1.45);
+    th2.push(w*w);
+  }
+
+  var idx=0;
+  for (var y=0;y<SH;y++){
+    for (var x=0;x<SW;x++){
+      var r=data[idx], g=data[idx+1], b=data[idx+2];
+      idx+=4;
+      if (!chroma(r,g,b,_c)) continue;
+      var cr=_c[0], cg=_c[1];
+      for (i=0;i<n;i++){
+        s = slots[i];
+        var dr = cr-s.cr, dg = cg-s.cg;
+        if (dr*dr+dg*dg < th2[i]){
+          accX[i]+=x; accY[i]+=y; accN[i]++;
+        }
+      }
+    }
+  }
+
+  // trim pass
+  var needTrim = false;
+  for (i=0;i<n;i++){ if (accN[i]>=MIN_PX) needTrim = true; }
+  if (needTrim){
+    for (i=0;i<n;i++){ tmpX[i]=0; tmpY[i]=0; tmpN[i]=0; }
+    var cx=[], cy=[], rad2=[];
+    for (i=0;i<n;i++){
+      if (accN[i]>=MIN_PX){
+        cx.push(accX[i]/accN[i]); cy.push(accY[i]/accN[i]);
+        // generous disc: 2.2x the equivalent radius of the blob
+        var er = Math.sqrt(accN[i]/Math.PI);
+        var rr = Math.max(6, er*2.2);
+        rad2.push(rr*rr);
+      } else { cx.push(-1); cy.push(-1); rad2.push(0); }
+    }
+    idx=0;
+    for (var y2=0;y2<SH;y2++){
+      for (var x2=0;x2<SW;x2++){
+        var r2=data[idx], g2=data[idx+1], b2=data[idx+2];
+        idx+=4;
+        if (!chroma(r2,g2,b2,_c)) continue;
+        for (i=0;i<n;i++){
+          if (cx[i]<0) continue;
+          s = slots[i];
+          var dr2=_c[0]-s.cr, dg2=_c[1]-s.cg;
+          if (dr2*dr2+dg2*dg2 >= th2[i]) continue;
+          var ddx=x2-cx[i], ddy=y2-cy[i];
+          if (ddx*ddx+ddy*ddy > rad2[i]) continue;
+          tmpX[i]+=x2; tmpY[i]+=y2; tmpN[i]++;
+        }
+      }
+    }
+    for (i=0;i<n;i++){ if (tmpN[i]>=MIN_PX){ accX[i]=tmpX[i]; accY[i]=tmpY[i]; accN[i]=tmpN[i]; } }
+  }
+
+  for (i=0;i<n;i++){
+    s = slots[i];
+    if (accN[i] >= MIN_PX){
+      var u = (accX[i]/accN[i])/SW;
+      var v = (accY[i]/accN[i])/SH;
+      var area = accN[i]/(SW*SH);          // FRACTION OF FRAME: orientation-proof
+      var prevU=s.u, prevV=s.v, was=s.seen;
+      s.u=u; s.v=v; s.area=area;
+      if (!was){
+        // reacquisition: no velocity carried over, no strike armed
+        s.su=u; s.sv=v; s.sarea=area; s.speed=0; s.sspeed=0;
+        s.moving=false; s.armed=false; s.restT=0;
+      } else if (dt>0){
+        // aspect-corrected speed: x lives on the long axis of the frame
+        var dx=(u-prevU)*camAspect, dy=(v-prevV);
+        s.speed = Math.sqrt(dx*dx+dy*dy)/dt;
+      }
+      s.seen = true; s.hold = 1; s.lost = 0;
+    } else {
+      markLost(s, dt);
+    }
+  }
+}
+function markLost(s, dt){
+  if (!s) return;
+  s.lost += dt;
+  if (s.lost > 0.22){
+    if (s.seen){
+      // the object left mid-gesture. Drop every bit of gesture state so
+      // nothing fires the instant it comes back.
+      s.seen=false; s.speed=0; s.sspeed=0; s.moving=false; s.armed=false; s.restT=0;
+    }
+    s.hold = 0;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  LEARNING
+// ═══════════════════════════════════════════════════════════════════════
+var learning=false, learnT=0, learnMsg='', learnMsgT=0;
+var LEARN_HOLD = 1.15;
+
+function beginLearn(){
+  if (slots.length >= MAXSLOTS){
+    learnMsg = 'これ以上は覚えられません'; learnMsgT = 2.2;
+    return;
+  }
+  learning = true; learnT = 0;
+}
+learnBtn.addEventListener('click', function(){
+  if (learning){ learning=false; learnT=0; }
+  else beginLearn();
+  learnBtn.classList.toggle('on', learning);
+});
+forgetBtn.addEventListener('click', function(){
+  for (var i=0;i<slots.length;i++){
+    var v = slots[i].voice;
+    if (v && v.amp) setP(v.amp.gain, 0, 0.08);
+  }
+  slots.length = 0;
+  learning=false; learnT=0;
+  learnBtn.classList.remove('on');
+  learnMsg='わすれました'; learnMsgT=1.6;
+});
+
+// Average the centre of the scan buffer, then REFINE: throw away every
+// sampled pixel whose chromaticity is far from that first average and
+// average again. The drawn ring is deliberately much larger than this
+// sample disc, so "put it in the ring" is a generous instruction and the
+// colour that comes back is still the object's and not the desk's.
+var SAMPLE_R = 0.095;            // fraction of the SHORT edge of the frame
+function sampleCentre(){
+  if (!haveFrame) return null;
+  var data = frameData.data;
+  var cx = SW*0.5, cy = SH*0.5, rr = SH*SAMPLE_R, rr2 = rr*rr;
+  var y0=Math.max(0,Math.floor(cy-rr)), y1=Math.min(SH-1,Math.ceil(cy+rr));
+  var x0=Math.max(0,Math.floor(cx-rr)), x1=Math.min(SW-1,Math.ceil(cx+rr));
+  var sr=0,sg=0,sb=0,n=0,x,y,i,ddx,ddy;
+  for (y=y0;y<=y1;y++){
+    for (x=x0;x<=x1;x++){
+      ddx=x-cx; ddy=y-cy;
+      if (ddx*ddx+ddy*ddy>rr2) continue;
+      i=(y*SW+x)*4;
+      sr+=data[i]; sg+=data[i+1]; sb+=data[i+2]; n++;
+    }
+  }
+  if (n<10) return null;
+  if (!chroma(sr/n, sg/n, sb/n, _c)) return { r:sr/n, g:sg/n, b:sb/n, n:n };
+  var acr=_c[0], acg=_c[1];
+  var tr=0,tg=0,tb=0,tn=0;
+  var gate = TH_BASE*1.25, gate2 = gate*gate;
+  for (y=y0;y<=y1;y++){
+    for (x=x0;x<=x1;x++){
+      ddx=x-cx; ddy=y-cy;
+      if (ddx*ddx+ddy*ddy>rr2) continue;
+      i=(y*SW+x)*4;
+      if (!chroma(data[i],data[i+1],data[i+2],_c)) continue;
+      var dr=_c[0]-acr, dg=_c[1]-acg;
+      if (dr*dr+dg*dg > gate2) continue;
+      tr+=data[i]; tg+=data[i+1]; tb+=data[i+2]; tn++;
+    }
+  }
+  if (tn >= 10) return { r:tr/tn, g:tg/tn, b:tb/tn, n:tn };
+  return { r:sr/n, g:sg/n, b:sb/n, n:n };
+}
+
+function tryLearn(dt){
+  if (!learning) return;
+  var sm = sampleCentre();
+  if (!sm){ learnT = Math.max(0, learnT-dt); return; }
+  var ok = chroma(sm.r, sm.g, sm.b, _c);
+  // require an actual colour: chromaticity far enough from grey (1/3,1/3)
+  var dgr = Math.sqrt((_c[0]-1/3)*(_c[0]-1/3) + (_c[1]-1/3)*(_c[1]-1/3));
+  if (!ok || dgr < 0.036){
+    learnT = Math.max(0, learnT-dt*1.4);
+    learnMsg = 'もっと色のはっきりしたものを'; learnMsgT = 0.5;
+    return;
+  }
+  // and it must not collide with a colour we already hold
+  for (var i=0;i<slots.length;i++){
+    var dr=_c[0]-slots[i].cr, dg=_c[1]-slots[i].cg;
+    if (dr*dr+dg*dg < (TH_BASE*1.5)*(TH_BASE*1.5)){
+      learnT = Math.max(0, learnT-dt*1.4);
+      learnMsg = 'その色はもう覚えています'; learnMsgT = 0.5;
+      return;
+    }
+  }
+  learnT += dt;
+  if (learnT >= LEARN_HOLD){
+    var s = makeSlot(_c[0], _c[1], _c[2], sm.r, sm.g, sm.b);
+    if (audioReady) s.voice.build();
+    slots.push(s);
+    learning=false; learnT=0;
+    learnBtn.classList.remove('on');
+    learnMsg='おぼえました'; learnMsgT=1.5;
+    ripples.push({ x:W*0.5, y:H*0.5, r:MN*0.06, R:MN*0.34, t:0, T:0.85, css:s.css, w:2.4 });
+    for (var k=0;k<20;k++) spark(W*0.5, H*0.5, s.css, 1.1);
+    if (audioReady) strike(midiHz(ladderMidi(7)), 0.55);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  PARTICLES / RIPPLES / MOTES
+// ═══════════════════════════════════════════════════════════════════════
+var parts = [], ripples = [], motes = [];
+function spark(x,y,css,pw){
+  if (parts.length>220) return;
+  var a = Math.random()*6.283, sp = MN*(0.05+Math.random()*0.16)*(pw||1);
+  parts.push({ x:x, y:y, vx:Math.cos(a)*sp, vy:Math.sin(a)*sp - MN*0.03,
+               t:0, T:0.5+Math.random()*0.5, css:css, r:MN*(0.0025+Math.random()*0.004) });
+}
+function initMotes(){
+  motes.length=0;
+  for (var i=0;i<46;i++){
+    motes.push({ x:Math.random(), y:Math.random(), s:0.2+Math.random()*0.8,
+                 v:0.004+Math.random()*0.012, p:Math.random()*6.283 });
+  }
+}
+initMotes();
+
+// ═══════════════════════════════════════════════════════════════════════
+//  UPDATE
+// ═══════════════════════════════════════════════════════════════════════
+var wobble = 0.46;
+wobEl.addEventListener('input', function(){
+  var v = parseFloat(wobEl.value);
+  wobble = isFinite(v) ? v/100 : 0.46;
+});
+for (var mi=0; mi<modeBtns.length; mi++){
+  (function(k){
+    modeBtns[k].addEventListener('click', function(){
+      modeIdx = k;
+      for (var j=0;j<modeBtns.length;j++) modeBtns[j].classList.toggle('on', j===k);
+      for (var j2=0;j2<slots.length;j2++) slots[j2].armed = false;
+    });
+  })(mi);
+}
+
+// dt-aware critical damping. k is "fraction remaining after 1 second".
+function damp(cur, tgt, k, dt){
+  if (!isFinite(tgt)) return cur;
+  var a = 1 - Math.pow(k, dt);
+  return cur + (tgt-cur)*a;
+}
+
+var shake = 0;
+var REST_SPEED = 0.16;     // aspect-corrected camera units / second
+var MOVE_SPEED = 0.34;
+var tGlobal = 0;
+
+function update(dt){
+  tGlobal += dt;
+  if (learnMsgT>0) learnMsgT -= dt;
+
+  var i, s, anyVoice = 0;
+
+  for (i=0;i<slots.length;i++){
+    s = slots[i];
+    var alive = s.seen && s.hold>0;
+
+    s.present = damp(s.present, alive?1:0, alive?0.0005:0.004, dt);
+    if (s.present < 0.0015 && !alive) s.present = 0;
+    if (alive) s.bloom = Math.min(1, s.bloom + dt/0.52);
+    else s.bloom = Math.max(0, s.bloom - dt/0.30);
+
+    if (alive){
+      s.su    = damp(s.su,    s.u,    0.00002, dt);
+      s.sv    = damp(s.sv,    s.v,    0.00002, dt);
+      s.sarea = damp(s.sarea, s.area, 0.0004,  dt);
+      s.sspeed= damp(s.sspeed,s.speed,0.00004, dt);
+    } else {
+      s.sspeed = damp(s.sspeed, 0, 0.0002, dt);
+    }
+
+    s.px = camX(s.su);
+    s.py = camY(s.sv);
+    s.phase += dt*(4.4 + (i%3)*0.6);
+
+    // ── rest / move detection, with hysteresis, and NEVER armed unless
+    //    the object was genuinely moving first. A reacquired object has
+    //    armed=false, so it cannot fire a phantom strike.
+    if (alive){
+      if (s.sspeed > MOVE_SPEED){ s.moving = true; s.armed = true; s.restT = 0; }
+      else if (s.sspeed < REST_SPEED){
+        s.restT += dt;
+        if (s.moving && s.restT > 0.17){
+          s.moving = false;
+          if (s.armed){
+            s.armed = false;
+            var hz0 = midiHz(ladderMidi(s.rung));
+            strike(hz0, 0.35 + Math.min(0.65, s.sspeed*1.4));
+            ripples.push({ x:s.px, y:s.py, r:MN*0.02, R:MN*0.17, t:0, T:0.62, css:s.css, w:2 });
+            for (var q=0;q<11;q++) spark(s.px, s.py, s.css, 0.8);
+            shake = Math.min(1, shake + 0.34);
+          }
+        }
+      } else {
+        s.restT = 0;
+      }
+    } else {
+      s.restT = 0;
+    }
+
+    // ── pitch quantiser with hysteresis ──────────────────────────────
+    // v runs down the FRAME, so the top of what the camera sees is the
+    // top of the ladder regardless of how the screen is shaped.
+    var f = (1 - Math.max(0, Math.min(1, s.sv))) * (LADDER-1);
+    var cur = s.rung;
+    if (f > cur + 0.62) s.rung = Math.min(LADDER-1, Math.round(f));
+    else if (f < cur - 0.62) s.rung = Math.max(0, Math.round(f));
+    s.rungF = damp(s.rungF, s.rung, 0.00004, dt);
+
+    // ── drive the voice ──────────────────────────────────────────────
+    var v = s.voice;
+    if (audioReady && v){
+      if (!v.built) v.build();
+      var hz = midiHz(ladderMidi(s.rung));
+      var sizeN = Math.max(0, Math.min(1, (s.sarea - 0.0022) / 0.075));  // 0..1 far→near
+      var mv = Math.max(0, Math.min(1, s.sspeed/0.9));
+      var amp = s.present * (0.085 + 0.135*mv) * (0.72 + 0.28*sizeN);
+      var idx = hz * (0.35 + 2.55*sizeN + 0.9*mv);
+      var cut = 620 + 5200*sizeN + 1800*mv;
+
+      setP(v.car.frequency, hz, 0.055);
+      setP(v.mod.frequency, hz*s.ratio, 0.055);
+      setP(v.modGain.gain, idx, 0.09);
+      setP(v.filt.frequency, Math.min(11000, cut), 0.1);
+      setP(v.amp.gain, amp, alive?0.075:0.16);
+      setP(v.lfoGain.gain, wobble*(6 + 34*mv), 0.12);
+      if (v.pan) setP(v.pan.pan, Math.max(-1,Math.min(1,(s.su-0.5)*1.5)), 0.12);
+    }
+    anyVoice += s.present;
+  }
+
+  if (audioReady && droneGain){
+    setP(droneGain.gain, Math.min(0.075, anyVoice*0.032), 0.5);
+  }
+
+  // particles
+  for (i=parts.length-1;i>=0;i--){
+    var p = parts[i];
+    p.t += dt;
+    if (p.t >= p.T){ parts.splice(i,1); continue; }
+    p.x += p.vx*dt; p.y += p.vy*dt; p.vy += MN*0.34*dt; p.vx *= (1-1.1*dt);
+  }
+  for (i=ripples.length-1;i>=0;i--){
+    var rp = ripples[i];
+    rp.t += dt;
+    if (rp.t >= rp.T) ripples.splice(i,1);
+  }
+  for (i=0;i<motes.length;i++){
+    var mo = motes[i];
+    mo.x -= mo.v*dt;
+    if (mo.x < -0.02) { mo.x = 1.02; mo.y = Math.random(); }
+    mo.p += dt*0.9;
+  }
+
+  shake = Math.max(0, shake - dt*2.6);
+  tryLearn(dt);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  DRAW
+// ═══════════════════════════════════════════════════════════════════════
+var skyGrad = null;
+
+function drawBg(){
+  if (!skyGrad){
+    skyGrad = ctx.createLinearGradient(0,0,0,H);
+    skyGrad.addColorStop(0,   '#141828');
+    skyGrad.addColorStop(0.44,'#181a2c');
+    skyGrad.addColorStop(0.72,'#241d16');
+    skyGrad.addColorStop(1,   '#2c2318');
+  }
+  ctx.fillStyle = skyGrad;
+  ctx.fillRect(0,0,W,H);
+}
+
+function drawFeed(){
+  if (!camOK || !video || !video.videoWidth) return;
+  ctx.save();
+  ctx.globalAlpha = 0.27;
+  ctx.globalCompositeOperation = 'lighter';
+  if (mirror){ ctx.translate(W,0); ctx.scale(-1,1); }
+  var fw = camAspect*covS, fh = covS;
+  ctx.drawImage(video, covOX, covOY, fw, fh);
+  ctx.restore();
+  // push the feed back down into the palette, so the only saturated thing
+  // on the screen stays the player's own object
+  ctx.save();
+  ctx.globalAlpha = 0.42;
+  ctx.fillStyle = '#181a2c';
+  ctx.fillRect(0,0,W,H);
+  ctx.restore();
+}
+
+function drawMotes(){
+  ctx.save();
+  for (var i=0;i<motes.length;i++){
+    var m = motes[i];
+    var x = m.x*W, y = m.y*H;
+    var tw = 0.35 + 0.65*(0.5+0.5*Math.sin(m.p));
+    var lit = 0.25 + 0.75*(1-m.x);
+    ctx.globalAlpha = 0.24*tw*lit;
+    ctx.fillStyle = '#f2c879';
+    ctx.beginPath();
+    ctx.arc(x, y, MN*0.0014*m.s + MN*0.0008, 0, 6.283);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawLadder(){
+  var x = Math.max(MN*0.075, 40);
+  var top = H*0.13, bot = H*0.80;
+  ctx.save();
+  ctx.textAlign='right'; ctx.textBaseline='middle';
+  for (var i=0;i<LADDER;i++){
+    var y = bot + (top-bot)*(i/(LADDER-1));
+    var glow = 0, css='#f2c879';
+    for (var k=0;k<slots.length;k++){
+      var s = slots[k];
+      if (s.present<0.02) continue;
+      var d = Math.abs(s.rungF - i);
+      if (d < 1){
+        var gg = (1-d)*s.present;
+        if (gg > glow){ glow = gg; css = s.css; }
+      }
+    }
+    var w = MN*(0.022 + 0.030*glow);
+    ctx.globalAlpha = 0.16 + 0.74*glow;
+    ctx.strokeStyle = glow>0.04 ? css : '#f2c879';
+    ctx.lineWidth = MN*0.0018 + MN*0.0034*glow;
+    ctx.lineCap='round';
+    ctx.beginPath();
+    ctx.moveTo(x, y); ctx.lineTo(x+w, y);
+    ctx.stroke();
+    if (i%5===0 || glow>0.3){
+      ctx.globalAlpha = 0.28 + 0.6*glow;
+      ctx.fillStyle = glow>0.04 ? css : 'rgba(236,227,210,0.9)';
+      ctx.font = '400 '+Math.round(MN*0.019)+'px "Barlow Condensed",sans-serif';
+      ctx.fillText(noteLabel(ladderMidi(i)), x-MN*0.012, y);
+    }
+  }
+  ctx.restore();
+}
+
+function drawCords(){
+  var lx = Math.max(MN*0.075, 40);
+  ctx.save();
+  ctx.lineCap='round';
+  for (var k=0;k<slots.length;k++){
+    var s = slots[k];
+    if (s.present < 0.02) continue;
+    var top = H*0.13, bot = H*0.80;
+    var ly = bot + (top-bot)*(s.rungF/(LADDER-1));
+    var lxe = lx + MN*0.03;
+    var mv = Math.max(0, Math.min(1, s.sspeed/0.7));
+    var amp = MN*(0.004 + 0.028*mv)*s.present;
+    var segs = 26;
+    ctx.globalAlpha = 0.22 + 0.5*s.present;
+    ctx.strokeStyle = s.css;
+    ctx.lineWidth = MN*0.0022 + MN*0.0026*s.present;
+    ctx.beginPath();
+    for (var i=0;i<=segs;i++){
+      var t = i/segs;
+      // gentle arc, sagging under its own weight
+      var bx = lxe + (s.px-lxe)*t;
+      var by = ly  + (s.py-ly )*t + Math.sin(Math.PI*t)*MN*0.045*(1-0.5*mv);
+      // the cord vibrates at the voice's own rate
+      var env = Math.sin(Math.PI*t);
+      var nx = -(s.py-ly), ny = (s.px-lxe);
+      var nl = Math.sqrt(nx*nx+ny*ny) || 1;
+      var off = Math.sin(t*9.4 - s.phase*2.2)*amp*env;
+      bx += nx/nl*off; by += ny/nl*off;
+      if (i===0) ctx.moveTo(bx,by); else ctx.lineTo(bx,by);
+    }
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawThreads(){
+  // gold thread between consonant pairs — you SEE the chord resolve
+  ctx.save();
+  for (var a=0;a<slots.length;a++){
+    for (var b=a+1;b<slots.length;b++){
+      var A=slots[a], B=slots[b];
+      if (A.present<0.25 || B.present<0.25) continue;
+      var iv = Math.abs(ladderMidi(A.rung) - ladderMidi(B.rung)) % 12;
+      if (!(iv===0 || iv===5 || iv===7)) continue;
+      var br = 0.3 + 0.28*Math.sin(tGlobal*2.1);
+      ctx.globalAlpha = br * Math.min(A.present, B.present);
+      ctx.strokeStyle = '#f2c879';
+      ctx.lineWidth = MN*0.0016;
+      ctx.setLineDash([MN*0.012, MN*0.013]);
+      ctx.lineDashOffset = -tGlobal*MN*0.05;
+      ctx.beginPath();
+      var mxp=(A.px+B.px)/2, myp=(A.py+B.py)/2 - MN*0.05;
+      ctx.moveTo(A.px,A.py);
+      ctx.quadraticCurveTo(mxp,myp,B.px,B.py);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+  }
+  ctx.restore();
+}
+
+function easeOutBack(t){
+  var c1=1.70158, c3=c1+1, p=t-1;
+  return 1 + c3*p*p*p + c1*p*p;
+}
+
+function drawSlots(){
+  ctx.save();
+  for (var k=0;k<slots.length;k++){
+    var s = slots[k];
+    if (s.present < 0.015 && s.bloom < 0.015) continue;
+    var sizeN = Math.max(0, Math.min(1, (s.sarea - 0.0022)/0.075));
+    var base = MN*(0.030 + 0.085*Math.sqrt(Math.max(0,s.sarea)/0.09));
+    var bl = easeOutBack(Math.max(0,Math.min(1,s.bloom)));
+    var R = base*Math.max(0.05, bl);
+    var breathe = 1 + 0.045*Math.sin(s.phase*0.7);
+    R *= breathe;
+
+    // halo
+    ctx.globalCompositeOperation='lighter';
+    var g = ctx.createRadialGradient(s.px,s.py,R*0.1,s.px,s.py,R*2.3);
+    g.addColorStop(0, 'rgba('+Math.round(s.r)+','+Math.round(s.g)+','+Math.round(s.b)+','+(0.42*s.present).toFixed(3)+')');
+    g.addColorStop(1, 'rgba('+Math.round(s.r)+','+Math.round(s.g)+','+Math.round(s.b)+',0)');
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(s.px,s.py,R*2.3,0,6.283); ctx.fill();
+    ctx.globalCompositeOperation='source-over';
+
+    // the disc
+    ctx.globalAlpha = 0.34 + 0.4*s.present;
+    ctx.fillStyle = s.css;
+    ctx.beginPath(); ctx.arc(s.px,s.py,R*0.56,0,6.283); ctx.fill();
+
+    // ring — warm when heard, 群青 when the camera has lost it
+    var lostness = 1 - s.present;
+    ctx.globalAlpha = 0.5 + 0.5*s.present;
+    ctx.strokeStyle = s.present>0.1 ? s.css : '#4a6fd6';
+    ctx.lineWidth = MN*0.0026 + MN*0.0030*s.present;
+    ctx.beginPath(); ctx.arc(s.px,s.py,R,0,6.283); ctx.stroke();
+
+    // brightness ticks around the ring = modulation index, i.e. how much
+    // teeth the voice currently has
+    var ticks = 3 + Math.round(sizeN*9);
+    ctx.globalAlpha = 0.25 + 0.55*s.present;
+    ctx.lineWidth = MN*0.0018;
+    for (var t2=0;t2<ticks;t2++){
+      var a2 = s.phase*0.35 + t2/ticks*6.283;
+      var r1 = R*1.14, r2 = R*(1.24 + 0.16*sizeN);
+      ctx.beginPath();
+      ctx.moveTo(s.px+Math.cos(a2)*r1, s.py+Math.sin(a2)*r1);
+      ctx.lineTo(s.px+Math.cos(a2)*r2, s.py+Math.sin(a2)*r2);
+      ctx.stroke();
+    }
+
+    if (lostness > 0.55 && s.bloom < 0.35){
+      ctx.globalAlpha = 0.5;
+      ctx.fillStyle = '#4a6fd6';
+      ctx.font = '400 '+Math.round(MN*0.020)+'px "Zen Kurenaido",sans-serif';
+      ctx.textAlign='center'; ctx.textBaseline='top';
+      ctx.fillText('見えていません', s.px, s.py+R*1.5);
+    }
+  }
+  ctx.restore();
+}
+
+function drawFx(){
+  ctx.save();
+  for (var i=0;i<ripples.length;i++){
+    var rp = ripples[i];
+    var t = rp.t/rp.T;
+    var e = 1-Math.pow(1-t,3);
+    ctx.globalAlpha = (1-t)*0.75;
+    ctx.strokeStyle = rp.css;
+    ctx.lineWidth = rp.w*(1-t)+0.4;
+    ctx.beginPath();
+    ctx.arc(rp.x, rp.y, rp.r + (rp.R-rp.r)*e, 0, 6.283);
+    ctx.stroke();
+  }
+  ctx.globalCompositeOperation='lighter';
+  for (var j=0;j<parts.length;j++){
+    var p = parts[j];
+    var t2 = p.t/p.T;
+    ctx.globalAlpha = (1-t2)*0.85;
+    ctx.fillStyle = p.css;
+    ctx.beginPath(); ctx.arc(p.x,p.y,p.r*(1-0.5*t2),0,6.283); ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawLearnRing(){
+  if (!learning) return;
+  var cx=W*0.5, cy=H*0.5, R=MN*0.17;
+  var p = Math.max(0, Math.min(1, learnT/LEARN_HOLD));
+  ctx.save();
+  ctx.globalAlpha = 0.22;
+  ctx.strokeStyle='#ece3d2';
+  ctx.lineWidth = MN*0.0022;
+  ctx.setLineDash([MN*0.014, MN*0.016]);
+  ctx.lineDashOffset = -tGlobal*MN*0.03;
+  ctx.beginPath(); ctx.arc(cx,cy,R,0,6.283); ctx.stroke();
+  ctx.setLineDash([]);
+
+  ctx.globalAlpha = 0.95;
+  ctx.strokeStyle = '#f2c879';
+  ctx.lineWidth = MN*0.006;
+  ctx.lineCap='round';
+  ctx.beginPath();
+  ctx.arc(cx,cy,R,-Math.PI/2,-Math.PI/2 + 6.283*p);
+  ctx.stroke();
+
+  var sm = sampleCentre();
+  if (sm){
+    ctx.globalAlpha = 0.55+0.35*p;
+    ctx.fillStyle = 'rgb('+Math.round(sm.r)+','+Math.round(sm.g)+','+Math.round(sm.b)+')';
+    ctx.beginPath(); ctx.arc(cx,cy,R*0.30*(0.7+0.4*p),0,6.283); ctx.fill();
+  }
+
+  ctx.globalAlpha=0.86;
+  ctx.fillStyle='#ece3d2';
+  ctx.textAlign='center'; ctx.textBaseline='top';
+  ctx.font='400 '+Math.round(MN*0.026)+'px "Zen Kurenaido",sans-serif';
+  ctx.fillText('輪の中にかざす', cx, cy+R*1.22);
+  ctx.restore();
+}
+
+function drawHud(){
+  ctx.save();
+  ctx.textAlign='left'; ctx.textBaseline='top';
+  var x = Math.max(MN*0.045, 16), y = Math.max(MN*0.045, 16);
+
+  ctx.globalAlpha=0.5;
+  ctx.fillStyle='rgba(236,227,210,0.9)';
+  ctx.font='200 '+Math.round(MN*0.0215)+'px "Barlow Condensed",sans-serif';
+  ctx.fillText('T E M O T O', x, y);
+
+  var heard = 0;
+  for (var i=0;i<slots.length;i++) if (slots[i].present>0.25) heard++;
+
+  ctx.globalAlpha=0.78;
+  ctx.fillStyle='#f2c879';
+  ctx.font='600 '+Math.round(MN*0.038)+'px "Barlow Condensed",sans-serif';
+  ctx.fillText(heard+' / '+slots.length, x, y+MN*0.030);
+
+  ctx.globalAlpha=0.42;
+  ctx.fillStyle='rgba(236,227,210,0.9)';
+  ctx.font='400 '+Math.round(MN*0.020)+'px "Zen Kurenaido",sans-serif';
+  ctx.fillText('声 ・ '+MODES[modeIdx].name+'旋法', x, y+MN*0.076);
+
+  // the chord, spelled out
+  if (heard>0){
+    var names=[];
+    for (var k=0;k<slots.length;k++){
+      if (slots[k].present>0.25) names.push(noteLabel(ladderMidi(slots[k].rung)));
+    }
+    ctx.globalAlpha=0.6;
+    ctx.fillStyle='#f2c879';
+    ctx.font='400 '+Math.round(MN*0.022)+'px "Barlow Condensed",sans-serif';
+    ctx.fillText(names.join('  ·  '), x, y+MN*0.104);
+  } else if (slots.length===0){
+    ctx.globalAlpha=0.58;
+    ctx.fillStyle='rgba(236,227,210,0.9)';
+    ctx.font='400 '+Math.round(MN*0.022)+'px "Zen Kurenaido",sans-serif';
+    ctx.fillText('〈＋ おぼえる〉で、手元のものを', x, y+MN*0.104);
+  }
+
+  if (learnMsgT>0 && learnMsg){
+    ctx.globalAlpha = Math.min(1, learnMsgT*1.6)*0.9;
+    ctx.fillStyle='#f2c879';
+    ctx.textAlign='center';
+    ctx.font='400 '+Math.round(MN*0.026)+'px "Zen Kurenaido",sans-serif';
+    ctx.fillText(learnMsg, W*0.5, H*0.80);
+  }
+  ctx.restore();
+}
+
+function draw(){
+  ctx.save();
+  if (shake>0.001){
+    var mag = shake*MN*0.006;
+    ctx.translate((Math.random()-0.5)*mag, (Math.random()-0.5)*mag);
+  }
+  drawBg();
+  drawFeed();
+  drawMotes();
+  drawLadder();
+  drawCords();
+  drawThreads();
+  drawSlots();
+  drawFx();
+  drawLearnRing();
+  drawHud();
+  ctx.restore();
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  LOOP
+// ═══════════════════════════════════════════════════════════════════════
+var running=false, lastT=0;
+function frame(){
+  if (!running) return;
+  var t = (typeof performance!=='undefined' && performance.now) ? performance.now() : Date.now();
+  var dt = (t-lastT)/1000;
+  if (!isFinite(dt) || dt<0) dt = 0.016;
+  if (dt > 0.1) dt = 0.1;
+  lastT = t;
+
+  updateCover();
+  grabFrame();
+  track(dt);
+  update(dt);
+  draw();
+
+  requestAnimationFrame(frame);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  START OVERLAY DIAGRAM ─ a 3-second loop that teaches the gesture
+//  without a wall of text: a hand carries an object into the ring, the
+//  ring fills, the object is set down and a cord drops to the ladder.
+// ═══════════════════════════════════════════════════════════════════════
+var diagT=0, diagRAF=0, diagLast=0;
+function drawDiag(){
+  var w=diag.width, h=diag.height;
+  dctx.clearRect(0,0,w,h);
+  dctx.fillStyle='rgba(20,24,43,0.55)';
+  dctx.fillRect(0,0,w,h);
+
+  var CY = h*0.5;
+  var LOOP = 3.4;
+  var t = diagT % LOOP;
+
+  // ladder on the left
+  dctx.save();
+  for (var i=0;i<9;i++){
+    var y = h*0.18 + (h*0.64)*(i/8);
+    dctx.globalAlpha = 0.2;
+    dctx.strokeStyle = '#f2c879';
+    dctx.lineWidth = 1;
+    dctx.beginPath(); dctx.moveTo(18,y); dctx.lineTo(30,y); dctx.stroke();
+  }
+  dctx.restore();
+
+  // the ring at centre
+  var rx = w*0.46, ry = CY, RR = 26;
+  var fill = 0;
+  if (t > 0.65 && t < 1.75) fill = (t-0.65)/1.1;
+  fill = Math.max(0, Math.min(1, fill));
+
+  dctx.save();
+  dctx.globalAlpha = t<2.0 ? 0.3 : 0.3*Math.max(0,1-(t-2.0)/0.4);
+  dctx.strokeStyle='#ece3d2'; dctx.lineWidth=1.4;
+  dctx.setLineDash([4,5]);
+  dctx.beginPath(); dctx.arc(rx,ry,RR,0,6.283); dctx.stroke();
+  dctx.setLineDash([]);
+  if (fill>0 && t<2.0){
+    dctx.globalAlpha=0.95;
+    dctx.strokeStyle='#f2c879'; dctx.lineWidth=3.4; dctx.lineCap='round';
+    dctx.beginPath(); dctx.arc(rx,ry,RR,-Math.PI/2,-Math.PI/2+6.283*fill); dctx.stroke();
+  }
+  dctx.restore();
+
+  // the object: comes in from the right, sits in the ring, then is set
+  // down to the lower right and a cord runs back to the ladder
+  var ox, oy, orad=13;
+  if (t < 0.65){
+    var k = t/0.65; k = 1-Math.pow(1-k,3);
+    ox = w*0.92 + (rx-w*0.92)*k;
+    oy = h*0.86 + (ry-h*0.86)*k;
+  } else if (t < 2.0){
+    ox = rx; oy = ry + Math.sin(t*5)*1.2;
+  } else {
+    var k2 = Math.min(1,(t-2.0)/0.6); k2 = 1-Math.pow(1-k2,3);
+    ox = rx + (w*0.78-rx)*k2;
+    oy = ry + (h*0.70-ry)*k2;
+  }
+
+  // cord appears once the colour is learned
+  if (t > 1.75){
+    var la = Math.min(1,(t-1.75)/0.5);
+    var ly = h*0.18 + h*0.64*0.34;
+    dctx.save();
+    dctx.globalAlpha = 0.75*la;
+    dctx.strokeStyle='#e0574f'; dctx.lineWidth=1.8;
+    dctx.beginPath();
+    dctx.moveTo(32, ly);
+    dctx.quadraticCurveTo((32+ox)/2, (ly+oy)/2 + 26, ox, oy);
+    dctx.stroke();
+    dctx.globalAlpha=0.9*la;
+    dctx.strokeStyle='#f2c879'; dctx.lineWidth=2.4;
+    dctx.beginPath(); dctx.moveTo(18,ly); dctx.lineTo(32,ly); dctx.stroke();
+    dctx.restore();
+  }
+
+  // a simple hand holding it, until it is set down
+  if (t < 2.45){
+    dctx.save();
+    dctx.globalAlpha = 0.5*(t<2.0?1:Math.max(0,1-(t-2.0)/0.45));
+    dctx.strokeStyle='#ece3d2'; dctx.lineWidth=2; dctx.lineCap='round';
+    dctx.beginPath();
+    dctx.moveTo(ox+orad*0.2, oy+orad*1.1);
+    dctx.quadraticCurveTo(ox+orad*1.5, oy+orad*1.7, ox+orad*2.4, oy+orad*0.6);
+    dctx.stroke();
+    dctx.beginPath();
+    dctx.moveTo(ox-orad*0.5, oy+orad*1.15);
+    dctx.lineTo(ox+orad*0.5, oy+orad*2.1);
+    dctx.stroke();
+    dctx.restore();
+  }
+
+  dctx.save();
+  dctx.globalAlpha=0.28;
+  var gg = dctx.createRadialGradient(ox,oy,2,ox,oy,orad*2.6);
+  gg.addColorStop(0,'rgba(224,87,79,0.9)');
+  gg.addColorStop(1,'rgba(224,87,79,0)');
+  dctx.fillStyle=gg;
+  dctx.beginPath(); dctx.arc(ox,oy,orad*2.6,0,6.283); dctx.fill();
+  dctx.restore();
+
+  dctx.fillStyle='#e0574f';
+  dctx.globalAlpha=0.95;
+  dctx.beginPath(); dctx.arc(ox,oy,orad,0,6.283); dctx.fill();
+  dctx.globalAlpha=1;
+
+  // caption
+  var cap = t<0.65 ? '手元のものを' : (t<2.0 ? 'かざして おぼえさせる' : '置けば 鳴りつづける');
+  dctx.globalAlpha=0.7;
+  dctx.fillStyle='#ece3d2';
+  dctx.font='13px "Zen Kurenaido",sans-serif';
+  dctx.textAlign='center'; dctx.textBaseline='bottom';
+  dctx.fillText(cap, w*0.5, h-8);
+  dctx.globalAlpha=1;
+}
+function diagLoop(){
+  var t=(typeof performance!=='undefined'&&performance.now)?performance.now():Date.now();
+  var dt=(t-diagLast)/1000;
+  if (!isFinite(dt)||dt<0||dt>0.2) dt=0.016;
+  diagLast=t;
+  diagT+=dt;
+  drawDiag();
+  diagRAF = requestAnimationFrame(diagLoop);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  BOOT
+// ═══════════════════════════════════════════════════════════════════════
+function sizeDiag(){
+  var wpx = Math.min(360, Math.max(240, (window.innerWidth||360)-72));
+  diag.style.width = wpx+'px';
+  diag.style.height = Math.round(wpx*150/360)+'px';
+}
+resize();
+sizeDiag();
+diagLast = (typeof performance!=='undefined'&&performance.now)?performance.now():Date.now();
+diagLoop();
+
+goBtn.addEventListener('click', function(){
+  // AudioContext is created and resumed INSIDE the gesture
+  if (!audioReady){
+    try{ initAudio(); }catch(e){ audioReady=false; }
+  }
+  if (AC && AC.state === 'suspended'){
+    var rp = AC.resume();
+    if (rp && rp.catch) rp.catch(function(){});
+  }
+  for (var i=0;i<slots.length;i++) slots[i].voice.build();
+
+  ov.classList.add('gone');
+  if (diagRAF) cancelAnimationFrame(diagRAF);
+
+  startStream().then(function(){
+    // first-run nudge: drop straight into learn mode so the very first
+    // thing the player does is the thing the piece is about
+    setTimeout(function(){
+      if (slots.length===0 && !learning){ beginLearn(); learnBtn.classList.add('on'); }
+    }, 700);
+  }).catch(showError);
+
+  if (!running){
+    running = true;
+    lastT = (typeof performance!=='undefined'&&performance.now)?performance.now():Date.now();
+    requestAnimationFrame(frame);
+  }
+});
+
+// expose for the headless harness
+if (typeof window !== 'undefined'){
+  window.__temoto = {
+    get slots(){ return slots; },
+    get learning(){ return learning; },
+    get learnT(){ return learnT; },
+    get audioReady(){ return audioReady; },
+    get AC(){ return AC; },
+    get modeIdx(){ return modeIdx; },
+    beginLearn: beginLearn,
+    ladderMidi: ladderMidi,
+    midiHz: midiHz,
+    setFrameStub: function(fn){ window.__temotoFrameStub = fn; },
+    LEARN_HOLD: LEARN_HOLD,
+    MIN_PX: MIN_PX,
+    SW: SW, SH: SH
+  };
+}
+
+})();
+</script>
+</body>
+</html>
