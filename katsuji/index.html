@@ -1,0 +1,1244 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>KATSUJI ─ カメラに映るものを活字で組む</title>
+<meta name="description" content="カメラ映像を和紙の上の活字の版に組み直すエフェクト。一マスごとに墨の載りかたが一番近い字が選ばれ、植字の波が一列ずつ組み替えていくので、画面のあちこちが別々の瞬間になる。手のひらを置けばそこだけ今に戻り、握れば活字が版から外れて落ちる。">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=BIZ+UDPMincho:wght@400;700&family=Saira+Condensed:wght@300;500;700&display=swap" rel="stylesheet">
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  KATSUJI 活字 ─ カメラに映るものを活字で組む        ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  MOOD      昼の印刷所。窓から白い光が入っていて、机の上に和紙と、
+            組みかけの版がある。鉄と紙と油のにおい。急がない。
+            今夜のもう一本（TAMAYA）は夜空と発光なので、こちらは
+            徹底して「白い紙の昼の仕事」に振る。共通の皮は一枚も無い。
+
+  PALETTE   生成  kinari #f2ece0  和紙。わずかに黄みの白。全面の地。
+            墨    sumi   #241f1b  活字のインキ。真っ黒ではなく茶黒。
+            朱    shu    #c8442e  校正の朱。植字の波の先端と、手のあと。
+            鈍色  nibi   #8a8378  込め物・罫・数字。構造物の色。
+            藍鼠  ainezu #5a6b78  影と、落ちた活字の腹。
+
+  BG        和紙の繊維（静止した微粒とわずかな筋）＋ 版面の内側だけ
+            ほんのり沈む。ヴィネットは無し。暗い所はインキだけ。
+
+  TYPE      BIZ UDPMincho  ─ 版に組む活字そのもの。教科書体の明朝。
+            Saira Condensed ─ 数字と欧字。工場の計器の字。
+            見出しは字間 .3em。本文は行間 2。字は小さく、静かに。
+
+  MOTION    「かっちり」。活字は補間しない ── 選ばれた瞬間に入れ替わる。
+            動くのは植字の波と、版から外れて落ちる活字だけ。
+            UI は 180ms の ease-out。ぬるっとした動きは一箇所も無い。
+
+  SIGNATURE 植字の波。版は一度に組み替わらず、一列ずつ順に組み直される。
+            だから画面の左と右は別々の瞬間で、波の前後に見える継ぎ目が
+            そのまま「時間の断面」になる。
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<style>
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{height:100%;overflow:hidden;background:#f2ece0}
+  body{
+    font-family:'BIZ UDPMincho','Yu Mincho','Hiragino Mincho ProN',serif;
+    color:#241f1b;-webkit-font-smoothing:antialiased;
+  }
+  #view{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+  #video{position:fixed;width:2px;height:2px;opacity:0;pointer-events:none;left:-10px;top:-10px}
+
+  #ttl{
+    position:fixed;left:max(1.1rem,env(safe-area-inset-left));
+    top:max(1rem,env(safe-area-inset-top));pointer-events:none;line-height:1.2;
+  }
+  #ttl .k{font-size:1.36rem;letter-spacing:.3em;font-weight:700;color:#241f1b}
+  #ttl .s{
+    font-family:'Saira Condensed',sans-serif;font-weight:300;
+    font-size:.6rem;letter-spacing:.42em;color:#8a8378;margin-top:.2rem;
+  }
+  #read{
+    position:fixed;right:max(1rem,env(safe-area-inset-right));
+    top:max(1rem,env(safe-area-inset-top));
+    font-family:'Saira Condensed',sans-serif;font-weight:300;
+    font-size:.68rem;letter-spacing:.16em;color:#8a8378;text-align:right;
+    line-height:1.75;pointer-events:none;
+  }
+  #read b{color:#241f1b;font-weight:500;font-size:.78rem}
+  #read i{font-style:normal;color:#c8442e;font-family:'BIZ UDPMincho',serif;letter-spacing:.1em}
+
+  #panel{
+    position:fixed;left:50%;transform:translateX(-50%);
+    bottom:max(.7rem,env(safe-area-inset-bottom));
+    display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;justify-content:center;
+    padding:.42rem .58rem;background:rgba(250,246,238,.9);
+    border:1px solid #d6cdbd;box-shadow:0 1px 0 #fff inset;
+    max-width:calc(100vw - 1.4rem);
+  }
+  .grp{display:flex;align-items:center;gap:.34rem}
+  .grp label{font-size:.74rem;letter-spacing:.14em;color:#6f675d}
+  input[type=range]{-webkit-appearance:none;appearance:none;width:4.4rem;height:14px;background:transparent}
+  input[type=range]::-webkit-slider-runnable-track{height:2px;background:#cdc4b4}
+  input[type=range]::-moz-range-track{height:2px;background:#cdc4b4}
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none;width:10px;height:10px;background:#241f1b;margin-top:-4px;border-radius:0;
+  }
+  input[type=range]::-moz-range-thumb{width:10px;height:10px;border:0;border-radius:0;background:#241f1b}
+  .seg{display:flex;border:1px solid #cdc4b4}
+  .seg button{
+    font-family:inherit;font-size:.76rem;letter-spacing:.1em;padding:.18rem .5rem;
+    border:0;background:transparent;color:#8a8378;cursor:pointer;transition:background .18s ease-out,color .18s ease-out;
+  }
+  .seg button+button{border-left:1px solid #cdc4b4}
+  .seg button.on{background:#241f1b;color:#f2ece0}
+  #snd{
+    font-family:'Saira Condensed',sans-serif;font-size:.62rem;letter-spacing:.18em;
+    padding:.24rem .5rem;border:1px solid #cdc4b4;background:transparent;color:#8a8378;
+    cursor:pointer;transition:color .18s ease-out,border-color .18s ease-out;
+  }
+  #snd.on{color:#241f1b;border-color:#241f1b}
+  #flip{
+    position:fixed;right:max(.9rem,env(safe-area-inset-right));
+    bottom:max(.9rem,env(safe-area-inset-bottom));
+    font-family:inherit;font-size:.76rem;letter-spacing:.12em;padding:.28rem .58rem;
+    border:1px solid #cdc4b4;background:rgba(250,246,238,.9);color:#6f675d;cursor:pointer;
+  }
+  #err{
+    display:none;position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);
+    width:min(30rem,88vw);padding:1.05rem 1.15rem;white-space:pre-wrap;
+    background:#fffaf1;border:2px solid #c8442e;color:#8c2e20;
+    font-size:.9rem;line-height:1.85;z-index:40;
+  }
+
+  .sheet{
+    position:fixed;inset:0;z-index:30;display:grid;place-items:center;padding:1rem;
+    background:#f2ece0;transition:opacity .18s ease-out,visibility .18s;
+  }
+  .sheet.gone{opacity:0;visibility:hidden;pointer-events:none}
+  .card{
+    width:min(33rem,94vw);max-height:94vh;overflow:auto;background:#fffaf1;
+    border:1px solid #241f1b;box-shadow:6px 6px 0 #e2d9c8;
+  }
+  .cap{
+    display:flex;justify-content:space-between;align-items:baseline;
+    padding:.5rem .9rem;border-bottom:1px solid #241f1b;background:#241f1b;color:#f2ece0;
+    font-family:'Saira Condensed',sans-serif;font-weight:300;font-size:.6rem;letter-spacing:.28em;
+  }
+  .cap b{font-family:'BIZ UDPMincho',serif;font-weight:400;letter-spacing:.24em;color:#f2ece0}
+  .bodyw{padding:1.1rem .9rem 1.2rem}
+  .ttl2{font-size:1.28rem;line-height:1.7;letter-spacing:.08em;font-weight:700}
+  .lead{margin-top:.65rem;font-size:.85rem;line-height:2;letter-spacing:.04em;color:#4b443c}
+  .lead em{font-style:normal;color:#c8442e;font-weight:700}
+  #demo{
+    display:block;width:100%;height:auto;margin:.9rem 0 .2rem;
+    background:#f2ece0;border:1px solid #d6cdbd;
+  }
+  .spec{margin-top:.65rem;font-size:.78rem;line-height:2.1;letter-spacing:.03em;color:#4b443c}
+  .spec span{display:inline-block;min-width:5.4rem;color:#241f1b;font-weight:700;letter-spacing:.1em}
+  .spec em{font-style:normal;color:#c8442e;font-weight:700}
+  .go{
+    margin-top:1rem;width:100%;padding:.7rem;cursor:pointer;
+    font-family:'BIZ UDPMincho',serif;font-weight:700;font-size:1rem;
+    letter-spacing:.42em;text-indent:.42em;
+    background:#241f1b;border:1px solid #241f1b;color:#f2ece0;
+    transition:background .18s ease-out;
+  }
+  .go:hover{background:#3b332c}
+  .go:active{background:#c8442e;border-color:#c8442e}
+  @media (max-width:430px){
+    #ttl .k{font-size:1.14rem}
+    .ttl2{font-size:1.08rem}
+    .lead{font-size:.79rem}
+    .spec{font-size:.73rem}
+    .spec span{min-width:4.7rem}
+    input[type=range]{width:3.4rem}
+  }
+</style>
+</head>
+<body>
+<canvas id="view"></canvas>
+<video id="video" playsinline muted autoplay></video>
+<button id="flip">⟲ カメラ</button>
+<div id="err"></div>
+
+<div id="ttl">
+  <div class="k">活字</div>
+  <div class="s">KATSUJI</div>
+</div>
+
+<div id="read">
+  字 <b id="rSet">0</b>　落 <b id="rFall">0</b><br>
+  <i id="rState">植字中</i>
+</div>
+
+<div id="panel">
+  <div class="grp"><label>濃さ</label><input type="range" id="inkEl" min="0" max="100" value="52"></div>
+  <div class="grp"><label>級</label><input type="range" id="szEl" min="0" max="100" value="46"></div>
+  <div class="seg">
+    <button id="cs0">仮名</button><button id="cs1">漢字</button><button id="cs2" class="on">交ぜ</button>
+  </div>
+  <button id="snd" class="on">音 ON</button>
+</div>
+
+<div class="sheet" id="startSheet">
+  <div class="card">
+    <div class="cap"><span>OTO-II / KATSUJI</span><span><b>活 版</b></span></div>
+    <div class="bodyw">
+      <div class="ttl2">映っているものを、<br>一字ずつ拾って組む。</div>
+      <p class="lead">
+        画面は和紙の上の版です。一マスごとに、そこに載っている墨の量と
+        偏りをはかって、<em>いちばん形の近い活字</em>が箱から選ばれます。<br>
+        版は一度に組み替わりません。<em>植字の波</em>が一列ずつ順に組み直すので、
+        画面の左と右は別々の瞬間になっています。
+      </p>
+      <canvas id="demo" width="680" height="240"></canvas>
+      <div class="spec">
+        <span>手のひら</span>置いたところだけ、波を待たずに今へ組み直る<br>
+        <span>握る</span><em>解版</em>。その辺りの活字が版から外れて落ちる<br>
+        <span>両手を上へ</span>版ぜんぶが崩れて、また上から組み直される<br>
+        <span>濃さ・級</span>インキの量と、活字の大きさ
+      </div>
+      <button class="go" id="startBtn">組 む</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+<script>
+'use strict';
+
+// ═══════════════════════════════════════════════════════════════════════
+//  BASICS
+// ═══════════════════════════════════════════════════════════════════════
+var TAU=Math.PI*2;
+function fin(v){ return typeof v==='number' && isFinite(v); }
+function clamp(v,a,b){ return v<a?a:(v>b?b:v); }
+function now(){
+  return (typeof performance!=='undefined'&&performance&&performance.now)
+    ? performance.now()/1000 : Date.now()/1000;
+}
+function raf(fn){
+  if (typeof requestAnimationFrame==='function') requestAnimationFrame(fn);
+  else setTimeout(function(){ fn(now()*1000); },16);
+}
+function mkCanvas(w,h){
+  var c=document.createElement('canvas');
+  c.width=Math.max(1,Math.round(w)); c.height=Math.max(1,Math.round(h));
+  return c;
+}
+function rnd(a,b){ return a+Math.random()*(b-a); }
+
+var view=document.getElementById('view');
+var video=document.getElementById('video');
+var flipBtn=document.getElementById('flip');
+var errBox=document.getElementById('err');
+var startSheet=document.getElementById('startSheet');
+var startBtn=document.getElementById('startBtn');
+var inkEl=document.getElementById('inkEl');
+var szEl=document.getElementById('szEl');
+var sndBtn=document.getElementById('snd');
+var csBtns=[document.getElementById('cs0'),document.getElementById('cs1'),document.getElementById('cs2')];
+var rSet=document.getElementById('rSet'), rFall=document.getElementById('rFall');
+var rState=document.getElementById('rState');
+var demoCv=document.getElementById('demo');
+var g=view.getContext('2d');
+
+var DPR=1, TDPR=1, W=960, H=600, SHORT=600;
+var started=false, last=now();
+
+var INK='#241f1b', PAPER='#f2ece0', SHU='#c8442e', NIBI='#8a8378';
+
+// ═══════════════════════════════════════════════════════════════════════
+//  CAMERA
+// ═══════════════════════════════════════════════════════════════════════
+var facing='user', mirror=true, stream=null, camOK=false;
+function showError(e){
+  var msg=(e&&e.message)?e.message:String(e||'unknown');
+  errBox.style.display='block';
+  errBox.textContent='カメラを起動できませんでした：'+msg+
+    '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+}
+function startStream(){
+  var md=navigator.mediaDevices;
+  if (!md||!md.getUserMedia) return Promise.reject(new Error('getUserMedia is unavailable'));
+  if (stream&&stream.getTracks) stream.getTracks().forEach(function(t){ t.stop(); });
+  return md.getUserMedia({
+    video:{ facingMode:{ ideal:facing }, width:{ ideal:640 }, height:{ ideal:480 } },
+    audio:false
+  }).then(function(st){
+    stream=st; video.srcObject=st; mirror=(facing==='user'); camOK=true;
+    var p=video.play();
+    return (p&&p.then)?p.catch(function(){}):null;
+  });
+}
+flipBtn.addEventListener('click',function(){
+  facing=(facing==='user')?'environment':'user';
+  loseHands();
+  startStream().then(startMpCamera).catch(showError);
+});
+
+// ── COVER + アスペクト補正カメラ空間 ───────────────────────────────
+var camAspect=4/3, covS=1, covOX=0, covOY=0;
+function updateCover(){
+  var vw=(video&&video.videoWidth)?video.videoWidth:0;
+  var vh=(video&&video.videoHeight)?video.videoHeight:0;
+  if (vw>0&&vh>0) camAspect=vw/vh;
+  if (!fin(camAspect)||camAspect<=0) camAspect=4/3;
+  var rw=W, rh=W/camAspect;
+  if (rh<H){ rh=H; rw=H*camAspect; }
+  covS=rw; covOX=(W-rw)/2; covOY=(H-rh)/2;
+}
+function sx(nx){ return covOX+(mirror?(1-nx):nx)*covS; }
+function sy(ny){ return covOY+ny*(covS/camAspect); }
+function cu(nx){ return nx*camAspect; }
+function cv(ny){ return ny; }
+
+// ═══════════════════════════════════════════════════════════════════════
+//  HANDS — 開いた手は「文選」、握った拳は「解版」。
+//  開き具合は指先から手首までの距離を手の大きさで割った比。画面 px では
+//  向きで倍ちがうので、必ずカメラ空間で測る。
+// ═══════════════════════════════════════════════════════════════════════
+var hands=null, mpCamera=null, mpReady=false;
+var LOST_S=0.40;
+var TIPS=[4,8,12,16,20];
+function mkHand(){
+  return { on:false, t:-9, span:0.1, open:1,
+           tx:new Float32Array(5), ty:new Float32Array(5),
+           cx:0, cy:0, r:0, fist:false, raised:false, fresh:false, fistT:0 };
+}
+var HAND=[mkHand(),mkHand()];
+var seenN=0, lastSeen=-99, raiseT=0, kaihanCool=-99;
+
+function lmOK(L,i){
+  if (!L||typeof L.length!=='number'||L.length<=i) return false;
+  var p=L[i];
+  if (!p) return false;
+  return fin(p.x)&&fin(p.y);
+}
+function dropHand(h){
+  h.on=false; h.t=-9; h.fist=false; h.fistT=0;
+  h.raised=false; h.fresh=false; h.open=1;
+}
+function loseHands(){ dropHand(HAND[0]); dropHand(HAND[1]); seenN=0; raiseT=0; }
+
+var FIST_ON=0.62, FIST_OFF=0.86;
+function onHands(res){
+  var t=now();
+  var lists=(res&&res.multiHandLandmarks)?res.multiHandLandmarks:null;
+  var n=(lists&&typeof lists.length==='number')?Math.min(2,lists.length):0;
+  var k,i,idx;
+  seenN=0;
+  for (k=0;k<2;k++){
+    var h=HAND[k];
+    if (k<n){
+      var L=lists[k];
+      if (!lmOK(L,0)||!lmOK(L,9)){ continue; }
+      var ok=true;
+      for (i=0;i<5;i++){ if (!lmOK(L,TIPS[i])){ ok=false; break; } }
+      if (!ok) continue;
+      var du=cu(L[9].x)-cu(L[0].x), dv=cv(L[9].y)-cv(L[0].y);
+      var span=Math.sqrt(du*du+dv*dv);
+      if (!fin(span)||span<0.02) span=0.02;
+      var wasLive=h.on&&(t-h.t)<LOST_S;
+      for (i=0;i<5;i++){
+        idx=TIPS[i];
+        var nx=sx(L[idx].x), ny=sy(L[idx].y);
+        if (!fin(nx)||!fin(ny)){ ok=false; break; }
+        h.tx[i]=nx; h.ty[i]=ny;
+      }
+      if (!ok) continue;
+      // 開き具合 — 四本の指先から手首まで。カメラ空間で、手の大きさで割る。
+      var sum=0, cnt=0, j;
+      for (j=1;j<5;j++){
+        var au=cu(L[TIPS[j]].x)-cu(L[0].x), av=cv(L[TIPS[j]].y)-cv(L[0].y);
+        var d=Math.sqrt(au*au+av*av);
+        if (fin(d)){ sum+=d; cnt++; }
+      }
+      if (cnt===0) continue;
+      var op=(sum/cnt)/span;
+      if (!fin(op)) continue;
+      h.open=op;
+      if (wasLive){
+        if (!h.fist && op<FIST_ON) h.fist=true;
+        else if (h.fist && op>FIST_OFF) h.fist=false;
+      } else h.fist=false;                     // 出た瞬間は握っていない扱い
+      h.cx=sx(L[9].x); h.cy=sy(L[9].y);
+      if (!fin(h.cx)||!fin(h.cy)) continue;
+      // 手の大きさを画面へ。短辺基準なので横でも縦でも同じ大きさ。
+      h.r=clamp(span*covS*0.9,SHORT*0.05,SHORT*0.42);
+      h.raised=(cv(L[0].y)<0.36 && cv(L[9].y)<0.32);
+      h.fresh=!wasLive;
+      h.on=true; h.t=t;
+      seenN++;
+    } else if (h.on&&(t-h.t)>LOST_S){
+      dropHand(h);
+    }
+  }
+  if (seenN>0) lastSeen=t;
+}
+function handLive(k){ return HAND[k].on && (now()-HAND[k].t)<LOST_S; }
+
+function initHands(){
+  if (typeof window.Hands!=='function') return false;
+  try{
+    hands=new window.Hands({ locateFile:function(f){
+      return 'https://cdn.jsdelivr.net/npm/@mediapipe/hands/'+f;
+    }});
+    hands.setOptions({ maxNumHands:2, modelComplexity:0, selfieMode:false,
+                       minDetectionConfidence:0.6, minTrackingConfidence:0.5 });
+    hands.onResults(onHands);
+    mpReady=true; return true;
+  }catch(e){ hands=null; return false; }
+}
+function startMpCamera(){
+  if (!mpReady||!hands||mpCamera) return;
+  if (typeof window.Camera!=='function') return;
+  try{
+    mpCamera=new window.Camera(video,{
+      onFrame:function(){
+        if (!hands) return Promise.resolve();
+        try{ return hands.send({image:video}); }catch(e){ return Promise.resolve(); }
+      },
+      width:640, height:480
+    });
+    mpCamera.start();
+  }catch(e){ mpCamera=null; }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  活字箱 ─ GLYPH BOX
+//  一字ずつ小さく焼いて、載っているインキの「量」と「偏り」を測る。
+//  偏りは四分割した平均を全体で割った値なので、大きさに依らない。
+//  選ぶときは量の近い字だけを候補にして、そのなかで偏りが一番近い字を採る。
+// ═══════════════════════════════════════════════════════════════════════
+var KANA='あいうえおかきくけこさしすせそたちつてとなにぬねのはひふへほまみむめもやゆよらりるれろわをんアイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワン';
+var KANJI='一二三十千万川山日月火水木金土田口目人大小上下中左右年時間外内前後東西南北花風雨雪空海石林森町村白黒赤青光音字活版刷印組文本立行見言心手足耳生米糸虫貝車門雲星夜朝昼春夏秋冬曜鑑職響議願顔験魔露鐘橋ircx';
+var LIGHT='・、。ーーヽ一｜';
+var SETS=[null,null,null];
+function buildSets(){
+  var kana=(KANA+LIGHT).split('');
+  var kanji=(KANJI.replace(/[a-z]/g,'')+LIGHT).split('');
+  var mix=(KANA+KANJI.replace(/[a-z]/g,'')+LIGHT).split('');
+  SETS[0]=[' '].concat(kana);
+  SETS[1]=[' '].concat(kanji);
+  SETS[2]=[' '].concat(mix);
+}
+buildSets();
+
+var setIdx=2;
+var GL=null;            // { ch[], ink[], q[4n], order[] (ink 昇順) }
+var FS=20;              // 特徴を測るときの一字の大きさ
+var featCv=null, featCx=null;
+var fontReady=false;
+
+function measureSet(chars){
+  if (!featCv){ featCv=mkCanvas(FS,FS); featCx=featCv.getContext('2d'); }
+  var c=featCx, n=chars.length;
+  var ink=new Float32Array(n), q=new Float32Array(n*4);
+  var i,j;
+  for (i=0;i<n;i++){
+    c.setTransform(1,0,0,1,0,0);
+    c.globalAlpha=1; c.globalCompositeOperation='source-over';
+    c.fillStyle='#ffffff'; c.fillRect(0,0,FS,FS);
+    if (chars[i]!==' '){
+      c.fillStyle='#000000';
+      c.font='700 '+Math.round(FS*0.96)+'px "BIZ UDPMincho","Yu Mincho","Hiragino Mincho ProN",serif';
+      c.textAlign='center'; c.textBaseline='middle';
+      c.fillText(chars[i],FS/2,FS*0.54);
+    }
+    var im=null;
+    try{ im=c.getImageData(0,0,FS,FS); }catch(e){ im=null; }
+    if (!im||!im.data){ ink[i]=0.3; q[i*4]=q[i*4+1]=q[i*4+2]=q[i*4+3]=0.25; continue; }
+    var d=im.data, tot=0, qq=[0,0,0,0], cnt=[0,0,0,0];
+    for (j=0;j<FS*FS;j++){
+      var px=j%FS, py=(j/FS)|0;
+      var v=1-(d[j*4]/255);
+      tot+=v;
+      var k=(px<FS/2?0:1)+(py<FS/2?0:2);
+      qq[k]+=v; cnt[k]++;
+    }
+    ink[i]=tot/(FS*FS);
+    var s=tot>0.0001?tot:1;
+    for (j=0;j<4;j++) q[i*4+j]=qq[j]/s;
+  }
+  var order=[];
+  for (i=0;i<n;i++) order.push(i);
+  order.sort(function(a,b){ return ink[a]-ink[b]; });
+  var oi=new Int16Array(n);
+  for (i=0;i<n;i++) oi[i]=order[i];
+  var oInk=new Float32Array(n);
+  for (i=0;i<n;i++) oInk[i]=ink[order[i]];
+  return { ch:chars, n:n, ink:ink, q:q, ord:oi, oInk:oInk,
+           lo:oInk[0], hi:oInk[n-1] };
+}
+function buildGlyphs(){
+  GL=measureSet(SETS[setIdx]);
+  buildAtlas();
+}
+
+// ── 表示用の版下（アトラス）─────────────────────────────────────
+var atlasCv=null, atlasCx=null, ACOL=1, CP=16;
+function buildAtlas(){
+  if (!GL) return;
+  var n=GL.n;
+  ACOL=Math.ceil(Math.sqrt(n));
+  var arow=Math.ceil(n/ACOL);
+  atlasCv=mkCanvas(ACOL*CP,arow*CP);
+  atlasCx=atlasCv.getContext('2d');
+  var c=atlasCx;
+  c.setTransform(1,0,0,1,0,0);
+  c.clearRect(0,0,atlasCv.width,atlasCv.height);
+  c.fillStyle=INK;
+  c.font='700 '+Math.round(CP*0.92)+'px "BIZ UDPMincho","Yu Mincho","Hiragino Mincho ProN",serif';
+  c.textAlign='center'; c.textBaseline='middle';
+  var i;
+  for (i=0;i<n;i++){
+    if (GL.ch[i]===' ') continue;
+    var ax=(i%ACOL)*CP, ay=((i/ACOL)|0)*CP;
+    c.fillText(GL.ch[i],ax+CP/2,ay+CP*0.54);
+  }
+}
+function ensureFont(){
+  var go=function(){
+    if (fontReady) return;
+    fontReady=true;
+    buildGlyphs();
+  };
+  try{
+    if (document.fonts&&document.fonts.load){
+      var p=document.fonts.load('700 20px "BIZ UDPMincho"');
+      if (p&&p.then){
+        p.then(go,go);
+        setTimeout(go,2200);
+        return;
+      }
+    }
+  }catch(e){}
+  go();
+}
+
+// ── 一マスぶんの字を選ぶ ────────────────────────────────────────
+var CAND=9;
+function pickGlyph(ink,q0,q1,q2,q3,seed){
+  if (!GL) return 0;
+  var n=GL.n;
+  // インキ量から候補の帯をつくる（量の近い字だけを見る）
+  var target=GL.lo+(GL.hi-GL.lo)*clamp(ink,0,1);
+  var lo=0, hi=n-1, mid;
+  while (lo<hi){
+    mid=(lo+hi)>>1;
+    if (GL.oInk[mid]<target) lo=mid+1; else hi=mid;
+  }
+  var a=Math.max(0,lo-CAND), b=Math.min(n-1,lo+CAND);
+  var best=-1, bc=1e9, i;
+  for (i=a;i<=b;i++){
+    var gi=GL.ord[i];
+    var o=gi*4;
+    var d0=GL.q[o]-q0, d1=GL.q[o+1]-q1, d2=GL.q[o+2]-q2, d3=GL.q[o+3]-q3;
+    var di=(GL.ink[gi]-target);
+    var cost=d0*d0+d1*d1+d2*d2+d3*d3+di*di*2.2;
+    // 同じ字が並びすぎないように、マスごとの微小な癖を足す
+    cost+=(((seed*2654435761+gi*40503)>>>16)&255)/255*0.0016;
+    if (cost<bc){ bc=cost; best=gi; }
+  }
+  return best<0?0:best;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  版 ─ THE FORME
+// ═══════════════════════════════════════════════════════════════════════
+var cell=24, cellD=24, cols=20, rows=14, NC=280;
+var cellG=null, cellAge=null, heap=null;
+var formeCv=null, fx=null;
+var sampCv=null, sampCx=null, sampData=null, sampW=2, sampH=2;
+var setCount=0;
+var inkLevel=0.52, szT=0.46;
+var MAXCELL=3600;
+
+function readControls(){
+  var a=parseFloat(inkEl&&inkEl.value);
+  inkLevel=fin(a)?0.20+0.60*clamp(a/100,0,1):0.52;
+  var b=parseFloat(szEl&&szEl.value);
+  var nt=fin(b)?clamp(b/100,0,1):0.46;
+  if (Math.abs(nt-szT)>0.001){ szT=nt; layout(); }
+}
+if (inkEl) inkEl.addEventListener('input',readControls);
+if (szEl) szEl.addEventListener('input',readControls);
+
+function setCharSet(i){
+  setIdx=clamp(i|0,0,2);
+  var k;
+  for (k=0;k<csBtns.length;k++){
+    if (!csBtns[k]) continue;
+    if (k===setIdx) csBtns[k].classList.add('on'); else csBtns[k].classList.remove('on');
+  }
+  if (fontReady) buildGlyphs();
+  clearForme();
+}
+for (var _c=0;_c<csBtns.length;_c++){
+  (function(i){
+    if (!csBtns[i]) return;
+    csBtns[i].addEventListener('click',function(){ setCharSet(i); });
+  })(_c);
+}
+
+function clearForme(){
+  if (!cellG) return;
+  var i;
+  for (i=0;i<NC;i++){ cellG[i]=-1; cellAge[i]=-9; }
+  setCount=0;
+  if (fx){ fx.setTransform(1,0,0,1,0,0); fx.clearRect(0,0,formeCv.width,formeCv.height); }
+}
+
+function layout(){
+  SHORT=Math.min(W,H);
+  var div=62-36*clamp(szT,0,1);
+  cell=Math.max(7,SHORT/div);
+  cols=Math.max(4,Math.ceil(W/cell));
+  rows=Math.max(4,Math.ceil(H/cell));
+  // マスが多すぎるときは級を上げる（実時間を守るのは機構の仕事）
+  var guard=0;
+  while (cols*rows>MAXCELL && guard<40){
+    cell*=1.06;
+    cols=Math.max(4,Math.ceil(W/cell));
+    rows=Math.max(4,Math.ceil(H/cell));
+    guard++;
+  }
+  NC=cols*rows;
+  cellD=cell*TDPR;
+  CP=Math.round(clamp(cellD,8,64));
+  cellG=new Int16Array(NC);
+  cellAge=new Float32Array(NC);
+  heap=new Int16Array(cols);
+  formeCv=mkCanvas(Math.round(W*TDPR),Math.round(H*TDPR));
+  fx=formeCv.getContext('2d');
+  sampW=cols*2; sampH=rows*2;
+  sampCv=mkCanvas(sampW,sampH);
+  try{ sampCx=sampCv.getContext('2d',{willReadFrequently:true}); }
+  catch(e){ sampCx=sampCv.getContext('2d'); }
+  sampData=null;
+  clearForme();
+  if (GL) buildAtlas();
+  buildPaper();
+}
+
+function resize(){
+  var w=(typeof window!=='undefined'&&window.innerWidth)?window.innerWidth:960;
+  var h=(typeof window!=='undefined'&&window.innerHeight)?window.innerHeight:600;
+  DPR=Math.min(2,(typeof window!=='undefined'&&window.devicePixelRatio)?window.devicePixelRatio:1);
+  if (!fin(DPR)||DPR<=0) DPR=1;
+  TDPR=Math.min(DPR,2);
+  W=Math.max(240,Math.round(w)); H=Math.max(240,Math.round(h));
+  view.width=Math.round(W*DPR); view.height=Math.round(H*DPR);
+  if (view.style){ view.style.width=W+'px'; view.style.height=H+'px'; }
+  g.setTransform(DPR,0,0,DPR,0,0);
+  layout();
+  updateCover();
+}
+if (typeof window!=='undefined'&&window.addEventListener){
+  window.addEventListener('resize',function(){ resize(); });
+  window.addEventListener('orientationchange',function(){ setTimeout(resize,260); });
+}
+
+// ── 和紙 ────────────────────────────────────────────────────────
+var paperCv=null;
+function buildPaper(){
+  paperCv=mkCanvas(Math.round(W),Math.round(H));
+  var c=paperCv.getContext('2d');
+  c.fillStyle=PAPER; c.fillRect(0,0,W,H);
+  var i;
+  // 繊維
+  c.strokeStyle='rgba(120,108,92,.05)'; c.lineWidth=1;
+  c.beginPath();
+  for (i=0;i<180;i++){
+    var x=Math.random()*W, y=Math.random()*H, L=rnd(6,30), a=rnd(-0.35,0.35);
+    c.moveTo(x,y); c.lineTo(x+Math.cos(a)*L,y+Math.sin(a)*L);
+  }
+  c.stroke();
+  for (i=0;i<900;i++){
+    c.fillStyle='rgba(150,136,116,'+rnd(0.02,0.07).toFixed(3)+')';
+    c.fillRect(Math.random()*W,Math.random()*H,1,1);
+  }
+  // 版面の罫
+  var m=Math.max(6,SHORT*0.018);
+  c.strokeStyle='rgba(138,131,120,.4)'; c.lineWidth=1;
+  c.strokeRect(m+0.5,m+0.5,W-m*2-1,H-m*2-1);
+  c.strokeStyle='rgba(138,131,120,.16)';
+  c.strokeRect(m+3.5,m+3.5,W-m*2-7,H-m*2-7);
+}
+
+// ── 映像を測る ──────────────────────────────────────────────────
+var procT=0;
+function sampleFrame(dt){
+  if (!sampCx) return;
+  procT+=dt;
+  var vw=(video&&video.videoWidth)?video.videoWidth:0;
+  var vh=(video&&video.videoHeight)?video.videoHeight:0;
+  var c=sampCx;
+  c.setTransform(1,0,0,1,0,0);
+  c.globalAlpha=1; c.globalCompositeOperation='source-over';
+  if (camOK&&vw>0&&vh>0){
+    // cover で埋める。x は幅、y は高さで正規化されているので比は保つ。
+    var ra=vw/vh, sa=sampW/sampH, dw=sampW, dh=sampH, ox=0, oy=0;
+    if (ra>sa){ dw=sampH*ra; ox=(sampW-dw)/2; }
+    else { dh=sampW/ra; oy=(sampH-dh)/2; }
+    try{
+      if (mirror){ c.save(); c.translate(sampW,0); c.scale(-1,1); c.drawImage(video,ox,oy,dw,dh); c.restore(); }
+      else c.drawImage(video,ox,oy,dw,dh);
+    }catch(e){ drawStandin(c); }
+  } else drawStandin(c);
+  try{ sampData=c.getImageData(0,0,sampW,sampH); }catch(e){ sampData=null; }
+}
+function drawStandin(c){
+  // カメラが無いときも版は組まれつづける（真っ白な紙にはしない）
+  var gr=c.createLinearGradient(0,0,sampW,sampH);
+  var p=procT*0.35;
+  gr.addColorStop(0,'#ffffff');
+  gr.addColorStop(0.5+0.28*Math.sin(p),'#8f8a82');
+  gr.addColorStop(1,'#2a2622');
+  c.fillStyle=gr; c.fillRect(0,0,sampW,sampH);
+  var i;
+  for (i=0;i<7;i++){
+    var a=p*0.6+i*0.9;
+    c.fillStyle='rgba(20,18,16,.5)';
+    c.beginPath();
+    c.arc(sampW*(0.5+0.32*Math.cos(a)),sampH*(0.5+0.32*Math.sin(a*1.31)),
+          Math.max(1,sampW*0.07),0,TAU);
+    c.fill();
+  }
+}
+
+function inkAt(i){
+  // i は sampData のピクセル番号
+  var d=sampData.data, o=i*4;
+  if (o+2>=d.length) return 0;
+  var lum=(d[o]*0.299+d[o+1]*0.587+d[o+2]*0.114)/255;
+  return clamp((1-lum-0.5)*1.7+inkLevel,0,1);
+}
+
+var CELL_SEED=1;
+function setCell(ci,ri,t){
+  if (!sampData||!GL||!fx) return;
+  if (ci<0||ci>=cols||ri<0||ri>=rows) return;
+  var sxx=ci*2, syy=ri*2;
+  var i0=syy*sampW+sxx, i1=i0+1, i2=i0+sampW, i3=i2+1;
+  var a=inkAt(i0), b=inkAt(i1), c2=inkAt(i2), d2=inkAt(i3);
+  var mean=(a+b+c2+d2)*0.25;
+  var s=(a+b+c2+d2);
+  if (s<0.0001) s=1;
+  var gi=pickGlyph(mean,a/s,b/s,c2/s,d2/s,ci*73+ri*131+1);
+  var idx=ri*cols+ci;
+  if (cellG[idx]<0) setCount++;
+  cellG[idx]=gi; cellAge[idx]=t;
+  paintCell(ci,ri,gi);
+}
+function paintCell(ci,ri,gi){
+  var x=ci*cellD, y=ri*cellD;
+  // 消す矩形はマスの境界にきっちり揃える。1px でもはみ出すと隣の字を削る。
+  var x0=Math.floor(x), y0=Math.floor(y);
+  var x1=Math.floor(x+cellD), y1=Math.floor(y+cellD);
+  fx.setTransform(1,0,0,1,0,0);
+  fx.globalAlpha=1; fx.globalCompositeOperation='source-over';
+  fx.clearRect(x0,y0,Math.max(1,x1-x0),Math.max(1,y1-y0));
+  if (gi>0&&atlasCv){
+    var ax=(gi%ACOL)*CP, ay=((gi/ACOL)|0)*CP;
+    fx.drawImage(atlasCv,ax,ay,CP,CP,x,y,cellD,cellD);
+  }
+}
+function wipeCell(ci,ri){
+  var idx=ri*cols+ci;
+  if (idx<0||idx>=NC) return -1;
+  var gi=cellG[idx];
+  if (gi<0) return -1;
+  cellG[idx]=-1; setCount=Math.max(0,setCount-1);
+  var x0=Math.floor(ci*cellD), y0=Math.floor(ri*cellD);
+  var x1=Math.floor(ci*cellD+cellD), y1=Math.floor(ri*cellD+cellD);
+  fx.setTransform(1,0,0,1,0,0);
+  fx.clearRect(x0,y0,Math.max(1,x1-x0),Math.max(1,y1-y0));
+  return gi;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  AUDIO ─ 印刷所の音。鳴っているのは機構そのもの。
+//  植字は柔らかい「コト」、落ちた活字の着地は硬い「カチ」。
+//  どちらも 帯域通過した短い雑音 ＋ 一瞬の正弦。音程は持たせるが旋律は無い。
+// ═══════════════════════════════════════════════════════════════════════
+var ac=null, master=null, comp=null, noiseBuf=null;
+var soundOn=true, voices=0, VOICE_MAX=22;
+
+function makeNoise(){
+  if (!ac) return null;
+  var n=Math.max(1,Math.floor(ac.sampleRate*0.6));
+  var b=ac.createBuffer(1,n,ac.sampleRate);
+  var d=b.getChannelData(0), i;
+  for (i=0;i<n;i++) d[i]=Math.random()*2-1;
+  return b;
+}
+function initAudio(){
+  if (ac) return;
+  var AC=(typeof window!=='undefined')?(window.AudioContext||window.webkitAudioContext):null;
+  if (!AC) return;
+  try{ ac=new AC(); }catch(e){ ac=null; return; }
+  comp=ac.createDynamicsCompressor();
+  try{
+    comp.threshold.value=-21; comp.knee.value=24; comp.ratio.value=8;
+    comp.attack.value=0.002; comp.release.value=0.18;
+  }catch(e){}
+  master=ac.createGain(); master.gain.value=soundOn?0.75:0.0001;
+  comp.connect(master); master.connect(ac.destination);
+  noiseBuf=makeNoise();
+}
+function setSound(on){
+  soundOn=!!on;
+  sndBtn.textContent=soundOn?'音 ON':'音 OFF';
+  if (soundOn) sndBtn.classList.add('on'); else sndBtn.classList.remove('on');
+  if (ac&&master){
+    try{ master.gain.setTargetAtTime(soundOn?0.75:0.0001,ac.currentTime,0.04); }catch(e){}
+  }
+}
+sndBtn.addEventListener('click',function(){ setSound(!soundOn); });
+
+function relOnce(){
+  var done=false;
+  return function(){ if (done) return; done=true; voices=Math.max(0,voices-1); };
+}
+function clack(freq,amp,pan,hard){
+  if (!ac||!soundOn||!noiseBuf) return;
+  if (!fin(freq)||freq<60||freq>9000) return;
+  if (!fin(amp)||amp<=0) return;
+  if (voices>=VOICE_MAX) return;
+  voices++;
+  var rel=relOnce();
+  var t=ac.currentTime;
+  var d=hard?0.045:0.085;
+  var out;
+  if (ac.createStereoPanner){
+    out=ac.createStereoPanner();
+    try{ out.pan.value=clamp(fin(pan)?pan:0,-1,1)*0.7; }catch(e){}
+  } else out=ac.createGain();
+  out.connect(comp);
+  var src=ac.createBufferSource(); src.buffer=noiseBuf;
+  try{ src.playbackRate.value=rnd(0.85,1.25); }catch(e){}
+  var bp=ac.createBiquadFilter(); bp.type='bandpass';
+  var vg=ac.createGain();
+  try{
+    bp.frequency.setValueAtTime(freq*(hard?2.1:1.0),t);
+    bp.Q.value=hard?3.4:1.9;
+    vg.gain.setValueAtTime(clamp(amp,0.0004,0.3),t);
+    vg.gain.exponentialRampToValueAtTime(0.0001,t+d);
+  }catch(e){ rel(); return; }
+  src.connect(bp); bp.connect(vg); vg.connect(out);
+  // 胴 — 木と鉛のあいだの、ごく短い共鳴
+  var o=ac.createOscillator(); o.type=hard?'triangle':'sine';
+  var og=ac.createGain();
+  try{
+    o.frequency.setValueAtTime(freq,t);
+    o.frequency.exponentialRampToValueAtTime(freq*0.82,t+d);
+    og.gain.setValueAtTime(clamp(amp*0.7,0.0003,0.25),t);
+    og.gain.exponentialRampToValueAtTime(0.0001,t+d*1.4);
+  }catch(e){}
+  o.connect(og); og.connect(out);
+  o.onended=rel;
+  try{
+    src.start(t); src.stop(t+d+0.02);
+    o.start(t); o.stop(t+d*1.4+0.02);
+  }catch(e){ rel(); return; }
+  if (typeof setTimeout==='function') setTimeout(rel,(d*1.4+0.3)*1000);
+}
+function thud(){
+  if (!ac||!soundOn||!noiseBuf) return;
+  var t=ac.currentTime;
+  var src=ac.createBufferSource(); src.buffer=noiseBuf; src.loop=true;
+  var lp=ac.createBiquadFilter(); lp.type='lowpass';
+  var vg=ac.createGain();
+  try{
+    lp.frequency.setValueAtTime(420,t);
+    lp.frequency.exponentialRampToValueAtTime(110,t+0.5);
+    vg.gain.setValueAtTime(0.0001,t);
+    vg.gain.exponentialRampToValueAtTime(0.16,t+0.01);
+    vg.gain.exponentialRampToValueAtTime(0.0001,t+0.55);
+  }catch(e){ return; }
+  src.connect(lp); lp.connect(vg); vg.connect(comp);
+  try{ src.start(t); src.stop(t+0.6); }catch(e){}
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  落ちた活字 ─ LOOSE TYPE
+// ═══════════════════════════════════════════════════════════════════════
+var FP_N=1500;
+var fp_on=new Uint8Array(FP_N), fp_x=new Float32Array(FP_N), fp_y=new Float32Array(FP_N);
+var fp_vx=new Float32Array(FP_N), fp_vy=new Float32Array(FP_N);
+var fp_rot=new Float32Array(FP_N), fp_vr=new Float32Array(FP_N);
+var fp_gi=new Int16Array(FP_N), fp_life=new Float32Array(FP_N);
+var fp_land=new Uint8Array(FP_N), fp_hc=new Int16Array(FP_N), fp_wait=new Float32Array(FP_N);
+var fpHead=0, fpLive=0;
+
+function spawnPiece(ci,ri,gi,vx,vy,wait){
+  var i=fpHead; fpHead=(fpHead+1)%FP_N;
+  if (fp_on[i]&&fp_land[i]&&fp_hc[i]>=0&&fp_hc[i]<cols) heap[fp_hc[i]]=Math.max(0,heap[fp_hc[i]]-1);
+  fp_on[i]=1;
+  fp_x[i]=(ci+0.5)*cell; fp_y[i]=(ri+0.5)*cell;
+  fp_vx[i]=vx; fp_vy[i]=vy;
+  fp_rot[i]=0; fp_vr[i]=rnd(-5,5);
+  fp_gi[i]=gi; fp_life[i]=rnd(9,15);
+  fp_land[i]=0; fp_hc[i]=-1; fp_wait[i]=wait||0;
+}
+
+var GRAVP=0;
+function stepPieces(dt,t){
+  var i, live=0, landed=0;
+  var maxH=rows*0.72;
+  for (i=0;i<FP_N;i++){
+    if (!fp_on[i]) continue;
+    live++;
+    if (fp_wait[i]>0){ fp_wait[i]-=dt; continue; }
+    if (!fp_land[i]){
+      fp_vy[i]+=GRAVP*dt;
+      fp_vx[i]*=1/(1+0.8*dt);
+      fp_x[i]+=fp_vx[i]*dt; fp_y[i]+=fp_vy[i]*dt;
+      fp_rot[i]+=fp_vr[i]*dt;
+      var fc=clamp(Math.floor(fp_x[i]/cell),0,cols-1);
+      var landY=H-heap[fc]*cell*0.42-cell*0.55;
+      if (fp_y[i]>=landY && fp_vy[i]>0){
+        if (heap[fc]>maxH || fp_x[i]<-cell || fp_x[i]>W+cell){
+          fp_on[i]=0; live--; continue;
+        }
+        fp_land[i]=1; fp_y[i]=landY; fp_vy[i]=0; fp_vx[i]=0; fp_vr[i]=0;
+        fp_rot[i]=rnd(-0.16,0.16);
+        fp_hc[i]=fc; heap[fc]++;
+        if (landed<5){
+          landed++;
+          clack(430+((fc*97)%11)*46,0.030,clamp((fp_x[i]/W)*2-1,-1,1),true);
+        }
+      } else if (fp_y[i]>H+cell*3){
+        fp_on[i]=0; live--; continue;
+      }
+    }
+    fp_life[i]-=dt;
+    if (fp_life[i]<=0){
+      if (fp_land[i]&&fp_hc[i]>=0&&fp_hc[i]<cols) heap[fp_hc[i]]=Math.max(0,heap[fp_hc[i]]-1);
+      fp_on[i]=0; live--;
+    }
+  }
+  fpLive=live;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  植字の波 と 手
+// ═══════════════════════════════════════════════════════════════════════
+var SWEEP_T=4.6, swX=0, swPrev=-1, swWrap=0;
+var handIdx=0, kaihanFlash=0, kaihanAll=0;
+
+function resetCol(ci,t){
+  var ri;
+  for (ri=0;ri<rows;ri++) setCell(ci,ri,t);
+}
+
+function knockOut(ci,ri,vx,vy){
+  var gi=wipeCell(ci,ri);
+  if (gi<0) return false;
+  spawnPiece(ci,ri,gi,vx,vy,0);
+  return true;
+}
+
+function kaihan(t){
+  // 一撃 ─ 版ぜんぶが崩れる。左から順に剥がれるよう待ち時間をずらす。
+  var ci,ri,n=0;
+  for (ci=0;ci<cols;ci++){
+    for (ri=0;ri<rows;ri++){
+      var idx=ri*cols+ci;
+      var gi=cellG[idx];
+      if (gi<0) continue;
+      cellG[idx]=-1;
+      spawnPiece(ci,ri,gi,rnd(-1,1)*cell*1.2,rnd(-2.2,0.4)*cell,(ci/cols)*0.42);
+      n++;
+    }
+  }
+  setCount=0;
+  if (fx){ fx.setTransform(1,0,0,1,0,0); fx.clearRect(0,0,formeCv.width,formeCv.height); }
+  kaihanFlash=1; kaihanAll=t;
+  thud();
+  swX=0; swPrev=-1;
+  return n;
+}
+
+function updatePlay(dt,t){
+  var k,i;
+  GRAVP=SHORT*1.35;
+
+  // ── 波 ─────────────────────────────────────────────────
+  swPrev=swX;
+  swX+=(cols/SWEEP_T)*dt;
+  var from=Math.floor(swPrev), to=Math.floor(swX);
+  var guard=0;
+  while (from<to && guard<cols+4){
+    var ci=((from+1)%cols+cols)%cols;
+    resetCol(ci,t);
+    if ((ci&1)===0) clack(260+((ci*53)%9)*38,0.017,clamp((ci/cols)*2-1,-1,1),false);
+    from++; guard++;
+  }
+  if (swX>=cols){ swX-=cols; swPrev-=cols; swWrap++; }
+
+  // ── 手 ─────────────────────────────────────────────────
+  var anyUp=false, bothUp=(seenN>=2);
+  for (k=0;k<2;k++){
+    var h=HAND[k];
+    if (!handLive(k)){ bothUp=false; continue; }
+    if (h.raised) anyUp=true; else bothUp=false;
+    var cc=Math.floor(h.cx/cell), cr=Math.floor(h.cy/cell);
+    var rad=h.r;
+    var span=Math.ceil(rad/cell);
+    if (h.fist){
+      // 解版（部分）─ 拳のまわりの活字が版から外れる
+      var done=0;
+      for (i=-span;i<=span&&done<26;i++){
+        for (var j=-span;j<=span&&done<26;j++){
+          var xx=cc+i, yy=cr+j;
+          if (xx<0||xx>=cols||yy<0||yy>=rows) continue;
+          var dx=(xx+0.5)*cell-h.cx, dy=(yy+0.5)*cell-h.cy;
+          if (dx*dx+dy*dy>rad*rad*0.56) continue;
+          if (knockOut(xx,yy,dx*2.4,dy*2.0-cell*1.4)) done++;
+        }
+      }
+      if (done>0&&(t-(h.fistT||0))>0.11){
+        h.fistT=t;
+        clack(520,0.05,clamp((h.cx/W)*2-1,-1,1),true);
+      }
+    } else {
+      // 文選 ─ 手のひらの下だけ、波を待たずに今へ組み直る
+      var budget=90, tried=0;
+      var side=span*2+1, total=side*side;
+      if (total>0){
+        for (i=0;i<total&&budget>0;i++){
+          var s=(handIdx+i)%total;
+          var ox=(s%side)-span, oy=((s/side)|0)-span;
+          var gx=cc+ox, gy=cr+oy;
+          tried++;
+          if (gx<0||gx>=cols||gy<0||gy>=rows) continue;
+          var ddx=(gx+0.5)*cell-h.cx, ddy=(gy+0.5)*cell-h.cy;
+          if (ddx*ddx+ddy*ddy>rad*rad) continue;
+          setCell(gx,gy,t);
+          budget--;
+        }
+        handIdx=(handIdx+tried)%Math.max(1,total);
+      }
+    }
+  }
+  if (bothUp&&anyUp) raiseT+=dt; else raiseT=0;
+  if (raiseT>0.5 && (t-kaihanCool)>8){
+    kaihanCool=t; raiseT=0; kaihan(t);
+  }
+  kaihanFlash*=Math.pow(0.02,dt);
+  if (kaihanFlash<0.002) kaihanFlash=0;
+
+  if (rSet) rSet.textContent=String(setCount);
+  if (rFall) rFall.textContent=String(fpLive);
+  if (rState){
+    var st='植字中';
+    if (kaihanFlash>0.25) st='解版';
+    else if ((HAND[0].on&&HAND[0].fist)||(HAND[1].on&&HAND[1].fist)) st='解版';
+    else if (seenN>0) st='文選';
+    rState.textContent=st;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  RENDER
+// ═══════════════════════════════════════════════════════════════════════
+function drawPieces(){
+  if (!atlasCv) return;
+  var i, cd=cell;
+  g.save();
+  for (i=0;i<FP_N;i++){
+    if (!fp_on[i]) continue;
+    var gi=fp_gi[i];
+    if (gi<=0) continue;
+    var ax=(gi%ACOL)*CP, ay=((gi/ACOL)|0)*CP;
+    var x=fp_x[i], y=fp_y[i], r=fp_rot[i];
+    if (!fin(x)||!fin(y)||!fin(r)) continue;
+    var a=clamp(fp_life[i]/2.4,0,1);
+    g.globalAlpha=a;
+    if (r>-0.02&&r<0.02){
+      g.setTransform(DPR,0,0,DPR,0,0);
+      g.drawImage(atlasCv,ax,ay,CP,CP,x-cd*0.5,y-cd*0.5,cd,cd);
+    } else {
+      var co=Math.cos(r), si=Math.sin(r);
+      g.setTransform(DPR*co,DPR*si,-DPR*si,DPR*co,DPR*x,DPR*y);
+      g.drawImage(atlasCv,ax,ay,CP,CP,-cd*0.5,-cd*0.5,cd,cd);
+    }
+  }
+  g.setTransform(DPR,0,0,DPR,0,0);
+  g.globalAlpha=1;
+  g.restore();
+  g.setTransform(DPR,0,0,DPR,0,0);
+}
+
+function drawSweep(t){
+  var x=(swX/cols)*W;
+  var wgt=Math.max(2,cell*0.28);
+  var band=cell*2.6;
+  var gr=g.createLinearGradient(x-band,0,x+wgt,0);
+  gr.addColorStop(0,'rgba(200,68,46,0)');
+  gr.addColorStop(0.72,'rgba(200,68,46,.05)');
+  gr.addColorStop(1,'rgba(200,68,46,.14)');
+  g.fillStyle=gr;
+  g.fillRect(x-band,0,band+wgt,H);
+  g.fillStyle=SHU;
+  g.fillRect(x,0,Math.max(1,wgt*0.16),H);
+  // 目印の込め物
+  g.fillStyle='rgba(200,68,46,.85)';
+  var m=Math.max(6,SHORT*0.018);
+  g.fillRect(x-cell*0.28,m-4,cell*0.56,3);
+  g.fillRect(x-cell*0.28,H-m+1,cell*0.56,3);
+}
+
+function drawHands(){
+  var k,i;
+  for (k=0;k<2;k++){
+    if (!handLive(k)) continue;
+    var h=HAND[k];
+    var col=h.fist?SHU:'rgba(200,68,46,.5)';
+    g.strokeStyle=col;
+    g.lineWidth=h.fist?2:1;
+    g.beginPath();
+    g.arc(h.cx,h.cy,h.fist?h.r*0.75:h.r,0,TAU);
+    g.stroke();
+    if (h.fist){
+      g.strokeStyle='rgba(200,68,46,.28)';
+      g.lineWidth=1;
+      g.beginPath(); g.arc(h.cx,h.cy,h.r*0.75+cell*0.5,0,TAU); g.stroke();
+    }
+    var s=Math.max(2,cell*0.22);
+    for (i=0;i<5;i++){
+      g.fillStyle=(i===0||i===1)?SHU:'rgba(138,131,120,.75)';
+      g.fillRect(h.tx[i]-s/2,h.ty[i]-s/2,s,s);
+    }
+  }
+}
+
+var fpsAvg=1/60, tdT=0;
+function render(t,dt){
+  fpsAvg=fpsAvg*0.92+dt*0.08;
+  tdT+=dt;
+  if (tdT>1.4){
+    tdT=0;
+    // 重いときは版の解像度を落とす（字がぼけても組み替えは止めない）
+    if (fpsAvg>0.042 && TDPR>1){ TDPR=1; layout(); }
+    else if (fpsAvg<0.021 && TDPR<Math.min(DPR,2)){ TDPR=Math.min(DPR,2); layout(); }
+  }
+
+  g.setTransform(DPR,0,0,DPR,0,0);
+  g.globalCompositeOperation='source-over';
+  g.globalAlpha=1;
+  if (paperCv) g.drawImage(paperCv,0,0,W,H);
+
+  if (formeCv){
+    // 圧の跡 ─ わずかにずらした薄い刷りを下に敷いてから、本刷りを重ねる
+    g.globalAlpha=0.22;
+    g.drawImage(formeCv,1.1,1.1,W,H);
+    g.globalAlpha=1;
+    g.drawImage(formeCv,0,0,W,H);
+  }
+
+  drawPieces();
+  drawSweep(t);
+  drawHands();
+
+  if (kaihanFlash>0.004){
+    g.globalAlpha=clamp(kaihanFlash*0.5,0,0.5);
+    g.fillStyle=PAPER;
+    g.fillRect(0,0,W,H);
+    g.globalAlpha=clamp(kaihanFlash,0,1);
+    g.fillStyle=SHU;
+    var hy=H*0.5;
+    g.fillRect(0,hy-1,W*clamp(kaihanFlash*1.4,0,1),2);
+    g.globalAlpha=1;
+  }
+}
+
+function frame(){
+  var t=now();
+  var dt=t-last; last=t;
+  if (!fin(dt)||dt<0) dt=1/60;
+  if (dt>0.062) dt=0.062;
+  try{
+    sampleFrame(dt);
+    updatePlay(dt,t);
+    stepPieces(dt,t);
+    render(t,dt);
+  }catch(e){
+    if (typeof console!=='undefined'&&console.error) console.error(e);
+  }
+  raf(frame);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  START SHEET
+// ═══════════════════════════════════════════════════════════════════════
+var demoCtx=demoCv?demoCv.getContext('2d'):null;
+var demoRun=true, demoT0=now();
+var DW=680, DH=240, DC=20, DR=7, DCELL=34;
+var dGly=[];
+function demoFrame(){
+  if (!demoRun||!demoCtx) return;
+  var c=demoCtx, t=now()-demoT0;
+  c.setTransform(1,0,0,1,0,0);
+  c.fillStyle=PAPER; c.fillRect(0,0,DW,DH);
+  var chars='一二三川山日月田口目人大小中花風空海林森町白黒赤青光音字活版刷印組・、。ー';
+  var ox=(DW-DC*DCELL)/2, oy=52;
+  var sw=(t*4.2)%(DC+3);
+  var i,j;
+  c.font='700 30px "BIZ UDPMincho", serif';
+  c.textAlign='center'; c.textBaseline='middle';
+  for (i=0;i<DC;i++){
+    for (j=0;j<DR;j++){
+      var k=j*DC+i;
+      // その列が波に通られた瞬間に、濃さに合った字へ入れ替わる
+      var shade=0.5+0.5*Math.sin(i*0.5+j*0.8+Math.floor(t*0.9)*1.7);
+      if (dGly[k]===undefined||(sw>i&&sw<i+1.2)){
+        var band=Math.floor(shade*(chars.length-1));
+        dGly[k]=chars.charAt(clamp(band,0,chars.length-1));
+      }
+      var a=0.25+0.7*shade;
+      c.fillStyle='rgba(36,31,27,'+a.toFixed(2)+')';
+      c.fillText(dGly[k],ox+(i+0.5)*DCELL,oy+(j+0.5)*DCELL);
+    }
+  }
+  var sx2=ox+sw*DCELL;
+  var gr=c.createLinearGradient(sx2-DCELL*2.5,0,sx2,0);
+  gr.addColorStop(0,'rgba(200,68,46,0)');
+  gr.addColorStop(1,'rgba(200,68,46,.16)');
+  c.fillStyle=gr; c.fillRect(sx2-DCELL*2.5,oy-8,DCELL*2.5,DR*DCELL+16);
+  c.fillStyle=SHU; c.fillRect(sx2,oy-8,2,DR*DCELL+16);
+  c.fillStyle='rgba(138,131,120,.95)';
+  c.font='15px "BIZ UDPMincho", serif';
+  c.fillText('植字の波が通ったところだけ、今の映像に組み直る',DW/2,26);
+  raf(demoFrame);
+}
+if (demoCtx) demoFrame();
+
+startBtn.addEventListener('click',function(){
+  if (started) return;
+  started=true;
+  demoRun=false;
+  initAudio();
+  if (ac&&ac.state==='suspended'){ var r=ac.resume(); if (r&&r.then) r.catch(function(){}); }
+  startSheet.classList.add('gone');
+  initHands();
+  startStream().then(startMpCamera).catch(showError);
+  last=now();
+  lastSeen=-99;
+});
+
+ensureFont();
+resize();
+readControls();
+setCharSet(2);
+setSound(true);
+last=now();
+frame();
+</script>
+</body>
+</html>
