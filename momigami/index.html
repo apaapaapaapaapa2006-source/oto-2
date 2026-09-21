@@ -203,8 +203,8 @@ var PAPERS = [
   // lines  : how many crease families the pattern has
   // gloss  : specular exponent — photographic paper is the shiniest
   // wearK  : how fast a crush leaves permanent creases
-  { name:'印画紙', latin:'photo', fold:0.30, shrink:0.50, lines:9,  gloss:34, wearK:0.55, tint:0.10, spec:0.30, fMin:0.9, fMax:5.0 },
-  { name:'和紙',   latin:'washi', fold:0.44, shrink:0.44, lines:11, gloss:14, wearK:0.85, tint:0.20, spec:0.13, fMin:0.8, fMax:6.4 },
+  { name:'印画紙', latin:'photo', fold:0.26, shrink:0.50, lines:9,  gloss:34, wearK:0.55, tint:0.10, spec:0.30, fMin:1.1, fMax:5.0 },
+  { name:'和紙',   latin:'washi', fold:0.46, shrink:0.44, lines:11, gloss:14, wearK:0.85, tint:0.20, spec:0.13, fMin:0.8, fMax:6.4 },
   { name:'薄紙',   latin:'thin',  fold:0.58, shrink:0.34, lines:12, gloss:22, wearK:1.25, tint:0.15, spec:0.20, fMin:1.4, fMax:9.5 }
 ];
 var NL = 12;                       // uniform array size; papers use <= this many
@@ -290,10 +290,9 @@ function aspectScreen(){ return W/Math.max(1,H); }
 // ═══════════════════════════════════════════════════════════════════════
 var gl = null, prog = null, uni = {}, attrUV = -1;
 var meshBuf = null, idxBuf = null, camTex = null;
-var NU = 0, NV = 0, idxCount = 0, hasDeriv = false;
+var NU = 0, NV = 0, idxCount = 0, hasDeriv = false, shaderPrec = 'highp';
 
-var VS = [
-  'precision highp float;',
+var VS_BODY = [
   'attribute vec2 aUV;',
   'uniform vec4 uL[12];',            // xy = direction, z = frequency, w = amplitude
   'uniform vec2 uP[12];',            // x = phase, y = wear
@@ -336,11 +335,12 @@ var VS = [
   '  gl_Position = vec4(s, depth, 1.0);',
   '}'
 ].join('\n');
+function vsSource(prec){ return 'precision '+prec+' float;\n' + VS_BODY; }
 
-function fsSource(deriv){
+function fsSource(deriv, prec){
   return [
     deriv ? '#extension GL_OES_standard_derivatives : enable' : '',
-    'precision mediump float;',
+    'precision '+prec+' float;',
     'varying vec2 vUV; varying vec3 vPos; varying float vCr; varying vec3 vNrm;',
     'uniform sampler2D uCam;',
     'uniform float uMirror, uWear, uFlash, uShadow, uGloss, uSpec, uTint, uHasCam;',
@@ -390,23 +390,31 @@ function initGL(){
     showFatal('この端末では WebGL が使えないため、紙を立体で折ることができません。\n別のブラウザでお試しください。');
     return false;
   }
-  hasDeriv = false;
-  try{ hasDeriv = !!gl.getExtension('OES_standard_derivatives'); }catch(e){ hasDeriv = false; }
-  try{
-    var vs = compile(gl.VERTEX_SHADER, VS);
-    var fs = compile(gl.FRAGMENT_SHADER, fsSource(hasDeriv));
-    prog = gl.createProgram();
-    gl.attachShader(prog, vs); gl.attachShader(prog, fs);
-    gl.bindAttribLocation(prog, 0, 'aUV');
-    gl.linkProgram(prog);
-    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
-    gl.useProgram(prog);
-    attrUV = gl.getAttribLocation(prog, 'aUV');
-    for (var i=0;i<UNIFORMS.length;i++) uni[UNIFORMS[i]] = gl.getUniformLocation(prog, UNIFORMS[i]);
-  }catch(e){
-    showFatal('紙のシェーダを組み立てられませんでした：'+((e&&e.message)||e));
+  var wantDeriv = false;
+  try{ wantDeriv = !!gl.getExtension('OES_standard_derivatives'); }catch(e){ wantDeriv = false; }
+  // highp facet normals first; fall back a rung at a time
+  var TRY = [['highp', wantDeriv], ['mediump', wantDeriv], ['mediump', false]];
+  var built = false, lastErr = null;
+  for (var a=0; a<TRY.length && !built; a++){
+    var prec = TRY[a][0], deriv = TRY[a][1];
+    try{
+      var vs = compile(gl.VERTEX_SHADER, vsSource(prec));
+      var fs = compile(gl.FRAGMENT_SHADER, fsSource(deriv, prec));
+      var pr = gl.createProgram();
+      gl.attachShader(pr, vs); gl.attachShader(pr, fs);
+      gl.bindAttribLocation(pr, 0, 'aUV');
+      gl.linkProgram(pr);
+      if (!gl.getProgramParameter(pr, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(pr) || 'link failed');
+      prog = pr; hasDeriv = deriv; shaderPrec = prec; built = true;
+    }catch(e){ lastErr = e; }
+  }
+  if (!built){
+    showFatal('紙のシェーダを組み立てられませんでした：'+((lastErr&&lastErr.message)||lastErr));
     gl = null; return false;
   }
+  gl.useProgram(prog);
+  attrUV = gl.getAttribLocation(prog, 'aUV');
+  for (var i=0;i<UNIFORMS.length;i++) uni[UNIFORMS[i]] = gl.getUniformLocation(prog, UNIFORMS[i]);
   meshBuf = gl.createBuffer();
   idxBuf = gl.createBuffer();
   camTex = gl.createTexture();
@@ -1070,7 +1078,8 @@ window.__MOMI__ = {
   get fitScale(){ return fitScale; }, get paperAspect(){ return paperAspect; },
   get camAspect(){ return camAspect; }, get W(){ return W; }, get H(){ return H; },
   get MN(){ return MN; }, get crPct(){ return crPct; }, set crPct(v){ crPct = v; },
-  get VS(){ return VS; }, fsSource:fsSource, get UNIFORMS(){ return UNIFORMS; },
+  vsSource:vsSource, fsSource:fsSource, get UNIFORMS(){ return UNIFORMS; },
+  get hasDeriv(){ return hasDeriv; }, get shaderPrec(){ return shaderPrec; },
   get gl(){ return gl; }, get sheetOfs(){ return [ofsX, ofsY]; }
 };
 })();
