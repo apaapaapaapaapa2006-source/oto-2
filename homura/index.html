@@ -1,0 +1,1098 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>HOMURA ─ 映像が焼け落ちる紙になる</title>
+<meta name="description" content="カメラに映るものが一枚の紙に刷られて、指先の火から焼け落ちていくエフェクト。燃えるのは本物の燃焼で、火は紙の上を這いながら自分の画像の明るいところ ── 薄く乾いたところ ── を選んで進む。だからあなたの影は燃え残り、炎があなたの形を描く。かざすだけなら焦げ、留まれば発火し、握れば消える。灰と火の粉は舞い上がり、焦げ跡はしばらく残ってから、紙が継がれるようにゆっくり戻る。両腕を掲げればフラッシュオーバー。">
+<meta name="theme-color" content="#efe6d2">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Yuji+Syuku&family=Cormorant+Garamond:ital,wght@0,300;0,600;1,300&display=swap" rel="stylesheet">
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  HOMURA 焔 ─ 映像が焼け落ちる紙になる              ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  MOOD      A photograph printed on washi, held over a candle. The room is
+            bright; the only dark thing on screen is what you have burned.
+            This is the LIGHT piece of tonight's pair — KUSAMURA is the
+            dusk one — and it stays light until you set fire to it.
+
+  PALETTE   生成   kinari    #efe6d2  the paper. The default state of
+                                       nearly every pixel.
+            墨茶   sumicha   #3a3129  the ink the camera is printed in.
+            焦茶   kogecha   #7a4a28  SCORCH — heat that never reached
+                                       ignition. It never goes away
+                                       quickly, and that is the point.
+            緋     hi        #d9401f  the body of the flame.
+            金橙   kintou    #f7a83c  the bright edge of the burn front,
+                                       and every spark.
+            消炭   keshizumi #241d18  char.
+
+  BACKGROUND  Paper, and only paper: a fibrous kinari ground with long
+              random fibres and a deckled edge, drawn once and kept.
+              The camera is PRINTED onto it, not shown behind it.
+
+  TYPE      Yuji Syuku for Japanese — a brushed, slightly unsteady face
+            that looks handwritten on the sheet. Cormorant Garamond
+            (300 italic / 600) for Latin and numerals. Neither has been
+            used in this gallery.
+
+  MOTION    CREEP, then FLARE. The burn front advances at a patient,
+            almost constant rate — you can watch it decide. Every single
+            ignition, by contrast, pops: an 80 ms flare and a spark. The
+            two speeds together are what makes fire read as alive.
+
+  SIGNATURE 炎が絵を読む。 Fuel is not uniform: each cell's fuel is taken
+            from that cell's own brightness in the camera image. Bright
+            paper is thin and dry and goes up at once; ink-dark paper is
+            soaked and resists. So the burn front is steered by the
+            picture itself — it races across a lit wall, stalls at your
+            silhouette, and crawls around it. Stand in front of it and
+            the fire draws your outline for you.
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;overflow:hidden;background:#efe6d2}
+  body{font-family:'Cormorant Garamond','Hiragino Mincho ProN',serif;color:#3a3129;
+       -webkit-text-size-adjust:100%;-webkit-tap-highlight-color:transparent}
+  #view{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+  #video{position:fixed;width:2px;height:2px;opacity:.004;pointer-events:none;left:0;top:0}
+  #flip{position:fixed;top:calc(env(safe-area-inset-top,0px) + 12px);left:12px;z-index:6;
+    font-family:'Cormorant Garamond',serif;font-weight:600;font-size:13px;letter-spacing:.12em;
+    color:#3a3129;background:rgba(239,230,210,.8);border:1px solid rgba(58,49,41,.35);
+    padding:6px 13px;cursor:pointer;border-radius:2px;transition:background .45s ease-out,color .45s ease-out}
+  #flip:hover{background:#3a3129;color:#efe6d2}
+  #err{display:none;position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:20;
+    max-width:min(86vw,430px);white-space:pre-wrap;line-height:1.85;font-size:13px;
+    background:#efe6d2;border:1px solid rgba(58,49,41,.4);border-left:3px solid #d9401f;
+    padding:18px 20px;color:#3a3129;border-radius:2px}
+  #ttl{position:fixed;top:calc(env(safe-area-inset-top,0px) + 8px);left:50%;transform:translateX(-50%);
+    z-index:6;pointer-events:none;text-align:center}
+  #ttl .k{font-family:'Yuji Syuku',serif;font-size:clamp(20px,5.2vw,30px);
+    letter-spacing:.3em;line-height:1.2;color:rgba(58,49,41,.86);text-indent:.3em}
+  #ttl .s{font-family:'Cormorant Garamond',serif;font-style:italic;font-weight:300;font-size:12px;
+    letter-spacing:.34em;color:rgba(58,49,41,.55);margin-top:1px;text-indent:.34em}
+  #read{position:fixed;top:calc(env(safe-area-inset-top,0px) + 12px);right:12px;z-index:6;
+    font-family:'Cormorant Garamond',serif;font-weight:300;font-size:13px;letter-spacing:.06em;line-height:1.95;
+    text-align:right;color:rgba(58,49,41,.6);pointer-events:none}
+  #read b{font-weight:600;color:#d9401f;font-variant-numeric:tabular-nums}
+  #panel{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom,0px) + 12px);
+    z-index:5;display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:8px 15px;
+    background:rgba(239,230,210,.88);border:1px solid rgba(58,49,41,.2);padding:8px 16px;border-radius:2px;
+    max-width:min(95vw,640px);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);
+    box-shadow:0 8px 26px rgba(58,49,41,.14)}
+  .grp{display:flex;align-items:center;gap:7px}
+  .grp>label{font-family:'Yuji Syuku',serif;font-size:12px;letter-spacing:.22em;color:rgba(58,49,41,.66)}
+  .modes{display:flex;gap:3px}
+  .modes button{font-family:'Yuji Syuku',serif;font-size:14px;color:rgba(58,49,41,.55);background:transparent;
+    border:1px solid transparent;padding:3px 10px;cursor:pointer;border-radius:2px;line-height:1.5;
+    transition:color .4s ease-out,background .4s ease-out}
+  .modes button.on{color:#efe6d2;background:#d9401f}
+  #snd{font-family:'Cormorant Garamond',serif;font-weight:600;font-size:12px;letter-spacing:.14em;color:rgba(58,49,41,.66);
+    background:transparent;border:1px solid rgba(58,49,41,.3);padding:5px 12px;cursor:pointer;border-radius:2px;
+    transition:color .4s ease-out,background .4s ease-out}
+  #snd.on{color:#efe6d2;background:#7a4a28;border-color:#7a4a28}
+  input[type=range]{-webkit-appearance:none;appearance:none;width:82px;height:18px;background:transparent;cursor:pointer}
+  input[type=range]::-webkit-slider-runnable-track{height:1px;background:rgba(58,49,41,.35)}
+  input[type=range]::-moz-range-track{height:1px;background:rgba(58,49,41,.35)}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:11px;height:11px;margin-top:-5px;border-radius:50%;background:#d9401f;border:none}
+  input[type=range]::-moz-range-thumb{width:11px;height:11px;border-radius:50%;background:#d9401f;border:none}
+  .sheet{position:fixed;inset:0;z-index:30;display:flex;align-items:center;justify-content:center;padding:16px;
+    background:rgba(232,222,200,.97);transition:opacity .6s ease-out,visibility .6s}
+  .sheet.gone{opacity:0;visibility:hidden;pointer-events:none}
+  .card{width:min(96vw,560px);max-height:94vh;overflow:auto;background:#fbf7ec;border:1px solid rgba(58,49,41,.22);
+    border-radius:2px;box-shadow:0 24px 64px rgba(58,49,41,.22)}
+  .cap{display:flex;justify-content:space-between;align-items:baseline;font-family:'Cormorant Garamond',serif;font-weight:300;
+    font-size:12px;letter-spacing:.3em;color:rgba(58,49,41,.55);padding:14px 22px;border-bottom:1px solid rgba(58,49,41,.14)}
+  .cap b{font-weight:600;color:#d9401f}
+  .bodyw{padding:22px 24px 24px;color:#3a3129}
+  .ttl2{font-family:'Yuji Syuku',serif;font-size:clamp(21px,5.4vw,30px);letter-spacing:.06em;margin-bottom:13px;line-height:1.55}
+  .lead{font-size:13.5px;line-height:2.05;color:rgba(58,49,41,.86);font-family:'Yuji Syuku','Hiragino Mincho ProN',serif}
+  .lead em{font-style:normal;color:#d9401f}
+  #demo{display:block;width:100%;height:auto;margin:18px 0 14px;border-radius:2px;background:#efe6d2}
+  .spec{font-size:12.5px;line-height:2.1;color:rgba(58,49,41,.7);border-top:1px solid rgba(58,49,41,.14);padding-top:13px;
+    font-family:'Yuji Syuku','Hiragino Mincho ProN',serif}
+  .spec span{display:inline-block;min-width:7.6em;color:#3a3129}
+  .go{display:block;width:100%;margin-top:18px;font-family:'Yuji Syuku',serif;font-size:17px;
+    letter-spacing:.42em;color:#efe6d2;background:#d9401f;border:none;border-radius:2px;padding:15px 0;cursor:pointer;
+    text-indent:.42em;transition:transform .35s cubic-bezier(.2,.9,.3,1.25),box-shadow .35s ease-out}
+  .go:hover{transform:translateY(-2px);box-shadow:0 10px 30px rgba(217,64,31,.36)}
+</style>
+</head>
+<body>
+<canvas id="view"></canvas>
+<video id="video" playsinline muted autoplay></video>
+<button id="flip">⟲ カメラ</button>
+<div id="err"></div>
+<div id="ttl"><div class="k">焔</div><div class="s" id="modeS">washi</div></div>
+<div id="read">焼 <b id="rB">0</b>%　焔 <b id="rF">0</b>　粉 <b id="rS">0</b></div>
+<div id="panel">
+  <div class="grp"><label>紙</label><div class="modes">
+    <button id="m0" class="on">和紙</button><button id="m1">藁半紙</button><button id="m2">閃光紙</button></div></div>
+  <div class="grp"><label>火</label><input type="range" id="fireEl" min="10" max="100" value="55"></div>
+  <button id="snd" class="on">音 ON</button>
+</div>
+<div class="sheet" id="startSheet"><div class="card">
+  <div class="cap"><span>OTO-II / HOMURA</span><span>焼け<b>落ちる</b></span></div>
+  <div class="bodyw">
+    <div class="ttl2">炎が、絵を読む</div>
+    <p class="lead">カメラに映るものが一枚の紙に刷られます。指先が火種で、そこから紙が焼け落ちていきます。<br>燃えかたは一様ではありません。火は<em>明るいところ＝薄く乾いたところ</em>を選んで走り、墨の濃いところでは息切れします。だから<em>あなたの影は燃え残り</em>、炎があなたの形を描きます。</p>
+    <canvas id="demo" width="660" height="250"></canvas>
+    <div class="spec">
+      <span>指をかざす</span>近づけると焦げ、留まれば発火します。焦げ跡は消えません<br>
+      <span>握る</span>火を消します。手のひらの下の熱が引きます<br>
+      <span>和紙・藁半紙・閃光紙</span>燃え広がる速さと焦げの残りかたが変わります<br>
+      <span>両腕を掲げる</span><em>フラッシュオーバー</em>。紙がいっせいに火をつかみます
+    </div>
+    <button class="go" id="startBtn">火を入れる</button>
+  </div></div></div>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+<script>
+(function(){
+'use strict';
+
+var TAU = Math.PI*2;
+function fin(v){ return typeof v === 'number' && isFinite(v); }
+function clamp(v,a,b){ return v<a?a:(v>b?b:v); }
+function chase(c,t,r,dt){ var k = 1-Math.exp(-r*dt); return c+(t-c)*k; }
+function now(){ var p = window.performance; return (p && typeof p.now === 'function' ? p.now() : Date.now())/1000; }
+function $(id){ return document.getElementById(id); }
+
+// ═══════════════════════════════════════════════════════════════════════
+//  DOM
+// ═══════════════════════════════════════════════════════════════════════
+var cv = $('view'), ctx = cv.getContext('2d');
+var video = $('video'), flipBtn = $('flip'), errBox = $('err');
+var modeS = $('modeS'), rB = $('rB'), rF = $('rF'), rS = $('rS');
+var m0 = $('m0'), m1 = $('m1'), m2 = $('m2'), fireEl = $('fireEl'), sndBtn = $('snd');
+var startSheet = $('startSheet'), startBtn = $('startBtn'), demoCv = $('demo');
+
+var W = 1, H = 1, DPR = 1, MN = 1;
+
+// ═══════════════════════════════════════════════════════════════════════
+//  PAPER ─ drawn once, kept. Everything else is printed onto it.
+// ═══════════════════════════════════════════════════════════════════════
+var paperCv = document.createElement('canvas'), paperCtx = paperCv.getContext('2d');
+function buildPaper(){
+  var w = Math.max(4, Math.round(W*0.5)), h = Math.max(4, Math.round(H*0.5));
+  paperCv.width = w; paperCv.height = h;
+  paperCtx.fillStyle = '#efe6d2'; paperCtx.fillRect(0,0,w,h);
+  // long fibres
+  paperCtx.lineWidth = 1;
+  for (var i=0;i<520;i++){
+    var x = Math.random()*w, y = Math.random()*h;
+    var a = Math.random()*TAU, len = 6 + Math.random()*46;
+    var dark = Math.random() < 0.45;
+    paperCtx.strokeStyle = dark ? 'rgba(122,74,40,0.055)' : 'rgba(255,252,243,0.5)';
+    paperCtx.beginPath(); paperCtx.moveTo(x,y);
+    paperCtx.lineTo(x+Math.cos(a)*len, y+Math.sin(a)*len);
+    paperCtx.stroke();
+  }
+  // flecks
+  for (var j=0;j<420;j++){
+    paperCtx.fillStyle = 'rgba(122,74,40,'+(0.02+Math.random()*0.05).toFixed(3)+')';
+    paperCtx.fillRect(Math.random()*w, Math.random()*h, 1, 1);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  THE COMBUSTION GRID
+// ═══════════════════════════════════════════════════════════════════════
+var GW = 2, GH = 2, GN = 4;
+var fuel = null, heat = null, heat2 = null, charA = null, scorch = null, lum = null, fuelPrev = null;
+var gridCv = document.createElement('canvas'), gridCtx = gridCv.getContext('2d');
+var camCv  = document.createElement('canvas'), camCtx  = camCv.getContext('2d');
+var img = null, px = null;
+var holdLum = false;                 // headless tests drive `lum` themselves
+var qual = 1.0;
+
+function allocGrid(){
+  var target = 13000*clamp(qual, 0.4, 1.6);
+  var ar = W/Math.max(1,H);
+  var gw = clamp(Math.round(Math.sqrt(target*ar)), 48, 260);
+  var gh = clamp(Math.round(gw/Math.max(0.2,ar)), 36, 260);
+  if (gw === GW && gh === GH && fuel) return;
+  var oldW = GW, oldH = GH, oldFuel = fuel, oldChar = charA, oldScorch = scorch, oldHeat = heat;
+  GW = gw; GH = gh; GN = GW*GH;
+  fuel = new Float32Array(GN); heat = new Float32Array(GN);
+  heat2 = new Float32Array(GN); charA = new Float32Array(GN);
+  fuelPrev = new Float32Array(GN);
+  scorch = new Float32Array(GN); lum = new Float32Array(GN);
+  gridCv.width = GW; gridCv.height = GH;
+  camCv.width = GW; camCv.height = GH;
+  img = gridCtx.createImageData(GW, GH);
+  px = img.data;
+  for (var i=0;i<GN;i++){ fuel[i] = 1; lum[i] = 200; }
+  // carry the burn across a resize rather than magically healing the sheet
+  if (oldFuel && oldW > 1 && oldH > 1){
+    for (var y=0;y<GH;y++){
+      var sy2 = Math.min(oldH-1, Math.floor(y*oldH/GH));
+      for (var x=0;x<GW;x++){
+        var sx2 = Math.min(oldW-1, Math.floor(x*oldW/GW));
+        var s = sy2*oldW + sx2, d = y*GW + x;
+        fuel[d] = oldFuel[s]; charA[d] = oldChar[s];
+        scorch[d] = oldScorch[s]; heat[d] = oldHeat[s];
+      }
+    }
+  }
+}
+
+function resize(){
+  DPR = Math.min(2, (window.devicePixelRatio||1));
+  W = Math.max(1, window.innerWidth||320);
+  H = Math.max(1, window.innerHeight||480);
+  cv.width = Math.round(W*DPR); cv.height = Math.round(H*DPR);
+  cv.style.width = W+'px'; cv.style.height = H+'px';
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  MN = Math.max(1, Math.min(W,H));
+  buildPaper();
+  allocGrid();
+}
+window.addEventListener('resize', resize);
+window.addEventListener('orientationchange', function(){ setTimeout(resize,180); });
+
+// ═══════════════════════════════════════════════════════════════════════
+//  PAPERS ─ three, and they burn differently
+// ═══════════════════════════════════════════════════════════════════════
+var HMAX = 3.2;                 // a burning cell runs far above ignition
+var PAPERS = [
+  { name:'和紙',   latin:'washi', sub:3, spread:1.60, burn:0.85, ignite:0.33, cool:1.70,
+    scorchK:4.00, heal:0.030, release:16, emis:1.00, charK:1.00 },
+  { name:'藁半紙', latin:'zara',  sub:5, spread:1.90, burn:1.60, ignite:0.30, cool:1.90,
+    scorchK:2.00, heal:0.045, release:22, emis:0.94, charK:0.95 },
+  { name:'閃光紙', latin:'flash', sub:7, spread:2.60, burn:4.50, ignite:0.24, cool:3.00,
+    scorchK:0.45, heal:0.110, release:34, emis:1.40, charK:0.25 }
+];
+var paperIx = 0, firePct = 55, subScale = 1;
+function P(){ return PAPERS[paperIx]; }
+
+// ═══════════════════════════════════════════════════════════════════════
+//  COLOUR TABLES ─ built once, so the per-pixel pass is table lookups
+// ═══════════════════════════════════════════════════════════════════════
+var EMR = new Float32Array(256), EMG = new Float32Array(256), EMB = new Float32Array(256);
+(function buildEmission(){
+  var stops = [
+    [0.00,   0,   0,   0],
+    [0.16,   0,   0,   0],
+    [0.34, 128,  18,   6],
+    [0.56, 214,  62,  28],
+    [0.76, 247, 168,  60],
+    [0.92, 255, 226, 150],
+    [1.00, 255, 248, 226]
+  ];
+  for (var i=0;i<256;i++){
+    var t = i/255, k = 0;
+    while (k < stops.length-2 && t > stops[k+1][0]) k++;
+    var a = stops[k], b = stops[k+1];
+    var f = (b[0] > a[0]) ? (t-a[0])/(b[0]-a[0]) : 0;
+    f = clamp(f, 0, 1);
+    EMR[i] = a[1] + (b[1]-a[1])*f;
+    EMG[i] = a[2] + (b[2]-a[2])*f;
+    EMB[i] = a[3] + (b[3]-a[3])*f;
+  }
+})();
+// fuel by camera luminance. Below FUEL_MIN the sheet is too ink-soaked to
+// take a flame at all — that is what makes a silhouette survive a fire.
+var FUELT = new Float32Array(256), FUEL_MIN = 0.22;
+(function buildFuel(){
+  for (var i=0;i<256;i++) FUELT[i] = 0.06 + 0.94*Math.pow(i/255, 1.5);
+})();
+// paper↔ink print ramp, indexed by camera luminance
+var PRR = new Float32Array(256), PRG = new Float32Array(256), PRB = new Float32Array(256);
+(function buildPrint(){
+  for (var i=0;i<256;i++){
+    var t = Math.pow(i/255, 0.88);
+    PRR[i] =  58 + (239- 58)*t;
+    PRG[i] =  49 + (230- 49)*t;
+    PRB[i] =  41 + (210- 41)*t;
+  }
+})();
+
+// ═══════════════════════════════════════════════════════════════════════
+//  CAMERA
+// ═══════════════════════════════════════════════════════════════════════
+var facing = 'user', mirror = true, stream = null;
+function showError(e){
+  var msg = (e && e.message) ? e.message : String(e||'unknown');
+  errBox.style.display = 'block';
+  errBox.textContent = 'カメラを起動できませんでした：'+msg+'\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+}
+function startStream(){
+  var md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) return Promise.reject(new Error('getUserMedia is unavailable'));
+  if (stream && stream.getTracks) stream.getTracks().forEach(function(t){ t.stop(); });
+  return md.getUserMedia({ video:{ facingMode:{ ideal:facing }, width:{ ideal:640 }, height:{ ideal:480 } }, audio:false })
+    .then(function(st){
+      stream = st; video.srcObject = st; mirror = (facing==='user');
+      var p = video.play(); return (p && p.then) ? p['catch'](function(){}) : null;
+    });
+}
+flipBtn.addEventListener('click', function(){
+  facing = (facing==='user') ? 'environment' : 'user';
+  loseHands();
+  startStream().then(startMpCamera)['catch'](showError);
+});
+
+var camAspect = 4/3, covS = 1, covOX = 0, covOY = 0;
+function updateCover(){
+  var vw = (video && video.videoWidth) ? video.videoWidth : 0;
+  var vh = (video && video.videoHeight) ? video.videoHeight : 0;
+  if (vw > 0 && vh > 0) camAspect = vw/vh;
+  if (!fin(camAspect) || camAspect <= 0) camAspect = 4/3;
+  var rw = W, rh = W/camAspect;
+  if (rh < H){ rh = H; rw = H*camAspect; }
+  covS = rw; covOX = (W-rw)/2; covOY = (H-rh)/2;
+}
+function sx(nx){ return covOX + (mirror ? (1-nx) : nx)*covS; }
+function sy(ny){ return covOY + ny*(covS/camAspect); }
+
+// draw the video into the grid-sized buffer, covering it, then read it back
+function sampleCam(){
+  if (holdLum) return;
+  var vw = (video && video.videoWidth) ? video.videoWidth : 0;
+  var vh = (video && video.videoHeight) ? video.videoHeight : 0;
+  if (!(vw > 0 && vh > 0)) return;
+  var ar = vw/vh;
+  var rw = GW, rh = GW/ar;
+  if (rh < GH){ rh = GH; rw = GH*ar; }
+  var ox = (GW-rw)/2, oy = (GH-rh)/2;
+  if (!fin(ox)||!fin(oy)||!(rw>0)||!(rh>0)) return;
+  try{
+    camCtx.save();
+    if (mirror){ camCtx.setTransform(-1,0,0,1,GW,0); } else { camCtx.setTransform(1,0,0,1,0,0); }
+    camCtx.drawImage(video, mirror ? (GW-ox-rw) : ox, oy, rw, rh);
+    camCtx.restore();
+    camCtx.setTransform(1,0,0,1,0,0);
+    var d = camCtx.getImageData(0,0,GW,GH).data;
+    if (!d || d.length < GN*4) return;
+    for (var i=0, j=0; i<GN; i++, j+=4){
+      lum[i] = 0.299*d[j] + 0.587*d[j+1] + 0.114*d[j+2];
+    }
+  }catch(e){ /* a tainted or not-yet-ready frame: keep the last read */ }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  HANDS
+// ═══════════════════════════════════════════════════════════════════════
+var hands = null, mpCamera = null, mpReady = false, LOST_S = 0.5;
+var TIPS = [4,8,12,16,20];
+var HAND = [ mkHand(), mkHand() ];
+function mkHand(){
+  return { on:false, t:-9, px:0, py:0, vx:0, vy:0, sp:0, hi:false, L:null,
+           fist:false, fr:2, dwell:0 };
+}
+var seenT = -9, seenN = 0, raiseT = 0, raiseArmed = true;
+function lmOK(L,i){
+  if (!L || typeof L.length !== 'number' || L.length <= i) return false;
+  var p = L[i]; return !!p && fin(p.x) && fin(p.y);
+}
+function handLive(k){ return HAND[k].on && (now()-HAND[k].t) < LOST_S; }
+function releaseHand(h){
+  h.on = false; h.L = null; h.t = -9; h.vx = 0; h.vy = 0; h.sp = 0;
+  h.hi = false; h.fist = false; h.fr = 2; h.dwell = 0;
+}
+function loseHands(){ releaseHand(HAND[0]); releaseHand(HAND[1]); seenT = -9; seenN = 0; raiseT = 0; raiseArmed = true; }
+function acDist(L,a,b){
+  var dx = (L[a].x-L[b].x)*camAspect, dy = (L[a].y-L[b].y);
+  return Math.sqrt(dx*dx+dy*dy);
+}
+function onHands(res){
+  var t = now();
+  var lists = (res && res.multiHandLandmarks) ? res.multiHandLandmarks : null;
+  var n = (lists && typeof lists.length === 'number') ? Math.min(2, lists.length) : 0;
+  seenT = t; seenN = 0;
+  for (var k=0;k<2;k++){
+    var h = HAND[k];
+    if (k < n){
+      var L = lists[k], okAll = lmOK(L,0) && lmOK(L,9);
+      for (var q=0; okAll && q<TIPS.length; q++) if (!lmOK(L,TIPS[q])) okAll = false;
+      if (!okAll){ if (h.on && (t-h.t) > LOST_S) releaseHand(h); continue; }
+      var sxp = sx(L[9].x), syp = sy(L[9].y);
+      if (!fin(sxp)||!fin(syp)){ if (h.on && (t-h.t) > LOST_S) releaseHand(h); continue; }
+      if (h.on && (t-h.t) < 0.25){
+        var dt = Math.max(0.016, t-h.t);
+        h.vx = chase(h.vx, (sxp-h.px)/dt/MN, 13, dt);
+        h.vy = chase(h.vy, (syp-h.py)/dt/MN, 13, dt);
+      } else { h.vx = 0; h.vy = 0; }
+      h.sp = Math.sqrt(h.vx*h.vx + h.vy*h.vy);
+      h.px = sxp; h.py = syp; h.on = true; h.t = t; h.L = L;
+      h.hi = (L[9].y < 0.26);
+      // fist ratio: mean fingertip→wrist distance over the hand's own span,
+      // both in ASPECT-CORRECTED camera space, so it reads the same in
+      // portrait and landscape and at any distance from the lens
+      var span = acDist(L,0,9), sum = 0;
+      for (var q2=1;q2<TIPS.length;q2++) sum += acDist(L,TIPS[q2],0);
+      h.fr = (span > 1e-4) ? (sum/4)/span : 2;
+      if (!fin(h.fr)) h.fr = 2;
+      if (h.fist){ if (h.fr > 1.80) h.fist = false; }
+      else       { if (h.fr < 1.45) h.fist = true; }
+      seenN++;
+    } else if (h.on && (t-h.t) > LOST_S){
+      releaseHand(h);
+    }
+  }
+}
+function initHands(){
+  if (typeof window.Hands !== 'function') return false;
+  try{
+    hands = new window.Hands({ locateFile:function(f){ return 'https://cdn.jsdelivr.net/npm/@mediapipe/hands/'+f; }});
+    hands.setOptions({ maxNumHands:2, modelComplexity:0, selfieMode:false,
+                       minDetectionConfidence:0.6, minTrackingConfidence:0.5 });
+    hands.onResults(onHands); mpReady = true; return true;
+  }catch(e){ hands = null; return false; }
+}
+function startMpCamera(){
+  if (!mpReady || !hands || mpCamera) return;
+  if (typeof window.Camera !== 'function') return;
+  try{
+    mpCamera = new window.Camera(video, {
+      onFrame:function(){ if (!hands) return Promise.resolve();
+        try{ return hands.send({image:video}); }catch(e){ return Promise.resolve(); } },
+      width:640, height:480 });
+    mpCamera.start();
+  }catch(e){ mpCamera = null; }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  AUDIO ─ nothing but the fire
+//  A low roar whose gain follows the burning AREA, and a crackle whose
+//  density follows the number of cells igniting THIS FRAME. Silent paper
+//  is silent.
+// ═══════════════════════════════════════════════════════════════════════
+var ac = null, master = null, noiseBuf = null, sndOn = true;
+var roarG = null, roarF = null, crackBudget = 0, oneShots = 0;
+function safeP(p,v,t,tc){
+  if (!p || !fin(v)) return;
+  try{ if (tc === undefined) p.setValueAtTime(v,t); else p.setTargetAtTime(v,t,tc); }catch(e){}
+}
+function initAudio(){
+  if (ac) return;
+  var AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+  try{ ac = new AC(); }catch(e){ ac = null; return; }
+  var comp = ac.createDynamicsCompressor();
+  try{ comp.threshold.value = -18; comp.ratio.value = 5; comp.attack.value = 0.004; comp.release.value = 0.25; }catch(e){}
+  master = ac.createGain(); master.gain.value = 0.9;
+  master.connect(comp); comp.connect(ac.destination);
+  var n = Math.floor(ac.sampleRate*1.8);
+  noiseBuf = ac.createBuffer(1,n,ac.sampleRate);
+  var d = noiseBuf.getChannelData(0);
+  for (var i=0;i<n;i++) d[i] = Math.random()*2-1;
+  var src = ac.createBufferSource(); src.buffer = noiseBuf; src.loop = true;
+  roarF = ac.createBiquadFilter(); roarF.type = 'lowpass'; roarF.frequency.value = 300; roarF.Q.value = 0.9;
+  roarG = ac.createGain(); roarG.gain.value = 0;
+  src.connect(roarF); roarF.connect(roarG); roarG.connect(master);
+  try{ src.start(); }catch(e){}
+}
+function crackle(vol, bright){
+  if (!sndOn || !ac || !master || !noiseBuf) return false;
+  if (oneShots >= 10) return false;
+  try{
+    var t = ac.currentTime, dur = 0.035 + Math.random()*0.075;
+    var s = ac.createBufferSource(); s.buffer = noiseBuf;
+    var b = ac.createBiquadFilter(); b.type = 'bandpass';
+    b.frequency.value = clamp(900 + bright*3400 + Math.random()*1400, 120, 12000);
+    b.Q.value = 1.4 + Math.random()*4;
+    var g = ac.createGain();
+    var pk = clamp(vol, 0.004, 0.18);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(pk, t+0.006);
+    g.gain.exponentialRampToValueAtTime(0.0001, t+dur);
+    s.connect(b); b.connect(g); g.connect(master);
+    s.start(t, Math.random()*1.2); s.stop(t+dur+0.03);
+    oneShots++;
+    s.onended = function(){ oneShots = Math.max(0, oneShots-1); };
+    return true;
+  }catch(e){ return false; }
+}
+function whoosh(){
+  if (!sndOn || !ac || !master || !noiseBuf) return;
+  try{
+    var t = ac.currentTime;
+    var s = ac.createBufferSource(); s.buffer = noiseBuf;
+    var b = ac.createBiquadFilter(); b.type = 'bandpass'; b.Q.value = 0.8;
+    b.frequency.setValueAtTime(220, t);
+    b.frequency.exponentialRampToValueAtTime(2600, t+0.35);
+    b.frequency.exponentialRampToValueAtTime(180, t+1.5);
+    var g = ac.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.30, t+0.12);
+    g.gain.exponentialRampToValueAtTime(0.0001, t+1.7);
+    s.connect(b); b.connect(g); g.connect(master);
+    s.start(t); s.stop(t+1.8);
+  }catch(e){}
+}
+function setSound(on){
+  sndOn = !!on;
+  if (sndBtn){ sndBtn.className = sndOn?'on':''; sndBtn.textContent = sndOn?'音 ON':'音 OFF'; }
+  if (!sndOn && ac && roarG) safeP(roarG.gain, 0, ac.currentTime, 0.05);
+}
+if (sndBtn) sndBtn.addEventListener('click', function(){ setSound(!sndOn); });
+
+// ═══════════════════════════════════════════════════════════════════════
+//  SPARKS AND ASH
+// ═══════════════════════════════════════════════════════════════════════
+var SMAX = 1100;
+var sx0 = new Float32Array(SMAX), sy0 = new Float32Array(SMAX);
+var svx = new Float32Array(SMAX), svy = new Float32Array(SMAX);
+var slife = new Float32Array(SMAX), smax = new Float32Array(SMAX), sash = new Uint8Array(SMAX);
+var sHead = 0, sAlive = 0;
+function spawnSpark(x, y, hot, up){
+  if (!fin(x)||!fin(y)) return;
+  var i = sHead; sHead = (sHead+1) % SMAX;
+  sx0[i] = x; sy0[i] = y;
+  svx[i] = (Math.random()-0.5)*MN*0.10;
+  svy[i] = -(0.16+Math.random()*0.42)*MN*(up?1.5:1);
+  smax[i] = 0.7 + Math.random()*1.7;
+  slife[i] = smax[i];
+  sash[i] = hot ? 0 : 1;
+}
+var windX = 0;
+function stepSparks(dt){
+  sAlive = 0;
+  for (var i=0;i<SMAX;i++){
+    if (slife[i] <= 0) continue;
+    slife[i] -= dt;
+    if (slife[i] <= 0){ slife[i] = 0; continue; }
+    svy[i] += (-MN*0.16 + MN*0.42*(1-slife[i]/Math.max(0.001,smax[i])))*dt;
+    svx[i] += (windX*MN*0.9 - svx[i]*0.9)*dt;
+    sx0[i] += svx[i]*dt; sy0[i] += svy[i]*dt;
+    if (sy0[i] < -MN*0.2 || sx0[i] < -MN*0.3 || sx0[i] > W+MN*0.3){ slife[i] = 0; continue; }
+    sAlive++;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  IGNITION FROM HANDS
+// ═══════════════════════════════════════════════════════════════════════
+var burningCells = 0, burntPct = 0, newIgnitions = 0;
+// palms held closed this frame, in grid coordinates — re-applied inside every
+// sub-step so the fire cannot creep back under the hand between them
+var fistN = 0, fistX = [0,0], fistY = [0,0], fistRX = [1,1], fistRY = [1,1];
+function toGX(x){ return clamp(Math.floor(x/Math.max(1,W)*GW), 0, GW-1); }
+function toGY(y){ return clamp(Math.floor(y/Math.max(1,H)*GH), 0, GH-1); }
+
+function handHeat(dt){
+  var t0 = now();
+  for (var k0=0;k0<2;k0++){
+    if (HAND[k0].on && (t0-HAND[k0].t) > LOST_S) releaseHand(HAND[k0]);
+  }
+  var strength = 0.34 + 1.56*(firePct/100);
+  var scorchK = P().scorchK;
+  fistN = 0;
+  for (var k=0;k<2;k++){
+    var h = HAND[k];
+    if (!handLive(k)) continue;
+    var L = h.L;
+    // a hand that sits still is a candle; a hand that sweeps only scorches
+    h.dwell = clamp(h.dwell + (h.sp < 0.25 ? dt : -dt*2.2), 0, 1.4);
+    if (h.fist){
+      // snuff: the palm is registered for the whole frame and smothers the
+      // sheet under it in every sub-step
+      var rx = MN*0.15;
+      if (fistN < 2){
+        fistX[fistN] = toGX(h.px); fistY[fistN] = toGY(h.py);
+        fistRX[fistN] = Math.max(1, Math.round(rx/Math.max(1,W)*GW));
+        fistRY[fistN] = Math.max(1, Math.round(rx/Math.max(1,H)*GH));
+        fistN++;
+      }
+      continue;
+    }
+    if (!L) continue;
+    var perTip = strength*(0.30 + 0.70*clamp(h.dwell/0.9, 0, 1));
+    for (var q=0;q<TIPS.length;q++){
+      var ti = TIPS[q];
+      if (!lmOK(L,ti)) continue;
+      var tx = sx(L[ti].x), ty = sy(L[ti].y);
+      if (!fin(tx)||!fin(ty)) continue;
+      // the ember is anchored to the SHORT EDGE, so it is the same size
+      // of flame on a phone in portrait and a laptop in landscape
+      var r = MN*0.021;
+      var gx = toGX(tx), gy = toGY(ty);
+      var rgx2 = Math.max(1, Math.round(r/Math.max(1,W)*GW));
+      var rgy2 = Math.max(1, Math.round(r/Math.max(1,H)*GH));
+      for (var y2=gy-rgy2; y2<=gy+rgy2; y2++){
+        if (y2<0||y2>=GH) continue;
+        for (var x2=gx-rgx2; x2<=gx+rgx2; x2++){
+          if (x2<0||x2>=GW) continue;
+          var dx2 = (x2-gx)/rgx2, dy2 = (y2-gy)/rgy2;
+          var d2 = dx2*dx2+dy2*dy2;
+          if (d2 > 1) continue;
+          var idx = y2*GW+x2;
+          var add = perTip*(1-d2)*dt*9;
+          heat[idx] = clamp(heat[idx] + add, 0, HMAX);
+          // an ember held near paper browns it even when it never catches
+          var sc = scorch[idx] + add*scorchK*0.45;
+          scorch[idx] = sc > 1 ? 1 : sc;
+        }
+      }
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  ONE COMBUSTION STEP
+//  Split in two on purpose. The SPREAD pass (diffusion + ignition + fuel
+//  consumption) is the only thing that has to run at the sub-step rate,
+//  because that is what lets a cell catch, flare and pass the fire on
+//  inside a single frame. Everything slower than the flame — scorch, char,
+//  healing, re-reading the picture — runs once per frame over the frame's
+//  total fuel delta, which is exact and costs one pass instead of nine.
+// ═══════════════════════════════════════════════════════════════════════
+function stepFire(dt){
+  var p = P();
+  var sub = clamp(Math.round(p.sub*subScale), 1, p.sub);
+  var sdt = dt/sub;
+  newIgnitions = 0;
+  fuelPrev.set(fuel);
+  for (var it=0; it<sub; it++) spreadStep(p, sdt);
+  finishFrame(p, dt);
+}
+
+function spreadStep(p, dt){
+  var D    = clamp(p.spread*dt*9, 0, 0.85);
+  var BURN = p.burn*dt;
+  var IG   = p.ignite;
+  var COOL = p.cool*dt;
+  var REL  = p.release*dt;
+  var wind = clamp(windX, -1, 1);
+  var wl = 1 + Math.max(0,-wind)*1.6, wr = 1 + Math.max(0,wind)*1.6;
+  var wd = 2.35, wu = 0.55;                        // fire climbs
+  var wsum = wl+wr+wd+wu;
+  var burning = 0, ignited = 0;
+  var SMOTHER = IG*0.5;
+
+  if (fistN){
+    for (var fk=0; fk<fistN; fk++){
+      var fcx = fistX[fk], fcy = fistY[fk], frx = fistRX[fk], fry = fistRY[fk];
+      for (var fy=fcy-fry; fy<=fcy+fry; fy++){
+        if (fy<0||fy>=GH) continue;
+        for (var fx=fcx-frx; fx<=fcx+frx; fx++){
+          if (fx<0||fx>=GW) continue;
+          var ex = (fx-fcx)/frx, ey = (fy-fcy)/fry;
+          var ed = ex*ex+ey*ey;
+          if (ed > 1) continue;
+          var fid = fy*GW+fx;
+          var damp = heat[fid]*Math.max(0, 1 - (1-ed)*16*dt);
+          heat[fid] = (ed < 0.8 && damp > SMOTHER) ? SMOTHER : damp;
+        }
+      }
+    }
+  }
+
+  for (var y=0;y<GH;y++){
+    var row = y*GW;
+    var rowU = (y>0 ? row-GW : row);
+    var rowD = (y<GH-1 ? row+GW : row);
+    for (var x=0;x<GW;x++){
+      var i = row+x;
+      var xl = (x>0 ? i-1 : i), xr = (x<GW-1 ? i+1 : i);
+      var h = heat[i];
+      var nb = (heat[rowD+x]*wd + heat[rowU+x]*wu + heat[xl]*wl + heat[xr]*wr)/wsum;
+      var hn = h*(1-D) + nb*D;
+      var f = fuel[i];
+      var lit = f > FUEL_MIN;
+      if (hn > IG && lit){
+        var used = BURN*(0.30 + 0.70*f);
+        if (used > f - FUEL_MIN) used = f - FUEL_MIN;
+        if (used > 0) f -= used;
+        hn += REL*(0.35 + 0.65*f);
+        burning++;
+        if (h <= IG) ignited++;
+        fuel[i] = f;
+      }
+      hn -= COOL*(lit ? 1 : 2.4);
+      heat2[i] = hn < 0 ? 0 : (hn > HMAX ? HMAX : hn);
+    }
+  }
+  var tmp = heat; heat = heat2; heat2 = tmp;
+  burningCells = burning;
+  newIgnitions += ignited;
+}
+
+// everything that happens more slowly than the flame
+function finishFrame(p, dt){
+  var SCK  = p.scorchK*dt;
+  var HEAL = p.heal*dt;
+  var CHK  = p.charK*1.8;
+  var TRACK = Math.min(1, dt*2.2);
+  var burnt = 0;
+  for (var i=0;i<GN;i++){
+    var h = heat[i], f = fuel[i], ch = charA[i];
+    var used = fuelPrev[i] - f;
+    if (used < 0) used = 0;
+
+    // heat below ignition still browns the sheet, permanently
+    if (h > 0.02){
+      var sc = scorch[i] + h*SCK*(used > 0 ? 2.4 : 1);
+      scorch[i] = sc > 1 ? 1 : sc;
+    }
+    if (used > 0){
+      ch += used*CHK;
+      if (ch > 1) ch = 1;
+    } else if (h < 0.06){
+      // the sheet is slowly re-papered, so the piece never runs out of paper
+      if (ch > 0){ ch -= HEAL; if (ch < 0) ch = 0; }
+      if (ch < 0.35){
+        var li0 = lum[i]|0; if (li0 < 0) li0 = 0; else if (li0 > 255) li0 = 255;
+        var target = FUELT[li0];
+        if (f < target){ f += HEAL*1.35; if (f > target) f = target; }
+      }
+    }
+    // wherever the sheet is intact, fuel keeps tracking the live picture
+    if (ch < 0.04 && h < 0.04){
+      var li1 = lum[i]|0; if (li1 < 0) li1 = 0; else if (li1 > 255) li1 = 255;
+      f += (FUELT[li1]-f)*TRACK;
+    }
+    fuel[i] = f; charA[i] = ch;
+    burnt += ch;
+  }
+  burntPct = GN > 0 ? (burnt/GN)*100 : 0;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  RENDER ─ one pass, one ImageData, every pixel written every frame
+// ═══════════════════════════════════════════════════════════════════════
+function renderGrid(){
+  var p = P(), EM = p.emis;
+  var d = px;
+  for (var i=0, j=0; i<GN; i++, j+=4){
+    var li = lum[i]|0;
+    if (li < 0) li = 0; else if (li > 255) li = 255;
+    var r = PRR[li], g = PRG[li], b = PRB[li];
+
+    var s = scorch[i];
+    if (s > 0){
+      if (s > 1) s = 1;
+      r += (122 - r)*s; g += (74 - g)*s; b += (40 - b)*s;
+    }
+    var c = charA[i];
+    if (c > 0){
+      if (c > 1) c = 1;
+      r += (36 - r)*c; g += (29 - g)*c; b += (24 - b)*c;
+    }
+    var hv = heat[i];
+    if (hv > 0.02){
+      var hi = (hv/HMAX*255)|0;
+      if (hi > 255) hi = 255; else if (hi < 0) hi = 0;
+      // burning paper glows; bare char only smoulders
+      var amt = EM*(fuel[i] > FUEL_MIN ? 1 : 0.42);
+      r += EMR[hi]*amt; g += EMG[hi]*amt; b += EMB[hi]*amt;
+    }
+    d[j]   = r < 0 ? 0 : (r > 255 ? 255 : r);
+    d[j+1] = g < 0 ? 0 : (g > 255 ? 255 : g);
+    d[j+2] = b < 0 ? 0 : (b > 255 ? 255 : b);
+    d[j+3] = 255;
+  }
+  gridCtx.putImageData(img, 0, 0);
+}
+
+var HAND_EDGES = [[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],
+                  [9,13],[13,14],[14,15],[15,16],[13,17],[17,18],[18,19],[19,20],[0,17]];
+var flashA = 0;
+function draw(dt){
+  flashA = Math.max(0, flashA - dt*1.25);
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.globalAlpha = 1;
+
+  ctx.drawImage(paperCv, 0, 0, W, H);
+  ctx.imageSmoothingEnabled = true;
+  ctx.drawImage(gridCv, 0, 0, GW, GH, 0, 0, W, H);
+
+  // sparks and ash
+  ctx.globalCompositeOperation = 'lighter';
+  for (var band=0; band<4; band++){
+    ctx.fillStyle = ['rgba(255,244,214,0.95)','rgba(247,168,60,0.85)',
+                     'rgba(217,64,31,0.7)','rgba(122,96,80,0.34)'][band];
+    ctx.beginPath();
+    var any = false;
+    for (var i=0;i<SMAX;i++){
+      if (slife[i] <= 0) continue;
+      var f = slife[i]/Math.max(0.001, smax[i]);
+      var bnd = sash[i] ? 3 : (f > 0.72 ? 0 : (f > 0.42 ? 1 : 2));
+      if (bnd !== band) continue;
+      if (!fin(sx0[i])||!fin(sy0[i])) continue;
+      var rr = MN*(sash[i] ? 0.0026 : 0.0020)*(0.5+f);
+      if (!(rr > 0)) continue;
+      ctx.moveTo(sx0[i]+rr, sy0[i]);
+      ctx.arc(sx0[i], sy0[i], rr, 0, TAU);
+      any = true;
+    }
+    if (any) ctx.fill();
+  }
+  ctx.globalCompositeOperation = 'source-over';
+
+  // the hands, so you can always see that the camera has you
+  for (var k=0;k<2;k++){
+    var h = HAND[k];
+    if (!handLive(k) || !h.L) continue;
+    var L = h.L;
+    ctx.strokeStyle = h.fist ? 'rgba(58,49,41,0.85)' : 'rgba(36,29,24,0.66)';
+    ctx.lineWidth = Math.max(1.6, MN*0.0055);
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    ctx.beginPath();
+    for (var e=0;e<HAND_EDGES.length;e++){
+      var a = HAND_EDGES[e][0], b2 = HAND_EDGES[e][1];
+      if (!lmOK(L,a)||!lmOK(L,b2)) continue;
+      var x1 = sx(L[a].x), y1 = sy(L[a].y), x2 = sx(L[b2].x), y2 = sy(L[b2].y);
+      if (!fin(x1)||!fin(y1)||!fin(x2)||!fin(y2)) continue;
+      ctx.moveTo(x1,y1); ctx.lineTo(x2,y2);
+    }
+    ctx.stroke();
+    if (!h.fist){
+      ctx.globalCompositeOperation = 'lighter';
+      var glow = 0.25 + 0.75*clamp(h.dwell/0.9, 0, 1);
+      for (var q=0;q<TIPS.length;q++){
+        var ti = TIPS[q];
+        if (!lmOK(L,ti)) continue;
+        var tx = sx(L[ti].x), ty = sy(L[ti].y);
+        if (!fin(tx)||!fin(ty)) continue;
+        var rr2 = MN*0.016*glow;
+        if (!(rr2 > 0)) continue;
+        var rg = ctx.createRadialGradient(tx,ty,0,tx,ty,rr2);
+        rg.addColorStop(0, 'rgba(255,238,200,'+(0.85*glow).toFixed(3)+')');
+        rg.addColorStop(0.45, 'rgba(247,168,60,'+(0.5*glow).toFixed(3)+')');
+        rg.addColorStop(1, 'rgba(217,64,31,0)');
+        ctx.fillStyle = rg;
+        ctx.beginPath(); ctx.arc(tx,ty,rr2,0,TAU); ctx.fill();
+      }
+      ctx.globalCompositeOperation = 'source-over';
+    }
+  }
+
+  if (flashA > 0.002){
+    ctx.fillStyle = 'rgba(255,246,222,'+(flashA*0.72).toFixed(3)+')';
+    ctx.fillRect(0,0,W,H);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  FLASHOVER ─ the one big event
+// ═══════════════════════════════════════════════════════════════════════
+var flashT = -9, FLASH_CD = 8.0;
+function flashover(){
+  flashT = now();
+  for (var i=0;i<GN;i++){
+    if (fuel[i] > FUEL_MIN) heat[i] = Math.max(heat[i], HMAX*(0.45 + 0.55*fuel[i]));
+  }
+  for (var s=0;s<230;s++){
+    spawnSpark(Math.random()*W, H*0.25 + Math.random()*H*0.7, true, true);
+  }
+  flashA = 1;
+  whoosh();
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  FRAME
+// ═══════════════════════════════════════════════════════════════════════
+var frameMs = 16;
+function adapt(ms){
+  frameMs = frameMs*0.9 + ms*0.1;
+  if (frameMs > 30){
+    subScale = Math.max(0.34, subScale*0.96);
+    if (subScale < 0.5 && qual > 0.42){ qual = Math.max(0.40, qual*0.93); allocGrid(); }
+  } else if (frameMs < 15){
+    if (qual < 1.55 && subScale > 0.97){ qual = Math.min(1.6, qual*1.03); allocGrid(); }
+    else subScale = Math.min(1, subScale*1.04);
+  }
+}
+
+function spawnFromFire(dt){
+  // sparks are born on the burn front, at a rate set by how much is burning
+  var want = clamp(burningCells*0.06 + newIgnitions*0.55, 0, 70)*dt*12;
+  var n = Math.floor(want) + ((Math.random() < (want%1)) ? 1 : 0);
+  for (var s=0;s<n;s++){
+    var tries = 0, found = -1;
+    while (tries < 26){
+      var i = (Math.random()*GN)|0;
+      if (heat[i] > P().ignite && fuel[i] > FUEL_MIN){ found = i; break; }
+      tries++;
+    }
+    if (found < 0) break;
+    var gx = found % GW, gy = (found/GW)|0;
+    spawnSpark((gx+0.5)/GW*W, (gy+0.5)/GH*H, true, false);
+  }
+  // ash from cells that have just finished burning
+  if (Math.random() < clamp(burningCells*0.004, 0, 0.5)){
+    var j = (Math.random()*GN)|0;
+    if (charA[j] > 0.5) spawnSpark((j%GW+0.5)/GW*W, (((j/GW)|0)+0.5)/GH*H, false, false);
+  }
+}
+
+function driveAudio(){
+  if (!ac || !roarG) return;
+  var t = ac.currentTime;
+  var area = clamp(burningCells/Math.max(1,GN), 0, 1);
+  safeP(roarG.gain, sndOn ? clamp(Math.sqrt(area)*0.40, 0, 0.32) : 0, t, 0.09);
+  if (roarF) safeP(roarF.frequency, 240 + area*900, t, 0.15);
+  if (!sndOn) return;
+  crackBudget = Math.min(6, crackBudget + newIgnitions*0.09);
+  while (crackBudget >= 1){
+    crackBudget -= 1;
+    if (!crackle(0.016 + Math.random()*0.05, clamp(area*3, 0, 1))) break;
+  }
+}
+
+var running = false, lastT = 0;
+function step(dt){
+  var t0 = now();
+  updateCover();
+  if (seenT > -8 && (t0-seenT) > 1.2) loseHands();
+  sampleCam();
+
+  // wind follows the hands, and decays
+  var w = 0, nH = 0;
+  for (var k=0;k<2;k++){ if (handLive(k)){ w += HAND[k].vx; nH++; } }
+  windX = chase(windX, nH ? clamp(w/nH*0.8, -1, 1) : 0, 2.4, dt);
+
+  handHeat(dt);
+
+  // the raise only advances while the model is actually reporting hands —
+  // a dropout freezes the timer instead of quietly completing the gesture
+  // the raise only advances while the model is REPORTING two hands right
+  // now — a dropout freezes the timer instead of quietly completing it
+  var fresh = seenN >= 2 && (t0 - seenT) < 0.3;
+  var bothHi = fresh && handLive(0) && handLive(1) && HAND[0].hi && HAND[1].hi;
+  if (bothHi){
+    raiseT += dt;
+    if (raiseArmed && raiseT > 0.5 && (t0-flashT) > FLASH_CD){ raiseArmed = false; flashover(); }
+  } else { raiseT = 0; raiseArmed = true; }
+
+  stepFire(dt);
+  spawnFromFire(dt);
+  stepSparks(dt);
+  renderGrid();
+  draw(dt);
+  driveAudio();
+
+  if (rB) rB.textContent = String(Math.round(burntPct));
+  if (rF) rF.textContent = String(burningCells);
+  if (rS) rS.textContent = String(sAlive);
+}
+function frame(){
+  if (!running) return;
+  var t0 = now();
+  var dt = clamp(t0-lastT, 0.001, 0.05);
+  lastT = t0;
+  step(dt);
+  adapt((now()-t0)*1000);
+  requestAnimationFrame(frame);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  UI
+// ═══════════════════════════════════════════════════════════════════════
+function setPaper(ix){
+  paperIx = clamp(ix|0, 0, PAPERS.length-1);
+  var bs = [m0,m1,m2];
+  for (var i=0;i<bs.length;i++) if (bs[i]) bs[i].className = (i===paperIx)?'on':'';
+  if (modeS) modeS.textContent = PAPERS[paperIx].latin;
+}
+if (m0) m0.addEventListener('click', function(){ setPaper(0); });
+if (m1) m1.addEventListener('click', function(){ setPaper(1); });
+if (m2) m2.addEventListener('click', function(){ setPaper(2); });
+if (fireEl) fireEl.addEventListener('input', function(){
+  var v = parseFloat(fireEl.value);
+  firePct = fin(v) ? clamp(v, 5, 100) : 55;
+});
+
+var demoRaf = 0;
+function runDemo(){
+  if (!demoCv || !demoCv.getContext) return;
+  var d = demoCv.getContext('2d');
+  var DW = demoCv.width, DH = demoCv.height;
+  var CW = 66, CH = 25;
+  var hh = new Float32Array(CW*CH), ff = new Float32Array(CW*CH), cc = new Float32Array(CW*CH);
+  function reset(){
+    for (var y=0;y<CH;y++) for (var x=0;x<CW;x++){
+      var i = y*CW+x;
+      // a dark bar down the middle: the "silhouette" the fire has to get past
+      var dark = Math.abs(x - CW*0.52) < 5.5;
+      ff[i] = dark ? 0.18 : 1; hh[i] = 0; cc[i] = 0;
+    }
+  }
+  reset();
+  var t0 = now();
+  function stepD(){
+    var el = (now()-t0) % 8.0;
+    if (el < 0.06) reset();
+    var hx = 6 + el*4.2;
+    for (var y=0;y<CH;y++) for (var x=0;x<CW;x++){
+      var i = y*CW+x;
+      if (Math.abs(x-hx) < 2 && Math.abs(y-CH*0.5) < 3) hh[i] = Math.min(1, hh[i]+0.25);
+      var l = (x>0?hh[i-1]:0), r = (x<CW-1?hh[i+1]:0);
+      var u = (y>0?hh[i-CW]:0), dn = (y<CH-1?hh[i+CW]:0);
+      var nb = (l+r+u*0.5+dn*2.2)/4.7;
+      var h = hh[i]*0.72 + nb*0.28;
+      if (h > 0.3 && ff[i] > 0.02){ var used = Math.min(ff[i], 0.10); ff[i] -= used; h += 0.16; cc[i] = Math.min(1, cc[i]+used*1.2); }
+      h -= 0.035; hh[i] = clamp(h, 0, 1);
+    }
+    d.fillStyle = '#efe6d2'; d.fillRect(0,0,DW,DH);
+    var cw = DW/CW, chh = (DH-44)/CH;
+    for (var y2=0;y2<CH;y2++) for (var x2=0;x2<CW;x2++){
+      var i2 = y2*CW+x2;
+      var dark2 = Math.abs(x2 - CW*0.52) < 5.5;
+      var base = dark2 ? [92,78,66] : [235,226,206];
+      var r2 = base[0], g2 = base[1], b2 = base[2];
+      var c2 = cc[i2]; r2 += (36-r2)*c2; g2 += (29-g2)*c2; b2 += (24-b2)*c2;
+      var hv = hh[i2];
+      if (hv > 0.03){ var hi = (hv*255)|0; r2 += EMR[hi]; g2 += EMG[hi]; b2 += EMB[hi]; }
+      d.fillStyle = 'rgb('+clamp(r2|0,0,255)+','+clamp(g2|0,0,255)+','+clamp(b2|0,0,255)+')';
+      d.fillRect(x2*cw, 44+y2*chh, cw+1, chh+1);
+    }
+    d.fillStyle = 'rgba(58,49,41,0.78)';
+    d.font = '13px "Yuji Syuku", serif';
+    d.fillText('指先が火種 ─ 明るいところを選んで走り、墨の濃いところで止まる', 18, 28);
+    demoRaf = requestAnimationFrame(stepD);
+  }
+  stepD();
+}
+function stopDemo(){ if (demoRaf) cancelAnimationFrame(demoRaf); demoRaf = 0; }
+
+function begin(){
+  initAudio();
+  if (ac && ac.state === 'suspended' && ac.resume){ try{ ac.resume(); }catch(e){} }
+  setPaper(paperIx);
+  setSound(sndOn);
+  stopDemo();
+  if (startSheet) startSheet.className = 'sheet gone';
+  resize();
+  initHands();
+  startStream().then(startMpCamera)['catch'](showError);
+  if (!running){ running = true; lastT = now(); requestAnimationFrame(frame); }
+}
+if (startBtn) startBtn.addEventListener('click', begin);
+
+resize();
+runDemo();
+
+// ═══════════════════════════════════════════════════════════════════════
+//  HEADLESS TEST HOOK
+// ═══════════════════════════════════════════════════════════════════════
+window.__HOMURA__ = {
+  begin:begin, step:step, onHands:onHands, loseHands:loseHands,
+  flashover:flashover, setPaper:setPaper, setSound:setSound, adapt:adapt,
+  setCamAspect:function(a){ camAspect = a; },
+  setHoldLum:function(v){ holdLum = !!v; },
+  spawnSpark:spawnSpark,
+  get GW(){ return GW; }, get GH(){ return GH; }, get GN(){ return GN; },
+  get fuel(){ return fuel; }, get heat(){ return heat; },
+  get charA(){ return charA; }, get scorch(){ return scorch; }, get lum(){ return lum; },
+  get px(){ return px; }, get img(){ return img; },
+  get HAND(){ return HAND; }, get burningCells(){ return burningCells; },
+  get burntPct(){ return burntPct; }, get newIgnitions(){ return newIgnitions; },
+  get sAlive(){ return sAlive; }, get windX(){ return windX; },
+  get flashT(){ return flashT; }, get paperIx(){ return paperIx; },
+  get firePct(){ return firePct; }, set firePct(v){ firePct = v; },
+  get qual(){ return qual; }, get MN(){ return MN; }, get W(){ return W; }, get H(){ return H; },
+  get camAspect(){ return camAspect; }, get roarG(){ return roarG; }, get P(){ return P(); },
+  sxOf:sx, syOf:sy, get HMAX(){ return HMAX; },
+  get subScale(){ return subScale; }, set subScale(v){ subScale = v; }
+};
+})();
+</script>
+</body>
+</html>
