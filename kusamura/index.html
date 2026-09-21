@@ -254,7 +254,7 @@ function newHand(){
   return { on:false, t:-9, px:0, py:0, vx:0, vy:0, sp:0, hi:false, L:null,
            pinch:false, pr:1, fx:0, fy:0, ny:0.5, cap:-1, voice:null, deg:5 };
 }
-var seenT = -9, raiseT = 0, raiseArmed = true, lastStill = 0;
+var seenT = -9, seenN = 0, raiseT = 0, raiseArmed = true;
 
 function lmOK(L,i){
   if (!L || typeof L.length !== 'number' || L.length <= i) return false;
@@ -269,7 +269,7 @@ function releaseHand(h){
 }
 function loseHands(){
   for (var k=0;k<2;k++) releaseHand(HAND[k]);
-  seenT = -9; raiseT = 0; raiseArmed = true;
+  seenT = -9; seenN = 0; raiseT = 0; raiseArmed = true;
 }
 
 // aspect-corrected distance between two landmarks
@@ -282,7 +282,7 @@ function onHands(res){
   var t = now();
   var lists = (res && res.multiHandLandmarks) ? res.multiHandLandmarks : null;
   var n = (lists && typeof lists.length === 'number') ? Math.min(2, lists.length) : 0;
-  seenT = t;
+  seenT = t; seenN = 0;
   for (var k=0;k<2;k++){
     var h = HAND[k];
     if (k < n){
@@ -313,6 +313,7 @@ function onHands(res){
       if (!fin(h.pr)) h.pr = 1;
       var fpx = sx((L[4].x+L[8].x)*0.5), fpy = sy((L[4].y+L[8].y)*0.5);
       if (fin(fpx) && fin(fpy)){ h.fx = fpx; h.fy = fpy; }
+      seenN++;
     } else if (h.on && (t-h.t) > LOST_S){
       releaseHand(h);
     }
@@ -1103,7 +1104,10 @@ function frame(){
   applyHands(dt);
 
   // 一撃 gate: both palms in the top quarter of the FRAME for 0.45 s
-  var bothHi = handLive(0) && handLive(1) && HAND[0].hi && HAND[1].hi;
+  // the raise only advances while the model is actually reporting hands —
+  // a dropout freezes the timer instead of quietly completing the gesture
+  var fresh = seenN >= 2 && (t0 - seenT) < 0.3;
+  var bothHi = fresh && handLive(0) && handLive(1) && HAND[0].hi && HAND[1].hi;
   if (bothHi){
     raiseT += dt;
     if (raiseArmed && raiseT > 0.45 && (t0 - hushAllT) > HUSH_CD){
@@ -1241,7 +1245,8 @@ window.__KUSA__ = {
     updateCover();
     if (seenT > -8 && (t0-seenT) > 1.2) loseHands();
     applyHands(dt);
-    var bothHi = handLive(0) && handLive(1) && HAND[0].hi && HAND[1].hi;
+    var fresh = seenN >= 2 && (t0 - seenT) < 0.3;
+    var bothHi = fresh && handLive(0) && handLive(1) && HAND[0].hi && HAND[1].hi;
     if (bothHi){
       raiseT += dt;
       if (raiseArmed && raiseT > 0.45 && (t0-hushAllT) > HUSH_CD){ raiseArmed=false; shijima(); }
