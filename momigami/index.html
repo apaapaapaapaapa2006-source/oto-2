@@ -1,0 +1,1079 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>MOMIGAMI ─ 握れば映像がくしゃくしゃになる</title>
+<meta name="description" content="カメラに映るものが一枚の印画紙に刷られて、手のひらの上に置かれる。拳を握ればその紙は本物の紙のように潰れ、面ごとに光の当たりかたが変わって立体の塊になる。開けばまた伸びるが、折り目は消えない ── 握るたびに皺が増えて、写真がくたびれていく。両手を高く掲げれば新しい紙。">
+<meta name="theme-color" content="#cfc8bb">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Murecho:wght@300;500;700&family=Archivo:wght@400;600&display=swap" rel="stylesheet">
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  MOMIGAMI 揉み紙 ─ 握れば映像がくしゃくしゃになる   ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  MOOD      A photographer's studio, lights already up. What the camera sees
+            has been printed and left on the seamless paper sweep. You can
+            pick the print up and crush it in your fist. Bright, even light —
+            the only darkness on screen is the shadow the print casts.
+
+  PALETTE   背景紙 haikei  #cfc8bb  the sweep. Two thirds of the screen.
+            陰    kage    #6f675c  where the sweep curves away, and the
+                                    cast shadow of the print.
+            印画紙 inga   #f6f1e6  the paper's own white. Every facet is
+                                    this colour underneath the photograph.
+            墨    sumi    #2b2622  type and rules.
+            朱    shu     #c4452f  RESERVED: the crease meter, and the
+                                    flash along every fold when you snap
+                                    the sheet flat.
+
+  BACKGROUND  A seamless studio sweep: one vertical gradient with a paper
+              grain, painted ONCE on resize onto its own canvas and never
+              touched again. No vignette, no per-frame background cost.
+
+  TYPE      Murecho for Japanese — a modern, slightly warm sans that reads
+            like a studio label. Archivo for Latin and numerals. Neither
+            has been used in this gallery.
+
+  MOTION    WEIGHT. Paper is light but it has inertia. The sheet lags the
+            hand on a second-order spring; the crumple eases in but springs
+            OUT with overshoot, because paper actually does that; the wad
+            tumbles slowly. Nothing in this piece snaps except the one
+            thing that is supposed to: 新しい紙.
+
+  SIGNATURE 折り目は消えない。 Crumpling does not just deform the sheet —
+            it wears it. Every crease line the fold pattern contains gains
+            permanent darkening the harder it has been folded, and that
+            darkening survives being flattened out. Play for a minute and
+            the photograph of you is a soft, well-handled, crease-covered
+            print. The only way back is a fresh sheet.
+
+  NOTE      First WebGL piece in this gallery. The fold geometry lives in
+            the vertex shader (it has to — 25,000 vertices a frame), but
+            every decision worth testing — the crease pattern, the fold
+            amplitudes, the inextensible shrink, the wear, the gestures —
+            is computed in JS and handed over as uniforms. The shader is a
+            pure function of numbers the harness can read.
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;overflow:hidden;background:#cfc8bb}
+  body{font-family:'Archivo','Hiragino Kaku Gothic ProN',system-ui,sans-serif;color:#2b2622;
+       -webkit-text-size-adjust:100%;-webkit-tap-highlight-color:transparent}
+  canvas.layer{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+  #bg{z-index:0}
+  #view{z-index:1}
+  #fg{z-index:2;pointer-events:none}
+  #video{position:fixed;width:2px;height:2px;opacity:.004;pointer-events:none;left:0;top:0}
+  #flip{position:fixed;top:calc(env(safe-area-inset-top,0px) + 12px);left:12px;z-index:6;
+    font-family:'Archivo',sans-serif;font-weight:600;font-size:12px;letter-spacing:.11em;
+    color:#2b2622;background:rgba(246,241,230,.82);border:1px solid rgba(43,38,34,.3);
+    padding:7px 13px;cursor:pointer;border-radius:2px;transition:background .4s ease-out,color .4s ease-out}
+  #flip:hover{background:#2b2622;color:#f6f1e6}
+  #err{display:none;position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:20;
+    max-width:min(86vw,430px);white-space:pre-wrap;line-height:1.85;font-size:13px;
+    background:#f6f1e6;border:1px solid rgba(43,38,34,.35);border-left:3px solid #c4452f;
+    padding:18px 20px;color:#2b2622;border-radius:2px}
+  #ttl{position:fixed;top:calc(env(safe-area-inset-top,0px) + 9px);left:50%;transform:translateX(-50%);
+    z-index:6;pointer-events:none;text-align:center}
+  #ttl .k{font-family:'Murecho',sans-serif;font-weight:700;font-size:clamp(18px,4.8vw,26px);
+    letter-spacing:.3em;line-height:1.2;color:rgba(43,38,34,.82);text-indent:.3em}
+  #ttl .s{font-family:'Archivo',sans-serif;font-weight:400;font-size:11px;
+    letter-spacing:.34em;color:rgba(43,38,34,.5);margin-top:2px;text-indent:.34em;text-transform:uppercase}
+  #read{position:fixed;top:calc(env(safe-area-inset-top,0px) + 12px);right:12px;z-index:6;
+    font-family:'Archivo',sans-serif;font-size:12px;letter-spacing:.06em;line-height:2;
+    text-align:right;color:rgba(43,38,34,.62);pointer-events:none}
+  #read b{font-weight:600;color:#c4452f;font-variant-numeric:tabular-nums}
+  #panel{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom,0px) + 12px);
+    z-index:5;display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:8px 15px;
+    background:rgba(246,241,230,.9);border:1px solid rgba(43,38,34,.18);padding:8px 16px;border-radius:2px;
+    max-width:min(95vw,640px);box-shadow:0 8px 26px rgba(43,38,34,.13)}
+  .grp{display:flex;align-items:center;gap:7px}
+  .grp>label{font-family:'Murecho',sans-serif;font-weight:500;font-size:12px;letter-spacing:.2em;color:rgba(43,38,34,.62)}
+  .modes{display:flex;gap:3px}
+  .modes button{font-family:'Murecho',sans-serif;font-weight:500;font-size:13px;color:rgba(43,38,34,.55);
+    background:transparent;border:1px solid transparent;padding:3px 10px;cursor:pointer;border-radius:2px;
+    line-height:1.5;transition:color .35s ease-out,background .35s ease-out}
+  .modes button.on{color:#f6f1e6;background:#2b2622}
+  #snd{font-family:'Archivo',sans-serif;font-weight:600;font-size:11px;letter-spacing:.13em;color:rgba(43,38,34,.62);
+    background:transparent;border:1px solid rgba(43,38,34,.28);padding:5px 12px;cursor:pointer;border-radius:2px;
+    transition:color .35s ease-out,background .35s ease-out}
+  #snd.on{color:#f6f1e6;background:#6f675c;border-color:#6f675c}
+  input[type=range]{-webkit-appearance:none;appearance:none;width:82px;height:18px;background:transparent;cursor:pointer}
+  input[type=range]::-webkit-slider-runnable-track{height:1px;background:rgba(43,38,34,.32)}
+  input[type=range]::-moz-range-track{height:1px;background:rgba(43,38,34,.32)}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:11px;height:11px;margin-top:-5px;border-radius:50%;background:#c4452f;border:none}
+  input[type=range]::-moz-range-thumb{width:11px;height:11px;border-radius:50%;background:#c4452f;border:none}
+  .sheet{position:fixed;inset:0;z-index:30;display:flex;align-items:center;justify-content:center;padding:16px;
+    background:rgba(207,200,187,.97);transition:opacity .6s ease-out,visibility .6s}
+  .sheet.gone{opacity:0;visibility:hidden;pointer-events:none}
+  .card{width:min(96vw,560px);max-height:94vh;overflow:auto;background:#f6f1e6;border:1px solid rgba(43,38,34,.2);
+    border-radius:2px;box-shadow:0 22px 60px rgba(43,38,34,.24)}
+  .cap{display:flex;justify-content:space-between;align-items:baseline;font-family:'Archivo',sans-serif;
+    font-size:11px;letter-spacing:.28em;color:rgba(43,38,34,.5);padding:14px 22px;border-bottom:1px solid rgba(43,38,34,.13);
+    text-transform:uppercase}
+  .cap b{font-weight:600;color:#c4452f}
+  .bodyw{padding:22px 24px 24px;color:#2b2622}
+  .ttl2{font-family:'Murecho',sans-serif;font-weight:700;font-size:clamp(21px,5.4vw,30px);letter-spacing:.04em;
+    margin-bottom:13px;line-height:1.5}
+  .lead{font-size:13.5px;line-height:2.05;color:rgba(43,38,34,.84);font-family:'Murecho',sans-serif;font-weight:300}
+  .lead em{font-style:normal;color:#c4452f;font-weight:500}
+  #demo{display:block;width:100%;height:auto;margin:18px 0 14px;border-radius:2px;background:#cfc8bb}
+  .spec{font-size:12.5px;line-height:2.1;color:rgba(43,38,34,.68);border-top:1px solid rgba(43,38,34,.13);
+    padding-top:13px;font-family:'Murecho',sans-serif;font-weight:300}
+  .spec span{display:inline-block;min-width:7.8em;color:#2b2622;font-weight:500}
+  .go{display:block;width:100%;margin-top:18px;font-family:'Murecho',sans-serif;font-weight:700;font-size:16px;
+    letter-spacing:.38em;color:#f6f1e6;background:#2b2622;border:none;border-radius:2px;padding:15px 0;cursor:pointer;
+    text-indent:.38em;transition:transform .35s cubic-bezier(.2,.9,.3,1.25),box-shadow .35s ease-out}
+  .go:hover{transform:translateY(-2px);box-shadow:0 10px 28px rgba(43,38,34,.3)}
+</style>
+</head>
+<body>
+<canvas id="bg" class="layer"></canvas>
+<canvas id="view" class="layer"></canvas>
+<canvas id="fg" class="layer"></canvas>
+<video id="video" playsinline muted autoplay></video>
+<button id="flip">⟲ カメラ</button>
+<div id="err"></div>
+<div id="ttl"><div class="k">揉み紙</div><div class="s" id="modeS">photo</div></div>
+<div id="read">握 <b id="rK">0</b>　皺 <b id="rW">0</b>　面 <b id="rF">0</b></div>
+<div id="panel">
+  <div class="grp"><label>紙</label><div class="modes">
+    <button id="m0" class="on">印画紙</button><button id="m1">和紙</button><button id="m2">薄紙</button></div></div>
+  <div class="grp"><label>皺</label><input type="range" id="crEl" min="20" max="100" value="60"></div>
+  <button id="snd" class="on">音 ON</button>
+</div>
+<div class="sheet" id="startSheet"><div class="card">
+  <div class="cap"><span>OTO-II / MOMIGAMI</span><span>crush <b>it</b></span></div>
+  <div class="bodyw">
+    <div class="ttl2">握れば、くしゃくしゃになる</div>
+    <p class="lead">カメラに映るものが一枚の印画紙に刷られて、手のひらの上に置かれます。<br><em>拳を握れば</em>その紙は本物の紙のように潰れ、面のひとつひとつで光の当たりかたが変わって、立体の塊になります。開けばまた伸びます。<br>ただし<em>折り目は消えません</em>。握るたびに皺が増えて、写真がくたびれていきます。</p>
+    <canvas id="demo" width="660" height="250"></canvas>
+    <div class="spec">
+      <span>手を握る</span>握りこむ深さがそのまま潰れ具合。途中で止められます<br>
+      <span>手を開く</span>紙が伸びます。跳ね返りがあるのは紙だからです<br>
+      <span>手を動かす</span>紙は手について回ります（少し遅れて）<br>
+      <span>両手を掲げる</span><em>新しい紙</em>。折り目が朱く光って消え、皺がゼロに戻ります
+    </div>
+    <button class="go" id="startBtn">紙をうけとる</button>
+  </div></div></div>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+<script>
+(function(){
+'use strict';
+
+var TAU = Math.PI*2;
+function fin(v){ return typeof v === 'number' && isFinite(v); }
+function clamp(v,a,b){ return v<a?a:(v>b?b:v); }
+function chase(c,t,r,dt){ var k = 1-Math.exp(-r*dt); return c+(t-c)*k; }
+function now(){ var p = window.performance; return (p && typeof p.now === 'function' ? p.now() : Date.now())/1000; }
+function $(id){ return document.getElementById(id); }
+
+// ═══════════════════════════════════════════════════════════════════════
+//  DOM
+// ═══════════════════════════════════════════════════════════════════════
+var bgCv = $('bg'), glCv = $('view'), fgCv = $('fg');
+var bg = bgCv.getContext('2d'), fg = fgCv.getContext('2d');
+var video = $('video'), flipBtn = $('flip'), errBox = $('err');
+var modeS = $('modeS'), rK = $('rK'), rW = $('rW'), rF = $('rF');
+var m0 = $('m0'), m1 = $('m1'), m2 = $('m2'), crEl = $('crEl'), sndBtn = $('snd');
+var startSheet = $('startSheet'), startBtn = $('startBtn'), demoCv = $('demo');
+
+var W = 1, H = 1, DPR = 1, MN = 1;
+
+function showError(e){
+  var msg = (e && e.message) ? e.message : String(e || 'unknown');
+  errBox.style.display = 'block';
+  errBox.textContent = 'カメラを起動できませんでした：'+msg+'\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+}
+function showFatal(msg){
+  errBox.style.display = 'block';
+  errBox.textContent = msg;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  PAPERS ─ three, and they crumple differently
+// ═══════════════════════════════════════════════════════════════════════
+var PAPERS = [
+  // fold   : how deep the sheet folds at full crush
+  // shrink : how small the footprint gets (paper cannot stretch)
+  // lines  : how many crease families the pattern has
+  // gloss  : specular exponent — photographic paper is the shiniest
+  // wearK  : how fast a crush leaves permanent creases
+  { name:'印画紙', latin:'photo', fold:0.30, shrink:0.50, lines:9,  gloss:34, wearK:0.55, tint:0.10, spec:0.30, fMin:0.9, fMax:5.0 },
+  { name:'和紙',   latin:'washi', fold:0.44, shrink:0.44, lines:11, gloss:14, wearK:0.85, tint:0.20, spec:0.13, fMin:0.8, fMax:6.4 },
+  { name:'薄紙',   latin:'thin',  fold:0.58, shrink:0.34, lines:12, gloss:22, wearK:1.25, tint:0.15, spec:0.20, fMin:1.4, fMax:9.5 }
+];
+var NL = 12;                       // uniform array size; papers use <= this many
+var paperIx = 0, crPct = 60;
+function P(){ return PAPERS[paperIx]; }
+
+// ═══════════════════════════════════════════════════════════════════════
+//  THE CREASE PATTERN
+//  A crumpled sheet is criss-crossed by straight creases, and the big
+//  lobes are tall while the fine crinkles are shallow — a 1/f spectrum.
+//  So: N families of parallel folds, each a direction, a spatial
+//  frequency, an amplitude of 1/frequency, and a WEAR that only ever
+//  grows. Wear is what survives being flattened out.
+// ═══════════════════════════════════════════════════════════════════════
+var lnX = new Float32Array(NL), lnY = new Float32Array(NL);
+var lnF = new Float32Array(NL), lnA = new Float32Array(NL);
+var lnP = new Float32Array(NL), lnW = new Float32Array(NL);
+var nLines = 9;
+
+function newSheet(){
+  var p = P();
+  nLines = clamp(p.lines, 3, NL);
+  for (var i=0;i<NL;i++){
+    var a = Math.random()*Math.PI;
+    lnX[i] = Math.cos(a); lnY[i] = Math.sin(a);
+    // log-uniform frequency, so one pattern holds both lobes and crinkles
+    var t = i/Math.max(1,(nLines-1));
+    var f = p.fMin * Math.pow(p.fMax/p.fMin, clamp(t + (Math.random()-0.5)*0.22, 0, 1));
+    lnF[i] = f;
+    lnA[i] = 0.42/f;                       // 1/f: big folds are deep
+    lnP[i] = Math.random();
+    lnW[i] = 0;                            // a fresh sheet has no creases
+  }
+  wear = 0;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  SHEET GEOMETRY ─ the same function the vertex shader runs.
+//  Kept in JS because the frame needs the sheet's real screen bounds for
+//  the contact shadow and the HUD, and because a function the harness can
+//  call is worth more than one it can only look at.
+// ═══════════════════════════════════════════════════════════════════════
+var crumple = 0, crumpleV = 0, wear = 0, shrink = 1, foldGain = 0;
+var paperAspect = 4/3;
+var rot = [0,0,0];                          // slow tumble, euler
+var fitScale = 1, ofsX = 0, ofsY = 0, persp = 0.55;
+
+function triW(x){ var f = x - Math.floor(x); return (f < 0.5 ? f : 1-f)*2 - 0.5; }
+function creaseAt(x){
+  var f = x - Math.floor(x);
+  var d = Math.min(Math.abs(f-0.5), Math.min(f, 1-f));   // 0 at a kink, .25 mid-facet
+  return d >= 0.05 ? 0 : (1 - d/0.05);
+}
+
+var sp = { x:0, y:0, z:0, cr:0 };
+function sheetPoint(u, v){
+  var px = (u-0.5)*paperAspect, py = (v-0.5);
+  var z = 0, cr = 0;
+  for (var i=0;i<nLines;i++){
+    var x = (px*lnX[i] + py*lnY[i])*lnF[i] + lnP[i];
+    z += lnA[i]*foldGain*triW(x);
+    var c = creaseAt(x)*lnW[i];
+    if (c > cr) cr = c;
+  }
+  var qx = px*shrink, qy = py*shrink, qz = z;
+  // tumble
+  var ca = Math.cos(rot[0]), sa = Math.sin(rot[0]);
+  var y1 = qy*ca - qz*sa, z1 = qy*sa + qz*ca;
+  var cb = Math.cos(rot[1]), sb = Math.sin(rot[1]);
+  var x2 = qx*cb + z1*sb, z2 = -qx*sb + z1*cb;
+  var cg = Math.cos(rot[2]), sg = Math.sin(rot[2]);
+  var x3 = x2*cg - y1*sg, y3 = x2*sg + y1*cg;
+  sp.x = x3; sp.y = y3; sp.z = z2; sp.cr = cr;
+  return sp;
+}
+// paper space -> clip space (matches the vertex shader exactly)
+function projX(x, z){ return (x/(1 - z*persp))*fitScale + ofsX; }
+function projY(y, z){ return (y/(1 - z*persp))*fitScale*aspectScreen() + ofsY; }
+function aspectScreen(){ return W/Math.max(1,H); }
+
+// ═══════════════════════════════════════════════════════════════════════
+//  WEBGL
+// ═══════════════════════════════════════════════════════════════════════
+var gl = null, prog = null, uni = {}, attrUV = -1;
+var meshBuf = null, idxBuf = null, camTex = null;
+var NU = 0, NV = 0, idxCount = 0, hasDeriv = false;
+
+var VS = [
+  'precision highp float;',
+  'attribute vec2 aUV;',
+  'uniform vec4 uL[12];',            // xy = direction, z = frequency, w = amplitude
+  'uniform vec2 uP[12];',            // x = phase, y = wear
+  'uniform float uAspP, uShrink, uPersp, uFit, uAspS, uShadow;',
+  'uniform vec2 uOfs;',
+  'uniform mat3 uRot;',
+  'varying vec2 vUV; varying vec3 vPos; varying float vCr; varying vec3 vNrm;',
+  'float triw(float x){ float f = fract(x); return (f < 0.5 ? f : 1.0-f)*2.0 - 0.5; }',
+  'float creaseAt(float x){',
+  '  float f = fract(x);',
+  '  float d = min(abs(f-0.5), min(f, 1.0-f));',
+  '  return 1.0 - smoothstep(0.0, 0.05, d);',
+  '}',
+  'vec3 fold(vec2 uv, out float cr){',
+  '  vec2 p = (uv - 0.5) * vec2(uAspP, 1.0);',
+  '  float z = 0.0; cr = 0.0;',
+  '  for (int i=0;i<12;i++){',
+  '    float x = dot(p, uL[i].xy)*uL[i].z + uP[i].x;',
+  '    z += uL[i].w * triw(x);',
+  '    cr = max(cr, creaseAt(x) * uP[i].y);',
+  '  }',
+  '  return uRot * vec3(p*uShrink, z);',
+  '}',
+  'void main(){',
+  '  float cr;',
+  '  vec3 q = fold(aUV, cr);',
+  '  float d = 0.004;',
+  '  float c2;',
+  '  vec3 qu = fold(aUV + vec2(d, 0.0), c2);',
+  '  vec3 qv = fold(aUV + vec2(0.0, d), c2);',
+  '  vNrm = normalize(cross(qu - q, qv - q) + vec3(0.0, 0.0, 1e-5));',
+  '  vUV = aUV; vPos = q; vCr = cr;',
+  '  float zz = (uShadow > 0.5) ? 0.0 : q.z;',
+  '  float w = 1.0 / (1.0 - zz*uPersp);',
+  '  vec2 s = vec2(q.x*w, q.y*w)*uFit;',
+  '  s.y *= uAspS;',
+  '  s += uOfs;',
+  '  if (uShadow > 0.5) s += vec2(0.035, -0.052);',
+  '  float depth = (uShadow > 0.5) ? 0.98 : clamp(-q.z*0.7, -0.95, 0.95);',
+  '  gl_Position = vec4(s, depth, 1.0);',
+  '}'
+].join('\n');
+
+function fsSource(deriv){
+  return [
+    deriv ? '#extension GL_OES_standard_derivatives : enable' : '',
+    'precision mediump float;',
+    'varying vec2 vUV; varying vec3 vPos; varying float vCr; varying vec3 vNrm;',
+    'uniform sampler2D uCam;',
+    'uniform float uMirror, uWear, uFlash, uShadow, uGloss, uSpec, uTint, uHasCam;',
+    'uniform vec3 uPaper, uShadowCol;',
+    'void main(){',
+    '  if (uShadow > 0.5){ gl_FragColor = vec4(uShadowCol*0.34, 0.34); return; }',
+    '  vec2 t = vec2(uMirror > 0.5 ? 1.0 - vUV.x : vUV.x, vUV.y);',
+    '  vec3 albedo = uHasCam > 0.5 ? texture2D(uCam, clamp(t, 0.0, 1.0)).rgb : uPaper*0.82;',
+    '  albedo = mix(albedo, uPaper, uTint);',
+    '  albedo *= (1.0 - 0.46 * vCr * uWear);',
+    deriv ? '  vec3 N = normalize(cross(dFdx(vPos), dFdy(vPos)));' : '  vec3 N = normalize(vNrm);',
+    '  if (dot(N, vec3(0.0,0.0,1.0)) < 0.0) N = -N;',
+    '  vec3 L = normalize(vec3(-0.38, 0.62, 0.68));',
+    '  vec3 V = vec3(0.0, 0.0, 1.0);',
+    '  vec3 Hv = normalize(L + V);',
+    '  float diff = 0.44 + 0.56 * max(0.0, dot(N, L));',
+    '  float spec = pow(max(0.0, dot(N, Hv)), uGloss) * uSpec;',
+    '  float ao = 1.0 - 0.38 * clamp(0.35 - vPos.z*1.6, 0.0, 1.0);',
+    '  vec3 c = albedo * diff * ao + vec3(spec);',
+    '  c = mix(c, vec3(0.90, 0.32, 0.20), uFlash * vCr);',
+    '  c = mix(c, vec3(1.0), uFlash * 0.25);',
+    '  gl_FragColor = vec4(c, 1.0);',
+    '}'
+  ].filter(function(s){ return s !== ''; }).join('\n');
+}
+
+function compile(type, src){
+  var s = gl.createShader(type);
+  gl.shaderSource(s, src);
+  gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)){
+    var log = gl.getShaderInfoLog(s);
+    gl.deleteShader(s);
+    throw new Error('shader: '+log);
+  }
+  return s;
+}
+var UNIFORMS = ['uL','uP','uAspP','uShrink','uPersp','uFit','uAspS','uShadow','uOfs','uRot',
+                'uCam','uMirror','uWear','uFlash','uGloss','uSpec','uTint','uPaper','uShadowCol','uHasCam'];
+function initGL(){
+  try{
+    var opts = { alpha:true, antialias:true, depth:true, premultipliedAlpha:true,
+                 preserveDrawingBuffer:false, powerPreference:'high-performance' };
+    gl = glCv.getContext('webgl', opts) || glCv.getContext('experimental-webgl', opts);
+  }catch(e){ gl = null; }
+  if (!gl){
+    showFatal('この端末では WebGL が使えないため、紙を立体で折ることができません。\n別のブラウザでお試しください。');
+    return false;
+  }
+  hasDeriv = false;
+  try{ hasDeriv = !!gl.getExtension('OES_standard_derivatives'); }catch(e){ hasDeriv = false; }
+  try{
+    var vs = compile(gl.VERTEX_SHADER, VS);
+    var fs = compile(gl.FRAGMENT_SHADER, fsSource(hasDeriv));
+    prog = gl.createProgram();
+    gl.attachShader(prog, vs); gl.attachShader(prog, fs);
+    gl.bindAttribLocation(prog, 0, 'aUV');
+    gl.linkProgram(prog);
+    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
+    gl.useProgram(prog);
+    attrUV = gl.getAttribLocation(prog, 'aUV');
+    for (var i=0;i<UNIFORMS.length;i++) uni[UNIFORMS[i]] = gl.getUniformLocation(prog, UNIFORMS[i]);
+  }catch(e){
+    showFatal('紙のシェーダを組み立てられませんでした：'+((e&&e.message)||e));
+    gl = null; return false;
+  }
+  meshBuf = gl.createBuffer();
+  idxBuf = gl.createBuffer();
+  camTex = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, camTex);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.enable(gl.DEPTH_TEST);
+  gl.depthFunc(gl.LEQUAL);
+  gl.disable(gl.CULL_FACE);
+  gl.enable(gl.BLEND);
+  gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);      // colours are premultiplied
+  gl.clearColor(0,0,0,0);
+  return true;
+}
+
+// the mesh is pure (u,v); every fold happens in the shader
+function buildMesh(nu, nv){
+  if (!gl) return;
+  nu = clamp(nu|0, 12, 220); nv = clamp(nv|0, 12, 220);
+  // 16-bit indices: (nu+1)(nv+1) must stay under 65536
+  while ((nu+1)*(nv+1) > 65535){
+    if (nu >= nv) nu--; else nv--;
+    if (nu < 12 || nv < 12) break;
+  }
+  if (nu === NU && nv === NV) return;
+  NU = nu; NV = nv;
+  var verts = new Float32Array((NU+1)*(NV+1)*2);
+  var k = 0;
+  for (var j=0;j<=NV;j++){
+    for (var i=0;i<=NU;i++){ verts[k++] = i/NU; verts[k++] = j/NV; }
+  }
+  var quads = NU*NV;
+  var idx = new Uint16Array(quads*6);
+  var m = 0;
+  for (var jj=0;jj<NV;jj++){
+    for (var ii=0;ii<NU;ii++){
+      var a = jj*(NU+1)+ii, b = a+1, c = a+(NU+1), d = c+1;
+      idx[m++] = a; idx[m++] = c; idx[m++] = b;
+      idx[m++] = b; idx[m++] = c; idx[m++] = d;
+    }
+  }
+  idxCount = m;
+  gl.bindBuffer(gl.ARRAY_BUFFER, meshBuf);
+  gl.bufferData(gl.ARRAY_BUFFER, verts, gl.STATIC_DRAW);
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, idxBuf);
+  gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, idx, gl.STATIC_DRAW);
+}
+function resize(){
+  DPR = Math.min(2, (window.devicePixelRatio||1));
+  W = Math.max(1, window.innerWidth||320);
+  H = Math.max(1, window.innerHeight||480);
+  MN = Math.max(1, Math.min(W,H));
+  [bgCv, glCv, fgCv].forEach(function(c){
+    c.width = Math.round(W*DPR); c.height = Math.round(H*DPR);
+    c.style.width = W+'px'; c.style.height = H+'px';
+  });
+  bg.setTransform(DPR,0,0,DPR,0,0);
+  fg.setTransform(DPR,0,0,DPR,0,0);
+  if (gl) gl.viewport(0,0,glCv.width,glCv.height);
+  paintSweep();
+  reflow();
+}
+window.addEventListener('resize', resize);
+window.addEventListener('orientationchange', function(){ setTimeout(resize,180); });
+
+// the studio sweep: painted once, never touched again
+function paintSweep(){
+  var g = bg.createLinearGradient(0,0,0,H);
+  g.addColorStop(0,    '#dcd6ca');
+  g.addColorStop(0.46, '#cfc8bb');
+  g.addColorStop(0.80, '#9d958a');
+  g.addColorStop(1,    '#6f675c');
+  bg.fillStyle = g; bg.fillRect(0,0,W,H);
+  bg.globalAlpha = 0.05;
+  for (var i=0;i<1600;i++){
+    bg.fillStyle = (Math.random()<0.5) ? '#000' : '#fff';
+    bg.fillRect(Math.random()*W, Math.random()*H, 1, 1);
+  }
+  bg.globalAlpha = 1;
+}
+
+// Fit the print to the SHORT EDGE. A phone held upright sees a portrait
+// camera, so the print it gets is the same physical size as the one a
+// laptop gets — and when the print's shape does not suit the screen
+// (a landscape print on an upright phone) it is capped to fit rather
+// than being allowed to run off the edge.
+function reflow(){
+  var hp = 0.40*MN;                                   // half-height, px
+  if (paperAspect*hp > 0.45*W) hp = 0.45*W/Math.max(0.05, paperAspect);
+  if (hp > 0.45*H) hp = 0.45*H;
+  fitScale = 4*hp/Math.max(1, W);
+  if (!fin(fitScale) || fitScale <= 0) fitScale = 1;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  CAMERA
+// ═══════════════════════════════════════════════════════════════════════
+var facing = 'user', mirror = true, stream = null, camReady = false;
+function startStream(){
+  var md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) return Promise.reject(new Error('getUserMedia is unavailable'));
+  if (stream && stream.getTracks) stream.getTracks().forEach(function(t){ t.stop(); });
+  return md.getUserMedia({ video:{ facingMode:{ ideal:facing }, width:{ ideal:960 }, height:{ ideal:720 } }, audio:false })
+    .then(function(st){
+      stream = st; video.srcObject = st; mirror = (facing === 'user');
+      var p = video.play(); return (p && p.then) ? p['catch'](function(){}) : null;
+    });
+}
+flipBtn.addEventListener('click', function(){
+  facing = (facing === 'user') ? 'environment' : 'user';
+  loseHands();
+  startStream().then(startMpCamera)['catch'](showError);
+});
+var camAspect = 4/3, covS = 1, covOX = 0, covOY = 0;
+function updateCover(){
+  var vw = (video && video.videoWidth) ? video.videoWidth : 0;
+  var vh = (video && video.videoHeight) ? video.videoHeight : 0;
+  if (vw > 0 && vh > 0) camAspect = vw/vh;
+  if (!fin(camAspect) || camAspect <= 0) camAspect = 4/3;
+  if (Math.abs(camAspect - paperAspect) > 1e-4){ paperAspect = camAspect; reflow(); }
+  var rw = W, rh = W/camAspect;
+  if (rh < H){ rh = H; rw = H*camAspect; }
+  covS = rw; covOX = (W-rw)/2; covOY = (H-rh)/2;
+}
+function sx(nx){ return covOX + (mirror ? (1-nx) : nx)*covS; }
+function sy(ny){ return covOY + ny*(covS/camAspect); }
+
+function uploadCam(){
+  if (!gl || !camTex) return;
+  if (!video || video.readyState < 2 || !video.videoWidth) return;
+  try{
+    gl.bindTexture(gl.TEXTURE_2D, camTex);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, gl.RGB, gl.UNSIGNED_BYTE, video);
+    camReady = true;
+  }catch(e){ /* a frame that is not decodable yet */ }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  HANDS
+//  The grip is a RATIO measured in aspect-corrected camera space — mean
+//  fingertip-to-wrist distance over the hand's own span — so the same
+//  physical fist reads the same in portrait, in landscape, and at any
+//  distance from the lens.
+// ═══════════════════════════════════════════════════════════════════════
+var hands = null, mpCamera = null, mpReady = false, LOST_S = 0.5;
+var TIPS = [4,8,12,16,20];
+var HAND = [ mkHand(), mkHand() ];
+function mkHand(){ return { on:false, t:-9, px:0, py:0, hi:false, L:null, grip:0, fr:2.2 }; }
+var seenT = -9, seenN = 0, raiseT = 0, raiseArmed = true;
+
+function lmOK(L,i){
+  if (!L || typeof L.length !== 'number' || L.length <= i) return false;
+  var p = L[i]; return !!p && fin(p.x) && fin(p.y);
+}
+function handLive(k){ return HAND[k].on && (now()-HAND[k].t) < LOST_S; }
+function releaseHand(h){ h.on = false; h.L = null; h.t = -9; h.hi = false; h.grip = 0; h.fr = 2.2; }
+function loseHands(){ releaseHand(HAND[0]); releaseHand(HAND[1]); seenT = -9; seenN = 0; raiseT = 0; raiseArmed = true; }
+function acDist(L,a,b){
+  var dx = (L[a].x-L[b].x)*camAspect, dy = (L[a].y-L[b].y);
+  return Math.sqrt(dx*dx+dy*dy);
+}
+var GRIP_OPEN = 2.00, GRIP_SHUT = 1.10, GRIP_DEAD = 0.08;
+function onHands(res){
+  var t = now();
+  var lists = (res && res.multiHandLandmarks) ? res.multiHandLandmarks : null;
+  var n = (lists && typeof lists.length === 'number') ? Math.min(2, lists.length) : 0;
+  seenT = t; seenN = 0;
+  for (var k=0;k<2;k++){
+    var h = HAND[k];
+    if (k < n){
+      var L = lists[k], okAll = lmOK(L,0) && lmOK(L,9);
+      for (var q=0; okAll && q<TIPS.length; q++) if (!lmOK(L,TIPS[q])) okAll = false;
+      if (!okAll){ if (h.on && (t-h.t) > LOST_S) releaseHand(h); continue; }
+      var px = sx(L[9].x), py = sy(L[9].y);
+      if (!fin(px) || !fin(py)){ if (h.on && (t-h.t) > LOST_S) releaseHand(h); continue; }
+      var span = acDist(L,0,9), sum = 0;
+      for (var q2=1;q2<TIPS.length;q2++) sum += acDist(L,TIPS[q2],0);
+      var fr = (span > 1e-4) ? (sum/4)/span : 2.2;
+      if (!fin(fr)) fr = 2.2;
+      h.fr = fr;
+      var raw = clamp((GRIP_OPEN - fr)/(GRIP_OPEN - GRIP_SHUT), 0, 1);
+      h.grip = raw <= GRIP_DEAD ? 0 : (raw - GRIP_DEAD)/(1 - GRIP_DEAD);
+      h.px = px; h.py = py; h.on = true; h.t = t; h.L = L;
+      h.hi = (L[9].y < 0.26);
+      seenN++;
+    } else if (h.on && (t-h.t) > LOST_S){
+      releaseHand(h);
+    }
+  }
+}
+function initHands(){
+  if (typeof window.Hands !== 'function') return false;
+  try{
+    hands = new window.Hands({ locateFile:function(f){ return 'https://cdn.jsdelivr.net/npm/@mediapipe/hands/'+f; }});
+    hands.setOptions({ maxNumHands:2, modelComplexity:0, selfieMode:false,
+                       minDetectionConfidence:0.6, minTrackingConfidence:0.5 });
+    hands.onResults(onHands); mpReady = true; return true;
+  }catch(e){ hands = null; return false; }
+}
+function startMpCamera(){
+  if (!mpReady || !hands || mpCamera) return;
+  if (typeof window.Camera !== 'function') return;
+  try{
+    mpCamera = new window.Camera(video, {
+      onFrame:function(){ if (!hands) return Promise.resolve();
+        try{ return hands.send({image:video}); }catch(e){ return Promise.resolve(); } },
+      width:640, height:480 });
+    mpCamera.start();
+  }catch(e){ mpCamera = null; }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  AUDIO ─ the sound of paper being crushed, and nothing else.
+//  Grain density follows |d(crumple)/dt|, so a sheet that is not moving
+//  is silent — which is exactly how paper behaves.
+// ═══════════════════════════════════════════════════════════════════════
+var ac = null, master = null, noiseBuf = null, sndOn = true;
+var rustleG = null, rustleF = null, grains = 0, grainBudget = 0;
+function safeP(p,v,t,tc){
+  if (!p || !fin(v)) return;
+  try{ if (tc === undefined) p.setValueAtTime(v,t); else p.setTargetAtTime(v,t,tc); }catch(e){}
+}
+function initAudio(){
+  if (ac) return;
+  var AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+  try{ ac = new AC(); }catch(e){ ac = null; return; }
+  var comp = ac.createDynamicsCompressor();
+  try{ comp.threshold.value = -16; comp.ratio.value = 4; comp.attack.value = 0.003; comp.release.value = 0.18; }catch(e){}
+  master = ac.createGain(); master.gain.value = 0.9;
+  master.connect(comp); comp.connect(ac.destination);
+  var n = Math.floor(ac.sampleRate*1.6);
+  noiseBuf = ac.createBuffer(1,n,ac.sampleRate);
+  var d = noiseBuf.getChannelData(0);
+  for (var i=0;i<n;i++) d[i] = Math.random()*2-1;
+  var src = ac.createBufferSource(); src.buffer = noiseBuf; src.loop = true;
+  rustleF = ac.createBiquadFilter(); rustleF.type = 'bandpass';
+  rustleF.frequency.value = 3200; rustleF.Q.value = 0.8;
+  rustleG = ac.createGain(); rustleG.gain.value = 0;
+  src.connect(rustleF); rustleF.connect(rustleG); rustleG.connect(master);
+  try{ src.start(); }catch(e){}
+}
+function grain(vol, bright){
+  if (!sndOn || !ac || !master || !noiseBuf) return false;
+  if (grains >= 12) return false;
+  try{
+    var t = ac.currentTime, dur = 0.010 + Math.random()*0.030;
+    var s = ac.createBufferSource(); s.buffer = noiseBuf;
+    var b = ac.createBiquadFilter(); b.type = 'bandpass';
+    b.frequency.value = clamp(1400 + bright*4200 + Math.random()*2200, 120, 14000);
+    b.Q.value = 2.5 + Math.random()*7;
+    var g = ac.createGain();
+    var pk = clamp(vol, 0.004, 0.16);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(pk, t+0.003);
+    g.gain.exponentialRampToValueAtTime(0.0001, t+dur);
+    s.connect(b); b.connect(g); g.connect(master);
+    s.start(t, Math.random()*1.2); s.stop(t+dur+0.02);
+    grains++;
+    s.onended = function(){ grains = Math.max(0, grains-1); };
+    return true;
+  }catch(e){ return false; }
+}
+function snapSound(){
+  if (!sndOn || !ac || !master || !noiseBuf) return;
+  try{
+    var t = ac.currentTime;
+    var s = ac.createBufferSource(); s.buffer = noiseBuf;
+    var b = ac.createBiquadFilter(); b.type = 'highpass'; b.frequency.value = 900;
+    var g = ac.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.34, t+0.004);
+    g.gain.exponentialRampToValueAtTime(0.0001, t+0.30);
+    s.connect(b); b.connect(g); g.connect(master);
+    s.start(t); s.stop(t+0.34);
+    var o = ac.createOscillator(); o.type = 'sine';
+    o.frequency.setValueAtTime(150, t);
+    o.frequency.exponentialRampToValueAtTime(48, t+0.22);
+    var og = ac.createGain();
+    og.gain.setValueAtTime(0.0001, t);
+    og.gain.exponentialRampToValueAtTime(0.20, t+0.010);
+    og.gain.exponentialRampToValueAtTime(0.0001, t+0.30);
+    o.connect(og); og.connect(master);
+    o.start(t); o.stop(t+0.34);
+  }catch(e){}
+}
+function setSound(on){
+  sndOn = !!on;
+  if (sndBtn){ sndBtn.className = sndOn?'on':''; sndBtn.textContent = sndOn?'音 ON':'音 OFF'; }
+  if (!sndOn && ac && rustleG) safeP(rustleG.gain, 0, ac.currentTime, 0.05);
+}
+if (sndBtn) sndBtn.addEventListener('click', function(){ setSound(!sndOn); });
+
+// ═══════════════════════════════════════════════════════════════════════
+//  NEW SHEET ─ the one big event
+// ═══════════════════════════════════════════════════════════════════════
+var snapT = -9, SNAP_CD = 2.5, flash = 0, pageN = 1;
+function freshSheet(){
+  snapT = now();
+  flash = 1;
+  crumple = 0; crumpleV = 0;
+  newSheet();
+  pageN++;
+  snapSound();
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  FRAME
+// ═══════════════════════════════════════════════════════════════════════
+var handX = 0, handY = 0, sheetX = 0, sheetY = 0, sheetVX = 0, sheetVY = 0;
+var facetCount = 0, frameMs = 16, quality = 1;
+
+function step(dt){
+  var t0 = now();
+  updateCover();
+  if (seenT > -8 && (t0-seenT) > 1.2) loseHands();
+  for (var k0=0;k0<2;k0++) if (HAND[k0].on && (t0-HAND[k0].t) > LOST_S) releaseHand(HAND[k0]);
+
+  // ── grip -> crumple. The tighter of the two hands wins.
+  var grip = 0, hx = 0, hy = 0, nH = 0;
+  for (var k=0;k<2;k++){
+    if (!handLive(k)) continue;
+    if (HAND[k].grip > grip) grip = HAND[k].grip;
+    hx += HAND[k].px; hy += HAND[k].py; nH++;
+  }
+  if (nH){ handX = hx/nH; handY = hy/nH; }
+
+  // paper springs OUT faster than it folds IN, and overshoots on release
+  var prev = crumple;
+  var stiff = (grip > crumple) ? 120 : 210;
+  var damp  = (grip > crumple) ? 19 : 15;
+  crumpleV += (grip - crumple)*stiff*dt;
+  crumpleV -= crumpleV*Math.min(1, damp*dt);
+  crumple = clamp(crumple + crumpleV*dt, 0, 1.06);
+  if (crumple <= 0 && crumpleV < 0) crumpleV = 0;
+  var rate = Math.abs(crumple - prev)/Math.max(1e-4, dt);
+
+  // ── the geometry uniforms, all computed here so they can be read back
+  var p = P();
+  var kk = clamp(crumple, 0, 1.06);
+  var ease = kk*kk*(3 - 2*Math.min(1,kk));            // smoothstep-ish
+  foldGain = p.fold*ease*(0.55 + 0.45*(crPct/100));
+  shrink = 1 - (1 - p.shrink)*ease;
+  rot[0] = Math.sin(t0*0.23)*0.30*ease;
+  rot[1] = Math.sin(t0*0.17+1.3)*0.34*ease;
+  rot[2] = Math.sin(t0*0.11+2.1)*0.12*ease;
+
+  // ── wear: crumpling leaves creases, and creases do not come out
+  if (kk > 0.12){
+    var add = p.wearK*kk*dt*0.55;
+    wear = Math.min(1, wear + add);
+    for (var i=0;i<nLines;i++){
+      // a fold family only wears while it is actually being folded
+      var w = lnW[i] + add*(0.35 + 0.65*Math.min(1, lnA[i]*6));
+      lnW[i] = w > 1 ? 1 : w;
+    }
+  }
+
+  // ── the sheet sits in your hand, and lags it
+  var tx = 0, ty = 0;
+  if (nH){
+    tx = clamp((handX/W - 0.5)*1.3, -0.42, 0.42);
+    ty = clamp((0.5 - handY/H)*1.3, -0.42, 0.42);
+  }
+  sheetVX += (tx - sheetX)*90*dt; sheetVX -= sheetVX*Math.min(1, 13*dt);
+  sheetVY += (ty - sheetY)*90*dt; sheetVY -= sheetVY*Math.min(1, 13*dt);
+  sheetX += sheetVX*dt; sheetY += sheetVY*dt;
+  if (!fin(sheetX)) { sheetX = 0; sheetVX = 0; }
+  if (!fin(sheetY)) { sheetY = 0; sheetVY = 0; }
+  ofsX = sheetX; ofsY = sheetY;
+
+  // ── 一撃: both hands high -> a fresh sheet
+  var fresh = seenN >= 2 && (t0 - seenT) < 0.3;
+  var bothHi = fresh && handLive(0) && handLive(1) && HAND[0].hi && HAND[1].hi;
+  if (bothHi){
+    raiseT += dt;
+    if (raiseArmed && raiseT > 0.45 && (t0 - snapT) > SNAP_CD){ raiseArmed = false; freshSheet(); }
+  } else { raiseT = 0; raiseArmed = true; }
+  flash = Math.max(0, flash - dt*1.6);
+
+  uploadCam();
+  draw();
+  drawHands();
+  driveAudio(rate);
+
+  if (rK) rK.textContent = String(Math.round(clamp(crumple,0,1)*100));
+  if (rW) rW.textContent = String(Math.round(wear*100));
+  if (rF) rF.textContent = String(facetCount);
+}
+
+function driveAudio(rate){
+  if (!ac || !rustleG) return;
+  var t = ac.currentTime;
+  var r = clamp(rate, 0, 6);
+  safeP(rustleG.gain, sndOn ? clamp(r*0.055, 0, 0.22) : 0, t, 0.04);
+  if (rustleF) safeP(rustleF.frequency, 2200 + r*900, t, 0.06);
+  if (!sndOn) return;
+  grainBudget = Math.min(10, grainBudget + r*22*0.016);
+  while (grainBudget >= 1){
+    grainBudget -= 1;
+    if (!grain(0.012 + Math.random()*0.05 + r*0.012, clamp(crumple,0,1))) break;
+  }
+}
+
+var mat3 = new Float32Array(9);
+var uLarr = new Float32Array(NL*4), uParr = new Float32Array(NL*2);
+function packUniforms(){
+  var ca = Math.cos(rot[0]), sa = Math.sin(rot[0]);
+  var cb = Math.cos(rot[1]), sb = Math.sin(rot[1]);
+  var cg = Math.cos(rot[2]), sg = Math.sin(rot[2]);
+  // Rz(g) * Ry(b) * Rx(a), column-major for GL
+  var r00 = cg*cb, r01 = cg*sb*sa - sg*ca, r02 = cg*sb*ca + sg*sa;
+  var r10 = sg*cb, r11 = sg*sb*sa + cg*ca, r12 = sg*sb*ca - cg*sa;
+  var r20 = -sb,   r21 = cb*sa,            r22 = cb*ca;
+  mat3[0]=r00; mat3[1]=r10; mat3[2]=r20;
+  mat3[3]=r01; mat3[4]=r11; mat3[5]=r21;
+  mat3[6]=r02; mat3[7]=r12; mat3[8]=r22;
+  for (var i=0;i<NL;i++){
+    // slots past the active crease count are zeroed rather than skipped:
+    // a loop that breaks on a uniform is not portable GLSL ES 1.0
+    var live = i < nLines;
+    uLarr[i*4+0] = live ? lnX[i] : 1; uLarr[i*4+1] = live ? lnY[i] : 0;
+    uLarr[i*4+2] = live ? lnF[i] : 1; uLarr[i*4+3] = live ? lnA[i]*foldGain : 0;
+    uParr[i*2+0] = live ? lnP[i] : 0; uParr[i*2+1] = live ? lnW[i] : 0;
+  }
+  for (var j=0;j<uLarr.length;j++) if (!fin(uLarr[j])) uLarr[j] = 0;
+  for (var j2=0;j2<uParr.length;j2++) if (!fin(uParr[j2])) uParr[j2] = 0;
+}
+
+function draw(){
+  if (!gl || !prog) return;
+  packUniforms();
+  gl.viewport(0,0,glCv.width,glCv.height);
+  gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+  gl.useProgram(prog);
+  gl.bindBuffer(gl.ARRAY_BUFFER, meshBuf);
+  gl.enableVertexAttribArray(attrUV);
+  gl.vertexAttribPointer(attrUV, 2, gl.FLOAT, false, 0, 0);
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, idxBuf);
+
+  var p = P();
+  gl.uniform4fv(uni.uL, uLarr);
+  gl.uniform2fv(uni.uP, uParr);
+  gl.uniform1f(uni.uAspP, paperAspect);
+  gl.uniform1f(uni.uShrink, shrink);
+  gl.uniform1f(uni.uPersp, persp);
+  gl.uniform1f(uni.uFit, fitScale);
+  gl.uniform1f(uni.uAspS, aspectScreen());
+  gl.uniform2f(uni.uOfs, ofsX, ofsY);
+  gl.uniformMatrix3fv(uni.uRot, false, mat3);
+  gl.uniform1f(uni.uMirror, mirror ? 1 : 0);
+  gl.uniform1f(uni.uWear, wear);
+  gl.uniform1f(uni.uFlash, flash);
+  gl.uniform1f(uni.uGloss, p.gloss);
+  gl.uniform1f(uni.uSpec, p.spec);
+  gl.uniform1f(uni.uTint, p.tint);
+  gl.uniform1f(uni.uHasCam, camReady ? 1 : 0);
+  gl.uniform3f(uni.uPaper, 0.965, 0.945, 0.902);
+  gl.uniform3f(uni.uShadowCol, 0.20, 0.18, 0.16);
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, camTex);
+  gl.uniform1i(uni.uCam, 0);
+
+  // the print casts a real shadow: the same mesh, flattened and offset
+  gl.uniform1f(uni.uShadow, 1);
+  gl.depthMask(false);
+  gl.drawElements(gl.TRIANGLES, idxCount, gl.UNSIGNED_SHORT, 0);
+  // and then the print itself
+  gl.uniform1f(uni.uShadow, 0);
+  gl.depthMask(true);
+  gl.drawElements(gl.TRIANGLES, idxCount, gl.UNSIGNED_SHORT, 0);
+  facetCount = (idxCount/3)|0;
+}
+
+var HAND_EDGES = [[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],
+                  [9,13],[13,14],[14,15],[15,16],[13,17],[17,18],[18,19],[19,20],[0,17]];
+function drawHands(){
+  fg.setTransform(DPR,0,0,DPR,0,0);
+  fg.clearRect(0,0,W,H);
+  for (var k=0;k<2;k++){
+    var h = HAND[k];
+    if (!handLive(k) || !h.L) continue;
+    var L = h.L;
+    var g = h.grip;
+    fg.strokeStyle = 'rgba(43,38,34,'+(0.30 + 0.45*g).toFixed(3)+')';
+    fg.lineWidth = Math.max(1.4, MN*0.0040);
+    fg.lineCap = 'round'; fg.lineJoin = 'round';
+    fg.beginPath();
+    for (var e=0;e<HAND_EDGES.length;e++){
+      var a = HAND_EDGES[e][0], b = HAND_EDGES[e][1];
+      if (!lmOK(L,a) || !lmOK(L,b)) continue;
+      var x1 = sx(L[a].x), y1 = sy(L[a].y), x2 = sx(L[b].x), y2 = sy(L[b].y);
+      if (!fin(x1)||!fin(y1)||!fin(x2)||!fin(y2)) continue;
+      fg.moveTo(x1,y1); fg.lineTo(x2,y2);
+    }
+    fg.stroke();
+    // how hard this hand is gripping, as a ring that closes
+    if (g > 0.02){
+      var r = MN*0.052;
+      fg.strokeStyle = 'rgba(196,69,47,0.85)';
+      fg.lineWidth = Math.max(2, MN*0.006);
+      fg.beginPath();
+      fg.arc(h.px, h.py, r, -Math.PI/2, -Math.PI/2 + TAU*g);
+      fg.stroke();
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  ADAPTIVE MESH
+// ═══════════════════════════════════════════════════════════════════════
+function adapt(ms){
+  frameMs = frameMs*0.9 + ms*0.1;
+  var before = quality;
+  if (frameMs > 26) quality = Math.max(0.35, quality*0.94);
+  else if (frameMs < 14) quality = Math.min(1.35, quality*1.03);
+  if (Math.abs(quality-before) > 0.02) applyMesh();
+}
+function applyMesh(){
+  var base = 118*quality;
+  var nu = Math.round(base*Math.sqrt(Math.max(0.35, paperAspect)));
+  var nv = Math.round(base/Math.sqrt(Math.max(0.35, paperAspect)));
+  buildMesh(nu, nv);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  LOOP
+// ═══════════════════════════════════════════════════════════════════════
+var running = false, lastT = 0;
+function frame(){
+  if (!running) return;
+  var t0 = now();
+  var dt = clamp(t0-lastT, 0.001, 0.05);
+  lastT = t0;
+  step(dt);
+  adapt((now()-t0)*1000);
+  requestAnimationFrame(frame);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  UI
+// ═══════════════════════════════════════════════════════════════════════
+function setPaper(ix){
+  paperIx = clamp(ix|0, 0, PAPERS.length-1);
+  var bs = [m0,m1,m2];
+  for (var i=0;i<bs.length;i++) if (bs[i]) bs[i].className = (i===paperIx)?'on':'';
+  if (modeS) modeS.textContent = PAPERS[paperIx].latin;
+  newSheet();
+}
+if (m0) m0.addEventListener('click', function(){ setPaper(0); });
+if (m1) m1.addEventListener('click', function(){ setPaper(1); });
+if (m2) m2.addEventListener('click', function(){ setPaper(2); });
+if (crEl) crEl.addEventListener('input', function(){
+  var v = parseFloat(crEl.value);
+  crPct = fin(v) ? clamp(v, 10, 100) : 60;
+});
+
+// ─── the teaching loop on the start card ──────────────────────────────
+var demoRaf = 0;
+function runDemo(){
+  if (!demoCv || !demoCv.getContext) return;
+  var d = demoCv.getContext('2d');
+  var DW = demoCv.width, DH = demoCv.height;
+  var LN = [];
+  for (var i=0;i<6;i++){
+    var a = Math.random()*Math.PI;
+    LN.push({ x:Math.cos(a), y:Math.sin(a), f:1.0+Math.random()*3.4, p:Math.random() });
+  }
+  var t0 = now();
+  function step2(){
+    var el = (now()-t0) % 6.0;
+    var k = el < 3.0 ? Math.min(1, el/1.6) : Math.max(0, 1-(el-3.0)/1.1);
+    k = k*k*(3-2*k);
+    d.fillStyle = '#cfc8bb'; d.fillRect(0,0,DW,DH);
+    var N = 16, cx = DW*0.36, cy = DH*0.56, S = Math.min(DW,DH)*0.52*(1-0.42*k);
+    function pt(u,v){
+      var px = (u-0.5)*1.33, py = (v-0.5), z = 0;
+      for (var q=0;q<LN.length;q++){
+        var x = (px*LN[q].x + py*LN[q].y)*LN[q].f + LN[q].p;
+        var f = x - Math.floor(x);
+        z += (0.34/LN[q].f)*(((f<0.5?f:1-f)*2-0.5))*k*0.9;
+      }
+      var w = 1/(1 - z*0.6);
+      return [cx + px*S*w, cy - py*S*w, z];
+    }
+    for (var j=0;j<N;j++){
+      for (var i2=0;i2<N;i2++){
+        var a1 = pt(i2/N, j/N), b1 = pt((i2+1)/N, j/N);
+        var c1 = pt((i2+1)/N,(j+1)/N), e1 = pt(i2/N,(j+1)/N);
+        var nz = (b1[0]-a1[0])*(e1[1]-a1[1]) - (b1[1]-a1[1])*(e1[0]-a1[0]);
+        var sh = clamp(0.52 + (a1[2]-b1[2])*3.4 + (a1[2]-e1[2])*2.2, 0.12, 1);
+        var g = Math.round(246*sh), g2 = Math.round(241*sh), g3 = Math.round(230*sh);
+        d.fillStyle = 'rgb('+g+','+g2+','+g3+')';
+        d.beginPath(); d.moveTo(a1[0],a1[1]); d.lineTo(b1[0],b1[1]);
+        d.lineTo(c1[0],c1[1]); d.lineTo(e1[0],e1[1]); d.closePath(); d.fill();
+        if (nz === 0) continue;
+      }
+    }
+    // the hand, opening and closing
+    var gx = DW*0.80, gy = DH*0.56, r = DH*0.20;
+    d.strokeStyle = 'rgba(43,38,34,0.8)'; d.lineWidth = 3; d.lineCap = 'round';
+    d.beginPath();
+    for (var f2=0;f2<4;f2++){
+      var ang = -1.15 + f2*0.5;
+      var len = r*(1 - 0.55*k);
+      d.moveTo(gx, gy+r*0.55);
+      d.lineTo(gx + Math.sin(ang)*len*0.7, gy + r*0.55 - Math.cos(ang)*len);
+    }
+    d.moveTo(gx-r*0.5, gy+r*0.6); d.lineTo(gx+r*0.5, gy+r*0.6);
+    d.stroke();
+    d.font = '600 13px Murecho, sans-serif';
+    d.fillStyle = 'rgba(43,38,34,0.72)';
+    d.fillText(k > 0.5 ? '握る ─ 紙が潰れる' : '開く ─ 紙が伸びる（折り目は残る）', 18, 28);
+    demoRaf = requestAnimationFrame(step2);
+  }
+  step2();
+}
+function stopDemo(){ if (demoRaf) cancelAnimationFrame(demoRaf); demoRaf = 0; }
+
+// ─── start ────────────────────────────────────────────────────────────
+function begin(){
+  initAudio();
+  if (ac && ac.state === 'suspended' && ac.resume){ try{ ac.resume(); }catch(e){} }
+  stopDemo();
+  if (startSheet) startSheet.className = 'sheet gone';
+  if (!gl && !initGL()) return;
+  resize();
+  applyMesh();
+  newSheet();
+  setPaper(paperIx);
+  setSound(sndOn);
+  initHands();
+  startStream().then(startMpCamera)['catch'](showError);
+  if (!running){ running = true; lastT = now(); requestAnimationFrame(frame); }
+}
+if (startBtn) startBtn.addEventListener('click', begin);
+
+newSheet();
+resize();
+runDemo();
+
+// ═══════════════════════════════════════════════════════════════════════
+//  HEADLESS TEST HOOK
+// ═══════════════════════════════════════════════════════════════════════
+window.__MOMI__ = {
+  begin:begin, step:step, onHands:onHands, loseHands:loseHands, adapt:adapt,
+  freshSheet:freshSheet, setPaper:setPaper, setSound:setSound, newSheet:newSheet,
+  sheetPoint:sheetPoint, projX:projX, projY:projY, packUniforms:packUniforms,
+  applyMesh:applyMesh, setCamAspect:function(a){ camAspect = a; },
+  get crumple(){ return crumple; }, set crumple(v){ crumple = v; },
+  get wear(){ return wear; }, set wear(v){ wear = v; },
+  get shrink(){ return shrink; }, get foldGain(){ return foldGain; },
+  get lnW(){ return lnW; }, get lnA(){ return lnA; }, get lnF(){ return lnF; },
+  get nLines(){ return nLines; }, get HAND(){ return HAND; },
+  get snapT(){ return snapT; }, get flash(){ return flash; }, get pageN(){ return pageN; },
+  get NU(){ return NU; }, get NV(){ return NV; }, get idxCount(){ return idxCount; },
+  get uLarr(){ return uLarr; }, get uParr(){ return uParr; }, get mat3(){ return mat3; },
+  get quality(){ return quality; }, get paperIx(){ return paperIx; },
+  get fitScale(){ return fitScale; }, get paperAspect(){ return paperAspect; },
+  get camAspect(){ return camAspect; }, get W(){ return W; }, get H(){ return H; },
+  get MN(){ return MN; }, get crPct(){ return crPct; }, set crPct(v){ crPct = v; },
+  get VS(){ return VS; }, fsSource:fsSource, get UNIFORMS(){ return UNIFORMS; },
+  get gl(){ return gl; }, get sheetOfs(){ return [ofsX, ofsY]; }
+};
+})();
+</script>
+</body>
+</html>
