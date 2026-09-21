@@ -1,0 +1,548 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="description" content="カメラに映った人物だけが白黒のクロスハッチ線画になり、動いた跡は青・マゼンタ・黄の色つきシルエットになって遅れてついてくる。線の細かさ・遅れ・コントラスト・配色を操作パネルで調整できる。">
+<meta name="theme-color" content="#000000">
+<title>ZANZOU ─ 線画になった今と、色で遅れてくる少し前</title>
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  ZANZOU 残像 ─ 線画になった今と、色で遅れてくる少し前   ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  MOOD      展覧会の壁に貼られた製版の下描きが、動いている。人物だけが
+            紙の上のクロスハッチ ── 交差する斜線の密度で陰影を作る、銅版画
+            や万年筆デッサンの技法 ── として切り出され、いま・ここに立つ。
+            その少し前のあなたは輪郭だけの色面になって、三段階遅れて後ろ
+            からついてくる。今は白黒で線、少し前は色でベタ。時間そのもの
+            が白黒とカラーの境界になっている。
+
+  PALETTE   紙          #000 の下地に #fff に近い薄墨でハッチを引く。この
+                                       画廊で数少ない「黒背景に白い線画」。
+             残影・参照   青 #1c21a0 ・桃 #ff1f99 ・黄 #ffb20a（開始画面の
+                                       スウォッチそのもの。参考にした実写
+                                       映像の三色を踏襲）。
+             残影・ネオン  紫 #7326ff ・水 #0ce6ff ・黄緑 #b8ff1a
+             残影・赤系   臙脂 #59050f ・緋 #f21a26 ・橙 #ff8c14
+             配色は3系統を巡回で切り替えられる（操作パネル「配色」）。
+             MOOD LINE: 現在は無彩色、過去は有彩色。時間が経つほど色が
+             つくという、写真のセピア化とは逆向きの規則。
+
+  BACKGROUND  背景そのものは無い。ライブ映像がそのままキャンバスで、
+              人物のマスクがある場所だけ描き替えられる。マスク外＝背景は
+              常に素のカメラ映像のまま。
+
+  TYPE      -apple-system 系のシステムフォントのみ。Google Fonts は読み
+            込まない ── 画面そのものがすでにインクの線でできているので、
+            UI の文字まで書体で主張すると絵と喧嘩する。
+
+  MOTION    現在の人物はフレームごとに描き直る「生きた線画」。過去の
+            シルエットは3枚のリングバッファから時刻で引くので、遅れの
+            長さ（青 180ms・マゼンタ 400ms・黄 700ms、いずれもスライダー
+            で倍率をかけられる）だけが動きの記録になる。イージングは
+            一切かけていない ── 記録と再生だけが遅れを作る。
+
+  SIGNATURE  白黒の「今」が有彩色の「少し前」を踏んで進む。止まれば
+            3枚の残影が現在の輪郭にぴったり重なって消え、動くほど
+            3色が体の後ろに尾を引く。
+
+  TECHNICAL SIGNATURE  MediaPipe Tasks Vision の ImageSegmenter（セルフィ
+            ーセグメンター）で毎フレーム人物マスクを取り、R8 テクスチャの
+            リングバッファ（64枚）へ時刻付きで積む。描画時は「いま」と
+            「時刻 now−delay 以前でいちばん新しいマスク」を3段ぶん引いて
+            くる本物の時間索引で、フェードではなく実際の過去のマスクその
+            ものを表示している。人物本体は WebGL2 フラグメントシェーダの
+            斜線関数（角度と間隔を保ったまま輝度でストローク幅を変える、
+            本物のクロスハッチ）で描く。AI モデルが読み込めない・遅い環境
+            では背景差分にフォールバックし、見た目を保ったまま動きつづ
+            ける。
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<style>
+:root{--glass:rgba(16,16,20,.62);--acc:#ff2f9a}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none}
+html,body{margin:0;height:100%;background:#000;overflow:hidden;color:#fff;
+  font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto Sans JP",sans-serif}
+#gl{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+#cam{position:fixed;left:0;top:0;width:2px;height:2px;opacity:.01;pointer-events:none}
+
+#start{position:fixed;inset:0;z-index:20;background:#000;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:18px;padding:24px;text-align:center}
+#start h1{margin:0;font-size:28px;letter-spacing:.28em;font-weight:800}
+#start p{margin:0;font-size:13px;line-height:1.8;color:#aaa;max-width:300px}
+#start .sw{display:flex;gap:6px}
+#start .sw i{width:34px;height:10px;display:block}
+#go{appearance:none;border:0;border-radius:999px;background:#fff;color:#000;font-size:16px;font-weight:700;
+  padding:14px 44px;letter-spacing:.1em}
+#err{color:#ff6b8a;font-size:12px;line-height:1.7;max-width:300px;min-height:1em}
+
+#status{position:fixed;left:12px;top:calc(env(safe-area-inset-top) + 10px);z-index:10;font-size:11px;
+  color:rgba(255,255,255,.85);text-shadow:0 1px 3px #000;pointer-events:none;line-height:1.5;max-width:70vw}
+#panel{position:fixed;left:10px;right:10px;bottom:calc(env(safe-area-inset-bottom) + 10px);z-index:10;
+  background:var(--glass);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+  border:1px solid rgba(255,255,255,.12);border-radius:18px;padding:12px 14px;display:flex;flex-direction:column;gap:10px;
+  transition:opacity .2s,transform .2s}
+#panel.hide{opacity:0;transform:translateY(20px);pointer-events:none}
+.chips{display:flex;gap:6px}
+.chips button{flex:1;appearance:none;border:1px solid rgba(255,255,255,.22);background:transparent;color:#fff;
+  border-radius:10px;padding:9px 4px;font-size:12px;font-weight:600}
+.chips button.on{background:#fff;color:#000;border-color:#fff}
+.chips button:active{transform:scale(.97)}
+label{display:flex;align-items:center;gap:10px;font-size:11px;color:#ccc}
+label span{width:74px;flex:none}
+input[type=range]{flex:1;accent-color:var(--acc);height:22px}
+#tog,#flip{position:fixed;right:12px;top:calc(env(safe-area-inset-top) + 8px);z-index:11;appearance:none;
+  border:1px solid rgba(255,255,255,.25);background:var(--glass);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
+  color:#fff;border-radius:999px;padding:7px 14px;font-size:12px;font-weight:700;letter-spacing:.06em;opacity:.9}
+#tog.off{opacity:.45;background:rgba(0,0,0,.25)}
+#flip{top:calc(env(safe-area-inset-top) + 46px)}
+#tog:active,#flip:active{transform:scale(.96)}
+#hint{position:fixed;left:0;right:0;top:calc(env(safe-area-inset-top) + 34px);text-align:center;z-index:9;
+  font-size:11px;color:rgba(255,255,255,.7);text-shadow:0 1px 3px #000;pointer-events:none;transition:opacity .6s}
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<video id="cam" playsinline muted autoplay></video>
+<button id="tog" style="display:none">調整</button>
+<button id="flip" style="display:none">⟲ カメラ</button>
+<div id="status"></div>
+<div id="hint"></div>
+
+<div id="panel" class="hide">
+  <div class="chips" id="modes">
+    <button data-m="0" class="on">ハッチ＋残像</button>
+    <button data-m="1">残像のみ</button>
+    <button data-m="2">ハッチのみ</button>
+  </div>
+  <label><span>遅れ</span><input type="range" id="sDelay" min="0.3" max="2.5" step="0.05" value="1"></label>
+  <label><span>線の細かさ</span><input type="range" id="sLines" min="60" max="320" step="5" value="170"></label>
+  <label><span>コントラスト</span><input type="range" id="sCon" min="0.8" max="3" step="0.05" value="1.5"></label>
+  <div class="chips">
+    <button id="bCam">カメラ切替</button>
+    <button id="bInv">マスク反転</button>
+    <button id="bPal">配色</button>
+  </div>
+</div>
+
+<div id="start">
+  <h1>ZANZOU</h1>
+  <div class="sw"><i style="background:#ffb20a"></i><i style="background:#ff1f99"></i><i style="background:#1c21a0"></i></div>
+  <p>人物だけを線画ハッチにして、<br>動いた跡が色つきで遅れてついてくる。<br>右上の「調整」でパネル、「⟲ カメラ」で前面/背面を切替。</p>
+  <button id="go">はじめる</button>
+  <div id="err"></div>
+</div>
+
+<script type="module">
+/* ============================================================
+   HATCH TRAIL  —  single file
+   camera -> person mask (MediaPipe ImageSegmenter) -> WebGL2
+   ・現在の人物: 白黒クロスハッチ
+   ・過去の人物シルエット(遅延3枚): 青 / マゼンタ / 黄 のベタ塗り
+   ============================================================ */
+const MP_VER   = '0.10.21';
+const MP_BASE  = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP_VER}`;
+const MODEL_URL= 'https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite';
+
+const $ = s => document.querySelector(s);
+const canvas = $('#gl'), video = $('#cam'), statusEl = $('#status'), hintEl = $('#hint');
+
+const S = { mode:0, delay:1, lines:170, con:1.5, pal:0, facing:'user', invert:false };
+
+/* ---------- audio: a small, real pen-tick, not a soundtrack ----------
+   This piece was silent. House convention wants AudioContext created/
+   resumed from the start overlay; a bare resume with no sound at all
+   would satisfy the letter but not the spirit, so a short click marks
+   the moments you actually touch a control (mode / palette / invert /
+   camera flip) — like the tick of a pen changing line. */
+let actx = null, master = null;
+function ensureAudio(){
+  if(actx){ if(actx.state==='suspended') actx.resume().catch(()=>{}); return; }
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if(!AC) return;
+  actx = new AC();
+  master = actx.createGain(); master.gain.value = 0.16; master.connect(actx.destination);
+}
+function playClick(freq){
+  if(!actx || actx.state!=='running') return;
+  const t0 = actx.currentTime;
+  const osc = actx.createOscillator(), g = actx.createGain();
+  osc.type = 'square'; osc.frequency.setValueAtTime(freq, t0);
+  g.gain.setValueAtTime(0, t0); g.gain.linearRampToValueAtTime(0.6, t0+0.004); g.gain.exponentialRampToValueAtTime(0.0001, t0+0.05);
+  osc.connect(g); g.connect(master); osc.start(t0); osc.stop(t0+0.06);
+}
+const BASE_DELAY = [180, 400, 700];           // ms  (青 / マゼンタ / 黄)  × スライダー
+const PALETTES = [
+  [[.11,.13,.62],[1,.12,.60],[1,.70,.04]],    // 参考動画: 青 / マゼンタ / 黄
+  [[.45,.15,1],[.05,.90,1],[.72,1,.10]],      // ネオン
+  [[.35,.02,.10],[.95,.10,.15],[1,.55,.08]],  // 赤系
+];
+
+/* ---------- WebGL2 ---------- */
+const gl = canvas.getContext('webgl2', {antialias:false, alpha:false, powerPreference:'high-performance'});
+if(!gl){ $('#err').textContent = 'WebGL2 に未対応のブラウザです'; throw new Error('no webgl2'); }
+
+const VS = `#version 300 es
+in vec2 p; out vec2 vUv;
+void main(){ vUv = p*.5+.5; gl_Position = vec4(p,0.,1.); }`;
+
+const FS = `#version 300 es
+precision highp float;
+in vec2 vUv; out vec4 outC;
+uniform sampler2D uVid,uM0,uM1,uM2,uM3;
+uniform vec2  uScale,uRes;
+uniform float uMirror,uMode,uLines,uCon,uAng;
+uniform vec3  uC1,uC2,uC3;
+
+// 斜め平行線。t=太さ(0..1)。t=0で無し / t=1でベタ
+float ink(vec2 fc,float ang,float freq,float t){
+  float c=cos(ang), s=sin(ang);
+  float y=(-s*fc.x + c*fc.y)*freq;
+  float d=abs(fract(y)-.5);
+  float aa=min(fwidth(y)*.8,.25);
+  float hw=t*.5;
+  float v=1.-smoothstep(hw-aa,hw+aa,d);
+  v*=smoothstep(0.,.06,t);
+  return max(v,smoothstep(.92,1.,t));
+}
+float msk(sampler2D s,vec2 uv){ return smoothstep(.36,.64,texture(s,uv).r); }
+
+void main(){
+  vec2 uv = vec2(vUv.x, 1.-vUv.y);
+  uv = (uv-.5)*uScale + .5;
+  if(uMirror>.5) uv.x = 1.-uv.x;
+
+  vec3 cam = texture(uVid,uv).rgb;
+  vec3 col = cam;
+  float freq = uLines/uRes.y;
+  vec2  fc   = gl_FragCoord.xy;
+
+  float m0 = msk(uM0,uv);
+  float m1 = msk(uM1,uv);
+  float m2 = msk(uM2,uv);
+  float m3 = msk(uM3,uv);
+
+  // 遅れて付いてくる色シルエット（古い順に下から重ねる）
+  float stripe = 1. - .22*ink(fc,uAng,freq*.9,.45);
+  float useTrail = step(uMode,1.5);            // mode 0,1 で有効
+  col = mix(col, uC3*stripe, m3*useTrail);
+  col = mix(col, uC2*stripe, m2*useTrail);
+  col = mix(col, uC1*stripe, m1*useTrail);
+
+  // 現在の人物
+  float lum = dot(cam, vec3(.299,.587,.114));
+  float l   = clamp((lum-.5)*uCon+.5, 0., 1.);
+  float t1  = 1.-smoothstep(.18,.88,l);        // 主線：暗いほど太い
+  float t2  = 1.-smoothstep(.04,.40,l);        // 交差線：影だけ
+  float k   = max(ink(fc,uAng,freq,t1), ink(fc,uAng+1.05,freq,t2));
+  vec3 hatch  = mix(vec3(.98), vec3(.03), k);
+  vec3 person = (uMode>.5 && uMode<1.5) ? cam : hatch;   // mode1 は素のカメラ
+  col = mix(col, person, m0);
+
+  outC = vec4(col,1.);
+}`;
+
+function sh(type, src){
+  const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+  if(!gl.getShaderParameter(s, gl.COMPILE_STATUS)){ console.error(gl.getShaderInfoLog(s)); throw new Error(gl.getShaderInfoLog(s)); }
+  return s;
+}
+const prog = gl.createProgram();
+gl.attachShader(prog, sh(gl.VERTEX_SHADER, VS));
+gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, FS));
+gl.linkProgram(prog);
+if(!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
+gl.useProgram(prog);
+
+const vb = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, vb);
+gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
+const loc = gl.getAttribLocation(prog,'p');
+gl.enableVertexAttribArray(loc);
+gl.vertexAttribPointer(loc,2,gl.FLOAT,false,0,0);
+
+const U = {};
+['uVid','uM0','uM1','uM2','uM3','uScale','uRes','uMirror','uMode','uLines','uCon','uAng','uC1','uC2','uC3']
+  .forEach(n => U[n] = gl.getUniformLocation(prog,n));
+gl.uniform1i(U.uVid,0); gl.uniform1i(U.uM0,1); gl.uniform1i(U.uM1,2); gl.uniform1i(U.uM2,3); gl.uniform1i(U.uM3,4);
+
+function newTex(){
+  const t = gl.createTexture();
+  gl.activeTexture(gl.TEXTURE7);              // 作業用ユニット（映像/マスクのバインドを壊さない）
+  gl.bindTexture(gl.TEXTURE_2D,t);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+  return t;
+}
+const vidTex = newTex();
+gl.activeTexture(gl.TEXTURE7);
+gl.bindTexture(gl.TEXTURE_2D, vidTex);
+gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,1,1,0,gl.RGBA,gl.UNSIGNED_BYTE,new Uint8Array([0,0,0,255]));
+
+/* ---------- マスク履歴リング（遅延用） ---------- */
+const N = 64;
+let ring = [], tsArr = new Float64Array(N).fill(-1), head = -1, count = 0;
+let MW = 256, MH = 256, u8 = new Uint8Array(MW*MH);
+let blankTex = null;
+
+function allocRing(w,h){
+  ring.forEach(t => gl.deleteTexture(t));
+  if(blankTex) gl.deleteTexture(blankTex);
+  MW = w; MH = h; u8 = new Uint8Array(w*h);
+  ring = [];
+  for(let i=0;i<N;i++){
+    const t = newTex();
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT,1);
+    gl.texImage2D(gl.TEXTURE_2D,0,gl.R8,w,h,0,gl.RED,gl.UNSIGNED_BYTE,null);
+    ring.push(t);
+  }
+  blankTex = newTex();
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT,1);
+  gl.texImage2D(gl.TEXTURE_2D,0,gl.R8,w,h,0,gl.RED,gl.UNSIGNED_BYTE,new Uint8Array(w*h));
+  tsArr.fill(-1); head = -1; count = 0;
+  work.width = w; work.height = h;
+}
+function pushMask(now){
+  head = (head+1) % N;
+  gl.activeTexture(gl.TEXTURE7);
+  gl.bindTexture(gl.TEXTURE_2D, ring[head]);
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT,1);
+  gl.texSubImage2D(gl.TEXTURE_2D,0,0,0,MW,MH,gl.RED,gl.UNSIGNED_BYTE,u8);
+  tsArr[head] = now; count = Math.min(count+1, N);
+}
+function pick(now, delay){
+  const target = now - delay;
+  let oldest = -1;
+  for(let k=0;k<count;k++){
+    const i = (head-k+N) % N;
+    oldest = i;
+    if(tsArr[i] <= target) return ring[i];
+  }
+  // 履歴が足りない: まだ貯まってる最中なら空、リングが満杯なら最古
+  return (count>=N && oldest>=0) ? ring[oldest] : blankTex;
+}
+
+/* ---------- カメラ ---------- */
+const work = document.createElement('canvas');
+const wctx = work.getContext('2d', {willReadFrequently:true});
+let stream = null, vw = 0, vh = 0;
+
+async function startCam(){
+  if(stream) stream.getTracks().forEach(t => t.stop());
+  stream = await navigator.mediaDevices.getUserMedia({
+    video:{ facingMode:{ideal:S.facing}, width:{ideal:1280}, height:{ideal:720} }, audio:false });
+  video.srcObject = stream;
+  await video.play();
+  polScore = 0; polLocked = false; bg = null; vw = vh = 0;
+}
+function dimsFor(w,h){ const s=256; return w<h ? [s, Math.round(s*h/w)] : [Math.round(s*w/h), s]; }
+
+/* ---------- 人物マスク ---------- */
+let seg = null, segFails = 0, lastTs = 0, lastSeg = 0, segCount = 0, fpsT = performance.now(), fps = 0;
+let polScore = 0, polLocked = false, polInv = false;
+
+async function initSeg(){
+  try{
+    setStatus('AIモデル読み込み中… (先に簡易モードで動かします)');
+    const mod = await import(`${MP_BASE}/vision_bundle.mjs`);
+    const fileset = await mod.FilesetResolver.forVisionTasks(`${MP_BASE}/wasm`);
+    const make = delegate => mod.ImageSegmenter.createFromOptions(fileset, {
+      baseOptions:{ modelAssetPath: MODEL_URL, delegate },
+      runningMode:'VIDEO', outputConfidenceMasks:true, outputCategoryMask:false });
+    try{ seg = await make('GPU'); }catch(e){ console.warn('GPU delegate failed', e); seg = await make('CPU'); }
+    polScore = 0; polLocked = false; segFails = 0;
+    setStatus('');
+    hint('右上「調整」でパネル切替');
+  }catch(e){
+    console.warn(e);
+    seg = null;
+    setStatus('AI読み込み失敗 → 簡易モード（背景差分）\nスマホを固定して、最初は画面から外れてね');
+  }
+}
+
+function autoInv(A){
+  if(polLocked) return polInv;
+  let sAll=0,nAll=0,sC=0,nC=0;
+  for(let y=0;y<MH;y+=4){
+    for(let x=0;x<MW;x+=4){
+      const v = A[y*MW+x]; sAll+=v; nAll++;
+      if(x>MW*.3 && x<MW*.7 && y>MH*.3 && y<MH*.75){ sC+=v; nC++; }
+    }
+  }
+  const d = sC/Math.max(nC,1) - sAll/Math.max(nAll,1);
+  if(Math.abs(d) > .06){
+    polScore += d>0 ? 1 : -1;
+    if(Math.abs(polScore) >= 8){ polLocked = true; polInv = polScore < 0; }
+  }
+  return polScore < 0;
+}
+
+function runSeg(now){
+  wctx.drawImage(video, 0, 0, MW, MH);
+  const ts = Math.max(lastTs+1, Math.round(now)); lastTs = ts;
+  try{
+    seg.segmentForVideo(work, ts, res => {
+      const ms = res.confidenceMasks;
+      if(!ms || !ms.length) return;
+      const m = ms[0];
+      if(m.width !== MW || m.height !== MH){ allocRing(m.width, m.height); }
+      const A = m.getAsFloat32Array();
+      let inv = ms.length >= 2 ? true : autoInv(A);   // 2枚以上なら [0]=背景
+      inv = inv !== S.invert;
+      for(let i=0;i<u8.length;i++){
+        const v = inv ? 1-A[i] : A[i];
+        u8[i] = v<=0 ? 0 : v>=1 ? 255 : (v*255)|0;
+      }
+      pushMask(now); segCount++;
+    });
+    segFails = 0;
+  }catch(e){
+    console.warn('seg error', e);
+    if(++segFails >= 3){ seg = null; setStatus('AIエラー → 簡易モード（背景差分）'); }
+  }
+}
+
+/* ---- 簡易モード：背景差分（AIが読めない時の保険） ---- */
+let bg = null;
+function runBgSub(now){
+  wctx.drawImage(video, 0, 0, MW, MH);
+  const id = wctx.getImageData(0,0,MW,MH).data, n = MW*MH;
+  if(!bg || bg.length !== n*3){
+    bg = new Float32Array(n*3);
+    for(let i=0,j=0,k=0;i<n;i++,j+=4,k+=3){ bg[k]=id[j]; bg[k+1]=id[j+1]; bg[k+2]=id[j+2]; }
+  }
+  for(let i=0,j=0,k=0;i<n;i++,j+=4,k+=3){
+    const dr=id[j]-bg[k], dg=id[j+1]-bg[k+1], db=id[j+2]-bg[k+2];
+    const d = Math.abs(dr)+Math.abs(dg)+Math.abs(db);
+    const r = d<60 ? .05 : .004;
+    bg[k]+=dr*r; bg[k+1]+=dg*r; bg[k+2]+=db*r;
+    let m = (d-45)/50; m = m<0?0:m>1?1:m;
+    if(S.invert) m = 1-m;
+    u8[i] = (u8[i]*.4 + m*255*.6)|0;
+  }
+  pushMask(now); segCount++;
+}
+
+/* ---------- 描画ループ ---------- */
+function resize(){
+  const dpr = Math.min(window.devicePixelRatio||1, 2);
+  const W = Math.round(innerWidth*dpr), H = Math.round(innerHeight*dpr);
+  if(canvas.width !== W || canvas.height !== H){ canvas.width = W; canvas.height = H; }
+  gl.viewport(0,0,W,H);
+}
+let running = false;
+
+function frame(){
+  requestAnimationFrame(frame);
+  if(!running) return;
+  resize();
+  const now = performance.now();
+
+  if(video.readyState >= 2 && video.videoWidth){
+    if(video.videoWidth !== vw || video.videoHeight !== vh){
+      vw = video.videoWidth; vh = video.videoHeight;
+      const [w,h] = dimsFor(vw,vh); allocRing(w,h);
+    }
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, vidTex);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+    gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,video);
+
+    if(now - lastSeg >= 28){
+      lastSeg = now;
+      if(seg) runSeg(now); else runBgSub(now);
+    }
+  }
+  draw(now);
+
+  if(now - fpsT > 800){
+    fps = Math.round(segCount*1000/(now-fpsT)); segCount = 0; fpsT = now;
+    if(seg && !statusEl.dataset.lock) statusEl.textContent = panelOn() ? `AI ${fps}fps` : '';
+  }
+}
+
+function draw(now){
+  const W = canvas.width, H = canvas.height;
+  const ac = W/H, av = (vw||1)/(vh||1);
+  const sc = ac > av ? [1, av/ac] : [ac/av, 1];
+  gl.uniform2f(U.uScale, sc[0], sc[1]);
+  gl.uniform2f(U.uRes, W, H);
+  gl.uniform1f(U.uMirror, S.facing==='user' ? 1 : 0);
+  gl.uniform1f(U.uMode, S.mode);
+  gl.uniform1f(U.uLines, S.lines);
+  gl.uniform1f(U.uCon, S.con);
+  gl.uniform1f(U.uAng, 0.17);
+  const P = PALETTES[S.pal];
+  gl.uniform3fv(U.uC1, P[0]); gl.uniform3fv(U.uC2, P[1]); gl.uniform3fv(U.uC3, P[2]);
+
+  const cur = head >= 0 ? ring[head] : blankTex;
+  const t1 = pick(now, BASE_DELAY[0]*S.delay);
+  const t2 = pick(now, BASE_DELAY[1]*S.delay);
+  const t3 = pick(now, BASE_DELAY[2]*S.delay);
+  [cur,t1,t2,t3].forEach((t,i) => {
+    gl.activeTexture(gl.TEXTURE1+i);
+    gl.bindTexture(gl.TEXTURE_2D, t || blankTex);
+  });
+  gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+}
+
+/* ---------- UI ---------- */
+function setStatus(t){ statusEl.textContent = t; statusEl.dataset.lock = t ? '1' : ''; statusEl.style.whiteSpace='pre-line'; }
+function hint(t){ hintEl.textContent = t; hintEl.style.opacity = 1; setTimeout(()=>hintEl.style.opacity = 0, 3500); }
+
+document.querySelectorAll('#modes button').forEach(b => b.onclick = () => {
+  S.mode = +b.dataset.m;
+  document.querySelectorAll('#modes button').forEach(x => x.classList.toggle('on', x===b));
+  playClick(420);
+});
+$('#sDelay').oninput = e => S.delay = +e.target.value;
+$('#sLines').oninput = e => S.lines = +e.target.value;
+$('#sCon').oninput   = e => S.con   = +e.target.value;
+$('#bPal').onclick   = () => { S.pal = (S.pal+1) % PALETTES.length; playClick(700); };
+$('#bInv').onclick   = () => { S.invert = !S.invert; hint(S.invert ? 'マスク反転 ON' : 'マスク反転 OFF'); playClick(300); };
+async function flipCamera(){
+  S.facing = S.facing==='user' ? 'environment' : 'user';
+  try{ await startCam(); playClick(560); }
+  catch(e){ hint('カメラ切替に失敗'); S.facing = S.facing==='user' ? 'environment' : 'user'; }
+}
+$('#bCam').onclick = flipCamera;
+$('#flip').onclick = e => { e.stopPropagation(); flipCamera(); };
+const panelOn = () => !$('#panel').classList.contains('hide');
+function setPanel(on){
+  $('#panel').classList.toggle('hide', !on);
+  $('#tog').classList.toggle('off', !on);
+  if(!on && !statusEl.dataset.lock) statusEl.textContent = '';
+}
+$('#tog').onclick = e => { e.stopPropagation(); setPanel(!panelOn()); };
+canvas.addEventListener('click', () => setPanel(!panelOn()));
+
+// house convention: exact camera-error wording, shared across every work in this gallery.
+function showCamError(e){
+  const msg = (e && e.message) ? e.message : String(e || 'unknown');
+  $('#err').textContent = 'カメラを起動できませんでした：'+msg+'\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+  $('#err').style.whiteSpace = 'pre-line';
+}
+$('#go').onclick = async () => {
+  $('#err').textContent = '';
+  ensureAudio();
+  try{
+    await startCam();
+  }catch(e){
+    showCamError(e);
+    return;
+  }
+  $('#start').style.display = 'none';
+  $('#tog').style.display = '';
+  $('#flip').style.display = '';
+  setPanel(true);
+  running = true;
+  initSeg();
+};
+
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
