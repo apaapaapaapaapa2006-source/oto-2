@@ -1,0 +1,1169 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>NARUKAMI ─ 雷はあなたを選んで降りる</title>
+<meta name="description" content="部屋が夜の雷雨になるカメラエフェクト。稲妻は空で勝手に光るのではなく、階段状先駆のたびにカメラが見ているあなたの輪郭を探りながら降りてくる。落ちたあとは熱の跡が数秒残り、雷鳴は距離のぶんだけ遅れて届く。手を掲げれば指先へ、握れば接地して雷は落ちない。">
+<meta name="theme-color" content="#07080f">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@300;600&family=Shippori+Mincho+B1:wght@600;800&display=swap" rel="stylesheet">
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  NARUKAMI ─ 鳴神                          ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  MOOD      夜の雷雨。今夜のもう一本 SUIMEI が正午の浅瀬なので、こちらは
+            徹底して夜・冷たい・硬い。画面はほとんど藍鉄で、明るいものは
+            稲妻と、落ちたあとに残る熱の跡しかない。
+            暗い画面に高彩度の発光を一本だけ通す。
+
+  PALETTE   墨   sumi     #07080f  地。カメラ映像もここまで沈める。
+            群青 gunjo    #232a5e  雨と雲。冷たい側の全部。
+            電光 denkou   #e8eeff  稲妻の芯。画面でいちばん白い。
+            菫   sumire   #9b86ff  放電のまわりのにじみ。
+            丹   ni       #ff9550  落雷の跡（熱）。冷たい画面で唯一の暖色。
+
+  BACKGROUND カメラそのもの。彩度を落として藍へ沈め、上から雲の暗がりを
+            かぶせる。雨は全面。閃光の一瞬だけ映像が白く持ち上がるので、
+            そこで初めて部屋の形が見える。
+
+  TYPE      Chakra Petch（300/600）── 角の立ったラテン。電気の字。
+            Shippori Mincho B1（600/800）── 太い明朝。「鳴神」は歌舞伎
+            十八番の外題なので、看板の字でいく。どちらも初出。
+
+  MOTION    SNAP。SUIMEI の DRIFT の正反対。動くものは即座に動き、
+            止まるものは完全に止まる。パネルは 90ms で出て 1px 跳ねる。
+            唯一ゆっくりなのは熱の跡が冷めていくところだけ。
+
+  SIGNATURE 稲妻は空で勝手に光らない。階段状先駆（stepped leader）が
+            一歩ごとに五方向を試し、目標への向きと、カメラが見ている
+            その場所の「導電率」── 輪郭の強さ ── で重みをつけて進路を
+            決める。だから稲妻はあなたの肩や腕の線に吸い寄せられ、
+            輪郭を伝って降りてくる。手を掲げればそこが避雷針になる。
+            そして雷鳴は光と同時には来ない。距離のぶんだけ遅れて届く。
+
+  AUDIO     楽音は一つも無い。雨（高域を残した雑音）・唸り（低域だけの
+            雑音が電荷とともに膨らむ）・雷鳴（距離ぶん遅延した低い炸裂と、
+            近ければ上に乗る鋭い割れ）。全部コンプ後。
+
+  ENGINEERING 導電率はカメラを 128 幅へ落として Sobel を取るだけ。2 フレームに
+            一度しか更新しない。稲妻は固定長の Float32 プールに線分を書く。
+            残光は半解像度のキャンバスを毎フレーム destination-out で薄め、
+            lighter で戻すので、痕跡の費用は drawImage 二回。
+            比（手の開き・掲げ）はアスペクト補正済みカメラ空間、
+            世界の寸法は短辺基準。雨粒数と導電率格子は実測で上下する。
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<style>
+  *{ margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body{
+    width:100%; height:100%; overflow:hidden; background:#07080f; color:#c9d2f2;
+    font-family:"Chakra Petch","Shippori Mincho B1",system-ui,sans-serif;
+  }
+  canvas#view{ position:absolute; inset:0; width:100%; height:100%; display:block; }
+  video#video{ position:absolute; width:2px; height:2px; opacity:0.001; pointer-events:none; left:-10px; top:-10px; }
+
+  .hard{ animation:snap .09s steps(2,end) both; }
+  @keyframes snap{ from{ opacity:0; transform:translateY(-1px); } to{ opacity:1; transform:none; } }
+
+  #ttl{ position:absolute; left:max(14px,env(safe-area-inset-left)); top:max(12px,env(safe-area-inset-top));
+        pointer-events:none; }
+  #ttl .k{ font-weight:600; font-size:clamp(19px,4.4vw,28px); letter-spacing:.30em; line-height:1;
+           color:#e8eeff; text-shadow:0 0 18px rgba(155,134,255,.55); }
+  #ttl .s{ font-family:"Shippori Mincho B1",serif; font-weight:800;
+           font-size:clamp(13px,2.9vw,18px); letter-spacing:.42em; color:#9b86ff; margin-top:.42em; }
+
+  #read{ position:absolute; right:max(11px,env(safe-area-inset-right)); top:max(11px,env(safe-area-inset-top));
+         padding:6px 11px; background:rgba(7,8,15,.55); border:1px solid rgba(155,134,255,.30);
+         font-size:11px; letter-spacing:.13em; display:flex; gap:13px; align-items:baseline;
+         animation-delay:.04s; }
+  #read b{ font-weight:600; font-size:13px; color:#e8eeff; letter-spacing:.03em; }
+  #read i{ font-style:normal; opacity:.55; font-size:10px; letter-spacing:.18em; }
+
+  #chg{ position:absolute; right:max(11px,env(safe-area-inset-right));
+        top:calc(max(11px,env(safe-area-inset-top)) + 34px);
+        width:120px; height:3px; background:rgba(35,42,94,.75); overflow:hidden; }
+  #chgi{ height:100%; width:0%; background:#9b86ff; box-shadow:0 0 8px #9b86ff; }
+
+  #panel{ position:absolute; left:max(11px,env(safe-area-inset-left));
+          bottom:max(11px,env(safe-area-inset-bottom)); display:flex; gap:6px; animation-delay:.08s; }
+  #panel button, #flip{
+    font-family:inherit; font-size:11px; letter-spacing:.15em; font-weight:300;
+    color:#c9d2f2; background:rgba(7,8,15,.62); cursor:pointer;
+    border:1px solid rgba(155,134,255,.34); border-radius:0; padding:8px 13px;
+    transition:none;
+  }
+  #panel button:hover, #flip:hover{ background:rgba(35,42,94,.9); color:#e8eeff; }
+  #panel button.on{ background:#9b86ff; color:#07080f; border-color:#9b86ff; font-weight:600; }
+  #flip{ position:absolute; right:max(11px,env(safe-area-inset-right));
+         bottom:max(11px,env(safe-area-inset-bottom)); }
+
+  #err{
+    display:none; position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
+    width:min(86vw,430px); padding:20px 22px; white-space:pre-wrap; line-height:1.85;
+    font-family:"Shippori Mincho B1",serif; font-size:13px; color:#e8eeff;
+    background:#101433; border-left:3px solid #9b86ff; z-index:40;
+  }
+
+  .sheet{
+    position:absolute; inset:0; z-index:30; display:flex; align-items:center; justify-content:center;
+    padding:16px; background:radial-gradient(130% 100% at 50% 0%, #1a2050, #07080f 68%);
+    transition:opacity .34s ease, visibility .34s;
+  }
+  .sheet.gone{ opacity:0; visibility:hidden; pointer-events:none; }
+  .sheet .card{
+    width:min(94vw,640px); max-height:94vh; overflow:auto; background:#0b0e1e; color:#c9d2f2;
+    border:1px solid rgba(155,134,255,.26); box-shadow:0 0 90px rgba(155,134,255,.14); padding:0 0 22px;
+  }
+  .cap{ display:flex; justify-content:space-between; gap:10px; padding:10px 20px;
+        background:#9b86ff; color:#07080f; font-size:10px; letter-spacing:.24em; font-weight:600; }
+  .bodyw{ padding:22px 22px 0; }
+  .ttl2{ font-family:"Shippori Mincho B1",serif; font-weight:800;
+         font-size:clamp(20px,5vw,30px); line-height:1.48; color:#e8eeff; margin-bottom:.62em; }
+  .lead{ font-size:13.5px; line-height:2.0; color:#a8b3dd; font-weight:300; }
+  .lead em{ font-style:normal; color:#ff9550; }
+  #demo{ display:block; margin:1.2rem auto .45rem; width:min(88vw,26rem); height:auto; background:#05060d; }
+  .cc{ text-align:center; font-size:10.5px; letter-spacing:.2em; color:#5a648f; margin-bottom:1.1rem; }
+  .spec{ font-size:12.5px; line-height:2.15; color:#a8b3dd; font-weight:300;
+         border-top:1px solid rgba(155,134,255,.2); padding-top:14px; }
+  .spec span{ display:inline-block; min-width:9.6em; color:#9b86ff; font-weight:600; letter-spacing:.06em; }
+  .spec em{ font-style:normal; color:#ff9550; }
+  .go{
+    display:block; width:100%; margin-top:20px; padding:16px; cursor:pointer;
+    font-family:"Chakra Petch",sans-serif; font-size:13px; font-weight:600; letter-spacing:.34em;
+    color:#07080f; background:#e8eeff; border:none;
+  }
+  .go:hover{ background:#9b86ff; }
+</style>
+</head>
+<body>
+<canvas id="view"></canvas>
+<video id="video" playsinline muted autoplay></video>
+<button id="flip">⟲ カメラ</button>
+<div id="err"></div>
+<div id="ttl"><div class="k">NARUKAMI</div><div class="s">鳴神</div></div>
+<div id="read" class="hard"><span><i>落雷</i> <b id="rN">0</b></span><span><i>距離</i> <b id="rD">—</b></span><span><i>空</i> <b id="rM">雷雨</b></span></div>
+<div id="chg"><div id="chgi"></div></div>
+<div id="panel" class="hard">
+  <button id="mode" type="button">空 ・ 雷雨</button>
+  <button id="snd" type="button" class="on">音 ON</button>
+</div>
+<div class="sheet" id="startSheet"><div class="card">
+  <div class="cap"><span>OTO-II / NARUKAMI</span><span>雷はあなたを選んで降りる</span></div>
+  <div class="bodyw">
+    <div class="ttl2">稲妻は、空で勝手に光らない。</div>
+    <p class="lead">本物の落雷は、雲から地面まで一息に走るのではなく、<em>階段状先駆</em>という短い一歩を何百回も積み重ねて降りてきます。一歩ごとに、どちらへ伸びると電気が通りやすいかを試している。<br>この作品の稲妻も同じことをしています。一歩ごとに五方向を試し、目標への向きと、<em>カメラがいま見ているその場所の輪郭の強さ</em>で重みをつけて進路を決める。だから稲妻はあなたの肩や腕の線に吸い寄せられ、輪郭を伝って降りてきます。<br>そして雷鳴は光と同時には届きません。<em>距離のぶんだけ遅れて</em>鳴ります。</p>
+    <canvas id="demo" width="560" height="200"></canvas>
+    <div class="cc">— 実際の先駆アルゴリズムをそのまま動かしています —</div>
+    <div class="spec">
+      <span>手を掲げる</span>指先が避雷針になり、そこへ落ちます<br>
+      <span>握る</span><em>接地</em>。電荷が抜けて雷は落ちなくなります<br>
+      <span>手を速く振る</span>風が変わって雨が斜めに流れます<br>
+      <span>両手を高く掲げる</span><em>直撃</em>。全画面が白く飛んで跡が長く残ります
+    </div>
+    <button class="go" id="startBtn">嵐のなかへ</button>
+  </div>
+</div></div>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+<script>
+(function(){
+'use strict';
+
+var TAU = Math.PI * 2;
+function fin(v){ return typeof v === 'number' && isFinite(v); }
+function clamp(v,a,b){ return v < a ? a : (v > b ? b : v); }
+function rnd(a,b){ return a + Math.random()*(b-a); }
+function now(){
+  var p = window.performance;
+  return (p && typeof p.now === 'function' ? p.now() : Date.now()) / 1000;
+}
+function $(id){ return document.getElementById(id); }
+
+var cv = $('view'), ctx = cv ? cv.getContext('2d') : null;
+var video = $('video'), errBox = $('err'), flipBtn = $('flip');
+var startSheet = $('startSheet'), startBtn = $('startBtn');
+var modeBtn = $('mode'), sndBtn = $('snd');
+var rN = $('rN'), rD = $('rD'), rM = $('rM'), chgi = $('chgi');
+
+var W = 1, H = 1, S = 1, DPR = 1;
+
+// ═══════════════════════════════════════════════════════════════════════
+//  CONDUCTIVITY — カメラの輪郭。稲妻が探るのはこれ。
+// ═══════════════════════════════════════════════════════════════════════
+var EGRID = [80, 104, 128];
+var eStep = 2;
+var EW = 128, EH = 96;
+var ecv = null, ectx = null;
+var LUM = null, EDG = null;
+var edgeMax = 0, edgeFrame = 0;
+
+function buildEdge(){
+  var w = EGRID[eStep];
+  var h = Math.max(24, Math.round(w * (H / W)));
+  if (h > 200) h = 200;
+  if (EW === w && EH === h && LUM) return;
+  EW = w; EH = h;
+  if (!ecv) ecv = document.createElement('canvas');
+  ecv.width = EW; ecv.height = EH;
+  ectx = ecv.getContext('2d');
+  LUM = new Float32Array(EW*EH);
+  EDG = new Float32Array(EW*EH);
+  edgeMax = 0;
+}
+function sampleEdge(){
+  if (!ectx || !video || !(video.videoWidth > 0)) return;
+  ectx.save();
+  if (mirror){ ectx.translate(EW, 0); ectx.scale(-1, 1); }
+  try{ ectx.drawImage(video, 0, 0, EW, EH); }catch(e){ ectx.restore(); return; }
+  ectx.restore();
+  var img;
+  try{ img = ectx.getImageData(0, 0, EW, EH); }catch(e){ return; }
+  var d = img.data, n = EW*EH, i, p;
+  for (i = 0; i < n; i++){
+    p = i << 2;
+    LUM[i] = (d[p]*0.299 + d[p+1]*0.587 + d[p+2]*0.114) / 255;
+  }
+  // Sobel。輪郭の強さがそのまま導電率。
+  var mx = 0, x, y, k, gx, gy, m;
+  for (y = 0; y < EH; y++){
+    var ym = y > 0 ? y-1 : 0, yp = y < EH-1 ? y+1 : EH-1;
+    for (x = 0; x < EW; x++){
+      var xm = x > 0 ? x-1 : 0, xp = x < EW-1 ? x+1 : EW-1;
+      k = y*EW + x;
+      gx = (LUM[ym*EW+xp] + 2*LUM[y*EW+xp] + LUM[yp*EW+xp])
+         - (LUM[ym*EW+xm] + 2*LUM[y*EW+xm] + LUM[yp*EW+xm]);
+      gy = (LUM[yp*EW+xm] + 2*LUM[yp*EW+x] + LUM[yp*EW+xp])
+         - (LUM[ym*EW+xm] + 2*LUM[ym*EW+x] + LUM[ym*EW+xp]);
+      m = Math.sqrt(gx*gx + gy*gy);
+      if (!(m >= 0)) m = 0;
+      EDG[k] = m;
+      if (m > mx) mx = m;
+    }
+  }
+  edgeMax = edgeMax * 0.72 + mx * 0.28;
+  if (!(edgeMax > 0.001)) edgeMax = 0.001;
+}
+// 画面座標 -> 導電率 0..1
+function conduct(px, py){
+  if (!EDG) return 0;
+  var i = ((px / W) * EW) | 0, j = ((py / H) * EH) | 0;
+  if (i < 0) i = 0; if (i >= EW) i = EW-1;
+  if (j < 0) j = 0; if (j >= EH) j = EH-1;
+  var v = EDG[j*EW + i] / edgeMax;
+  if (!(v >= 0)) return 0;
+  return v > 1 ? 1 : v;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  STEPPED LEADER — 階段状先駆
+//  一歩ごとに五方向を試し、目標への向き × 導電率 × 乱数 で進路を選ぶ。
+// ═══════════════════════════════════════════════════════════════════════
+var MAXSEG = 720;
+var SEG = new Float32Array(MAXSEG*5);       // x1,y1,x2,y2,width
+var nSeg = 0;
+var boltLife = 0, boltFlick = 0, boltEnergy = 0;
+var lastBoltEnd = [0,0];
+
+var BQ_X = new Float32Array(48), BQ_Y = new Float32Array(48);
+var BQ_DX = new Float32Array(48), BQ_DY = new Float32Array(48);
+var BQ_N = new Int32Array(48), BQ_W = new Float32Array(48);
+
+function growBolt(x0, y0, tx, ty, energy, condWeight){
+  nSeg = 0;
+  var stepLen = S * 0.021;
+  var qn = 0;
+  BQ_X[0] = x0; BQ_Y[0] = y0;
+  var ddx = tx - x0, ddy = ty - y0;
+  var dl = Math.sqrt(ddx*ddx + ddy*ddy);
+  if (!(dl > 1)) { ddx = 0; ddy = 1; dl = 1; }
+  BQ_DX[0] = ddx/dl; BQ_DY[0] = ddy/dl;
+  BQ_N[0] = Math.min(240, Math.ceil(dl / stepLen * 1.7) + 20);
+  BQ_W[0] = 1;
+  qn = 1;
+
+  var head = 0;
+  while (head < qn && nSeg < MAXSEG){
+    var px = BQ_X[head], py = BQ_Y[head];
+    var dx = BQ_DX[head], dy = BQ_DY[head];
+    var steps = BQ_N[head], wgt = BQ_W[head];
+    head++;
+    var isMain = (head === 1);
+    for (var s = 0; s < steps && nSeg < MAXSEG; s++){
+      var gx2 = tx - px, gy2 = ty - py;
+      var gl = Math.sqrt(gx2*gx2 + gy2*gy2);
+      if (isMain && gl < stepLen * 1.2) break;
+      if (gl < 1){ gx2 = dx; gy2 = dy; gl = 1; }
+      gx2 /= gl; gy2 /= gl;
+
+      var bestS = -1e9, bx = dx, by = dy;
+      for (var c = 0; c < 5; c++){
+        var a = (c - 2) * 0.42 + rnd(-0.14, 0.14);
+        var ca = Math.cos(a), sa = Math.sin(a);
+        var cx2 = dx*ca - dy*sa, cy2 = dx*sa + dy*ca;
+        var nx2 = px + cx2*stepLen, ny2 = py + cy2*stepLen;
+        // 目標への向き。近づくほど効きを強くして、必ず落ちきるようにする。
+        // （遠いうちは導電率が勝つので、稲妻は輪郭を伝って降りてこられる）
+        var aim = cx2*gx2 + cy2*gy2;
+        var aimW = isMain ? (1.0 + 1.8*(1 - clamp(gl/(S*0.45), 0, 1))) : 0.55;
+        // その先の導電率（輪郭の強さ）
+        var cnd = conduct(nx2, ny2);
+        var sc = aim * aimW + cnd * condWeight + Math.random() * 0.30;
+        if (sc > bestS){ bestS = sc; bx = cx2; by = cy2; }
+      }
+      var ex = px + bx*stepLen, ey = py + by*stepLen;
+      var o = nSeg * 5;
+      SEG[o] = px; SEG[o+1] = py; SEG[o+2] = ex; SEG[o+3] = ey;
+      SEG[o+4] = wgt * (isMain ? 1 : 0.5);
+      nSeg++;
+      px = ex; py = ey; dx = bx; dy = by;
+      if (isMain){ lastBoltEnd[0] = px; lastBoltEnd[1] = py; }
+      // 枝分かれ
+      if (qn < 48 && Math.random() < (isMain ? 0.085 : 0.028) && steps - s > 6){
+        var ba = rnd(0.55, 1.25) * (Math.random() < 0.5 ? -1 : 1);
+        var cb = Math.cos(ba), sb = Math.sin(ba);
+        BQ_X[qn] = px; BQ_Y[qn] = py;
+        BQ_DX[qn] = dx*cb - dy*sb; BQ_DY[qn] = dx*sb + dy*cb;
+        BQ_N[qn] = 6 + ((Math.random() * (steps - s) * 0.45) | 0);
+        BQ_W[qn] = wgt * 0.55;
+        qn++;
+      }
+      if (px < -S*0.2 || px > W + S*0.2 || py > H + S*0.2) break;
+    }
+  }
+  boltEnergy = energy;
+  boltLife = 0.17;
+  boltFlick = 0;
+  return nSeg;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  RAIN
+// ═══════════════════════════════════════════════════════════════════════
+var RMAXN = 900;
+var rainN = 700;
+var rX = new Float32Array(RMAXN), rY = new Float32Array(RMAXN), rZ = new Float32Array(RMAXN);
+function initRain(){
+  for (var i = 0; i < RMAXN; i++){
+    rX[i] = Math.random(); rY[i] = Math.random();
+    rZ[i] = 0.40 + 0.60 * Math.random();
+  }
+}
+var wind = 0, windT = 0, gust = 0;
+
+// ═══════════════════════════════════════════════════════════════════════
+//  SPARKS
+// ═══════════════════════════════════════════════════════════════════════
+var NSP = 320;
+var sX = new Float32Array(NSP), sY = new Float32Array(NSP);
+var sVX = new Float32Array(NSP), sVY = new Float32Array(NSP), sL = new Float32Array(NSP);
+var spHead = 0;
+function burst(px, py, n, power){
+  for (var i = 0; i < n; i++){
+    var k = spHead; spHead = (spHead + 1) % NSP;
+    var a = rnd(0, TAU), sp = rnd(0.25, 1.5) * power * S;
+    sX[k] = px; sY[k] = py;
+    sVX[k] = Math.cos(a)*sp; sVY[k] = Math.sin(a)*sp - S*0.25*power;
+    sL[k] = rnd(0.35, 0.95);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  GLOW — 熱の跡。痕跡はここに溜まる。
+// ═══════════════════════════════════════════════════════════════════════
+var gcv = null, gctx = null, GW2 = 2, GH2 = 2;
+function buildGlow(){
+  if (!gcv) gcv = document.createElement('canvas');
+  GW2 = Math.max(2, Math.round(W * 0.5));
+  GH2 = Math.max(2, Math.round(H * 0.5));
+  gcv.width = GW2; gcv.height = GH2;
+  gctx = gcv.getContext('2d');
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  MODES
+// ═══════════════════════════════════════════════════════════════════════
+var MODES = [
+  { key:'遠雷', every:[3.4, 6.2], dist:[0.9, 2.6], rain:0.42, aim:0.22, cond:0.55, flash:0.42 },
+  { key:'雷雨', every:[1.7, 3.4], dist:[0.15, 1.1], rain:1.00, aim:0.62, cond:0.95, flash:0.78 },
+  { key:'直撃', every:[0.9, 1.9], dist:[0.02, 0.18], rain:1.28, aim:1.00, cond:1.30, flash:1.00 }
+];
+var modeIdx = 1;
+function applyMode(){
+  var m = MODES[modeIdx];
+  if (rM) rM.textContent = m.key;
+  if (modeBtn) modeBtn.textContent = '空 ・ ' + m.key;
+  chargeNeed = rnd(m.every[0], m.every[1]);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  CAMERA
+// ═══════════════════════════════════════════════════════════════════════
+var stream = null, facing = 'user', mirror = true;
+function showError(e){
+  var msg = (e && e.message) ? e.message : String(e || 'unknown');
+  if (!errBox) return;
+  errBox.style.display = 'block';
+  errBox.textContent = 'カメラを起動できませんでした：' + msg +
+    '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+}
+function startStream(){
+  var md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) return Promise.reject(new Error('getUserMedia is unavailable'));
+  if (stream && stream.getTracks) stream.getTracks().forEach(function(t){ t.stop(); });
+  return md.getUserMedia({ video:{ facingMode:{ ideal:facing }, width:{ ideal:640 }, height:{ ideal:480 } }, audio:false })
+    .then(function(st){
+      stream = st; video.srcObject = st; mirror = (facing === 'user');
+      var p = video.play(); return (p && p.then) ? p['catch'](function(){}) : null;
+    });
+}
+if (flipBtn) flipBtn.addEventListener('click', function(){
+  facing = (facing === 'user') ? 'environment' : 'user';
+  loseHands();
+  startStream().then(startMpCamera)['catch'](showError);
+});
+
+var camAspect = 4/3, covS = 1, covOX = 0, covOY = 0, covH = 1;
+function updateCover(){
+  var vw = (video && video.videoWidth) ? video.videoWidth : 0;
+  var vh = (video && video.videoHeight) ? video.videoHeight : 0;
+  if (vw > 0 && vh > 0) camAspect = vw/vh;
+  if (!fin(camAspect) || camAspect <= 0) camAspect = 4/3;
+  var rw = W, rh = W/camAspect;
+  if (rh < H){ rh = H; rw = H*camAspect; }
+  covS = rw; covH = rh; covOX = (W-rw)/2; covOY = (H-rh)/2;
+}
+function sx(nx){ return covOX + (mirror ? (1-nx) : nx) * covS; }
+function sy(ny){ return covOY + ny * covH; }
+
+// ═══════════════════════════════════════════════════════════════════════
+//  HANDS
+// ═══════════════════════════════════════════════════════════════════════
+var hands = null, mpCamera = null;
+var LOST_S = 0.5, FRESH_S = 0.22;
+var HAND = [ newHand(), newHand() ];
+function newHand(){
+  return { on:false, t:-9, L:null, px:0, py:0, tipx:0, tipy:0, ny:0.5,
+           open:0.5, grip:0, spd:0, vx:0, has:false };
+}
+function lmOK(L,i){
+  if (!L || typeof L.length !== 'number' || L.length <= i) return false;
+  var p = L[i];
+  return !!p && fin(p.x) && fin(p.y);
+}
+function handLive(k){ return HAND[k].on && (nowT - HAND[k].t) < LOST_S; }
+function handFresh(k){ return HAND[k].on && (nowT - HAND[k].t) < FRESH_S; }
+function releaseHand(h){
+  h.on = false; h.L = null; h.t = -9; h.has = false; h.spd = 0; h.vx = 0;
+  h.grip = 0; h.open = 0.5;
+}
+function loseHands(){
+  for (var k = 0; k < 2; k++) releaseHand(HAND[k]);
+  raiseHold = 0; bothUpSince = -1; strikeArmed = true;
+}
+function acDist(L,a,b){
+  var dx = (L[a].x - L[b].x) * camAspect, dy = (L[a].y - L[b].y);
+  return Math.sqrt(dx*dx + dy*dy);
+}
+var TIPS = [4,8,12,16,20];
+function onHands(res){
+  var t = nowT;
+  var lists = (res && res.multiHandLandmarks) ? res.multiHandLandmarks : null;
+  var n = (lists && typeof lists.length === 'number') ? Math.min(2, lists.length) : 0;
+  for (var k = 0; k < 2; k++){
+    var h = HAND[k];
+    if (k < n){
+      var L = lists[k];
+      var ok = lmOK(L,0) && lmOK(L,9) && lmOK(L,5) && lmOK(L,17);
+      if (ok){ for (var q = 0; q < TIPS.length; q++){ if (!lmOK(L,TIPS[q])){ ok = false; break; } } }
+      if (!ok){ if (h.on && (t - h.t) > LOST_S) releaseHand(h); continue; }
+
+      // 開き具合は手の大きさで正規化した比。アスペクト補正済みカメラ空間で測る。
+      var span = acDist(L,0,9);
+      if (!(span > 0.02)) span = 0.02;
+      var spread = 0;
+      for (var q2 = 0; q2 < TIPS.length; q2++) spread += acDist(L,0,TIPS[q2]);
+      spread = spread / (5 * span);
+      var open = clamp((spread - 1.45) / 1.05, 0, 1);
+
+      if (h.has && (t - h.t) > FRESH_S){ h.has = false; h.spd = 0; h.vx = 0; }
+
+      var pxn = sx(L[9].x), pyn = sy(L[9].y);
+      if (h.has){
+        var d = Math.sqrt((pxn-h.px)*(pxn-h.px) + (pyn-h.py)*(pyn-h.py)) / S;
+        h.spd = h.spd*0.6 + (d/0.033)*0.4;
+        h.vx = h.vx*0.6 + ((pxn - h.px)/S/0.033)*0.4;
+      } else { h.spd = 0; h.vx = 0; }
+      h.px = pxn; h.py = pyn;
+      h.tipx = sx(L[8].x); h.tipy = sy(L[8].y);
+      h.ny = L[9].y;
+      h.open = h.open*0.55 + open*0.45;
+      h.grip = 1 - h.open;
+      h.on = true; h.t = t; h.L = L; h.has = true;
+    } else {
+      if (h.on && (t - h.t) > LOST_S) releaseHand(h);
+    }
+  }
+}
+function initHands(){
+  var HandsCtor = window.Hands;
+  if (typeof HandsCtor !== 'function') return;
+  try{
+    hands = new HandsCtor({ locateFile: function(f){
+      return 'https://cdn.jsdelivr.net/npm/@mediapipe/hands/' + f;
+    }});
+    hands.setOptions({ maxNumHands:2, modelComplexity:0,
+                       minDetectionConfidence:0.6, minTrackingConfidence:0.5 });
+    hands.onResults(onHands);
+  }catch(e){ hands = null; }
+}
+function startMpCamera(){
+  var CamCtor = window.Camera;
+  if (typeof CamCtor !== 'function' || !hands || !video) return;
+  if (mpCamera && typeof mpCamera.stop === 'function'){ try{ mpCamera.stop(); }catch(e){} }
+  try{
+    mpCamera = new CamCtor(video, {
+      onFrame: function(){
+        if (!hands) return Promise.resolve();
+        return hands.send({ image: video })['catch'](function(){});
+      },
+      width:640, height:480
+    });
+    mpCamera.start();
+  }catch(e){ mpCamera = null; }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  AUDIO — 楽音は無い。雨・唸り・雷鳴だけ。
+// ═══════════════════════════════════════════════════════════════════════
+var ac = null, master = null, sndOn = true, noiseBuf = null;
+var rainG = null, rumbleG = null, rumbleF = null;
+function safeParam(p, v, t){
+  if (!p || !fin(v)) return;
+  try{
+    if (typeof p.setValueAtTime === 'function' && fin(t)) p.setValueAtTime(v, t);
+    else p.value = v;
+  }catch(e){}
+}
+function mkNoise(){
+  if (!ac) return null;
+  var n = Math.floor(ac.sampleRate * 2);
+  if (!fin(n) || n < 1000) n = 88200;
+  var b = ac.createBuffer(1, n, ac.sampleRate);
+  var d = b.getChannelData(0);
+  for (var i = 0; i < n; i++) d[i] = Math.random()*2 - 1;
+  return b;
+}
+function initAudio(){
+  var AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) return;
+  try{ ac = new AC(); }catch(e){ ac = null; return; }
+  var comp = ac.createDynamicsCompressor();
+  try{ comp.threshold.value = -18; comp.ratio.value = 6;
+       comp.attack.value = 0.004; comp.release.value = 0.35; }catch(e){}
+  master = ac.createGain(); master.gain.value = 0.75;
+  master.connect(comp); comp.connect(ac.destination);
+  noiseBuf = mkNoise();
+  if (!noiseBuf) return;
+
+  var rs = ac.createBufferSource(); rs.buffer = noiseBuf; rs.loop = true;
+  var hp = ac.createBiquadFilter(); hp.type = 'highpass';
+  safeParam(hp.frequency, 1500, ac.currentTime);
+  safeParam(hp.Q, 0.7, ac.currentTime);
+  rainG = ac.createGain(); rainG.gain.value = 0.05;
+  rs.connect(hp); hp.connect(rainG); rainG.connect(master);
+  try{ rs.start(0); }catch(e){}
+
+  var us = ac.createBufferSource(); us.buffer = noiseBuf; us.loop = true;
+  rumbleF = ac.createBiquadFilter(); rumbleF.type = 'lowpass';
+  safeParam(rumbleF.frequency, 120, ac.currentTime);
+  safeParam(rumbleF.Q, 1.1, ac.currentTime);
+  rumbleG = ac.createGain(); rumbleG.gain.value = 0;
+  us.connect(rumbleF); rumbleF.connect(rumbleG); rumbleG.connect(master);
+  try{ us.start(0); }catch(e){}
+}
+function resumeAudio(){
+  if (!ac) initAudio();
+  if (ac && ac.state === 'suspended' && typeof ac.resume === 'function'){
+    try{ ac.resume(); }catch(e){}
+  }
+}
+function zap(power){
+  if (!ac || !sndOn || !master || !noiseBuf) return;
+  var t = ac.currentTime;
+  if (!fin(t)) return;
+  var ns = ac.createBufferSource(); ns.buffer = noiseBuf;
+  var bp = ac.createBiquadFilter(); bp.type = 'bandpass';
+  safeParam(bp.frequency, 3200, t);
+  safeParam(bp.Q, 1.4, t);
+  var g = ac.createGain();
+  safeParam(g.gain, clamp(0.10*power, 0.01, 0.2), t);
+  try{ g.gain.exponentialRampToValueAtTime(0.0002, t + 0.13); }catch(e){}
+  ns.connect(bp); bp.connect(g); g.connect(master);
+  try{ ns.start(t); ns.stop(t + 0.2); }catch(e){}
+}
+function thunder(power, near){
+  if (!ac || !sndOn || !master || !noiseBuf) return;
+  var t = ac.currentTime;
+  if (!fin(t)) return;
+  var dur = clamp(1.4 + 2.6*(1-near), 0.7, 4.2);
+  var ns = ac.createBufferSource(); ns.buffer = noiseBuf; ns.loop = true;
+  var lp = ac.createBiquadFilter(); lp.type = 'lowpass';
+  safeParam(lp.frequency, clamp(180 + 900*near, 60, 3000), t);
+  safeParam(lp.Q, 0.8, t);
+  var g = ac.createGain();
+  safeParam(g.gain, 0.0001, t);
+  try{
+    g.gain.exponentialRampToValueAtTime(clamp(0.42*power, 0.01, 0.6), t + clamp(0.02 + 0.10*(1-near), 0.01, 0.2));
+    g.gain.exponentialRampToValueAtTime(0.0002, t + dur);
+  }catch(e){ safeParam(g.gain, 0.2, t); }
+  ns.connect(lp); lp.connect(g); g.connect(master);
+  try{ ns.start(t); ns.stop(t + dur + 0.1); }catch(e){}
+  if (near > 0.6){
+    var cs = ac.createBufferSource(); cs.buffer = noiseBuf;
+    var hp2 = ac.createBiquadFilter(); hp2.type = 'highpass';
+    safeParam(hp2.frequency, 1800, t);
+    var cg = ac.createGain();
+    safeParam(cg.gain, clamp(0.30*power*near, 0.01, 0.5), t);
+    try{ cg.gain.exponentialRampToValueAtTime(0.0002, t + 0.28); }catch(e){}
+    cs.connect(hp2); hp2.connect(cg); cg.connect(master);
+    try{ cs.start(t); cs.stop(t + 0.35); }catch(e){}
+  }
+}
+if (sndBtn) sndBtn.addEventListener('click', function(){
+  sndOn = !sndOn;
+  sndBtn.textContent = sndOn ? '音 ON' : '音 OFF';
+  sndBtn.className = sndOn ? 'on' : '';
+  if (master) safeParam(master.gain, sndOn ? 0.75 : 0, ac ? ac.currentTime : 0);
+});
+if (modeBtn) modeBtn.addEventListener('click', function(){
+  modeIdx = (modeIdx + 1) % MODES.length;
+  applyMode();
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+//  RESIZE
+// ═══════════════════════════════════════════════════════════════════════
+function resize(){
+  var dpr = window.devicePixelRatio || 1;
+  DPR = clamp(dpr, 1, 2);
+  var w = window.innerWidth || 640, h = window.innerHeight || 480;
+  W = Math.max(2, Math.round(w * DPR));
+  H = Math.max(2, Math.round(h * DPR));
+  if (cv){ cv.width = W; cv.height = H; cv.style.width = w + 'px'; cv.style.height = h + 'px'; }
+  S = Math.min(W, H);
+  updateCover();
+  buildEdge();
+  buildGlow();
+}
+window.addEventListener('resize', function(){ if (running) resize(); });
+window.addEventListener('orientationchange', function(){ if (running) resize(); });
+
+// ═══════════════════════════════════════════════════════════════════════
+//  STRIKES
+// ═══════════════════════════════════════════════════════════════════════
+var charge = 0, chargeNeed = 2.4, strikes = 0, flash = 0, shake = 0;
+var pendN = 0;
+var PEND_T = new Float32Array(8), PEND_P = new Float32Array(8), PEND_NEAR = new Float32Array(8);
+var lastDist = -1;
+var raiseHold = 0, strikeArmed = true, directCool = 0, bothUpSince = -1;
+
+function queueThunder(at, power, near){
+  if (pendN >= 8) return;
+  PEND_T[pendN] = at; PEND_P[pendN] = power; PEND_NEAR[pendN] = near;
+  pendN++;
+}
+
+function strike(direct){
+  var m = MODES[modeIdx];
+  // 目標をえらぶ
+  var tx = rnd(W*0.15, W*0.85), ty = H * rnd(0.72, 0.98);
+  var targeted = false;
+  var cand = -1, candScore = -1;
+  for (var k = 0; k < 2; k++){
+    if (!handLive(k)) continue;
+    var h = HAND[k];
+    if (h.grip > 0.6) continue;                  // 握っている手は接地している
+    var sc = (1 - h.ny) + (direct ? 1 : 0);
+    if (h.ny < 0.55 && sc > candScore){ candScore = sc; cand = k; }
+  }
+  if (cand >= 0 && (direct || Math.random() < m.aim)){
+    tx = HAND[cand].tipx; ty = HAND[cand].tipy;
+    targeted = true;
+  }
+  var x0 = clamp(tx + rnd(-S*0.35, S*0.35), W*0.02, W*0.98);
+  var energy = direct ? 1.6 : rnd(0.6, 1.15);
+  var cw = m.cond * (targeted ? 1.15 : 1);
+  growBolt(x0, -S*0.03, tx, ty, energy, cw);
+
+  var near = direct ? 1 : clamp(1 - (rnd(m.dist[0], m.dist[1]) / 2.8), 0, 1);
+  var delay = direct ? 0.03 : rnd(m.dist[0], m.dist[1]);
+  flash = Math.min(1.6, flash + energy * m.flash);
+  shake = Math.min(1, shake + energy * 0.5);
+  burst(tx, ty, direct ? 90 : 34, direct ? 1.5 : 0.8);
+  zap(energy);
+  queueThunder(nowT + delay, energy, near);
+  strikes++;
+  lastDist = delay * 340;                        // 音速からの見かけの距離 (m)
+  if (rN) rN.textContent = String(strikes);
+  if (rD) rD.textContent = lastDist < 60 ? '直上' : (Math.round(lastDist/10)*10) + 'm';
+  charge = 0;
+  chargeNeed = rnd(m.every[0], m.every[1]);
+  return targeted;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  FRAME
+// ═══════════════════════════════════════════════════════════════════════
+var running = false, lastT = 0, nowT = 0, dtSmooth = 1/60, adaptCool = 2.0;
+var camReady = false, grounded = 0;
+
+function frame(){
+  if (!running) return;
+  requestAnimationFrame(frame);
+  if (!ctx) return;
+
+  var t = now();
+  var dt = t - lastT; lastT = t; nowT = t;
+  if (!fin(dt) || dt <= 0) dt = 1/60;
+  if (dt > 0.1) dt = 0.1;
+  dtSmooth = dtSmooth*0.9 + dt*0.1;
+  var m = MODES[modeIdx];
+
+  // ── 導電率は 2 フレームに一度 ─────────────────────────────────────
+  edgeFrame++;
+  if (camReady && (edgeFrame & 1) === 0) sampleEdge();
+
+  // ── 手 ────────────────────────────────────────────────────────────
+  var gripMax = 0, handWind = 0, liveN = 0;
+  for (var k = 0; k < 2; k++){
+    if (!handLive(k)) continue;
+    liveN++;
+    var h = HAND[k];
+    if (h.grip > gripMax) gripMax = h.grip;
+    if (Math.abs(h.vx) > Math.abs(handWind)) handWind = h.vx;
+  }
+  grounded += (gripMax - grounded) * (1 - Math.exp(-dt / 0.28));
+
+  // 一撃：両手を高く掲げる
+  var bothUp = (handFresh(0) && handFresh(1) && HAND[0].ny < 0.34 && HAND[1].ny < 0.34
+                && HAND[0].grip < 0.55 && HAND[1].grip < 0.55);
+  if (directCool > 0) directCool -= dt;
+  // 「掲げ」の長さは描画フレームではなく観測時刻で測る。追跡が切れているあいだ
+  // 時計が進んでしまうと、見失ったままジェスチャが成立してしまう。
+  var obsT = Math.min(HAND[0].t, HAND[1].t);
+  if (bothUp && strikeArmed && directCool <= 0){
+    if (bothUpSince < 0) bothUpSince = obsT;
+    raiseHold = obsT - bothUpSince;
+    if (raiseHold > 0.45){
+      strike(true);
+      flash = 1.6; shake = 1;
+      strikeArmed = false; raiseHold = 0; bothUpSince = -1; directCool = 7.0;
+    }
+  } else {
+    raiseHold = 0; bothUpSince = -1;
+    if (!bothUp) strikeArmed = true;
+  }
+
+  // ── 電荷 ──────────────────────────────────────────────────────────
+  if (grounded > 0.5){
+    charge -= dt * 1.4;                       // 握れば抜ける
+    if (charge < 0) charge = 0;
+  } else {
+    charge += dt;
+    if (charge >= chargeNeed) strike(false);
+  }
+  var chargeFrac = clamp(charge / Math.max(0.2, chargeNeed), 0, 1);
+  if (chgi) chgi.style.width = (chargeFrac * 100).toFixed(1) + '%';
+
+  // ── 雷鳴の待ち行列 ────────────────────────────────────────────────
+  var wI = 0;
+  for (var q = 0; q < pendN; q++){
+    if (PEND_T[q] <= nowT){ thunder(PEND_P[q], PEND_NEAR[q]); continue; }
+    PEND_T[wI] = PEND_T[q]; PEND_P[wI] = PEND_P[q]; PEND_NEAR[wI] = PEND_NEAR[q];
+    wI++;
+  }
+  pendN = wI;
+
+  // ── 風 ────────────────────────────────────────────────────────────
+  windT -= dt;
+  if (windT <= 0){ windT = rnd(2.5, 6.0); gust = rnd(-0.55, 0.55); }
+  wind += ((gust + clamp(handWind*0.45, -1.2, 1.2)) - wind) * (1 - Math.exp(-dt/0.6));
+
+  if (flash > 0){ flash -= dt * 4.6; if (flash < 0) flash = 0; }
+  if (shake > 0){ shake -= dt * 3.4; if (shake < 0) shake = 0; }
+  if (boltLife > 0){ boltLife -= dt; boltFlick += dt; }
+
+  // ═══ 描画 ═══════════════════════════════════════════════════════
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.globalAlpha = 1;
+  var shx = 0, shy = 0;
+  if (shake > 0){
+    shx = rnd(-1,1) * shake * S * 0.012;
+    shy = rnd(-1,1) * shake * S * 0.012;
+    ctx.setTransform(1, 0, 0, 1, shx, shy);
+  }
+
+  if (camReady && video && video.videoWidth > 0){
+    ctx.save();
+    try{ ctx.filter = 'saturate(0.38) contrast(1.22) brightness(0.36)'; }catch(e){}
+    if (mirror){ ctx.translate(W, 0); ctx.scale(-1, 1); }
+    ctx.drawImage(video, mirror ? (W - covOX - covS) : covOX, covOY, covS, covH);
+    ctx.restore();
+    try{ ctx.filter = 'none'; }catch(e){}
+  } else {
+    ctx.fillStyle = '#0a0d1c'; ctx.fillRect(-S*0.05, -S*0.05, W + S*0.1, H + S*0.1);
+  }
+
+  // 藍へ沈める + 上の雲
+  ctx.globalCompositeOperation = 'source-over';
+  var cg = ctx.createLinearGradient(0, -S*0.05, 0, H);
+  cg.addColorStop(0,   'rgba(12,15,42,0.92)');
+  cg.addColorStop(0.42,'rgba(19,24,60,0.55)');
+  cg.addColorStop(1,   'rgba(7,8,15,0.72)');
+  ctx.fillStyle = cg;
+  ctx.fillRect(-S*0.05, -S*0.05, W + S*0.1, H + S*0.1);
+
+  // 閃光で部屋が持ち上がる
+  if (flash > 0 && camReady && video && video.videoWidth > 0){
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = clamp(flash * 0.55, 0, 0.85);
+    try{ ctx.filter = 'grayscale(1) contrast(2.1) brightness(1.15)'; }catch(e){}
+    if (mirror){ ctx.translate(W, 0); ctx.scale(-1, 1); }
+    ctx.drawImage(video, mirror ? (W - covOX - covS) : covOX, covOY, covS, covH);
+    ctx.restore();
+    try{ ctx.filter = 'none'; }catch(e){}
+    ctx.globalAlpha = 1;
+  }
+
+  // ── 雨 ────────────────────────────────────────────────────────────
+  var rainMul = m.rain;
+  var nRain = (rainN * rainMul) | 0;
+  if (nRain > RMAXN) nRain = RMAXN;
+  ctx.globalCompositeOperation = 'source-over';
+  for (var lay = 0; lay < 3; lay++){
+    ctx.beginPath();
+    var loZ = 0.40 + lay*0.20, hiZ = loZ + 0.20;
+    for (var i = lay; i < nRain; i += 1){
+      var z = rZ[i];
+      if (z < loZ || z >= hiZ) continue;
+      rY[i] += (0.85 + 1.55*z) * dt;
+      rX[i] += wind * z * dt * 0.42;
+      if (rY[i] > 1.02){ rY[i] = -0.04; rX[i] = Math.random()*1.4 - 0.2; }
+      if (rX[i] < -0.25) rX[i] += 1.5;
+      if (rX[i] > 1.25) rX[i] -= 1.5;
+      var px = rX[i]*W, py = rY[i]*H;
+      var len = S * (0.020 + 0.038*z) * (1 + Math.abs(wind)*0.2);
+      ctx.moveTo(px, py);
+      ctx.lineTo(px + wind*z*len*0.5, py + len);
+    }
+    ctx.strokeStyle = 'rgba(170,195,255,' + (0.055 + lay*0.055 + flash*0.11).toFixed(3) + ')';
+    ctx.lineWidth = Math.max(1, S*0.0012*(0.6 + lay*0.5));
+    ctx.stroke();
+  }
+
+  // ── 熱の跡（痕跡） ────────────────────────────────────────────────
+  if (gctx){
+    gctx.setTransform(1,0,0,1,0,0);
+    gctx.globalCompositeOperation = 'destination-out';
+    gctx.fillStyle = 'rgba(0,0,0,' + clamp(dt*0.62, 0, 0.6).toFixed(4) + ')';
+    gctx.fillRect(0, 0, GW2, GH2);
+    gctx.globalCompositeOperation = 'source-over';
+  }
+
+  // ── 稲妻 ──────────────────────────────────────────────────────────
+  if (nSeg > 0 && boltLife > 0){
+    var fl = (Math.sin(boltFlick * 62) > -0.45) ? 1 : 0.35;
+    var al = clamp(boltLife / 0.17, 0, 1) * fl;
+    // にじみ
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.strokeStyle = 'rgba(155,134,255,' + (0.34*al).toFixed(3) + ')';
+    ctx.lineWidth = Math.max(2, S*0.016*boltEnergy);
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    ctx.beginPath();
+    for (var s2 = 0; s2 < nSeg; s2++){
+      var o2 = s2*5;
+      ctx.moveTo(SEG[o2], SEG[o2+1]); ctx.lineTo(SEG[o2+2], SEG[o2+3]);
+    }
+    ctx.stroke();
+    // 芯
+    ctx.strokeStyle = 'rgba(232,238,255,' + (0.95*al).toFixed(3) + ')';
+    ctx.lineWidth = Math.max(1, S*0.0032*boltEnergy);
+    ctx.beginPath();
+    for (var s3 = 0; s3 < nSeg; s3++){
+      var o3 = s3*5;
+      if (SEG[o3+4] < 0.7) continue;
+      ctx.moveTo(SEG[o3], SEG[o3+1]); ctx.lineTo(SEG[o3+2], SEG[o3+3]);
+    }
+    ctx.stroke();
+    // 跡を焼きつける
+    if (gctx){
+      gctx.globalCompositeOperation = 'lighter';
+      gctx.strokeStyle = 'rgba(255,149,80,0.52)';
+      gctx.lineWidth = Math.max(1, S*0.0038*boltEnergy);
+      gctx.lineCap = 'round';
+      gctx.beginPath();
+      for (var s4 = 0; s4 < nSeg; s4++){
+        var o4 = s4*5;
+        gctx.moveTo(SEG[o4]*0.5, SEG[o4+1]*0.5);
+        gctx.lineTo(SEG[o4+2]*0.5, SEG[o4+3]*0.5);
+      }
+      gctx.stroke();
+    }
+  }
+  if (gcv && GW2 > 1){
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = 0.85;
+    ctx.drawImage(gcv, 0, 0, GW2, GH2, 0, 0, W, H);
+    ctx.globalAlpha = 0.34;
+    var eg = S*0.02;
+    ctx.drawImage(gcv, 0, 0, GW2, GH2, -eg, -eg, W + eg*2, H + eg*2);
+    ctx.globalAlpha = 1;
+  }
+
+  // ── 火花 ──────────────────────────────────────────────────────────
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.beginPath();
+  var anySpark = false;
+  for (var sp = 0; sp < NSP; sp++){
+    if (sL[sp] <= 0) continue;
+    sL[sp] -= dt;
+    if (sL[sp] <= 0) continue;
+    sVY[sp] += S*1.5*dt;
+    sVX[sp] *= Math.exp(-dt*2.2); sVY[sp] *= Math.exp(-dt*0.9);
+    sX[sp] += sVX[sp]*dt; sY[sp] += sVY[sp]*dt;
+    var r2 = Math.max(0.7, S*0.0022*sL[sp]);
+    ctx.moveTo(sX[sp] + r2, sY[sp]);
+    ctx.arc(sX[sp], sY[sp], r2, 0, TAU);
+    anySpark = true;
+  }
+  if (anySpark){ ctx.fillStyle = 'rgba(255,190,130,0.85)'; ctx.fill(); }
+
+  // ── 手のしるし：帯電のコロナ ──────────────────────────────────────
+  for (var k2 = 0; k2 < 2; k2++){
+    if (!handLive(k2)) continue;
+    var hh = HAND[k2];
+    var rr = S * (0.030 + 0.048*hh.open);
+    var live = clamp(chargeFrac, 0, 1) * (1 - hh.grip);
+    ctx.globalCompositeOperation = 'lighter';
+    var rg = ctx.createRadialGradient(hh.tipx, hh.tipy, 0, hh.tipx, hh.tipy, rr*(1 + live));
+    rg.addColorStop(0,   'rgba(232,238,255,' + (0.10 + 0.42*live).toFixed(3) + ')');
+    rg.addColorStop(0.45,'rgba(155,134,255,' + (0.05 + 0.20*live).toFixed(3) + ')');
+    rg.addColorStop(1,   'rgba(90,80,200,0)');
+    ctx.fillStyle = rg;
+    ctx.beginPath(); ctx.arc(hh.tipx, hh.tipy, rr*(1 + live), 0, TAU); ctx.fill();
+
+    // 帯電の細い糸（握っていれば出ない）
+    if (live > 0.22){
+      ctx.strokeStyle = 'rgba(200,205,255,' + (0.18 + 0.4*live).toFixed(3) + ')';
+      ctx.lineWidth = Math.max(1, S*0.0012);
+      ctx.beginPath();
+      var fn = 3 + ((live*5)|0);
+      for (var f2 = 0; f2 < fn; f2++){
+        var aa = rnd(0, TAU), ll = rr * rnd(0.5, 1.5);
+        var cxp = hh.tipx, cyp = hh.tipy;
+        ctx.moveTo(cxp, cyp);
+        for (var st2 = 0; st2 < 3; st2++){
+          cxp += Math.cos(aa)*ll/3 + rnd(-rr,rr)*0.22;
+          cyp += Math.sin(aa)*ll/3 + rnd(-rr,rr)*0.22;
+          ctx.lineTo(cxp, cyp);
+        }
+      }
+      ctx.stroke();
+    }
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.strokeStyle = 'rgba(155,134,255,' + (0.20 + 0.30*(1-hh.grip)).toFixed(3) + ')';
+    ctx.lineWidth = Math.max(1, S*0.0022);
+    ctx.beginPath(); ctx.arc(hh.px, hh.py, rr*0.8, 0, TAU); ctx.stroke();
+    if (hh.grip > 0.6){
+      // 接地の印
+      ctx.strokeStyle = 'rgba(120,132,190,0.62)';
+      ctx.beginPath();
+      ctx.moveTo(hh.px - rr*0.55, hh.py + rr*0.95);
+      ctx.lineTo(hh.px + rr*0.55, hh.py + rr*0.95);
+      ctx.moveTo(hh.px - rr*0.33, hh.py + rr*1.20);
+      ctx.lineTo(hh.px + rr*0.33, hh.py + rr*1.20);
+      ctx.stroke();
+    }
+  }
+
+  // ── 閃光 ──────────────────────────────────────────────────────────
+  if (flash > 0){
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.fillStyle = 'rgba(214,224,255,' + clamp(flash*flash*0.62, 0, 0.95).toFixed(3) + ')';
+    ctx.fillRect(-S*0.05, -S*0.05, W + S*0.1, H + S*0.1);
+  }
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+
+  // ── 音の追従 ──────────────────────────────────────────────────────
+  if (ac && sndOn){
+    var ct = ac.currentTime;
+    if (fin(ct)){
+      if (rainG) safeParam(rainG.gain, clamp(0.030 + 0.045*rainMul, 0, 0.12), ct);
+      if (rumbleG) safeParam(rumbleG.gain, clamp(chargeFrac*chargeFrac*0.10*(1-grounded), 0, 0.12), ct);
+      if (rumbleF) safeParam(rumbleF.frequency, clamp(70 + chargeFrac*110, 40, 400), ct);
+    }
+  }
+
+  // ── 実測で減量 ────────────────────────────────────────────────────
+  if (adaptCool > 0) adaptCool -= dt;
+  else {
+    if (dtSmooth > 1/26){
+      if (rainN > 240){ rainN -= 120; adaptCool = 2.2; }
+      else if (eStep > 0){ eStep--; buildEdge(); adaptCool = 2.6; }
+    } else if (dtSmooth < 1/52){
+      if (eStep < EGRID.length-1){ eStep++; buildEdge(); adaptCool = 3.0; }
+      else if (rainN < RMAXN){ rainN += 100; adaptCool = 3.0; }
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  START
+// ═══════════════════════════════════════════════════════════════════════
+function begin(){
+  resumeAudio();
+  if (startSheet) startSheet.className = 'sheet gone';
+  stopDemo();
+  resize();
+  if (!running){ running = true; lastT = now(); nowT = lastT; requestAnimationFrame(frame); }
+  initHands();
+  startStream().then(function(){ camReady = true; startMpCamera(); })['catch'](showError);
+}
+if (startBtn) startBtn.addEventListener('click', begin);
+
+// ═══════════════════════════════════════════════════════════════════════
+//  START-SHEET DEMO — 先駆アルゴリズムそのもの。導電率は合成の縦帯。
+// ═══════════════════════════════════════════════════════════════════════
+var demo = $('demo'), dctx = demo ? demo.getContext('2d') : null;
+var demoRAF = 0, dLast = 0, dT = 0, dNext = 0.4;
+var dSeg = new Float32Array(600*4), dN = 0, dLife = 0, dTX = 0, dTY = 0;
+function stopDemo(){ if (demoRAF){ try{ cancelAnimationFrame(demoRAF); }catch(e){} demoRAF = 0; } }
+function dConduct(x, y, w, h){
+  // 合成の「体」：画面中央のふくらんだ縦帯。その縁がいちばん導電率が高い。
+  var cx = w*0.5 + Math.sin(y/h*3.1)*w*0.05;
+  var halfw = w*0.085 * (1 + 0.5*Math.sin(y/h*2.2 + 1));
+  var d = Math.abs(x - cx) - halfw;
+  var e = Math.exp(-(d*d)/(w*0.012*w*0.012));
+  return e > 1 ? 1 : e;
+}
+function dGrow(w, h){
+  dN = 0;
+  var px = w*rnd(0.3,0.7), py = -4;
+  var dx = 0, dy = 1;
+  var stepLen = h*0.045;
+  for (var s = 0; s < 120 && dN < 600; s++){
+    var gx = dTX - px, gy = dTY - py;
+    var gl = Math.sqrt(gx*gx + gy*gy);
+    if (gl < stepLen) break;
+    gx /= gl; gy /= gl;
+    var best = -1e9, bx = dx, by = dy;
+    for (var c = 0; c < 5; c++){
+      var a = (c-2)*0.42 + rnd(-0.14,0.14);
+      var ca = Math.cos(a), sa = Math.sin(a);
+      var cx2 = dx*ca - dy*sa, cy2 = dx*sa + dy*ca;
+      var nx = px + cx2*stepLen, ny = py + cy2*stepLen;
+      var sc = (cx2*gx + cy2*gy) + dConduct(nx, ny, w, h)*1.1 + Math.random()*0.3;
+      if (sc > best){ best = sc; bx = cx2; by = cy2; }
+    }
+    var ex = px + bx*stepLen, ey = py + by*stepLen;
+    var o = dN*4;
+    dSeg[o] = px; dSeg[o+1] = py; dSeg[o+2] = ex; dSeg[o+3] = ey;
+    dN++;
+    px = ex; py = ey; dx = bx; dy = by;
+  }
+  dLife = 0.85;
+}
+function demoFrame(){
+  if (!dctx || !demo) return;
+  var t = now(); var dt = t - dLast; dLast = t;
+  if (!fin(dt) || dt <= 0) dt = 0.016;
+  if (dt > 0.05) dt = 0.05;
+  dT += dt;
+  var w = demo.width, h = demo.height;
+  dctx.setTransform(1,0,0,1,0,0);
+  dctx.globalCompositeOperation = 'source-over';
+  dctx.fillStyle = '#05060d';
+  dctx.fillRect(0, 0, w, h);
+  // 導電率を薄く可視化
+  dctx.globalCompositeOperation = 'lighter';
+  for (var y = 0; y < h; y += 4){
+    var cx = w*0.5 + Math.sin(y/h*3.1)*w*0.05;
+    var halfw = w*0.085*(1 + 0.5*Math.sin(y/h*2.2 + 1));
+    dctx.fillStyle = 'rgba(35,42,94,0.5)';
+    dctx.fillRect(cx - halfw, y, halfw*2, 3);
+  }
+  dNext -= dt;
+  if (dNext <= 0){
+    dNext = rnd(1.5, 2.6);
+    dTX = w*0.5 + Math.sin(dT*0.6)*w*0.05;
+    dTY = h*0.80;
+    dGrow(w, h);
+  }
+  if (dLife > 0){
+    dLife -= dt;
+    var al = clamp(dLife/0.85, 0, 1);
+    dctx.globalCompositeOperation = 'lighter';
+    dctx.strokeStyle = 'rgba(155,134,255,' + (0.35*al).toFixed(3) + ')';
+    dctx.lineWidth = 6; dctx.lineCap = 'round';
+    dctx.beginPath();
+    for (var i = 0; i < dN; i++){ var o = i*4;
+      dctx.moveTo(dSeg[o], dSeg[o+1]); dctx.lineTo(dSeg[o+2], dSeg[o+3]); }
+    dctx.stroke();
+    dctx.strokeStyle = 'rgba(232,238,255,' + (0.95*al).toFixed(3) + ')';
+    dctx.lineWidth = 1.6;
+    dctx.beginPath();
+    for (var i2 = 0; i2 < dN; i2++){ var o2 = i2*4;
+      dctx.moveTo(dSeg[o2], dSeg[o2+1]); dctx.lineTo(dSeg[o2+2], dSeg[o2+3]); }
+    dctx.stroke();
+  }
+  dctx.globalCompositeOperation = 'source-over';
+  dctx.font = '300 12px "Chakra Petch", sans-serif';
+  dctx.fillStyle = 'rgba(168,179,221,0.8)';
+  dctx.fillText('青い帯＝導電率。稲妻はその縁を伝う', 12, h - 12);
+  demoRAF = requestAnimationFrame(demoFrame);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  BOOT
+// ═══════════════════════════════════════════════════════════════════════
+initRain();
+applyMode();
+resize();
+if (dctx){ dLast = now(); demoRAF = requestAnimationFrame(demoFrame); }
+
+window.__narukami = {
+  frame: frame, begin: begin, onHands: onHands, strike: strike, growBolt: growBolt,
+  conduct: conduct, burst: burst,
+  setEdge: function(fn){
+    if (!EDG) return 0;
+    var mx = 0;
+    for (var j = 0; j < EH; j++){
+      for (var i = 0; i < EW; i++){
+        var v = fn(i/EW, j/EH);
+        if (!(v >= 0)) v = 0;
+        EDG[j*EW+i] = v;
+        if (v > mx) mx = v;
+      }
+    }
+    edgeMax = mx > 0.001 ? mx : 0.001;
+    return mx;
+  },
+  state: function(){
+    return { W:W, H:H, S:S, SEG:SEG, nSeg:nSeg, strikes:strikes, charge:charge,
+             chargeNeed:chargeNeed, pendN:pendN, flash:flash, grounded:grounded,
+             HAND:HAND, modeIdx:modeIdx, directCool:directCool, raiseHold:raiseHold, running:running,
+             camReady:camReady, rainN:rainN, wind:wind, EW:EW, EH:EH, lastDist:lastDist,
+             boltEnd:lastBoltEnd, eStep:eStep };
+  },
+  setMode: function(i){ modeIdx = i; applyMode(); },
+  setCamReady: function(v){ camReady = v; }
+};
+})();
+</script>
+</body>
+</html>
