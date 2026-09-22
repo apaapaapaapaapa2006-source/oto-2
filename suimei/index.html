@@ -1,0 +1,1175 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>SUIMEI ─ 水の底に射す光</title>
+<meta name="description" content="カメラに映るものが浅瀬の底になり、本物の集光模様が這うエフェクト。水面の起伏を通った光がどこで折り重なるかを毎フレーム解いているので、白い網は模様ではなく光そのもの。手をかざすとそこだけ水面がふくらんでレンズになり、光が一点に集まる。">
+<meta name="theme-color" content="#06202f">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Jost:wght@200;400;600&family=Hina+Mincho&family=Zen+Kurenaido&display=swap" rel="stylesheet">
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  SUIMEI ─ 水明                            ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  MOOD      真昼の浅瀬。熱帯の遠浅を真上から覗きこんでいる。白すぎる光、
+            ターコイズ、温かい砂。ギャラリーの水ものは MINAMO（水面の下から
+            見上げる・波動方程式）だけで、あれは湯気の立つ朝の湯殿だった。
+            これはその正反対 ── 正午、屋外、目を細めるほど明るい。
+            今夜のもう一本 NARUKAMI が嵐の夜なので、こちらは徹底して昼。
+
+  PALETTE   光   hikari   #ffffff  集光線。画面でいちばん白いのは必ず光。
+            水浅葱 mizuasagi #6fd6cf  浅いところの水
+            群青 gunjo    #17407a  深いところ／周縁の落ち込み
+            砂   suna     #efdcb4  焦点のいちばん熱い芯と、濁り
+            藍鉄 aitetsu  #06202f  文字と地
+
+  BACKGROUND カメラそのもの。ただし「底」として扱う ── 彩度を落として
+            水色に沈め、四隅を群青に落とす。上に乗るのは光だけ。
+            パネルは白い曇りガラスで、水の上に浮かぶ浮子のように見せる。
+
+  TYPE      Jost（200/400/600）── 幾何学的で乾いたラテン。夏の標識の字。
+            Hina Mincho ── 極細の明朝。「水明」の二文字のためだけに使う。
+            Zen Kurenaido ── 本文。ペンで書いたような軽い和字。
+            どれもこのギャラリーで初出。
+
+  MOTION    DRIFT。跳ねない・弾まない。パネルは左から 700ms の三次曲線で
+            滑り込み、モード変更は 1.2 秒かけて波が入れ替わる。
+            唯一の硬い出来事が飛沫（一撃）で、そこだけ 40ms で白く飛ぶ。
+
+  SIGNATURE 模様ではなく、光の折り目。水面の高さ場 h(x,y) を毎フレーム
+            組み立て、屈折した光線が底でどれだけ伸び縮みしたか ──
+            ヤコビアン det(I + c·H[h]) ── の逆数を輝度にしている。
+            det が 0 を横切る線が焦線（caustic fold）で、あの白い網は
+            そこに現れる。だから網は「描いて」いない。
+            そして手のひらをかざすとそこだけ水面が盛り上がり、
+            本物のレンズとして光が一点に集まる。
+
+  AUDIO     水中。低く濾したルームトーンの上に、手のひらの焦点が強いほど
+            開くフィルタを通した純正五度。かき混ぜれば波紋が生まれるたび
+            ペンタトニックの粒。飛沫だけが低い衝撃を持つ。全部コンプ後。
+
+  ENGINEERING 高さ場は Float32 ひとつ。ヘシアンは有限差分なので、
+            波・波紋・手の膨らみを何種類足しても式を導き直さなくていい。
+            sin と exp は LUT。波紋と膨らみは半径の二乗で早期棄却するので
+            画面の大半では sqrt も走らない。内部解像度は実測フレーム間隔で
+            128〜304 の間を上下する。比率（つまみの距離・手の大きさ）は
+            すべてアスペクト補正済みのカメラ空間で、世界の寸法は短辺基準。
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<style>
+  *{ margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body{
+    width:100%; height:100%; overflow:hidden; background:#06202f; color:#eaf6f6;
+    font-family:"Jost","Zen Kurenaido",system-ui,sans-serif;
+  }
+  canvas#view{ position:absolute; inset:0; width:100%; height:100%; display:block; }
+  video#video{ position:absolute; width:2px; height:2px; opacity:0.001; pointer-events:none; left:-10px; top:-10px; }
+
+  /* ── 浮子。白い曇りガラス。左から滑り込む ── */
+  .flt{
+    position:absolute; border-radius:2px;
+    background:rgba(255,255,255,0.13);
+    border:1px solid rgba(255,255,255,0.30);
+    backdrop-filter:blur(9px) saturate(1.2);
+    -webkit-backdrop-filter:blur(9px) saturate(1.2);
+    box-shadow:0 2px 20px rgba(6,32,47,0.30);
+    animation:drift 0.7s cubic-bezier(.16,.9,.3,1) both;
+  }
+  @keyframes drift{ from{ opacity:0; transform:translateX(-14px); } to{ opacity:1; transform:none; } }
+
+  #ttl{ position:absolute; left:max(14px,env(safe-area-inset-left)); top:max(13px,env(safe-area-inset-top));
+        pointer-events:none; text-shadow:0 1px 14px rgba(6,32,47,.55); }
+  #ttl .k{ font-weight:200; font-size:clamp(20px,4.6vw,30px); letter-spacing:.42em; line-height:1; color:#fff; }
+  #ttl .s{ font-family:"Hina Mincho",serif; font-size:clamp(11px,2.5vw,15px); letter-spacing:.7em;
+           color:rgba(255,255,255,.72); margin-top:.5em; }
+
+  #read{ position:absolute; right:max(12px,env(safe-area-inset-right)); top:max(12px,env(safe-area-inset-top));
+         padding:7px 12px; font-size:11px; letter-spacing:.14em; color:#f2fbfb;
+         display:flex; gap:14px; align-items:baseline; animation-delay:.07s; }
+  #read b{ font-weight:600; font-size:14px; letter-spacing:.04em; color:#fff; }
+  #read i{ font-style:normal; opacity:.62; font-size:10px; letter-spacing:.2em; }
+
+  #panel{ position:absolute; left:max(12px,env(safe-area-inset-left));
+          bottom:max(12px,env(safe-area-inset-bottom));
+          padding:8px; display:flex; gap:7px; animation-delay:.14s; }
+  #panel button, #flip{
+    font-family:inherit; font-size:11px; letter-spacing:.16em; font-weight:400;
+    color:#f2fbfb; background:rgba(255,255,255,0.10); cursor:pointer;
+    border:1px solid rgba(255,255,255,0.30); border-radius:1px; padding:8px 13px;
+    transition:background .28s ease, color .28s ease, border-color .28s ease;
+  }
+  #panel button:hover, #flip:hover{ background:rgba(255,255,255,0.24); }
+  #panel button.on{ background:rgba(255,255,255,0.90); color:#06202f; border-color:#fff; }
+  #flip{ position:absolute; right:max(12px,env(safe-area-inset-right));
+         bottom:max(12px,env(safe-area-inset-bottom));
+         backdrop-filter:blur(9px); -webkit-backdrop-filter:blur(9px); }
+
+  #err{
+    display:none; position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
+    width:min(86vw,430px); padding:20px 22px; white-space:pre-wrap; line-height:1.85;
+    font-family:"Zen Kurenaido",sans-serif; font-size:13px; color:#06202f;
+    background:#f3faf9; border-left:3px solid #17407a; border-radius:2px; z-index:40;
+  }
+
+  /* ── 開始シート。明るい紙。 ── */
+  .sheet{
+    position:absolute; inset:0; z-index:30; display:flex; align-items:center; justify-content:center;
+    padding:16px; background:
+      radial-gradient(120% 90% at 50% 0%, rgba(111,214,207,.34), rgba(6,32,47,.90) 70%), #06202f;
+    transition:opacity .55s ease, visibility .55s;
+  }
+  .sheet.gone{ opacity:0; visibility:hidden; pointer-events:none; }
+  .sheet .card{
+    width:min(94vw,640px); max-height:94vh; overflow:auto; background:#f4fbfa; color:#06202f;
+    border-radius:3px; box-shadow:0 30px 90px rgba(0,0,0,.5); padding:0 0 22px;
+  }
+  .cap{ display:flex; justify-content:space-between; gap:10px; padding:11px 22px;
+        background:#17407a; color:#dff2f6; font-size:10px; letter-spacing:.24em; }
+  .cap b{ font-weight:600; color:#fff; letter-spacing:.1em; }
+  .bodyw{ padding:22px 22px 0; }
+  .ttl2{ font-family:"Hina Mincho",serif; font-size:clamp(20px,5vw,29px); line-height:1.5;
+         letter-spacing:.04em; margin-bottom:.7em; }
+  .lead{ font-family:"Zen Kurenaido",sans-serif; font-size:13.5px; line-height:2.0; color:#23414f; }
+  .lead em{ font-style:normal; color:#0f6f86; border-bottom:1px solid rgba(15,111,134,.4); }
+  #demo{ display:block; margin:1.25rem auto .5rem; width:min(88vw,26rem); height:auto;
+         border-radius:2px; background:#0b2c3f; }
+  .cc{ text-align:center; font-size:10.5px; letter-spacing:.2em; color:#7f98a3; margin-bottom:1.15rem; }
+  .spec{ font-family:"Zen Kurenaido",sans-serif; font-size:12.5px; line-height:2.15; color:#23414f;
+         border-top:1px solid #d3e4e4; padding-top:14px; }
+  .spec span{ display:inline-block; min-width:9.4em; color:#17407a; font-weight:700; letter-spacing:.06em; }
+  .spec em{ font-style:normal; color:#c2582f; }
+  .go{
+    display:block; width:100%; margin-top:20px; padding:16px; cursor:pointer;
+    font-family:"Jost",sans-serif; font-size:13px; font-weight:600; letter-spacing:.34em;
+    color:#f4fbfa; background:#17407a; border:none; border-radius:2px;
+    transition:background .3s ease, letter-spacing .3s ease;
+  }
+  .go:hover{ background:#0f6f86; letter-spacing:.44em; }
+</style>
+</head>
+<body>
+<canvas id="view"></canvas>
+<video id="video" playsinline muted autoplay></video>
+<button id="flip">⟲ カメラ</button>
+<div id="err"></div>
+<div id="ttl"><div class="k">SUIMEI</div><div class="s">水明</div></div>
+<div id="read" class="flt"><span><i>焦点</i> <b id="rF">0</b></span><span><i>濁り</i> <b id="rT">0</b></span><span><i>水</i> <b id="rM">潮</b></span></div>
+<div id="panel" class="flt">
+  <button id="mode" type="button">水 ・ 潮</button>
+  <button id="snd" type="button" class="on">音 ON</button>
+</div>
+<div class="sheet" id="startSheet"><div class="card">
+  <div class="cap"><span>OTO-II / SUIMEI</span><span><b>水の底に射す光</b></span></div>
+  <div class="bodyw">
+    <div class="ttl2">白い網は、模様ではなく光の折り目。</div>
+    <p class="lead">カメラに映っているものが、そのまま浅瀬の底になります。上を覆う水面はゆるやかに起伏していて、そこを通った日の光は<em>底に着くまでに曲げられる</em>。曲げられた光線どうしが重なったところが明るく、散ったところが暗い。この作品は毎フレーム、水面の高さから光線の伸び縮み（ヤコビアン）を解いて、それが折り返す線を描いています。<br>だから網は<em>一度も同じ形になりません</em>。そして手のひらをかざすと、そこだけ水面がふくらんで<em>本物のレンズ</em>になり、光が一点に集まります。</p>
+    <canvas id="demo" width="560" height="190"></canvas>
+    <div class="cc">— 実際の計算をそのまま動かしています —</div>
+    <div class="spec">
+      <span>手をかざす</span>そこだけ水面がふくらみ、光が集まって芯が灯ります<br>
+      <span>手を動かす</span>水がかき混ざって<em>濁り</em>、十数秒かけて澄んでいきます<br>
+      <span>握る</span>波が凪ぎ、網が大きくゆっくりほどけます<br>
+      <span>両手を高く掲げる</span><em>飛沫</em>。水面がひとつ弾けて光が総立ちになります
+    </div>
+    <button class="go" id="startBtn">浅瀬をのぞく</button>
+  </div>
+</div></div>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+<script>
+(function(){
+'use strict';
+
+var TAU = Math.PI * 2;
+function fin(v){ return typeof v === 'number' && isFinite(v); }
+function clamp(v,a,b){ return v < a ? a : (v > b ? b : v); }
+function rnd(a,b){ return a + Math.random()*(b-a); }
+function now(){
+  var p = window.performance;
+  return (p && typeof p.now === 'function' ? p.now() : Date.now()) / 1000;
+}
+function $(id){ return document.getElementById(id); }
+
+// ═══════════════════════════════════════════════════════════════════════
+//  LUTs — sin と exp(-u) は画素ループの内側で何十万回も呼ばれる
+// ═══════════════════════════════════════════════════════════════════════
+var SN = 4096, SMASK = SN - 1;
+var SINT = new Float32Array(SN);
+for (var _i = 0; _i < SN; _i++) SINT[_i] = Math.sin(_i / SN * TAU);
+var SSCALE = SN / TAU;
+function SIN(x){ return SINT[(x * SSCALE) & SMASK]; }
+
+var EN = 1024, EMAX = 9.0;
+var EXPT = new Float32Array(EN + 1);
+for (var _j = 0; _j <= EN; _j++) EXPT[_j] = Math.exp(-(_j / EN) * EMAX);
+var ESCALE = EN / EMAX;
+function EXPN(u){                       // exp(-u), u >= 0
+  if (!(u > 0)) return 1;
+  if (u >= EMAX) return 0;
+  return EXPT[(u * ESCALE) | 0];
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  CAUSTIC CORE
+//  高さ場を一度だけ組み立て、ヘシアンは有限差分で取る。
+//  屈折した光線の底での面積比は det(I + c·H)。その逆数が輝度。
+//  det が符号を変える線が焦線で、白い網はそこに立つ。
+// ═══════════════════════════════════════════════════════════════════════
+var WAVE_STRIDE = 5;    // kx, ky, phase, amp, (spare)
+var RIP_STRIDE  = 8;    // x, y, amp, front, width, k, lo2, hi2
+var BUMP_STRIDE = 4;    // x, y, amp, sigma2
+
+function makeCaustic(gw, gh){
+  return { gw:gw, gh:gh, H:new Float32Array(gw*gh), CI:new Float32Array(gw*gh) };
+}
+
+function causticHeight(C, WW, WH, WV, nw, RP, nr, BP, nb){
+  var gw = C.gw, gh = C.gh, H = C.H;
+  var dx = WW / gw, dy = WH / gh;
+  var i, j, w, o, h, wx, wy, ddx, ddy, d2, d, u, base;
+  for (j = 0; j < gh; j++){
+    wy = (j + 0.5) * dy;
+    base = j * gw;
+    for (i = 0; i < gw; i++){
+      wx = (i + 0.5) * dx;
+      h = 0;
+      for (w = 0; w < nw; w++){
+        o = w * WAVE_STRIDE;
+        h += WV[o+3] * SIN(WV[o]*wx + WV[o+1]*wy - WV[o+2]);
+      }
+      for (w = 0; w < nr; w++){
+        o = w * RIP_STRIDE;
+        ddx = wx - RP[o]; ddy = wy - RP[o+1];
+        d2 = ddx*ddx + ddy*ddy;
+        if (d2 < RP[o+6] || d2 > RP[o+7]) continue;
+        d = Math.sqrt(d2);
+        u = (d - RP[o+3]) / RP[o+4];
+        h += RP[o+2] * EXPN(u*u) * SIN(RP[o+5] * (d - RP[o+3])) / (1 + d*1.2);
+      }
+      for (w = 0; w < nb; w++){
+        o = w * BUMP_STRIDE;
+        ddx = wx - BP[o]; ddy = wy - BP[o+1];
+        d2 = ddx*ddx + ddy*ddy;
+        if (d2 > BP[o+3] * 9) continue;
+        h += BP[o+2] * EXPN(d2 / BP[o+3]);
+      }
+      H[base + i] = h;
+    }
+  }
+}
+
+function causticSolve(C, WW, WH, cdep){
+  var gw = C.gw, gh = C.gh, H = C.H, CI = C.CI;
+  var dx = WW / gw, dy = WH / gh;
+  var invx = 1/(dx*dx), invy = 1/(dy*dy), invxy = 1/(4*dx*dy);
+  var c2 = cdep * cdep;
+  var i, j, jm, jp, im, ip, k, hc, hxx, hyy, hxy, J, a, ci;
+  var bm, bc, bp;
+  for (j = 0; j < gh; j++){
+    jm = j > 0 ? j-1 : 0;
+    jp = j < gh-1 ? j+1 : gh-1;
+    bm = jm * gw; bc = j * gw; bp = jp * gw;
+    for (i = 0; i < gw; i++){
+      im = i > 0 ? i-1 : 0;
+      ip = i < gw-1 ? i+1 : gw-1;
+      k = bc + i;
+      hc = H[k];
+      hxx = (H[bc+im] - 2*hc + H[bc+ip]) * invx;
+      hyy = (H[bm+i]  - 2*hc + H[bp+i])  * invy;
+      hxy = (H[bp+ip] - H[bp+im] - H[bm+ip] + H[bm+im]) * invxy;
+      J = 1 + cdep*(hxx + hyy) + c2*(hxx*hyy - hxy*hxy);
+      a = J < 0 ? -J : J;
+      if (!(a > 0.055)) a = 0.055;
+      ci = 1 / a;
+      if (!(ci >= 0)) ci = 1;
+      if (ci > 8) ci = 8;
+      CI[k] = ci;
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  DOM
+// ═══════════════════════════════════════════════════════════════════════
+var cv = $('view'), ctx = cv ? cv.getContext('2d') : null;
+var video = $('video'), errBox = $('err'), flipBtn = $('flip');
+var startSheet = $('startSheet'), startBtn = $('startBtn');
+var modeBtn = $('mode'), sndBtn = $('snd');
+var rF = $('rF'), rT = $('rT'), rM = $('rM');
+
+var W = 1, H = 1, S = 1, DPR = 1;
+var WW = 1.333, WH = 1.0;                  // 世界の寸法（短辺 = 1.0）
+
+// ═══════════════════════════════════════════════════════════════════════
+//  MODES — 凪 / 潮 / 時化
+//  波は 5 スロット固定。位相は積算するので、周期を変えても飛ばない。
+// ═══════════════════════════════════════════════════════════════════════
+// amp は「その波ひとつで c·a·k² がどこまで行くか」で決めてある。
+// 1 を超えると det が至るところで符号を変えて画面がただの白い砂嵐になるので、
+// 最強の波でも 0.35 前後に収まるように、波長に対して振幅を落としてある。
+var MODES = [
+  { key:'凪',   n:3, lam:0.46,  amp:0.0100,  spd:0.30, dep:0.135, jit:0.30 },
+  { key:'潮',   n:4, lam:0.27,  amp:0.0032,  spd:0.52, dep:0.150, jit:0.46 },
+  { key:'時化', n:5, lam:0.175, amp:0.00115, spd:0.90, dep:0.165, jit:0.62 }
+];
+var modeIdx = 1;
+var NW = 5;
+var WV = new Float32Array(NW * WAVE_STRIDE);
+var wDir = new Float32Array(NW), wLam = new Float32Array(NW), wOmg = new Float32Array(NW);
+var wLamT = new Float32Array(NW), wOmgT = new Float32Array(NW), wAmpT = new Float32Array(NW);
+var cdep = 0.15, cdepT = 0.15;
+
+function seedWaves(){
+  for (var w = 0; w < NW; w++){
+    wDir[w] = rnd(0, TAU);
+    WV[w*WAVE_STRIDE + 2] = rnd(0, TAU);
+  }
+}
+function applyMode(){
+  var m = MODES[modeIdx];
+  for (var w = 0; w < NW; w++){
+    var live = w < m.n;
+    // 非整数倍の乱れ。波長が公約数を持たないので模様は決して周期に戻らない。
+    var f = 1 + (w * 0.2137 + (w*w) * 0.041) * m.jit;
+    wLamT[w] = m.lam / f;
+    wOmgT[w] = m.spd * TAU * (0.55 + 0.42*f);
+    wAmpT[w] = live ? m.amp / (0.72 + 0.44*w) : 0;
+  }
+  cdepT = m.dep;
+  if (rM) rM.textContent = m.key;
+  if (modeBtn) modeBtn.textContent = '水 ・ ' + m.key;
+}
+function stepWaves(dt){
+  for (var w = 0; w < NW; w++){
+    var o = w * WAVE_STRIDE;
+    var k = 1 - Math.exp(-dt / 0.40);          // 1.2 秒かけて入れ替わる長い尾
+    if (wLam[w] <= 0) wLam[w] = wLamT[w];
+    wLam[w] += (wLamT[w] - wLam[w]) * k;
+    wOmg[w] += (wOmgT[w] - wOmg[w]) * k;
+    WV[o+3] += (wAmpT[w] * calmMul - WV[o+3]) * k;
+    var kk = TAU / (wLam[w] > 0.02 ? wLam[w] : 0.02);
+    WV[o]   = kk * Math.cos(wDir[w]);
+    WV[o+1] = kk * Math.sin(wDir[w]);
+    WV[o+2] += wOmg[w] * dt;
+    if (WV[o+2] > 1e6) WV[o+2] -= 1e6;
+  }
+  cdep += (cdepT - cdep) * (1 - Math.exp(-dt / 0.5));
+}
+
+// 握ると凪ぐ。掌を開けば戻る。
+var calmMul = 1, calmT = 1;
+
+// ═══════════════════════════════════════════════════════════════════════
+//  RIPPLES / BUMPS
+// ═══════════════════════════════════════════════════════════════════════
+var MAXR = 6;
+var RP = new Float32Array(MAXR * RIP_STRIDE);
+var rAmp0 = new Float32Array(MAXR), rT0 = new Float32Array(MAXR), rTau = new Float32Array(MAXR);
+var rSpd = new Float32Array(MAXR), rOn = new Uint8Array(MAXR);
+var nRip = 0;
+
+var MAXB = 2;
+var BP = new Float32Array(MAXB * BUMP_STRIDE);
+var nBump = 0;
+
+function spawnRipple(wx, wy, amp, spd, tau, wid, lam){
+  var slot = -1, oldest = 1e9, k;
+  for (k = 0; k < MAXR; k++){ if (!rOn[k]){ slot = k; break; } }
+  if (slot < 0){
+    for (k = 0; k < MAXR; k++){ if (rT0[k] < oldest){ oldest = rT0[k]; slot = k; } }
+  }
+  if (slot < 0) return -1;
+  var o = slot * RIP_STRIDE;
+  RP[o] = wx; RP[o+1] = wy; RP[o+2] = amp;
+  RP[o+3] = 0.001; RP[o+4] = wid; RP[o+5] = TAU / lam;
+  RP[o+6] = 0; RP[o+7] = 0.0001;
+  rAmp0[slot] = amp; rT0[slot] = 0; rTau[slot] = tau; rSpd[slot] = spd; rOn[slot] = 1;
+  return slot;
+}
+function stepRipples(dt){
+  nRip = 0;
+  for (var k = 0; k < MAXR; k++){
+    if (!rOn[k]) continue;
+    rT0[k] += dt;
+    var o = k * RIP_STRIDE;
+    var front = rSpd[k] * rT0[k];
+    var a = rAmp0[k] * Math.exp(-rT0[k] / rTau[k]);
+    if (rT0[k] > rTau[k] * 3.2 || front > 3.4){ rOn[k] = 0; continue; }
+    RP[o+3] = front; RP[o+2] = a;
+    var lo = front - 3 * RP[o+4]; if (lo < 0) lo = 0;
+    var hi = front + 3 * RP[o+4];
+    RP[o+6] = lo*lo; RP[o+7] = hi*hi;
+  }
+  // 生きている波紋を前詰めにして、画素ループが死んだスロットを踏まないようにする
+  var w = 0;
+  for (var k2 = 0; k2 < MAXR; k2++){
+    if (!rOn[k2]) continue;
+    if (w !== k2){
+      var a1 = w*RIP_STRIDE, a2 = k2*RIP_STRIDE;
+      for (var q = 0; q < RIP_STRIDE; q++) RP[a1+q] = RP[a2+q];
+      rAmp0[w]=rAmp0[k2]; rT0[w]=rT0[k2]; rTau[w]=rTau[k2]; rSpd[w]=rSpd[k2];
+      rOn[w] = 1; rOn[k2] = 0;
+    }
+    w++;
+  }
+  nRip = w;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  TURBIDITY — かき混ぜた濁り。痕跡はここに残る。
+// ═══════════════════════════════════════════════════════════════════════
+var TW = 64, TH2 = 48;
+var TB = new Float32Array(TW*TH2), TB2 = new Float32Array(TW*TH2);
+var tcv = null, tctx = null, timg = null;
+function initTurb(){
+  tcv = document.createElement('canvas');
+  tcv.width = TW; tcv.height = TH2;
+  tctx = tcv.getContext('2d');
+  if (tctx && tctx.createImageData) timg = tctx.createImageData(TW, TH2);
+}
+function turbAdd(wx, wy, amount){
+  var gx = (wx / WW) * TW, gy = (wy / WH) * TH2;
+  var i0 = gx | 0, j0 = gy | 0;
+  for (var j = j0-1; j <= j0+1; j++){
+    if (j < 0 || j >= TH2) continue;
+    for (var i = i0-1; i <= i0+1; i++){
+      if (i < 0 || i >= TW) continue;
+      var d = (i-gx)*(i-gx) + (j-gy)*(j-gy);
+      TB[j*TW+i] += amount * EXPN(d * 0.7);
+    }
+  }
+}
+function turbStep(dt){
+  var kd = clamp(dt * 5.0, 0, 0.24);         // 拡散
+  var kf = Math.exp(-dt / 7.0);              // 澄んでいく速さ
+  var i, j, k, s;
+  for (j = 0; j < TH2; j++){
+    var jm = j > 0 ? j-1 : 0, jp = j < TH2-1 ? j+1 : TH2-1;
+    for (i = 0; i < TW; i++){
+      var im = i > 0 ? i-1 : 0, ip = i < TW-1 ? i+1 : TW-1;
+      k = j*TW+i;
+      s = TB[j*TW+im] + TB[j*TW+ip] + TB[jm*TW+i] + TB[jp*TW+i] - 4*TB[k];
+      var v = (TB[k] + s * kd) * kf;
+      if (!(v >= 0)) v = 0;
+      if (v > 2.4) v = 2.4;
+      TB2[k] = v;
+    }
+  }
+  var tmp = TB; TB = TB2; TB2 = tmp;
+}
+function turbMean(){
+  var s = 0, n = TW*TH2;
+  for (var k = 0; k < n; k++) s += TB[k];
+  return s / n;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  MOTES — 浮遊物。光の網が横切った粒だけが光る。
+// ═══════════════════════════════════════════════════════════════════════
+var NMOTE = 900;
+var mX = new Float32Array(NMOTE), mY = new Float32Array(NMOTE), mZ = new Float32Array(NMOTE);
+var mVX = new Float32Array(NMOTE), mVY = new Float32Array(NMOTE), mPh = new Float32Array(NMOTE);
+var moteSprite = null;
+function initMotes(){
+  for (var i = 0; i < NMOTE; i++){
+    mX[i] = Math.random(); mY[i] = Math.random();
+    mZ[i] = rnd(0.25, 1.0);
+    mVX[i] = rnd(-0.012, 0.012); mVY[i] = rnd(-0.018, 0.004);
+    mPh[i] = rnd(0, TAU);
+  }
+  var c = document.createElement('canvas');
+  c.width = 32; c.height = 32;
+  var g = c.getContext('2d');
+  if (g && g.createRadialGradient){
+    var rg = g.createRadialGradient(16,16,0,16,16,16);
+    rg.addColorStop(0,   'rgba(255,255,255,1)');
+    rg.addColorStop(0.28,'rgba(232,250,247,0.72)');
+    rg.addColorStop(1,   'rgba(180,235,230,0)');
+    g.fillStyle = rg; g.fillRect(0,0,32,32);
+  }
+  moteSprite = c;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  CAMERA
+// ═══════════════════════════════════════════════════════════════════════
+var stream = null, facing = 'user', mirror = true;
+function showError(e){
+  var msg = (e && e.message) ? e.message : String(e || 'unknown');
+  if (!errBox) return;
+  errBox.style.display = 'block';
+  errBox.textContent = 'カメラを起動できませんでした：' + msg +
+    '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+}
+function startStream(){
+  var md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) return Promise.reject(new Error('getUserMedia is unavailable'));
+  if (stream && stream.getTracks) stream.getTracks().forEach(function(t){ t.stop(); });
+  return md.getUserMedia({ video:{ facingMode:{ ideal:facing }, width:{ ideal:640 }, height:{ ideal:480 } }, audio:false })
+    .then(function(st){
+      stream = st; video.srcObject = st; mirror = (facing === 'user');
+      var p = video.play(); return (p && p.then) ? p['catch'](function(){}) : null;
+    });
+}
+if (flipBtn) flipBtn.addEventListener('click', function(){
+  facing = (facing === 'user') ? 'environment' : 'user';
+  loseHands();
+  startStream().then(startMpCamera)['catch'](showError);
+});
+
+var camAspect = 4/3, covS = 1, covOX = 0, covOY = 0, covH = 1;
+function updateCover(){
+  var vw = (video && video.videoWidth) ? video.videoWidth : 0;
+  var vh = (video && video.videoHeight) ? video.videoHeight : 0;
+  if (vw > 0 && vh > 0) camAspect = vw/vh;
+  if (!fin(camAspect) || camAspect <= 0) camAspect = 4/3;
+  var rw = W, rh = W/camAspect;
+  if (rh < H){ rh = H; rw = H*camAspect; }
+  covS = rw; covH = rh; covOX = (W-rw)/2; covOY = (H-rh)/2;
+}
+function sx(nx){ return covOX + (mirror ? (1-nx) : nx) * covS; }
+function sy(ny){ return covOY + ny * covH; }
+
+// ═══════════════════════════════════════════════════════════════════════
+//  HANDS
+// ═══════════════════════════════════════════════════════════════════════
+var hands = null, mpCamera = null;
+var LOST_S = 0.5;
+var FRESH_S = 0.22;   // 追跡が生きていると認める窓。ジェスチャの計時はこちらを使う。
+var HAND = [ newHand(), newHand() ];
+function newHand(){
+  return { on:false, t:-9, L:null, wx:0, wy:0, ny:0.5, open:0.5, grip:0,
+           pwx:0, pwy:0, spd:0, has:false };
+}
+function lmOK(L,i){
+  if (!L || typeof L.length !== 'number' || L.length <= i) return false;
+  var p = L[i];
+  return !!p && fin(p.x) && fin(p.y);
+}
+function handLive(k){ return HAND[k].on && (nowT - HAND[k].t) < LOST_S; }
+// 見失っているあいだに溜まった時間でジェスチャが成立してしまわないように、
+// 一撃の計時だけは新しいフレームが来ていることを条件にする。
+function handFresh(k){ return HAND[k].on && (nowT - HAND[k].t) < FRESH_S; }
+function releaseHand(h){
+  h.on = false; h.L = null; h.t = -9; h.has = false; h.spd = 0; h.grip = 0; h.open = 0.5;
+}
+function loseHands(){
+  for (var k = 0; k < 2; k++) releaseHand(HAND[k]);
+  raiseHold = 0; splashArmed = true;
+}
+function acDist(L,a,b){
+  var dx = (L[a].x - L[b].x) * camAspect, dy = (L[a].y - L[b].y);
+  return Math.sqrt(dx*dx + dy*dy);
+}
+var TIPS = [4,8,12,16,20];
+function onHands(res){
+  var t = nowT;
+  var lists = (res && res.multiHandLandmarks) ? res.multiHandLandmarks : null;
+  var n = (lists && typeof lists.length === 'number') ? Math.min(2, lists.length) : 0;
+  for (var k = 0; k < 2; k++){
+    var h = HAND[k];
+    if (k < n){
+      var L = lists[k];
+      var ok = lmOK(L,0) && lmOK(L,9) && lmOK(L,5) && lmOK(L,17);
+      if (ok){ for (var q = 0; q < TIPS.length; q++){ if (!lmOK(L,TIPS[q])){ ok = false; break; } } }
+      if (!ok){ if (h.on && (t - h.t) > LOST_S) releaseHand(h); continue; }
+
+      // 比はすべてアスペクト補正済みカメラ空間で。手の大きさで正規化する。
+      var span = acDist(L,0,9);
+      if (!(span > 0.02)) span = 0.02;
+      var spread = 0;
+      for (var q2 = 0; q2 < TIPS.length; q2++) spread += acDist(L,0,TIPS[q2]);
+      spread = spread / (5 * span);
+      var open = clamp((spread - 1.45) / 1.05, 0, 1);
+
+      // 見失ってから戻ってきた手は「初めて見た手」として扱う。
+      // そうしないと離れた位置へ飛んだぶんが速度として乗り、波紋と濁りが暴発する。
+      if (h.has && (t - h.t) > FRESH_S){ h.has = false; h.spd = 0; }
+
+      var nx = L[9].x, ny = L[9].y;
+      var px = sx(nx) / S, py = sy(ny) / S;      // 世界座標（短辺 = 1）
+      if (h.has){
+        var d = Math.sqrt((px-h.wx)*(px-h.wx) + (py-h.wy)*(py-h.wy));
+        h.spd = h.spd * 0.62 + (d / 0.033) * 0.38;
+      } else { h.spd = 0; }
+      h.pwx = h.wx; h.pwy = h.wy;
+      h.wx = px; h.wy = py; h.ny = ny;
+      h.open = h.open * 0.55 + open * 0.45;
+      h.grip = 1 - h.open;
+      h.on = true; h.t = t; h.L = L; h.has = true;
+    } else {
+      if (h.on && (t - h.t) > LOST_S) releaseHand(h);
+    }
+  }
+}
+function initHands(){
+  var HandsCtor = window.Hands;
+  if (typeof HandsCtor !== 'function') return;
+  try{
+    hands = new HandsCtor({ locateFile: function(f){
+      return 'https://cdn.jsdelivr.net/npm/@mediapipe/hands/' + f;
+    }});
+    hands.setOptions({ maxNumHands:2, modelComplexity:0,
+                       minDetectionConfidence:0.6, minTrackingConfidence:0.5 });
+    hands.onResults(onHands);
+  }catch(e){ hands = null; }
+}
+function startMpCamera(){
+  var CamCtor = window.Camera;
+  if (typeof CamCtor !== 'function' || !hands || !video) return;
+  if (mpCamera && typeof mpCamera.stop === 'function'){ try{ mpCamera.stop(); }catch(e){} }
+  try{
+    mpCamera = new CamCtor(video, {
+      onFrame: function(){
+        if (!hands) return Promise.resolve();
+        return hands.send({ image: video })['catch'](function(){});
+      },
+      width:640, height:480
+    });
+    mpCamera.start();
+  }catch(e){ mpCamera = null; }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  AUDIO — 水中。コンプ後にしか音は出ない。
+// ═══════════════════════════════════════════════════════════════════════
+var ac = null, master = null, sndOn = true, noiseBuf = null;
+var toneG = null, toneF = null, roomG = null;
+function safeParam(p, v, t){
+  if (!p) return;
+  if (!fin(v)) return;
+  try{
+    if (typeof p.setValueAtTime === 'function' && fin(t)) p.setValueAtTime(v, t);
+    else p.value = v;
+  }catch(e){}
+}
+function ramp(p, v, t, dur){
+  if (!p || !fin(v) || !fin(t) || !fin(dur)) return;
+  try{ p.linearRampToValueAtTime(v, t + dur); }catch(e){ safeParam(p, v, t); }
+}
+function mkNoise(){
+  if (!ac) return null;
+  var n = Math.floor(ac.sampleRate * 2);
+  if (!fin(n) || n < 1000) n = 88200;
+  var b = ac.createBuffer(1, n, ac.sampleRate);
+  var d = b.getChannelData(0);
+  for (var i = 0; i < n; i++) d[i] = Math.random()*2 - 1;
+  return b;
+}
+function initAudio(){
+  var AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) return;
+  try{ ac = new AC(); }catch(e){ ac = null; return; }
+  var comp = ac.createDynamicsCompressor();
+  try{ comp.threshold.value = -20; comp.ratio.value = 5;
+       comp.attack.value = 0.005; comp.release.value = 0.3; }catch(e){}
+  master = ac.createGain(); master.gain.value = 0.72;
+  master.connect(comp); comp.connect(ac.destination);
+  noiseBuf = mkNoise();
+
+  // ルームトーン：低く濾した水の音
+  if (noiseBuf){
+    var ns = ac.createBufferSource(); ns.buffer = noiseBuf; ns.loop = true;
+    var lp = ac.createBiquadFilter(); lp.type = 'lowpass';
+    safeParam(lp.frequency, 380, ac.currentTime);
+    safeParam(lp.Q, 0.6, ac.currentTime);
+    roomG = ac.createGain(); roomG.gain.value = 0.055;
+    ns.connect(lp); lp.connect(roomG); roomG.connect(master);
+    try{ ns.start(0); }catch(e){}
+  }
+  // 焦点の声：純正五度。焦点が強いほどフィルタが開く。
+  toneF = ac.createBiquadFilter(); toneF.type = 'lowpass';
+  safeParam(toneF.frequency, 300, ac.currentTime);
+  safeParam(toneF.Q, 3.0, ac.currentTime);
+  toneG = ac.createGain(); toneG.gain.value = 0;
+  toneF.connect(toneG); toneG.connect(master);
+  var f0 = [330, 495];
+  for (var i = 0; i < f0.length; i++){
+    var o = ac.createOscillator(); o.type = 'sine';
+    safeParam(o.frequency, f0[i], ac.currentTime);
+    var g = ac.createGain(); g.gain.value = i === 0 ? 0.6 : 0.34;
+    o.connect(g); g.connect(toneF);
+    try{ o.start(0); }catch(e){}
+  }
+}
+function resumeAudio(){
+  if (!ac) initAudio();
+  if (ac && ac.state === 'suspended' && typeof ac.resume === 'function'){
+    try{ ac.resume(); }catch(e){}
+  }
+}
+var PENTA = [0, 2, 4, 7, 9, 12, 14, 16];
+var lastBell = -9;
+function bell(strength){
+  if (!ac || !sndOn || !master) return;
+  var t = ac.currentTime;
+  if (!fin(t) || t - lastBell < 0.09) return;
+  lastBell = t;
+  var st = PENTA[(Math.random()*PENTA.length)|0] + 12;
+  var f = 261.63 * Math.pow(2, st/12);
+  var o = ac.createOscillator(); o.type = 'sine';
+  safeParam(o.frequency, f, t);
+  var g = ac.createGain();
+  var pk = clamp(0.06 * strength, 0.004, 0.10);
+  safeParam(g.gain, 0.0001, t);
+  try{ g.gain.exponentialRampToValueAtTime(pk, t + 0.012); }catch(e){ safeParam(g.gain, pk, t); }
+  try{ g.gain.exponentialRampToValueAtTime(0.0001, t + 0.9); }catch(e){}
+  o.connect(g); g.connect(master);
+  try{ o.start(t); o.stop(t + 1.0); }catch(e){}
+}
+function splashSound(){
+  if (!ac || !sndOn || !master) return;
+  var t = ac.currentTime;
+  if (!fin(t)) return;
+  if (noiseBuf){
+    var ns = ac.createBufferSource(); ns.buffer = noiseBuf;
+    var bp = ac.createBiquadFilter(); bp.type = 'bandpass';
+    safeParam(bp.frequency, 2600, t);
+    try{ bp.frequency.exponentialRampToValueAtTime(240, t + 0.85); }catch(e){}
+    safeParam(bp.Q, 0.9, t);
+    var ng = ac.createGain();
+    safeParam(ng.gain, 0.34, t);
+    try{ ng.gain.exponentialRampToValueAtTime(0.0002, t + 1.1); }catch(e){}
+    ns.connect(bp); bp.connect(ng); ng.connect(master);
+    try{ ns.start(t); ns.stop(t + 1.2); }catch(e){}
+  }
+  var o = ac.createOscillator(); o.type = 'sine';
+  safeParam(o.frequency, 78, t);
+  try{ o.frequency.exponentialRampToValueAtTime(38, t + 0.5); }catch(e){}
+  var g = ac.createGain();
+  safeParam(g.gain, 0.0001, t);
+  try{ g.gain.exponentialRampToValueAtTime(0.42, t + 0.02);
+       g.gain.exponentialRampToValueAtTime(0.0001, t + 0.7); }catch(e){}
+  o.connect(g); g.connect(master);
+  try{ o.start(t); o.stop(t + 0.8); }catch(e){}
+  for (var i = 0; i < 3; i++) setTimeout(function(){ bell(1.4); }, 90 + i*130);
+}
+if (sndBtn) sndBtn.addEventListener('click', function(){
+  sndOn = !sndOn;
+  sndBtn.textContent = sndOn ? '音 ON' : '音 OFF';
+  sndBtn.className = sndOn ? 'on' : '';
+  if (master) safeParam(master.gain, sndOn ? 0.72 : 0, ac ? ac.currentTime : 0);
+});
+if (modeBtn) modeBtn.addEventListener('click', function(){
+  modeIdx = (modeIdx + 1) % MODES.length;
+  applyMode();
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+//  RESIZE / ADAPTIVE RESOLUTION
+// ═══════════════════════════════════════════════════════════════════════
+var GSTEPS = [128, 160, 192, 224, 264, 304];
+var gStep = 3;
+var C = null, ccv = null, cctx = null, cimg = null;
+function buildGrid(){
+  var gw = GSTEPS[gStep];
+  var gh = Math.max(24, Math.round(gw * (H / W)));
+  if (gh > 420) gh = 420;
+  if (C && C.gw === gw && C.gh === gh) return;
+  C = makeCaustic(gw, gh);
+  if (!ccv){ ccv = document.createElement('canvas'); }
+  ccv.width = gw; ccv.height = gh;
+  cctx = ccv.getContext('2d');
+  cimg = (cctx && cctx.createImageData) ? cctx.createImageData(gw, gh) : null;
+}
+function resize(){
+  var dpr = window.devicePixelRatio || 1;
+  DPR = clamp(dpr, 1, 2);
+  var w = window.innerWidth || 640, h = window.innerHeight || 480;
+  W = Math.max(2, Math.round(w * DPR));
+  H = Math.max(2, Math.round(h * DPR));
+  if (cv){ cv.width = W; cv.height = H; cv.style.width = w + 'px'; cv.style.height = h + 'px'; }
+  S = Math.min(W, H);
+  WW = W / S; WH = H / S;
+  updateCover();
+  buildGrid();
+}
+window.addEventListener('resize', function(){ if (running) resize(); });
+window.addEventListener('orientationchange', function(){ if (running) resize(); });
+
+// ═══════════════════════════════════════════════════════════════════════
+//  ONE-SHOT — 飛沫
+// ═══════════════════════════════════════════════════════════════════════
+var raiseHold = 0, splashArmed = true, splashCool = 0, flash = 0;
+function doSplash(){
+  var cx = WW * 0.5, cy = WH * 0.46;
+  var live = 0, sxs = 0, sys = 0;
+  for (var k = 0; k < 2; k++){
+    if (handLive(k)){ live++; sxs += HAND[k].wx; sys += HAND[k].wy; }
+  }
+  if (live > 0){ cx = sxs/live; cy = sys/live; }
+  spawnRipple(cx, cy, 0.052, 1.35, 1.5, 0.075, 0.115);
+  spawnRipple(cx, cy, 0.030, 0.72, 2.1, 0.135, 0.20);
+  flash = 1;
+  for (var i = 0; i < 46; i++){
+    var a = rnd(0, TAU), r = rnd(0, 0.5);
+    turbAdd(clamp(cx + Math.cos(a)*r, 0, WW*0.999), clamp(cy + Math.sin(a)*r, 0, WH*0.999), 0.5);
+  }
+  for (var m = 0; m < NMOTE; m++){
+    var dxm = mX[m]*WW - cx, dym = mY[m]*WH - cy;
+    var dd = Math.sqrt(dxm*dxm + dym*dym) + 0.03;
+    mVX[m] += (dxm/dd) * 0.42; mVY[m] += (dym/dd) * 0.42;
+  }
+  splashSound();
+  splashCool = 6.0;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  FRAME
+// ═══════════════════════════════════════════════════════════════════════
+var running = false, lastT = 0, nowT = 0, dtSmooth = 1/60, adaptCool = 2.0;
+var focusVal = 0, focusShown = 0, turbShown = 0;
+var camReady = false;
+
+function sampleCI(wx, wy){
+  if (!C) return 1;
+  var i = ((wx / WW) * C.gw) | 0, j = ((wy / WH) * C.gh) | 0;
+  if (i < 0) i = 0; if (i >= C.gw) i = C.gw - 1;
+  if (j < 0) j = 0; if (j >= C.gh) j = C.gh - 1;
+  return C.CI[j*C.gw + i];
+}
+
+function frame(){
+  if (!running) return;
+  requestAnimationFrame(frame);
+  if (!ctx || !C) return;
+
+  var t = now();
+  var dt = t - lastT; lastT = t; nowT = t;
+  if (!fin(dt) || dt <= 0) dt = 1/60;
+  if (dt > 0.1) dt = 0.1;
+  dtSmooth = dtSmooth * 0.9 + dt * 0.1;
+
+  // ── 手 ────────────────────────────────────────────────────────────
+  nBump = 0;
+  var anyGrip = 0, liveN = 0, stir = 0;
+  for (var k = 0; k < 2; k++){
+    var h = HAND[k];
+    if (!handLive(k)){ h.has = false; continue; }
+    liveN++;
+    anyGrip = Math.max(anyGrip, h.grip);
+    if (nBump < MAXB){
+      var o = nBump * BUMP_STRIDE;
+      var sig = 0.052 + 0.075 * h.open;
+      // 盛り上がり（h の極大）では ∇²h < 0 なので det が 1 を下回り、
+      // 光線が寄って明るくなる。だから振幅は正。
+      BP[o] = h.wx; BP[o+1] = h.wy;
+      BP[o+2] = (0.0165 + 0.0115 * h.open) * (0.35 + 0.65*(1 - h.grip));
+      BP[o+3] = sig * sig;
+      nBump++;
+    }
+    if (h.spd > 0.45){
+      stir += h.spd;
+      turbAdd(clamp(h.wx,0,WW*0.999), clamp(h.wy,0,WH*0.999), clamp(h.spd*0.07, 0, 0.5) * dt * 26);
+      if (Math.random() < clamp(h.spd*0.35, 0, 0.6)){
+        var s = spawnRipple(h.wx, h.wy, clamp(0.006 + h.spd*0.0035, 0, 0.020), 0.85, 1.2, 0.058, 0.085);
+        if (s >= 0) bell(clamp(h.spd*0.5, 0.3, 1.6));
+      }
+    }
+  }
+  calmT = 1 - 0.72 * anyGrip;
+  calmMul += (calmT - calmMul) * (1 - Math.exp(-dt / 0.55));
+
+  // 一撃：両手を高く掲げる
+  var bothUp = (handFresh(0) && handFresh(1) && HAND[0].ny < 0.34 && HAND[1].ny < 0.34);
+  if (splashCool > 0) splashCool -= dt;
+  if (bothUp && splashArmed && splashCool <= 0){
+    raiseHold += dt;
+    if (raiseHold > 0.45){ doSplash(); splashArmed = false; raiseHold = 0; }
+  } else {
+    raiseHold = 0;
+    if (!bothUp) splashArmed = true;
+  }
+
+  // ── 物理 ──────────────────────────────────────────────────────────
+  stepWaves(dt);
+  stepRipples(dt);
+  turbStep(dt);
+
+  causticHeight(C, WW, WH, WV, NW, RP, nRip, BP, nBump);
+  causticSolve(C, WW, WH, cdep);
+
+  // ── 描画 ──────────────────────────────────────────────────────────
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.globalAlpha = 1;
+
+  if (camReady && video && video.videoWidth > 0){
+    ctx.save();
+    try{ ctx.filter = 'saturate(0.72) contrast(1.10) brightness(0.88)'; }catch(e){}
+    if (mirror){ ctx.translate(W, 0); ctx.scale(-1, 1); }
+    ctx.drawImage(video, mirror ? (W - covOX - covS) : covOX, covOY, covS, covH);
+    ctx.restore();
+    try{ ctx.filter = 'none'; }catch(e){}
+  } else {
+    ctx.fillStyle = '#0b3550'; ctx.fillRect(0, 0, W, H);
+  }
+
+  // 水色に沈める
+  ctx.globalCompositeOperation = 'multiply';
+  var gr = ctx.createLinearGradient(0, 0, 0, H);
+  gr.addColorStop(0,   '#8fe0d8');
+  gr.addColorStop(0.55,'#63c6c6');
+  gr.addColorStop(1,   '#3f9ab4');
+  ctx.fillStyle = gr; ctx.fillRect(0, 0, W, H);
+
+  // 四隅を群青へ落とす
+  var vg = ctx.createRadialGradient(W*0.5, H*0.46, S*0.14, W*0.5, H*0.5, S*0.86);
+  vg.addColorStop(0,   'rgba(255,255,255,1)');
+  vg.addColorStop(0.62,'rgba(190,225,235,1)');
+  vg.addColorStop(1,   'rgba(70,110,160,1)');
+  ctx.fillStyle = vg; ctx.fillRect(0, 0, W, H);
+  ctx.globalCompositeOperation = 'source-over';
+
+  // 集光模様
+  if (cimg && cctx){
+    var d = cimg.data, n = C.gw * C.gh, p, v, ci;
+    for (var q = 0; q < n; q++){
+      p = q << 2;
+      ci = C.CI[q] - 0.80;
+      if (!(ci > 0)) ci = 0;
+      v = ci * 62;
+      if (v > 255) v = 255;
+      var vr = v * 0.94, vg2 = v * 1.0, vb = v * 0.97;
+      if (v > 150){ vr = v; vg2 = v; vb = v * 0.86; }   // 芯だけ砂の色に寄る
+      d[p]   = vr > 255 ? 255 : vr;
+      d[p+1] = vg2 > 255 ? 255 : vg2;
+      d[p+2] = vb > 255 ? 255 : vb;
+      d[p+3] = 255;
+    }
+    cctx.putImageData(cimg, 0, 0);
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = 1;
+    ctx.drawImage(ccv, 0, 0, C.gw, C.gh, 0, 0, W, H);
+    // ブルーム：わずかに大きい複製を重ねるだけ
+    ctx.globalAlpha = 0.46;
+    var ex = W * 0.035, ey = H * 0.035;
+    ctx.drawImage(ccv, 0, 0, C.gw, C.gh, -ex, -ey, W + ex*2, H + ey*2);
+    ctx.globalAlpha = 1;
+  }
+
+  // 濁り
+  if (timg && tctx){
+    var td = timg.data, tn = TW*TH2;
+    for (var q2 = 0; q2 < tn; q2++){
+      var pp = q2 << 2;
+      var tv = TB[q2] * 150;
+      if (!(tv > 0)) tv = 0;
+      if (tv > 210) tv = 210;
+      td[pp]   = tv * 0.98;
+      td[pp+1] = tv * 0.92;
+      td[pp+2] = tv * 0.74;
+      td[pp+3] = 255;
+    }
+    tctx.putImageData(timg, 0, 0);
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = 0.5;
+    ctx.drawImage(tcv, 0, 0, TW, TH2, 0, 0, W, H);
+    ctx.globalAlpha = 1;
+  }
+
+  // 浮遊物
+  ctx.globalCompositeOperation = 'lighter';
+  var msz = S * 0.012;
+  for (var m = 0; m < NMOTE; m++){
+    mVX[m] *= Math.exp(-dt * 1.6);
+    mVY[m] *= Math.exp(-dt * 1.6);
+    mX[m] += (mVX[m] + SIN(nowT * 0.4 + mPh[m]) * 0.006) * dt;
+    mY[m] += (mVY[m] - 0.013 * mZ[m]) * dt;
+    if (mY[m] < -0.03){ mY[m] = 1.03; mX[m] = Math.random(); }
+    if (mX[m] < -0.03) mX[m] = 1.03;
+    if (mX[m] > 1.03) mX[m] = -0.03;
+    var wx = mX[m] * WW, wy = mY[m] * WH;
+    var lit = sampleCI(wx, wy) - 0.85;
+    if (!(lit > 0)) continue;
+    var a = clamp(lit * 0.30 * mZ[m], 0, 0.9);
+    if (a < 0.012) continue;
+    var r = msz * (0.34 + 0.66 * mZ[m]) * (1 + lit * 0.22);
+    ctx.globalAlpha = a;
+    ctx.drawImage(moteSprite, mX[m]*W - r, mY[m]*H - r, r*2, r*2);
+  }
+  ctx.globalAlpha = 1;
+
+  // 手のしるし ── カメラが見えていることが必ず分かるように
+  focusVal = 0;
+  for (var k2 = 0; k2 < 2; k2++){
+    if (!handLive(k2)) continue;
+    var hh = HAND[k2];
+    var px2 = hh.wx * S, py2 = hh.wy * S;
+    var f = clamp((sampleCI(hh.wx, hh.wy) - 1) / 4.2, 0, 1);
+    focusVal = Math.max(focusVal, f);
+    var rr = S * (0.055 + 0.075 * hh.open);
+    ctx.globalCompositeOperation = 'lighter';
+    var rg2 = ctx.createRadialGradient(px2, py2, 0, px2, py2, rr);
+    rg2.addColorStop(0,   'rgba(255,255,255,' + (0.10 + 0.34*f).toFixed(3) + ')');
+    rg2.addColorStop(0.5, 'rgba(200,245,240,' + (0.04 + 0.10*f).toFixed(3) + ')');
+    rg2.addColorStop(1,   'rgba(140,220,220,0)');
+    ctx.fillStyle = rg2;
+    ctx.beginPath(); ctx.arc(px2, py2, rr, 0, TAU); ctx.fill();
+
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.strokeStyle = 'rgba(255,255,255,' + (0.20 + 0.34*(1 - hh.grip)).toFixed(3) + ')';
+    ctx.lineWidth = Math.max(1, S * 0.0022);
+    ctx.beginPath(); ctx.arc(px2, py2, rr * 0.55, 0, TAU); ctx.stroke();
+    if (hh.grip > 0.55){
+      ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+      ctx.beginPath(); ctx.arc(px2, py2, rr * 0.30, 0, TAU); ctx.stroke();
+    }
+  }
+  ctx.globalCompositeOperation = 'source-over';
+
+  // 飛沫の白
+  if (flash > 0){
+    flash -= dt * 2.4;
+    if (flash < 0) flash = 0;
+    var fa = flash * flash;
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.fillStyle = 'rgba(255,255,255,' + (fa * 0.85).toFixed(3) + ')';
+    ctx.fillRect(0, 0, W, H);
+    ctx.globalCompositeOperation = 'source-over';
+  }
+
+  // ── 音 ────────────────────────────────────────────────────────────
+  if (ac && toneG && toneF && sndOn){
+    var ct = ac.currentTime;
+    if (fin(ct)){
+      var want = clamp(focusVal, 0, 1);
+      safeParam(toneG.gain, clamp(want * 0.085, 0, 0.09), ct);
+      safeParam(toneF.frequency, clamp(320 + want * 2400, 60, 9000), ct);
+    }
+  }
+
+  // ── HUD ───────────────────────────────────────────────────────────
+  focusShown += (focusVal - focusShown) * 0.12;
+  turbShown += (clamp(turbMean() * 2.6, 0, 1) - turbShown) * 0.08;
+  if (rF) rF.textContent = Math.round(focusShown * 100) + '%';
+  if (rT) rT.textContent = Math.round(turbShown * 100) + '%';
+
+  // ── 内部解像度 ────────────────────────────────────────────────────
+  if (adaptCool > 0) adaptCool -= dt;
+  else {
+    if (dtSmooth > 1/26 && gStep > 0){ gStep--; buildGrid(); adaptCool = 2.2; }
+    else if (dtSmooth < 1/52 && gStep < GSTEPS.length - 1){ gStep++; buildGrid(); adaptCool = 2.8; }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  START
+// ═══════════════════════════════════════════════════════════════════════
+function begin(){
+  resumeAudio();
+  if (startSheet) startSheet.className = 'sheet gone';
+  stopDemo();
+  resize();
+  if (!running){ running = true; lastT = now(); nowT = lastT; requestAnimationFrame(frame); }
+  initHands();
+  startStream().then(function(){ camReady = true; startMpCamera(); })['catch'](showError);
+}
+if (startBtn) startBtn.addEventListener('click', begin);
+
+// ═══════════════════════════════════════════════════════════════════════
+//  START-SHEET DEMO — 本編と同じ関数を小さな格子で回す。作り物ではない。
+// ═══════════════════════════════════════════════════════════════════════
+var demo = $('demo'), dctx = demo ? demo.getContext('2d') : null;
+var demoRAF = 0, dLast = 0, dC = null, dImg = null, dT = 0;
+var dWV = new Float32Array(4 * WAVE_STRIDE), dBP = new Float32Array(BUMP_STRIDE);
+var dRP = new Float32Array(RIP_STRIDE), dNextRip = 2.2, dNr = 0;
+var dRipT = 0;
+function stopDemo(){ if (demoRAF){ try{ cancelAnimationFrame(demoRAF); }catch(e){} demoRAF = 0; } }
+function demoFrame(){
+  if (!dctx || !demo) return;
+  var t = now(); var dt = t - dLast; dLast = t;
+  if (!fin(dt) || dt <= 0) dt = 0.016;
+  if (dt > 0.05) dt = 0.05;
+  dT += dt;
+  var GW2 = 140, GH2 = 48;
+  var DWW = 140/48, DWH = 1;
+  if (!dC){
+    dC = makeCaustic(GW2, GH2);
+    dImg = dctx.createImageData(GW2, GH2);
+    for (var w = 0; w < 4; w++){
+      var o = w * WAVE_STRIDE;
+      var dir = rnd(0, TAU), lam = 0.27 / (1 + w*0.23);
+      var kk = TAU / lam;
+      dWV[o] = kk*Math.cos(dir); dWV[o+1] = kk*Math.sin(dir);
+      dWV[o+2] = rnd(0, TAU); dWV[o+3] = 0.0032 / (0.72 + 0.44*w);
+    }
+  }
+  for (var w2 = 0; w2 < 4; w2++){
+    dWV[w2*WAVE_STRIDE + 2] += (0.52*TAU*(0.6 + 0.2*w2)) * dt;
+  }
+  var hx = DWW * (0.5 + 0.33*Math.sin(dT*0.55));
+  var hy = DWH * (0.5 + 0.20*Math.sin(dT*0.83 + 1.1));
+  dBP[0] = hx; dBP[1] = hy; dBP[2] = 0.0205; dBP[3] = 0.085*0.085;
+
+  dNextRip -= dt;
+  if (dNextRip <= 0 && dNr === 0){ dNextRip = 3.4; dNr = 1; dRipT = 0;
+    dRP[0] = hx; dRP[1] = hy; dRP[4] = 0.06; dRP[5] = TAU/0.085; }
+  if (dNr === 1){
+    dRipT += dt;
+    var fr = 0.85 * dRipT;
+    dRP[2] = 0.016 * Math.exp(-dRipT/1.2); dRP[3] = fr;
+    var lo = fr - 0.18; if (lo < 0) lo = 0;
+    dRP[6] = lo*lo; dRP[7] = (fr + 0.18)*(fr + 0.18);
+    if (dRipT > 3.6) dNr = 0;
+  }
+  causticHeight(dC, DWW, DWH, dWV, 4, dRP, dNr, dBP, 1);
+  causticSolve(dC, DWW, DWH, 0.15);
+
+  var d = dImg.data, n = GW2*GH2, i, p, ci, v;
+  for (i = 0; i < n; i++){
+    p = i << 2;
+    ci = dC.CI[i] - 0.80;
+    if (!(ci > 0)) ci = 0;
+    v = ci * 62; if (v > 255) v = 255;
+    d[p]   = clamp(18 + v*0.95, 0, 255);
+    d[p+1] = clamp(58 + v*0.96, 0, 255);
+    d[p+2] = clamp(74 + v*0.92, 0, 255);
+    d[p+3] = 255;
+  }
+  dctx.putImageData(dImg, 0, 0);
+  dctx.save();
+  try{ dctx.imageSmoothingEnabled = true; }catch(e){}
+  dctx.drawImage(demo, 0, 0, GW2, GH2, 0, 0, demo.width, demo.height);
+  dctx.restore();
+  // 手の輪
+  var px = (hx/DWW) * demo.width, py = (hy/DWH) * demo.height;
+  dctx.globalCompositeOperation = 'source-over';
+  dctx.strokeStyle = 'rgba(255,255,255,0.55)';
+  dctx.lineWidth = 2;
+  dctx.beginPath(); dctx.arc(px, py, demo.height*0.16, 0, TAU); dctx.stroke();
+  dctx.font = '400 12px Jost, sans-serif';
+  dctx.fillStyle = 'rgba(255,255,255,0.72)';
+  dctx.fillText('手のひら＝レンズ', 12, demo.height - 12);
+  demoRAF = requestAnimationFrame(demoFrame);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  BOOT
+// ═══════════════════════════════════════════════════════════════════════
+seedWaves();
+applyMode();
+for (var _w = 0; _w < NW; _w++){ wLam[_w] = wLamT[_w]; wOmg[_w] = wOmgT[_w]; WV[_w*WAVE_STRIDE+3] = wAmpT[_w]; }
+initTurb();
+initMotes();
+resize();
+if (dctx){ dLast = now(); demoRAF = requestAnimationFrame(demoFrame); }
+
+window.__suimei = {
+  makeCaustic: makeCaustic, causticHeight: causticHeight, causticSolve: causticSolve,
+  onHands: onHands, frame: frame, begin: begin, spawnRipple: spawnRipple,
+  turbAdd: turbAdd, turbMean: turbMean, doSplash: doSplash,
+  sampleCI: sampleCI,
+  state: function(){
+    return { C:C, HAND:HAND, WW:WW, WH:WH, nRip:nRip, nBump:nBump, focusVal:focusVal, calmMul:calmMul,
+             gStep:gStep, modeIdx:modeIdx, flash:flash, splashCool:splashCool, TB:TB,
+             WV:WV, cdep:cdep, running:running, camReady:camReady };
+  },
+  setCamReady: function(v){ camReady = v; },
+  setMode: function(i){ modeIdx = i; applyMode(); }
+};
+})();
+</script>
+</body>
+</html>
