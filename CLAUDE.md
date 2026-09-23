@@ -2,6 +2,12 @@
 
 カメラとマイクで遊ぶ、1ファイル完結の HTML 作品ギャラリー。
 `main` に push すると GitHub Actions が Pages へ自動デプロイする。
+同じ push で **Vercel にも自動デプロイ**される（2026-09-23 に Vercel の Git 連携を設定。
+Framework Preset: Other・ビルド無し・リポジトリのルートをそのまま公開）。
+実行環境から `*.vercel.app` には届かない（egress proxy が拒否）ので、成否は GitHub の
+Deployments API で見る ── `GET /repos/{owner}/{repo}/deployments?sha=<sha>` のうち
+`creator.login == "vercel[bot]"`・`environment == "Production"` のものの statuses が
+`success` になっていればよい。URL はその status の `environment_url`。
 
 ## カテゴリ（2026-09-21 変更）
 
