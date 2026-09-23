@@ -1,0 +1,666 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="description" content="映った人がアニメのセル画になり、体から気のオーラが燃え上がる。声を出すほどオーラが大きくなり、叫びきると一瞬、白黒反転の決めカットになる。">
+<meta name="theme-color" content="#1b0d5c">
+<title>KAKUSEI ─ 声で燃え上がる、アニメの覚醒</title>
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  KAKUSEI 覚醒 ─ 声で燃え上がる、アニメの覚醒        ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  MOOD       少年アニメの「覚醒回」の一枚絵。映った人はセル塗り（影・中間・
+             ハイライトの三段ベタ）と墨の主線で描き直され、体の輪郭から
+             硬い縁の炎のオーラが立ちのぼる。背景は顔へ向かう集中線だけ。
+             声を出すと気が高まり、叫びきった瞬間に一枚だけ白黒反転の
+             インパクトフレームが差し込まれる。
+  PALETTE    金  … 背景 藍紫 #1b0d5c・集中線 #efeaff・オーラ #ff9d00/#ffd23f/#fffbe6
+             蒼  … 背景 墨 #05060b・集中線 #26364f・オーラ #1f6bff/#36d6ff/#eaffff
+             紅  … 背景 紙 #f3eee2・集中線 #111・オーラ #d4001a/#ff3b2f/#ffd5c2（漫画原稿）
+             主線は全配色共通で #0d0820。影色は配色ごとの寒色/暖色に寄せる。
+  TYPE       Reggae One（見出しの「覚醒」）＋ Anton（ラテン・ボタン）。
+  MOTION     オーラは下から上へ流れる炎の舌。集中線は 1/12 秒ごとに引き直す
+             （作画のコマ落ち感）。決めカットは 0.45 秒、画面が揺れる。
+  SIGNATURE  叫ぶ → オーラが画面を焼き、白黒反転の一コマ → 余韻の火の粉。
+  TECH       MediaPipe ImageSegmenter の人物マスク → CPU で正方セル格子へ
+             落としてぼかした「気の場」→ WebGL2 の一枚シェーダで
+             集中線・オーラ・火の粉・セル塗り・主線をすべて描く。
+             声はマイクの 300Hz 以上の音量を適応ノイズフロア基準で読む。
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Reggae+One&display=swap" rel="stylesheet">
+<style>
+:root{--ink:#0d0820;--gold:#ffd23f;--hot:#ff9d00;--glass:rgba(13,8,32,.72)}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none}
+html,body{margin:0;height:100%;background:#1b0d5c;overflow:hidden;color:#fff;
+  font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto Sans JP",sans-serif}
+#gl{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+#cam{position:fixed;left:0;top:0;width:2px;height:2px;opacity:.01;pointer-events:none}
+
+#start{position:fixed;inset:0;z-index:30;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:18px;padding:24px;text-align:center;
+  background:repeating-conic-gradient(from 0deg at 50% 42%,#1b0d5c 0 3.2deg,#2a1880 3.2deg 4deg,#1b0d5c 4deg 9deg)}
+#start .kan{font-family:"Reggae One",serif;font-size:min(34vw,190px);line-height:1;color:var(--gold);
+  -webkit-text-stroke:6px var(--ink);paint-order:stroke fill;text-shadow:0 0 0 var(--ink),10px 10px 0 var(--hot);letter-spacing:-.04em}
+#start .en{font-family:Anton,Impact,sans-serif;font-size:22px;letter-spacing:.5em;margin-right:-.5em;color:#fff}
+#start p{margin:0;font-size:14px;line-height:1.8;color:#e6e0ff;max-width:320px;font-weight:600}
+#go{appearance:none;border:4px solid var(--ink);background:var(--gold);color:var(--ink);font-family:Anton,Impact,sans-serif;
+  font-size:22px;letter-spacing:.2em;padding:12px 44px;box-shadow:6px 6px 0 var(--ink);cursor:pointer}
+#go:active{transform:translate(3px,3px);box-shadow:3px 3px 0 var(--ink)}
+#err{color:#ffb4c0;font-size:13px;line-height:1.7;max-width:340px;min-height:1em;white-space:pre-line;font-weight:700}
+
+.btn{position:fixed;z-index:12;appearance:none;border:3px solid var(--ink);background:#fff;color:var(--ink);
+  font-family:Anton,Impact,"Hiragino Sans",sans-serif;font-size:14px;letter-spacing:.08em;padding:6px 12px;
+  box-shadow:3px 3px 0 var(--ink);display:none;cursor:pointer}
+.btn.show{display:block}
+.btn:active{transform:translate(2px,2px);box-shadow:1px 1px 0 var(--ink)}
+#gear{right:12px;top:calc(env(safe-area-inset-top) + 10px);font-size:18px;padding:3px 11px}
+#flip{right:12px;top:calc(env(safe-area-inset-top) + 56px)}
+#rec{left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom) + 18px);background:var(--gold);font-size:16px;padding:8px 22px}
+#rec:active{transform:translateX(-50%) translate(2px,2px)}
+#rec.on{background:#ff2a3a;color:#fff}
+#status{position:fixed;left:12px;top:calc(env(safe-area-inset-top) + 12px);z-index:11;font-size:12px;font-weight:700;
+  color:#fff;text-shadow:0 1px 3px #000,0 0 2px #000;pointer-events:none;max-width:68vw;line-height:1.5;white-space:pre-line}
+#meter{position:fixed;left:12px;bottom:calc(env(safe-area-inset-bottom) + 22px);z-index:11;width:min(28vw,150px);height:12px;
+  border:3px solid var(--ink);background:#fff;display:none}
+#meter.show{display:block}
+#meter i{display:block;height:100%;width:0;background:var(--hot)}
+
+#panel{position:fixed;right:10px;top:calc(env(safe-area-inset-top) + 100px);z-index:12;width:min(300px,calc(100vw - 20px));
+  background:#fff;color:var(--ink);border:3px solid var(--ink);box-shadow:5px 5px 0 var(--ink);padding:12px 14px;
+  display:flex;flex-direction:column;gap:10px;transition:opacity .15s,transform .15s}
+#panel.hide{opacity:0;transform:translateX(24px);pointer-events:none}
+.chips{display:flex;gap:6px}
+.chips button{flex:1;appearance:none;border:2px solid var(--ink);background:#fff;color:var(--ink);padding:7px 2px;
+  font-size:13px;font-weight:800;cursor:pointer}
+.chips button.on{background:var(--ink);color:#fff}
+#panel label{display:flex;align-items:center;gap:10px;font-size:12px;font-weight:700}
+#panel label span{width:78px;flex:none}
+#panel input[type=range]{flex:1;accent-color:#ff9d00}
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<video id="cam" playsinline muted autoplay></video>
+<div id="status"></div>
+<div id="meter"><i></i></div>
+<button id="gear" class="btn" aria-label="調整">⚙</button>
+<button id="flip" class="btn">⟲ カメラ</button>
+<button id="rec" class="btn">● REC</button>
+
+<div id="panel" class="hide">
+  <div class="chips" id="pals">
+    <button data-p="0" class="on">金</button>
+    <button data-p="1">蒼</button>
+    <button data-p="2">紅</button>
+  </div>
+  <label><span>オーラ</span><input type="range" id="sAura" min="0.5" max="1.8" step="0.05" value="1"></label>
+  <label><span>集中線</span><input type="range" id="sLines" min="0" max="1" step="0.05" value="0.7"></label>
+  <label><span>主線</span><input type="range" id="sInk" min="0" max="1" step="0.05" value="0.55"></label>
+  <label><span>影の量</span><input type="range" id="sShade" min="0.2" max="0.8" step="0.02" value="0.38"></label>
+  <label><span>声の感度</span><input type="range" id="sMic" min="0.4" max="2.5" step="0.05" value="1"></label>
+</div>
+
+<div id="start">
+  <div class="kan">覚醒</div>
+  <div class="en">KAKUSEI</div>
+  <p>あなたがアニメの一枚絵になる。<br>声を出すと、気が燃え上がる。</p>
+  <button id="go">START</button>
+  <div id="err"></div>
+</div>
+
+<script>
+'use strict';
+/* =====================================================================
+   KAKUSEI — person mask → "ki field" → one WebGL2 pass (speed lines,
+   aura, sparks, cel shading, ink). Voice (or press-and-hold) charges.
+   ===================================================================== */
+const VISION_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs';
+const WASM_URL   = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm';
+const SEG_MODEL  = 'https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite';
+
+const $ = id => document.getElementById(id);
+const canvas = $('gl'), video = $('cam');
+
+const PALS = [ // bg, lines, auraOuter, auraMid, auraCore, shadowTint, rim
+  { bg:[.106,.051,.361], ln:[.937,.918,1],    a0:[1,.616,0],    a1:[1,.824,.247], a2:[1,.984,.902], sh:[.30,.18,.72], rim:[1,.79,.23] },
+  { bg:[.020,.024,.043], ln:[.149,.212,.310], a0:[.122,.42,1],  a1:[.212,.84,1],  a2:[.918,1,1],    sh:[.10,.16,.42], rim:[.50,.91,1] },
+  { bg:[.953,.933,.886], ln:[.067,.067,.067], a0:[.831,0,.102], a1:[1,.231,.184], a2:[1,.835,.761], sh:[.42,.06,.17], rim:[1,.29,.16] },
+];
+const S = { pal:0, aura:1, lines:0.7, ink:0.55, shade:0.38, mic:1 };
+
+/* ---------- GL ---------- */
+const gl = canvas.getContext('webgl2', { antialias:false, alpha:false, preserveDrawingBuffer:false, powerPreference:'high-performance' });
+
+const VS = `#version 300 es
+in vec2 p; void main(){ gl_Position = vec4(p,0.,1.); }`;
+const FS = `#version 300 es
+precision highp float;
+out vec4 o;
+uniform sampler2D uVid, uMask, uField;
+uniform vec2 uRes, uScale, uVidPx, uHead;
+uniform float uMirror, uT, uLineT, uPow, uAura, uLines, uInk, uShade, uImpact, uHas, uFallback, uShort;
+uniform vec3 uBg, uLn, uA0, uA1, uA2, uSh, uRim;
+const vec3 INK = vec3(.051,.031,.125);
+
+float h11(float n){ return fract(sin(n*127.1)*43758.5453); }
+float h21(vec2 p){ return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453); }
+float vn(vec2 p){ vec2 i=floor(p), f=fract(p); f=f*f*(3.-2.*f);
+  return mix(mix(h21(i),h21(i+vec2(1,0)),f.x), mix(h21(i+vec2(0,1)),h21(i+vec2(1,1)),f.x), f.y); }
+float fbm(vec2 p){ float a=.5, s=0.; for(int i=0;i<4;i++){ s+=a*vn(p); p=p*2.03+17.1; a*=.5; } return s; }
+float lum(vec3 c){ return dot(c, vec3(.299,.587,.114)); }
+
+void main(){
+  vec2 frag = gl_FragCoord.xy;
+  vec2 suv = vec2(frag.x/uRes.x, 1. - frag.y/uRes.y);          // screen, y down
+  vec2 vuv = (suv - .5) * uScale + .5;                           // video uv (mirrored view)
+  if (uMirror > .5) vuv.x = 1. - vuv.x;
+  vec2 cam = vuv * uVidPx / min(uVidPx.x, uVidPx.y);              // camera space, short-edge units
+  vec2 toV = min(uVidPx.x, uVidPx.y) / uVidPx;
+
+  /* ---- 1. background + speed lines toward the head ---- */
+  vec3 col = uBg;
+  vec2 d = (frag - vec2(uHead.x*uRes.x, (1.-uHead.y)*uRes.y)) / uShort;
+  float r = length(d);
+  if (uLines > .001) {
+    float a = atan(d.y, d.x) / 6.28318 + .5;
+    float N = 150.;
+    float cell = floor(a*N);
+    float seed = cell + uLineT*13.;
+    float hsh = h11(seed);
+    float w = (.12 + .55*h11(seed+3.1)) * smoothstep(.0, 1.2, r - .25);
+    float r0 = .30 + .30*h11(seed+7.7) - .10*uPow;
+    float on = step(1. - uLines*(.55 + .45*uPow), hsh) * step(r0, r);
+    float fx = abs(fract(a*N) - .5)*2.;
+    float line = on * (1. - smoothstep(w - .08, w, 1. - fx));
+    line = on * step(1. - w, 1. - fx);
+    col = mix(col, uLn, line);
+  }
+
+  /* ---- 2. aura: hard-edged flame bands out of the ki field ---- */
+  float m = texture(uMask, vuv).r;
+  float fieldHere = texture(uField, vuv).r;
+  float P = uPow * uAura;
+  if (uHas > .5) {
+    float tt = floor(uT*12.)/12.;                                  // animated "on twos"
+    float n  = fbm(vec2(cam.x*6.5, cam.y*1.7 + tt*3.2));
+    float n2 = vn(vec2(cam.x*13., cam.y*3. + tt*5.3));
+    float tongue = smoothstep(.40, .80, n);                       // pointed flame tips
+    float amp = (.02 + .30*P) * (.10 + 1.9*tongue*tongue + .25*n2);
+    vec2 sway = vec2((n2 - .5)*.03*(.4+P), 0.);
+    float f  = texture(uField, (cam + sway + vec2(0., amp))*toV).r;          // outer: tallest tongues
+    float f1 = texture(uField, (cam + sway*.6 + vec2(0., amp*.55))*toV).r;   // mid
+    float f2 = texture(uField, (cam + vec2(0., amp*.18))*toV).r;             // core hugs the body
+    float t0 = max(.05, .12 - .07*P), t1 = .20, t2 = .36;
+    float aa = max(fwidth(f), 1e-4);
+    float b0 = smoothstep(t0 - aa, t0 + aa, f);
+    float a1 = max(fwidth(f1), 1e-4), a2 = max(fwidth(f2), 1e-4);
+    float b1 = smoothstep(t1 - a1, t1 + a1, f1) * b0;
+    float b2 = smoothstep(t2 - a2, t2 + a2, f2) * b0;
+    float edge = 1. - smoothstep(0., 1.6*aa, abs(f - t0));
+    float vis = smoothstep(.02, .12, P);
+    vec3 ac = mix(uA0, uA1, b1); ac = mix(ac, uA2, b2);
+    col = mix(col, ac, b0*vis);
+    col = mix(col, INK, edge*vis*.9);
+
+    /* lightning crackle at high power */
+    if (P > .55) {
+      float fl = step(.35, h11(floor(tt*14.)));
+      float ln = fbm(cam*6. + vec2(tt*3.1, -tt*5.));
+      float bolt = 1. - smoothstep(.0, .012 + .01*P, abs(ln - .5));
+      float zone = smoothstep(.02, .06, fieldHere) * (1. - smoothstep(.35, .5, fieldHere));
+      col = mix(col, mix(uA2, vec3(1), .5), bolt*zone*fl*smoothstep(.55, .85, P));
+    }
+
+    /* rising sparks */
+    vec2 g = cam*vec2(16., 16.) + vec2(0., tt*(2.5 + 4.*P));
+    vec2 id = floor(g), fr = fract(g) - .5;
+    float hs = h21(id);
+    if (hs < .10 + .30*P) {
+      vec2 pp = vec2(h21(id+1.3), h21(id+5.1)) - .5;
+      vec2 dd = abs(fr - pp*.6);
+      float star = step(dd.x*dd.y*90. + (dd.x+dd.y)*2.2, .16 + .1*P);
+      float z = smoothstep(.015, .08, fieldHere) * (1. - smoothstep(.3, .55, fieldHere));
+      col = mix(col, uA2, star*z*vis);
+    }
+  }
+
+  /* ---- 3. the person: cel shading + ink ---- */
+  float inside = uFallback > .5 ? 1. : smoothstep(.45, .55, m);
+  if (inside > .001) {
+    vec3 base = textureLod(uVid, vuv, 2.0).rgb;
+    float lf  = lum(textureLod(uVid, vuv, 1.0).rgb);
+    vec3 chroma = base / max(lum(base), .04);
+    chroma = clamp(mix(vec3(1.), chroma, 1.45), 0., 2.2);
+    float s1 = uShade, s2 = uShade + .26;
+    vec3 c;
+    if (lf < s1)       c = mix(chroma*.40, uSh, .55);
+    else if (lf < s2)  c = chroma*.80;
+    else               c = mix(chroma*1.0, vec3(1.), .18);
+    /* rim light from the aura on the silhouette's inner edge */
+    vec2 ro = .018 * toV;
+    float mn = min(min(texture(uMask, vuv + vec2(ro.x, 0)).r, texture(uMask, vuv - vec2(ro.x, 0)).r),
+                   min(texture(uMask, vuv + vec2(0, ro.y)).r, texture(uMask, vuv - vec2(0, ro.y)).r));
+    float rim = uHas * (1. - smoothstep(.3, .5, mn)) * step(s1, lf) * smoothstep(.05, .3, P);
+    c = mix(c, uRim, rim*.75);
+    /* ink: Sobel on luminance */
+    vec2 tx = 1.6 / uVidPx;
+    float l00=lum(textureLod(uVid,vuv+tx*vec2(-1,-1),1.).rgb), l10=lum(textureLod(uVid,vuv+tx*vec2(0,-1),1.).rgb), l20=lum(textureLod(uVid,vuv+tx*vec2(1,-1),1.).rgb);
+    float l01=lum(textureLod(uVid,vuv+tx*vec2(-1, 0),1.).rgb),                                                   l21=lum(textureLod(uVid,vuv+tx*vec2(1, 0),1.).rgb);
+    float l02=lum(textureLod(uVid,vuv+tx*vec2(-1, 1),1.).rgb), l12=lum(textureLod(uVid,vuv+tx*vec2(0, 1),1.).rgb), l22=lum(textureLod(uVid,vuv+tx*vec2(1, 1),1.).rgb);
+    float gx = (l20+2.*l21+l22) - (l00+2.*l01+l02);
+    float gy = (l02+2.*l12+l22) - (l00+2.*l10+l20);
+    float gm = length(vec2(gx,gy));
+    float th = mix(.95, .22, uInk);
+    float inkL = smoothstep(th, th + .12, gm) * step(.01, uInk);
+    c = mix(c, INK, inkL);
+    col = mix(col, clamp(c, 0., 1.), inside);
+  }
+  /* bold silhouette contour */
+  if (uHas > .5 && uFallback < .5) {
+    float aa = max(fwidth(m), 1e-3);
+    float cont = 1. - smoothstep(.0, 2.2*aa + .02, abs(m - .5));
+    col = mix(col, INK, cont);
+  }
+
+  /* ---- 4. impact frame: 1-bit negative with one accent ---- */
+  if (uImpact > .001) {
+    float v = lum(col);
+    vec3 neg = v > .55 ? INK : (v > .22 ? vec3(1., .114, .227) : vec3(.984, .973, .941));
+    col = mix(col, neg, step(.001, uImpact));
+  }
+  o = vec4(col, 1.);
+}`;
+
+function mkShader(type, src){
+  const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s));
+  return s;
+}
+let prog, U = {}, texVid, texMask, texField;
+function initGL(){
+  prog = gl.createProgram();
+  gl.attachShader(prog, mkShader(gl.VERTEX_SHADER, VS));
+  gl.attachShader(prog, mkShader(gl.FRAGMENT_SHADER, FS));
+  gl.linkProgram(prog);
+  if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
+  gl.useProgram(prog);
+  const buf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
+  const loc = gl.getAttribLocation(prog, 'p'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+  const n = gl.getProgramParameter(prog, gl.ACTIVE_UNIFORMS);
+  for (let i = 0; i < n; i++){ const u = gl.getActiveUniform(prog, i); U[u.name] = gl.getUniformLocation(prog, u.name); }
+  const mk = (unit, minF) => { const t = gl.createTexture(); gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, t);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, minF); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE); return t; };
+  texVid = mk(0, gl.LINEAR_MIPMAP_LINEAR); texMask = mk(1, gl.LINEAR); texField = mk(2, gl.LINEAR);
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+  gl.uniform1i(U.uVid, 0); gl.uniform1i(U.uMask, 1); gl.uniform1i(U.uField, 2);
+}
+
+/* ---------- mask → ki field (CPU, reused buffers) ---------- */
+const MASK = { w:0, h:0, u8:null, f:null };
+const FIELD = { w:0, h:0, a:null, b:null, u8:null };
+const T = { present:false, cover:0, headV:[.5,.3], headS:[.5,.3], lostAt:0, hasMask:false, external:false };
+let vidW = 1280, vidH = 720;
+
+function ensureField(){
+  const gw = vidW >= vidH ? 160 : Math.max(40, Math.round(160 * vidW / vidH));
+  const gh = vidW >= vidH ? Math.max(40, Math.round(160 * vidH / vidW)) : 160;
+  if (FIELD.w === gw && FIELD.h === gh) return;
+  FIELD.w = gw; FIELD.h = gh;
+  FIELD.a = new Float32Array(gw*gh); FIELD.b = new Float32Array(gw*gh); FIELD.u8 = new Uint8Array(gw*gh);
+}
+function boxH(src, dst, w, h, r){
+  const inv = 1/(2*r+1);
+  for (let y = 0; y < h; y++){
+    const o = y*w; let s = 0;
+    for (let x = -r; x <= r; x++) s += src[o + Math.min(w-1, Math.max(0, x))];
+    for (let x = 0; x < w; x++){
+      dst[o+x] = s*inv;
+      s += src[o + Math.min(w-1, x+r+1)] - src[o + Math.max(0, x-r)];
+    }
+  }
+}
+function boxV(src, dst, w, h, r){
+  const inv = 1/(2*r+1);
+  for (let x = 0; x < w; x++){
+    let s = 0;
+    for (let y = -r; y <= r; y++) s += src[Math.min(h-1, Math.max(0, y))*w + x];
+    for (let y = 0; y < h; y++){
+      dst[y*w+x] = s*inv;
+      s += src[Math.min(h-1, y+r+1)*w + x] - src[Math.max(0, y-r)*w + x];
+    }
+  }
+}
+/* The one entry point for segmentation results (also the test hook). */
+function ingestMask(data, w, h, now){
+  if (!data || !(w > 0) || !(h > 0) || data.length < w*h) return;
+  now = now || performance.now();
+  if (MASK.w !== w || MASK.h !== h){ MASK.w = w; MASK.h = h; MASK.u8 = new Uint8Array(w*h); MASK.f = new Float32Array(w*h); }
+  const mf = MASK.f, mu = MASK.u8;
+  for (let i = 0, n = w*h; i < n; i++){
+    let v = data[i]; if (!(v >= 0)) v = 0; else if (v > 1) v = 1;
+    mf[i] = mf[i]*0.35 + v*0.65;
+    mu[i] = mf[i]*255 | 0;
+  }
+  ensureField();
+  const gw = FIELD.w, gh = FIELD.h, A = FIELD.a, B = FIELD.b;
+  let cover = 0, top = -1;
+  for (let y = 0; y < gh; y++){
+    const my = Math.min(h-1, ((y + .5) / gh * h) | 0) * w;
+    let row = 0;
+    for (let x = 0; x < gw; x++){
+      const v = mf[my + Math.min(w-1, ((x + .5) / gw * w) | 0)] > .5 ? 1 : 0;
+      A[y*gw+x] = v; row += v;
+    }
+    cover += row;
+    if (top < 0 && row > gw*0.012) top = y;
+  }
+  cover /= gw*gh;
+  T.cover = cover;
+  if (cover < 0.006 || top < 0){
+    if (T.present) T.lostAt = now;
+    T.present = false;
+  } else {
+    const sh = Math.min(gw, gh);
+    const y1 = Math.min(gh, top + Math.round(sh*0.22));
+    let sx = 0, n = 0;
+    for (let y = top; y < y1; y++) for (let x = 0; x < gw; x++) if (A[y*gw+x] > 0){ sx += x; n++; }
+    if (n > 0){
+      const hx = (sx/n + .5)/gw, hy = Math.min(1, (top + sh*0.12)/gh);
+      if (!T.present){ T.headV[0] = hx; T.headV[1] = hy; }
+      else { T.headV[0] += (hx - T.headV[0])*.35; T.headV[1] += (hy - T.headV[1])*.35; }
+    }
+    T.present = true;
+  }
+  const r = Math.max(2, Math.round(Math.min(gw, gh) * 0.035));
+  boxH(A, B, gw, gh, r); boxV(B, A, gw, gh, r);
+  boxH(A, B, gw, gh, r); boxV(B, A, gw, gh, r);
+  const U8 = FIELD.u8;
+  for (let i = 0, n = gw*gh; i < n; i++) U8[i] = Math.min(255, A[i]*255) | 0;
+  T.hasMask = true;
+  if (gl){
+    gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, texMask);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, w, h, 0, gl.RED, gl.UNSIGNED_BYTE, mu);
+    gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, texField);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, gw, gh, 0, gl.RED, gl.UNSIGNED_BYTE, U8);
+  }
+}
+
+/* ---------- audio: voice in, aura hum + impact out ---------- */
+let actx = null, fxBus = null, recDest = null, analyser = null, anaBuf = null, micSrc = null;
+let hum = null, humGain = null, humLP = null, rumbleGain = null, rumbleBP = null;
+function ensureAudio(){
+  if (actx){ if (actx.state === 'suspended') actx.resume().catch(()=>{}); return; }
+  const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+  actx = new AC();
+  fxBus = actx.createGain(); fxBus.gain.value = 0.8; fxBus.connect(actx.destination);
+  recDest = actx.createMediaStreamDestination(); fxBus.connect(recDest);
+  hum = actx.createOscillator(); hum.type = 'sawtooth'; hum.frequency.value = 55;
+  humLP = actx.createBiquadFilter(); humLP.type = 'lowpass'; humLP.frequency.value = 160; humLP.Q.value = 4;
+  humGain = actx.createGain(); humGain.gain.value = 0;
+  hum.connect(humLP); humLP.connect(humGain); humGain.connect(fxBus); hum.start();
+  const nb = actx.createBuffer(1, actx.sampleRate*2, actx.sampleRate), nd = nb.getChannelData(0);
+  for (let i = 0; i < nd.length; i++) nd[i] = Math.random()*2 - 1;
+  const ns = actx.createBufferSource(); ns.buffer = nb; ns.loop = true;
+  rumbleBP = actx.createBiquadFilter(); rumbleBP.type = 'bandpass'; rumbleBP.frequency.value = 140; rumbleBP.Q.value = 1.2;
+  rumbleGain = actx.createGain(); rumbleGain.gain.value = 0;
+  ns.connect(rumbleBP); rumbleBP.connect(rumbleGain); rumbleGain.connect(fxBus); ns.start();
+  actx.resume().catch(()=>{});
+}
+function connectMic(stream){
+  if (!actx) return;
+  const tr = stream && stream.getAudioTracks ? stream.getAudioTracks() : [];
+  if (micSrc){ try{ micSrc.disconnect(); }catch(e){} micSrc = null; }
+  if (!tr.length) return;
+  try{
+    micSrc = actx.createMediaStreamSource(new MediaStream([tr[0]]));
+    const hp = actx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 300;
+    analyser = actx.createAnalyser(); analyser.fftSize = 1024;
+    anaBuf = new Float32Array(analyser.fftSize);
+    micSrc.connect(hp); hp.connect(analyser);
+    micSrc.connect(recDest);                        // the shout goes into the recording, never to the speakers
+  }catch(e){ analyser = null; }
+}
+function boom(){
+  if (!actx || actx.state !== 'running') return;
+  const t = actx.currentTime;
+  const o = actx.createOscillator(), g = actx.createGain();
+  o.type = 'sine'; o.frequency.setValueAtTime(150, t); o.frequency.exponentialRampToValueAtTime(38, t + .5);
+  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(1.0, t + .01); g.gain.exponentialRampToValueAtTime(0.0001, t + .9);
+  o.connect(g); g.connect(fxBus); o.start(t); o.stop(t + 1);
+  const len = actx.sampleRate*0.6|0, b = actx.createBuffer(1, len, actx.sampleRate), d = b.getChannelData(0);
+  for (let i = 0; i < len; i++) d[i] = (Math.random()*2-1) * Math.pow(1 - i/len, 3);
+  const s = actx.createBufferSource(); s.buffer = b;
+  const f = actx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.setValueAtTime(5000, t); f.frequency.exponentialRampToValueAtTime(300, t+.5);
+  const g2 = actx.createGain(); g2.gain.value = 0.7;
+  s.connect(f); f.connect(g2); g2.connect(fxBus); s.start(t);
+}
+
+/* ---------- power ---------- */
+const P = { level:0, show:0, voice:0, floor:-60, hold:false, armed:true, impactUntil:0, shakeUntil:0, lastBurst:0, forced:-1 };
+function readVoice(dt){
+  if (P.forced >= 0) return P.forced;
+  if (!analyser || !anaBuf) return 0;
+  analyser.getFloatTimeDomainData(anaBuf);
+  let s = 0; for (let i = 0; i < anaBuf.length; i++) s += anaBuf[i]*anaBuf[i];
+  const db = 10*Math.log10(s/anaBuf.length + 1e-10);
+  // adaptive noise floor: falls fast, rises slowly
+  P.floor = db < P.floor ? P.floor + (db - P.floor)*Math.min(1, dt*4) : P.floor + (db - P.floor)*Math.min(1, dt*0.08);
+  const v = (db - P.floor - 10) / 22 * S.mic;
+  return v < 0 ? 0 : v > 1 ? 1 : v;
+}
+function burst(now){
+  P.armed = false; P.lastBurst = now;
+  P.impactUntil = now + 450; P.shakeUntil = now + 700;
+  boom();
+}
+function stepPower(dt, now){
+  const voice = readVoice(dt);
+  P.voice += (voice - P.voice) * Math.min(1, dt*10);
+  if (!T.present){
+    P.level += (0 - P.level) * Math.min(1, dt*3);
+    P.armed = true;
+  } else {
+    const drive = Math.max(P.voice, P.hold ? 1 : 0);
+    const target = Math.max(0.28, drive);
+    if (target > P.level) P.level += (target - P.level) * Math.min(1, dt*(0.9 + 1.6*drive));
+    else P.level += (target - P.level) * Math.min(1, dt*0.7);
+    if (P.level > 0.93 && P.armed && now - P.lastBurst > 1500) burst(now);
+    if (P.level < 0.6) P.armed = true;
+  }
+  P.show += (P.level - P.show) * Math.min(1, dt*6);
+  if (actx && humGain){
+    const k = T.present ? P.show : 0, tt = actx.currentTime;
+    humGain.gain.setTargetAtTime(0.02 + 0.10*k*k, tt, 0.08);
+    humLP.frequency.setTargetAtTime(120 + 700*k, tt, 0.08);
+    hum.frequency.setTargetAtTime(48 + 14*k, tt, 0.2);
+    rumbleGain.gain.setTargetAtTime(0.35*k*k*k, tt, 0.08);
+  }
+}
+
+/* ---------- MediaPipe (dynamic import; page keeps working without it) ---------- */
+let segmenter = null, lastVT = -1, fallback = false;
+async function initModel(){
+  try{
+    const vision = await import(VISION_URL);
+    const fs = await vision.FilesetResolver.forVisionTasks(WASM_URL);
+    const opts = d => ({ baseOptions:{ modelAssetPath:SEG_MODEL, delegate:d }, runningMode:'VIDEO', outputConfidenceMasks:true, outputCategoryMask:false });
+    try { segmenter = await vision.ImageSegmenter.createFromOptions(fs, opts('GPU')); }
+    catch(e){ segmenter = await vision.ImageSegmenter.createFromOptions(fs, opts('CPU')); }
+    fallback = false; setStatus('');
+  }catch(e){
+    if (T.external) return;
+    fallback = true;
+    setStatus('人物検出モデルを読み込めませんでした（ネット接続を確認）。\n画面全体をセル画にして続けます。');
+  }
+}
+function segment(now){
+  if (!segmenter || video.readyState < 2) return;
+  const vt = video.currentTime;
+  if (vt === lastVT) return;
+  lastVT = vt;
+  try{
+    segmenter.segmentForVideo(video, now, res => {
+      const mk = res && res.confidenceMasks && res.confidenceMasks[0];
+      if (!mk) return;
+      ingestMask(mk.getAsFloat32Array(), mk.width, mk.height, now);
+    });
+  }catch(e){ /* a dropped frame is fine */ }
+}
+
+/* ---------- camera ---------- */
+let stream = null, facing = 'user', mirror = true, started = false;
+function setStatus(t){ $('status').textContent = t || ''; }
+function camError(e){
+  const msg = (e && (e.message || e.name)) ? (e.message || e.name) : String(e || 'unknown');
+  const text = 'カメラを起動できませんでした：' + msg + '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+  $('err').textContent = text;
+  if (started) setStatus(text);
+}
+async function startCam(){
+  const md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) throw new Error('getUserMedia is unavailable');
+  const v = { facingMode:{ ideal:facing }, width:{ ideal:1280 }, height:{ ideal:720 } };
+  let s;
+  try { s = await md.getUserMedia({ video:v, audio:{ echoCancellation:true, noiseSuppression:false, autoGainControl:false } }); }
+  catch(e){ s = await md.getUserMedia({ video:v, audio:false }); }
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = s; mirror = facing === 'user';
+  video.srcObject = s;
+  await new Promise(res => { if (video.readyState >= 1) res(); else video.onloadedmetadata = () => res(); });
+  await video.play().catch(()=>{});
+  vidW = video.videoWidth || 1280; vidH = video.videoHeight || 720;
+  ensureField();
+  connectMic(s);
+  if (!analyser) setStatus('マイクが使えないので、画面を長押しで気をためる。');
+}
+
+$('go').onclick = async () => {
+  $('err').textContent = '';
+  ensureAudio();
+  try{
+    if (!gl) throw new Error('WebGL2 に未対応のブラウザです');
+    if (!prog) initGL();
+    await startCam();
+  }catch(e){ camError(e); return; }
+  $('start').style.display = 'none';
+  ['gear','flip','rec','meter'].forEach(id => $(id).classList.add('show'));
+  if (!started){ started = true; initModel(); requestAnimationFrame(loop); }
+};
+$('flip').onclick = async () => {
+  const prev = facing;
+  facing = facing === 'user' ? 'environment' : 'user';
+  try { await startCam(); } catch(e){ facing = prev; camError(e); }
+};
+$('gear').onclick = () => $('panel').classList.toggle('hide');
+$('pals').onclick = e => {
+  const b = e.target.closest('button'); if (!b) return;
+  S.pal = +b.dataset.p;
+  [...$('pals').children].forEach(x => x.classList.toggle('on', x === b));
+  document.body.style.background = 'rgb(' + PALS[S.pal].bg.map(v => v*255|0).join(',') + ')';
+};
+[['sAura','aura'],['sLines','lines'],['sInk','ink'],['sShade','shade'],['sMic','mic']].forEach(([id,k]) => {
+  $(id).oninput = e => { S[k] = +e.target.value; };
+});
+canvas.addEventListener('pointerdown', () => { P.hold = true; });
+['pointerup','pointercancel','pointerleave'].forEach(ev => canvas.addEventListener(ev, () => { P.hold = false; }));
+
+/* ---------- recording ---------- */
+let rec = null, chunks = [];
+$('rec').onclick = () => {
+  if (rec && rec.state === 'recording'){ rec.stop(); return; }
+  try{
+    ensureAudio();
+    const tracks = [...canvas.captureStream(30).getVideoTracks()];
+    if (recDest) tracks.push(...recDest.stream.getAudioTracks());
+    const mime = ['video/mp4;codecs=avc1','video/webm;codecs=vp9,opus','video/webm'].find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || '';
+    rec = new MediaRecorder(new MediaStream(tracks), mime ? { mimeType:mime } : {});
+    chunks = [];
+    rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+    rec.onstop = () => {
+      $('rec').classList.remove('on'); $('rec').textContent = '● REC';
+      const ext = (rec.mimeType || '').includes('mp4') ? 'mp4' : 'webm';
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob(chunks, { type:rec.mimeType || 'video/webm' }));
+      a.download = 'kakusei.' + ext; a.click();
+      setStatus('保存しました。');
+    };
+    rec.start(); $('rec').classList.add('on'); $('rec').textContent = '■ 保存'; setStatus('');
+  }catch(e){ setStatus('録画を開始できませんでした。'); }
+};
+
+/* ---------- render loop ---------- */
+let lastT = 0, lineT = 0, lineAcc = 0;
+function resize(){
+  const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+  let w = Math.round(innerWidth*dpr), h = Math.round(innerHeight*dpr);
+  const k = Math.min(1, 1600 / Math.max(w, h)); w = Math.round(w*k); h = Math.round(h*k);
+  if (canvas.width !== w || canvas.height !== h){ canvas.width = w; canvas.height = h; }
+}
+function loop(now){
+  requestAnimationFrame(loop);
+  const dt = lastT ? Math.min(0.1, (now - lastT)/1000) : 0.016; lastT = now;
+  resize();
+  if (video.readyState >= 2 && !T.external) segment(now);
+  stepPower(dt, now);
+  lineAcc += dt; if (lineAcc > 1/12){ lineAcc = 0; lineT = (lineT + 1) % 997; }
+
+  const W = canvas.width, H = canvas.height;
+  gl.viewport(0, 0, W, H);
+  if (video.readyState >= 2){
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, texVid);
+    try{ gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video); gl.generateMipmap(gl.TEXTURE_2D); }catch(e){}
+    if (video.videoWidth && (video.videoWidth !== vidW || video.videoHeight !== vidH)){ vidW = video.videoWidth; vidH = video.videoHeight; ensureField(); }
+  }
+  // cover-fit
+  const sa = W/H, va = vidW/vidH;
+  const sx = sa < va ? sa/va : 1, sy = sa < va ? 1 : va/sa;
+  // head → screen
+  const hvx = mirror ? 1 - T.headV[0] : T.headV[0];
+  const hsx = (hvx - .5)/sx + .5, hsy = (T.headV[1] - .5)/sy + .5;
+  T.headS[0] += (hsx - T.headS[0]) * .2; T.headS[1] += (hsy - T.headS[1]) * .2;
+  let ox = 0, oy = 0;
+  if (now < P.shakeUntil){ const a = (P.shakeUntil - now)/700 * 0.02; ox = (Math.random()-.5)*a; oy = (Math.random()-.5)*a; }
+  const pal = PALS[S.pal];
+  const has = T.hasMask && T.present && !fallback ? 1 : 0;
+  gl.uniform2f(U.uRes, W, H);
+  gl.uniform2f(U.uScale, sx*(1+Math.abs(ox)*4), sy*(1+Math.abs(ox)*4));
+  gl.uniform2f(U.uVidPx, vidW, vidH);
+  gl.uniform2f(U.uHead, T.headS[0] + ox, T.headS[1] + oy);
+  gl.uniform1f(U.uShort, Math.min(W, H));
+  gl.uniform1f(U.uMirror, mirror ? 1 : 0);
+  gl.uniform1f(U.uT, now/1000);
+  gl.uniform1f(U.uLineT, lineT);
+  gl.uniform1f(U.uPow, has ? P.show : 0);
+  gl.uniform1f(U.uAura, S.aura);
+  gl.uniform1f(U.uLines, has ? S.lines : 0);
+  gl.uniform1f(U.uInk, S.ink);
+  gl.uniform1f(U.uShade, S.shade);
+  gl.uniform1f(U.uImpact, now < P.impactUntil ? 1 : 0);
+  gl.uniform1f(U.uHas, has);
+  gl.uniform1f(U.uFallback, (fallback && !T.external) || !T.hasMask || !T.present ? 1 : 0);
+  gl.uniform3fv(U.uBg, pal.bg); gl.uniform3fv(U.uLn, pal.ln);
+  gl.uniform3fv(U.uA0, pal.a0); gl.uniform3fv(U.uA1, pal.a1); gl.uniform3fv(U.uA2, pal.a2);
+  gl.uniform3fv(U.uSh, pal.sh); gl.uniform3fv(U.uRim, pal.rim);
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  $('meter').firstElementChild.style.width = (P.show*100).toFixed(1) + '%';
+}
+addEventListener('resize', resize);
+
+/* ---------- test hook (used by the local verification harness) ---------- */
+window.__KAKUSEI = {
+  ingestMask(data, w, h){ if (!T.external) setStatus(''); T.external = true; fallback = false; ingestMask(data, w, h, performance.now()); },
+  setVoice(v){ P.forced = v; },
+  burst(){ burst(performance.now()); },
+  palette(i){ const b = $('pals').children[i]; if (b) b.click(); },
+  state: () => ({ present:T.present, cover:T.cover, head:T.headV.slice(), headS:T.headS.slice(), level:P.level, show:P.show,
+                  impact: performance.now() < P.impactUntil, lastBurst:P.lastBurst, fallback }),
+};
+</script>
+</body>
+</html>
