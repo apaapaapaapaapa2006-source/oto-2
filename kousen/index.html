@@ -347,7 +347,7 @@ function setScene(i){
 }
 
 /* ---------- MediaPipe (dynamic import; the stage keeps running without it) ---------- */
-let segmenter = null, lastVT = -1;
+let segmenter = null, lastTs = 0, lastVT = -1;
 async function initModel(){
   try{
     const vision = await import(VISION_URL);
@@ -365,8 +365,11 @@ function segment(now){
   if (!segmenter || video.readyState < 2) return;
   const vt = video.currentTime; if (vt === lastVT) return; lastVT = vt;
   try{
-    segmenter.segmentForVideo(video, now, res => {
-      const mk = res && res.confidenceMasks && res.confidenceMasks[0];
+    const ts = Math.max(lastTs + 1, Math.round(now)); lastTs = ts;
+    segmenter.segmentForVideo(video, ts, res => {
+      const ms = res && res.confidenceMasks;
+      if (!ms || !ms.length) return;
+      const mk = ms[ms.length - 1];                  // 2 masks → [0] is background, [1] is the person
       if (mk) ingestMask(mk.getAsFloat32Array(), mk.width, mk.height);
     });
   }catch(e){}
