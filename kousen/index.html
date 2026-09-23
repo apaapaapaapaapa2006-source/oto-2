@@ -1,0 +1,635 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="description" content="暗いステージの真ん中に立つと、床とトラスのレーザーがあなたの輪郭をなぞりつづける。体は逆光のライブ写真のような二色になり、手を叩くたびにストロボが焚かれて照明のシーンが切り替わる。">
+<meta name="theme-color" content="#000000">
+<title>KOUSEN ─ レーザーがあなたの輪郭をなぞるステージ</title>
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  KOUSEN 光線 ─ レーザーがあなたの輪郭をなぞるステージ   ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  MOOD       アリーナ公演の暗転明けの一瞬。スモークの立ちこめた黒い
+             ステージで、床とトラスのレーザーがすべてあなたの体の輪郭に
+             向かって走り、輪郭そのものもレーザーの線になって走査される。
+             頭の後ろからは扇形のビーム。体は逆光のライブ写真のように、
+             黒つぶれとシーン色の二色で抜ける。
+  PALETTE    背景は純黒 #000 とスモークの薄い色かぶりだけ。シーンは4つ:
+             GREEN  #39ff14 / 白
+             RED    #ff1744 / #ff2bd6
+             BLUE   #00e5ff / #2962ff
+             RGB    #ff1744 / #39ff14 / #2979ff（ビームごとに色分け）
+  TYPE       Unbounded（ワイドな幾何学体。ツアーロゴの格好）。本文はシステム書体。
+  BODY       暗部は黒つぶれ、中間調はシーン色の走査線、ハイライトだけがベタで抜ける。
+  MOTION     レーザーの当たり点は輪郭に沿って滑る（弧長で進むので飛ばない）。
+             輪郭線には走査の破線が流れる。扇は頭の後ろでゆっくり回る。
+  SIGNATURE  手を叩く → 1フレームの白ストロボで体が黒い切り絵になり、
+             全ビームが一度頭に集まってから次のシーンへ散る。
+  TECH       MediaPipe ImageSegmenter → 正方セル格子でマーチングスクエア →
+             辺IDでつないで順序つきの輪郭ポリラインにする（これで当たり点が
+             輪郭を連続的になぞれる）。描画は Canvas2D の加算合成と縮小コピー
+             のブルーム。手拍子はマイク音量の立ち上がりで検出。
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@400;800&display=swap" rel="stylesheet">
+<style>
+:root{--c:#39ff14}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none}
+html,body{margin:0;height:100%;background:#000;overflow:hidden;color:#fff;
+  font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto Sans JP",sans-serif}
+#stage{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+#cam{position:fixed;left:0;top:0;width:2px;height:2px;opacity:.01;pointer-events:none}
+
+#start{position:fixed;inset:0;z-index:30;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;
+  padding:24px;text-align:center;background:
+  linear-gradient(115deg,transparent 49.6%,rgba(57,255,20,.55) 50%,transparent 50.4%),
+  linear-gradient(65deg,transparent 49.7%,rgba(255,23,68,.5) 50%,transparent 50.3%),
+  linear-gradient(90deg,transparent 49.8%,rgba(0,229,255,.45) 50%,transparent 50.2%),#000}
+#start h1{margin:0;font-family:Unbounded,sans-serif;font-weight:800;font-size:min(15vw,96px);letter-spacing:.06em;
+  color:#000;-webkit-text-stroke:2px var(--c);text-shadow:0 0 18px rgba(57,255,20,.7)}
+#start p{margin:0;font-size:14px;line-height:1.9;color:#cfd;max-width:320px}
+#go{appearance:none;border:2px solid var(--c);background:transparent;color:var(--c);font-family:Unbounded,sans-serif;
+  font-weight:800;font-size:16px;letter-spacing:.3em;padding:14px 40px 14px 46px;cursor:pointer;
+  box-shadow:0 0 18px rgba(57,255,20,.45),inset 0 0 12px rgba(57,255,20,.3)}
+#go:active{background:var(--c);color:#000}
+#err{color:#ff8fa3;font-size:13px;line-height:1.7;max-width:340px;min-height:1em;white-space:pre-line}
+
+.btn{position:fixed;z-index:12;appearance:none;border:1px solid rgba(255,255,255,.35);background:rgba(0,0,0,.45);
+  color:#fff;font-family:Unbounded,"Hiragino Sans",sans-serif;font-size:11px;letter-spacing:.12em;padding:8px 12px;
+  display:none;cursor:pointer;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
+.btn.show{display:block}
+.btn:active{background:#fff;color:#000}
+#gear{right:12px;top:calc(env(safe-area-inset-top) + 10px);font-size:16px;padding:4px 11px}
+#flip{right:12px;top:calc(env(safe-area-inset-top) + 52px)}
+#rec{left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom) + 18px);padding:10px 22px;border-color:var(--c);color:var(--c)}
+#rec.on{background:#ff1744;border-color:#ff1744;color:#fff}
+#scene{position:fixed;left:14px;bottom:calc(env(safe-area-inset-bottom) + 22px);z-index:11;font-family:Unbounded,sans-serif;
+  font-size:10px;letter-spacing:.3em;color:var(--c);display:none;pointer-events:none;text-shadow:0 0 8px currentColor}
+#scene.show{display:block}
+#status{position:fixed;left:14px;top:calc(env(safe-area-inset-top) + 14px);z-index:11;font-size:12px;color:#ddd;
+  text-shadow:0 1px 3px #000;pointer-events:none;max-width:68vw;line-height:1.5;white-space:pre-line}
+
+#panel{position:fixed;right:10px;top:calc(env(safe-area-inset-top) + 94px);z-index:12;width:min(290px,calc(100vw - 20px));
+  background:rgba(0,0,0,.72);border:1px solid rgba(255,255,255,.22);padding:12px 14px;display:flex;flex-direction:column;gap:10px;
+  backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);transition:opacity .15s,transform .15s}
+#panel.hide{opacity:0;transform:translateX(20px);pointer-events:none}
+.chips{display:flex;gap:6px}
+.chips button{flex:1;appearance:none;border:1px solid rgba(255,255,255,.3);background:transparent;color:#fff;padding:7px 2px;
+  font-family:Unbounded,sans-serif;font-size:9px;letter-spacing:.08em;cursor:pointer}
+.chips button.on{background:#fff;color:#000}
+#panel label{display:flex;align-items:center;gap:10px;font-size:12px;color:#ccc}
+#panel label span{width:70px;flex:none}
+#panel input[type=range]{flex:1;accent-color:var(--c)}
+</style>
+</head>
+<body>
+<canvas id="stage"></canvas>
+<video id="cam" playsinline muted autoplay></video>
+<div id="status"></div>
+<div id="scene"></div>
+<button id="gear" class="btn" aria-label="調整">⚙</button>
+<button id="flip" class="btn">⟲ カメラ</button>
+<button id="rec" class="btn">● REC</button>
+
+<div id="panel" class="hide">
+  <div class="chips" id="scenes">
+    <button data-s="0" class="on">GREEN</button>
+    <button data-s="1">RED</button>
+    <button data-s="2">BLUE</button>
+    <button data-s="3">RGB</button>
+  </div>
+  <label><span>ビーム</span><input type="range" id="sBeams" min="2" max="12" step="1" value="8"></label>
+  <label><span>スモーク</span><input type="range" id="sHaze" min="0" max="1" step="0.05" value="0.6"></label>
+  <label><span>体の明るさ</span><input type="range" id="sBody" min="0" max="1" step="0.05" value="0.55"></label>
+  <label><span>手拍子感度</span><input type="range" id="sClap" min="0.4" max="2.5" step="0.05" value="1"></label>
+</div>
+
+<div id="start">
+  <h1>KOUSEN</h1>
+  <p>暗いステージの真ん中へ。<br>レーザーがあなたの輪郭をなぞる。<br>手を叩くと、ストロボ。</p>
+  <button id="go">START</button>
+  <div id="err"></div>
+</div>
+
+<script>
+'use strict';
+/* =====================================================================
+   KOUSEN — person mask → ordered outline polylines → lasers that ride
+   the outline, a head fan, a duotone body, strobe cues on claps.
+   ===================================================================== */
+const VISION_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs';
+const WASM_URL   = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm';
+const SEG_MODEL  = 'https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite';
+
+const $ = id => document.getElementById(id);
+const cv = $('stage'), ctx = cv.getContext('2d'), video = $('cam');
+
+const SCENES = [
+  { name:'GREEN', beams:['#39ff14','#b6ff9e'], body:[57,255,20],  hi:[220,255,210], haze:'57,255,20' },
+  { name:'RED',   beams:['#ff1744','#ff2bd6'], body:[255,23,68],  hi:[255,190,230], haze:'255,30,90' },
+  { name:'BLUE',  beams:['#00e5ff','#2962ff'], body:[0,150,255],  hi:[200,250,255], haze:'0,160,255' },
+  { name:'RGB',   beams:['#ff1744','#39ff14','#2979ff'], body:[150,60,255], hi:[255,255,255], haze:'150,80,255' },
+];
+const S = { scene:0, beams:8, haze:0.6, body:0.55, clap:1 };
+
+/* ---------- grid, contour and polylines (all buffers reused) ---------- */
+let vidW = 1280, vidH = 720;
+const G = { w:0, h:0, v:null, tmp:null, ex:null, ey:null, n0:null, n1:null, seen:null,
+            px:null, py:null, starts:null, lens:null, nPoly:0, nPts:0, total:0, cum:null };
+const T = { present:false, cover:0, head:[.5,.3], external:false, hasMask:false };
+function ensureGrid(){
+  const gw = vidW >= vidH ? Math.round(96 * vidW / vidH) : 96;
+  const gh = vidW >= vidH ? 96 : Math.round(96 * vidH / vidW);
+  if (G.w === gw && G.h === gh) return;
+  G.w = gw; G.h = gh;
+  const n = gw*gh, E = n*2;
+  G.v = new Float32Array(n); G.tmp = new Float32Array(n);
+  G.ex = new Float32Array(E); G.ey = new Float32Array(E);
+  G.n0 = new Int32Array(E); G.n1 = new Int32Array(E); G.seen = new Uint8Array(E);
+  G.px = new Float32Array(E + 64); G.py = new Float32Array(E + 64); G.cum = new Float32Array(E + 64);
+  G.starts = new Int32Array(4096); G.lens = new Int32Array(4096);
+}
+// edge ids: horizontal edge (x,y)-(x+1,y) = 2*(y*w+x); vertical edge (x,y)-(x,y+1) = 2*(y*w+x)+1
+const CASES = [[],[3,0],[0,1],[3,1],[1,2],[3,0,1,2],[0,2],[3,2],[2,3],[0,2],[0,1,2,3],[1,2],[1,3],[0,1],[3,0],[]];
+function link(a, b){
+  if (G.n0[a] < 0) G.n0[a] = b; else G.n1[a] = b;
+  if (G.n0[b] < 0) G.n0[b] = a; else G.n1[b] = a;
+}
+function contour(iso){
+  const w = G.w, h = G.h, v = G.v;
+  G.n0.fill(-1); G.n1.fill(-1); G.seen.fill(0);
+  for (let y = 0; y < h-1; y++) for (let x = 0; x < w-1; x++){
+    const i = y*w + x;
+    const a = v[i], b = v[i+1], c = v[i+w+1], d = v[i+w];
+    const k = (a > iso ? 1 : 0) | (b > iso ? 2 : 0) | (c > iso ? 4 : 0) | (d > iso ? 8 : 0);
+    if (k === 0 || k === 15) continue;
+    const cs = CASES[k];
+    for (let j = 0; j < cs.length; j += 2){
+      const e1 = edgeId(cs[j], x, y, a, b, c, d, iso), e2 = edgeId(cs[j+1], x, y, a, b, c, d, iso);
+      link(e1, e2);
+    }
+  }
+  // walk chains into ordered polylines
+  let np = 0, npt = 0, total = 0;
+  const E = w*h*2;
+  for (let pass = 0; pass < 2; pass++){
+    for (let e = 0; e < E; e++){
+      if (G.seen[e] || G.n0[e] < 0) continue;
+      if (pass === 0 && G.n1[e] >= 0) continue;          // open chains first (start at an end)
+      if (np >= G.starts.length) break;
+      G.starts[np] = npt;
+      let prev = -1, cur = e, cnt = 0;
+      while (cur >= 0 && !G.seen[cur]){
+        G.seen[cur] = 1;
+        G.px[npt] = G.ex[cur]; G.py[npt] = G.ey[cur];
+        if (cnt > 0){ const dx = G.px[npt] - G.px[npt-1], dy = G.py[npt] - G.py[npt-1]; total += Math.sqrt(dx*dx + dy*dy); }
+        G.cum[npt] = total;
+        npt++; cnt++;
+        const nx = G.n0[cur] !== prev ? G.n0[cur] : G.n1[cur];
+        prev = cur; cur = nx;
+      }
+      if (cur >= 0 && cnt > 2){                           // closed loop: repeat the first point
+        G.px[npt] = G.px[G.starts[np]]; G.py[npt] = G.py[G.starts[np]];
+        const dx = G.px[npt] - G.px[npt-1], dy = G.py[npt] - G.py[npt-1]; total += Math.sqrt(dx*dx + dy*dy);
+        G.cum[npt] = total; npt++; cnt++;
+      }
+      G.lens[np] = cnt;
+      if (cnt >= 6) np++; else { total = npt - cnt > 0 ? G.cum[npt - cnt - 1] : 0; npt -= cnt; }
+    }
+  }
+  G.nPoly = np; G.nPts = npt; G.total = total;
+}
+function edgeId(side, x, y, a, b, c, d, iso){
+  const w = G.w; let id, px, py;
+  switch (side){
+    case 0: id = 2*(y*w+x);       px = x + (iso-a)/(b-a); py = y; break;
+    case 1: id = 2*(y*w+x+1)+1;   px = x+1; py = y + (iso-b)/(c-b); break;
+    case 2: id = 2*((y+1)*w+x);   px = x + (iso-d)/(c-d); py = y+1; break;
+    default: id = 2*(y*w+x)+1;    px = x; py = y + (iso-a)/(d-a); break;
+  }
+  G.ex[id] = px; G.ey[id] = py;
+  return id;
+}
+// arc-length lookup over all polylines (their cum values are one running total)
+function pointAt(s, out){
+  if (G.nPts < 2 || !(G.total > 0)) return false;
+  s = ((s % G.total) + G.total) % G.total;
+  let lo = 0, hi = G.nPts - 1;
+  while (lo < hi){ const m = (lo + hi) >> 1; if (G.cum[m] < s) lo = m + 1; else hi = m; }
+  out[0] = G.px[lo]; out[1] = G.py[lo];
+  return true;
+}
+
+/* The one entry point for segmentation results (also the test hook). */
+let MASKF = null;
+function ingestMask(data, w, h){
+  if (!data || !(w > 0) || !(h > 0) || data.length < w*h) return;
+  ensureGrid();
+  const gw = G.w, gh = G.h, V = G.v, TM = G.tmp;
+  let cover = 0, top = -1;
+  for (let y = 0; y < gh; y++){
+    const my = Math.min(h-1, ((y + .5)/gh*h) | 0) * w;
+    let row = 0;
+    for (let x = 0; x < gw; x++){
+      let m = data[my + Math.min(w-1, ((x + .5)/gw*w) | 0)];
+      if (!(m >= 0)) m = 0; else if (m > 1) m = 1;
+      TM[y*gw + x] = m; if (m > .5) row++;
+    }
+    cover += row;
+    if (top < 0 && row > gw*0.012) top = y;
+  }
+  // light smoothing (3x3), zero border so every outline closes
+  for (let y = 0; y < gh; y++) for (let x = 0; x < gw; x++){
+    const i = y*gw + x;
+    if (x === 0 || y === 0 || x === gw-1 || y === gh-1){ V[i] = 0; continue; }
+    const s = TM[i]*4 + TM[i-1] + TM[i+1] + TM[i-gw] + TM[i+gw];
+    V[i] = V[i]*0.4 + (s/8)*0.6;
+  }
+  cover /= gw*gh; T.cover = cover;
+  if (cover < 0.006 || top < 0){ T.present = false; G.nPoly = 0; G.nPts = 0; G.total = 0; }
+  else {
+    const sh = Math.min(gw, gh), y1 = Math.min(gh, top + Math.round(sh*0.2));
+    let sx = 0, n = 0;
+    for (let y = top; y < y1; y++) for (let x = 0; x < gw; x++) if (TM[y*gw+x] > .5){ sx += x; n++; }
+    if (n){ const hx = (sx/n + .5)/gw, hy = Math.min(1, (top + sh*0.12)/gh);
+      if (!T.present){ T.head[0] = hx; T.head[1] = hy; } else { T.head[0] += (hx - T.head[0])*.35; T.head[1] += (hy - T.head[1])*.35; } }
+    T.present = true;
+    contour(0.5);
+  }
+  // keep a copy of the mask at native size for the body layer
+  if (!MASKF || MASKF.w !== w || MASKF.h !== h) MASKF = { w, h, a:new Float32Array(w*h) };
+  const A = MASKF.a;
+  for (let i = 0, n = w*h; i < n; i++){ let m = data[i]; if (!(m >= 0)) m = 0; else if (m > 1) m = 1; A[i] = A[i]*0.3 + m*0.7; }
+  T.hasMask = true;
+}
+
+/* ---------- camera-grid → screen ---------- */
+let W = 0, H = 0, SX = 1, SY = 1, mirror = true;
+function g2s(gx, gy, out){
+  let vx = gx / G.w, vy = gy / G.h;
+  if (mirror) vx = 1 - vx;
+  out[0] = ((vx - .5)/SX + .5) * W; out[1] = ((vy - .5)/SY + .5) * H;
+}
+function v2s(vx, vy, out){
+  if (mirror) vx = 1 - vx;
+  out[0] = ((vx - .5)/SX + .5) * W; out[1] = ((vy - .5)/SY + .5) * H;
+}
+
+/* ---------- audio: clap in, zaps out ---------- */
+let actx = null, fxBus = null, recDest = null, analyser = null, anaBuf = null, micSrc = null;
+function ensureAudio(){
+  if (actx){ if (actx.state === 'suspended') actx.resume().catch(()=>{}); return; }
+  const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+  actx = new AC();
+  fxBus = actx.createGain(); fxBus.gain.value = 0.55; fxBus.connect(actx.destination);
+  recDest = actx.createMediaStreamDestination(); fxBus.connect(recDest);
+  actx.resume().catch(()=>{});
+}
+function connectMic(stream){
+  if (!actx) return;
+  const tr = stream && stream.getAudioTracks ? stream.getAudioTracks() : [];
+  if (micSrc){ try{ micSrc.disconnect(); }catch(e){} micSrc = null; }
+  analyser = null;
+  if (!tr.length) return;
+  try{
+    micSrc = actx.createMediaStreamSource(new MediaStream([tr[0]]));
+    const hp = actx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 900;   // claps are bright
+    analyser = actx.createAnalyser(); analyser.fftSize = 512; anaBuf = new Float32Array(512);
+    micSrc.connect(hp); hp.connect(analyser);
+    micSrc.connect(recDest);
+  }catch(e){ analyser = null; }
+}
+function zap(){
+  if (!actx || actx.state !== 'running') return;
+  const t = actx.currentTime;
+  for (let k = 0; k < 2; k++){
+    const o = actx.createOscillator(), g = actx.createGain(), f = actx.createBiquadFilter();
+    o.type = 'sawtooth'; o.frequency.setValueAtTime(k ? 1800 : 1200, t); o.frequency.exponentialRampToValueAtTime(k ? 90 : 60, t + .35);
+    f.type = 'lowpass'; f.frequency.value = 3000; f.Q.value = 8;
+    g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime(.35, t + .005); g.gain.exponentialRampToValueAtTime(.0001, t + .4);
+    o.connect(f); f.connect(g); g.connect(fxBus); o.start(t); o.stop(t + .42);
+  }
+  const o = actx.createOscillator(), g = actx.createGain();
+  o.frequency.setValueAtTime(110, t); o.frequency.exponentialRampToValueAtTime(40, t + .3);
+  g.gain.setValueAtTime(.8, t); g.gain.exponentialRampToValueAtTime(.0001, t + .35);
+  o.connect(g); g.connect(fxBus); o.start(t); o.stop(t + .36);
+}
+const C = { floor:-70, prev:-90, lastClap:0, cueAt:-1e9, strobeUntil:0, count:0 };
+function detectClap(now, dt){
+  if (!analyser || !anaBuf) return false;
+  analyser.getFloatTimeDomainData(anaBuf);
+  let pk = 0; for (let i = 0; i < anaBuf.length; i++){ const a = Math.abs(anaBuf[i]); if (a > pk) pk = a; }
+  const db = 20*Math.log10(pk + 1e-9);
+  C.floor = db < C.floor ? C.floor + (db - C.floor)*Math.min(1, dt*5) : C.floor + (db - C.floor)*Math.min(1, dt*0.15);
+  const jump = db - C.prev; C.prev = db;
+  const need = 22 / S.clap;
+  return db - C.floor > need && jump > need*0.6 && now - C.lastClap > 280;
+}
+
+/* ---------- cues ---------- */
+const beams = [];
+for (let i = 0; i < 12; i++) beams.push({ phase:Math.random(), speed:.05 + Math.random()*.08, dir:i%2 ? 1 : -1, tx:0, ty:0, has:false, sweep:Math.random()*6.28 });
+function cue(now, advance, hold){
+  C.lastClap = now; C.cueAt = now; C.strobeUntil = now + (hold || 120); C.count++;
+  if (advance) setScene((S.scene + 1) % SCENES.length);
+  for (const b of beams){ b.speed = .04 + Math.random()*.1; b.dir = Math.random() < .5 ? 1 : -1; b.phase = Math.random(); }
+  zap();
+}
+function setScene(i){
+  S.scene = i;
+  [...$('scenes').children].forEach(x => x.classList.toggle('on', +x.dataset.s === i));
+  const c = SCENES[i].beams[0];
+  document.documentElement.style.setProperty('--c', c);
+  $('scene').textContent = 'SCENE ' + String(C.count % 100).padStart(2, '0') + ' ─ ' + SCENES[i].name;
+}
+
+/* ---------- MediaPipe (dynamic import; the stage keeps running without it) ---------- */
+let segmenter = null, lastVT = -1;
+async function initModel(){
+  try{
+    const vision = await import(VISION_URL);
+    const fs = await vision.FilesetResolver.forVisionTasks(WASM_URL);
+    const opts = d => ({ baseOptions:{ modelAssetPath:SEG_MODEL, delegate:d }, runningMode:'VIDEO', outputConfidenceMasks:true, outputCategoryMask:false });
+    try { segmenter = await vision.ImageSegmenter.createFromOptions(fs, opts('GPU')); }
+    catch(e){ segmenter = await vision.ImageSegmenter.createFromOptions(fs, opts('CPU')); }
+    setStatus('');
+  }catch(e){
+    if (T.external) return;
+    setStatus('人物検出モデルを読み込めませんでした（ネット接続を確認）。\nレーザーはステージを掃くだけになります。');
+  }
+}
+function segment(now){
+  if (!segmenter || video.readyState < 2) return;
+  const vt = video.currentTime; if (vt === lastVT) return; lastVT = vt;
+  try{
+    segmenter.segmentForVideo(video, now, res => {
+      const mk = res && res.confidenceMasks && res.confidenceMasks[0];
+      if (mk) ingestMask(mk.getAsFloat32Array(), mk.width, mk.height);
+    });
+  }catch(e){}
+}
+
+/* ---------- camera ---------- */
+let stream = null, facing = 'user', started = false;
+function setStatus(t){ $('status').textContent = t || ''; }
+function camError(e){
+  const msg = (e && (e.message || e.name)) ? (e.message || e.name) : String(e || 'unknown');
+  const text = 'カメラを起動できませんでした：' + msg + '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+  $('err').textContent = text;
+  if (started) setStatus(text);
+}
+async function startCam(){
+  const md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) throw new Error('getUserMedia is unavailable');
+  const v = { facingMode:{ ideal:facing }, width:{ ideal:1280 }, height:{ ideal:720 } };
+  let s;
+  try { s = await md.getUserMedia({ video:v, audio:{ echoCancellation:false, noiseSuppression:false, autoGainControl:false } }); }
+  catch(e){ s = await md.getUserMedia({ video:v, audio:false }); }
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = s; mirror = facing === 'user';
+  video.srcObject = s;
+  await new Promise(r => { if (video.readyState >= 1) r(); else video.onloadedmetadata = () => r(); });
+  await video.play().catch(()=>{});
+  vidW = video.videoWidth || 1280; vidH = video.videoHeight || 720;
+  ensureGrid(); connectMic(s);
+  if (!analyser) setStatus('マイクが使えないので、画面タップでストロボ。');
+}
+$('go').onclick = async () => {
+  $('err').textContent = '';
+  ensureAudio();
+  try { await startCam(); } catch(e){ camError(e); return; }
+  $('start').style.display = 'none';
+  ['gear','flip','rec','scene'].forEach(id => $(id).classList.add('show'));
+  setScene(S.scene);
+  if (!started){ started = true; initModel(); requestAnimationFrame(loop); }
+};
+$('flip').onclick = async () => {
+  const prev = facing; facing = facing === 'user' ? 'environment' : 'user';
+  try { await startCam(); } catch(e){ facing = prev; camError(e); }
+};
+$('gear').onclick = () => $('panel').classList.toggle('hide');
+$('scenes').onclick = e => { const b = e.target.closest('button'); if (b) setScene(+b.dataset.s); };
+[['sBeams','beams'],['sHaze','haze'],['sBody','body'],['sClap','clap']].forEach(([id,k]) => { $(id).oninput = e => { S[k] = +e.target.value; }; });
+cv.addEventListener('pointerdown', () => cue(performance.now(), true));
+
+/* ---------- recording ---------- */
+let rec = null, chunks = [];
+$('rec').onclick = () => {
+  if (rec && rec.state === 'recording'){ rec.stop(); return; }
+  try{
+    ensureAudio();
+    const tracks = [...cv.captureStream(30).getVideoTracks()];
+    if (recDest) tracks.push(...recDest.stream.getAudioTracks());
+    const mime = ['video/mp4;codecs=avc1','video/webm;codecs=vp9,opus','video/webm'].find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || '';
+    rec = new MediaRecorder(new MediaStream(tracks), mime ? { mimeType:mime } : {});
+    chunks = [];
+    rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+    rec.onstop = () => {
+      $('rec').classList.remove('on'); $('rec').textContent = '● REC';
+      const ext = (rec.mimeType || '').includes('mp4') ? 'mp4' : 'webm';
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob(chunks, { type:rec.mimeType || 'video/webm' }));
+      a.download = 'kousen.' + ext; a.click();
+      setStatus('保存しました。');
+    };
+    rec.start(); $('rec').classList.add('on'); $('rec').textContent = '■ SAVE'; setStatus('');
+  }catch(e){ setStatus('録画を開始できませんでした。'); }
+};
+
+/* ---------- body layer: duotone backlit photo at low res ---------- */
+const bodyCv = document.createElement('canvas'), bctx = bodyCv.getContext('2d', { willReadFrequently:true });
+const bloomA = document.createElement('canvas'), baCtx = bloomA.getContext('2d');
+const bloomB = document.createElement('canvas'), bbCtx = bloomB.getContext('2d');
+let bodyImg = null;
+const EXPO = { mean:.5 };
+function drawBody(sc, strobe){
+  const bw = Math.max(64, Math.round(W/2)), bh = Math.max(64, Math.round(H/2));
+  if (bodyCv.width !== bw || bodyCv.height !== bh){ bodyCv.width = bw; bodyCv.height = bh; bodyImg = null; }
+  // cover-crop the camera into the small canvas (mirrored like the stage)
+  const cw = vidW*SX, ch = vidH*SY, cx0 = (vidW - cw)/2, cy0 = (vidH - ch)/2;
+  bctx.save();
+  if (mirror){ bctx.translate(bw, 0); bctx.scale(-1, 1); }
+  try { bctx.drawImage(video, cx0, cy0, cw, ch, 0, 0, bw, bh); } catch(e){}
+  bctx.restore();
+  if (!bodyImg) bodyImg = bctx.createImageData(bw, bh);
+  let src; try { src = bctx.getImageData(0, 0, bw, bh).data; } catch(e){ return; }
+  const out = bodyImg.data, M = MASKF, mw = M.w, mh = M.h, ma = M.a;
+  const [r1, g1, b1] = sc.body, [r2, g2, b2] = sc.hi;
+  // auto exposure: thresholds follow the person's own mean brightness (last frame)
+  const mean = EXPO.mean, lo = mean*(1.02 - S.body*.35), hi = mean*(1.32 - S.body*.3);
+  let sum = 0, cnt = 0;
+  for (let y = 0, o = 0; y < bh; y++){
+    const vy = ((y + .5)/bh - .5)*SY + .5;
+    const fy = Math.min(mh - 1.001, Math.max(0, vy*mh - .5)), y0 = fy | 0, wy = fy - y0;
+    for (let x = 0; x < bw; x++, o += 4){
+      let vx = ((x + .5)/bw - .5)*SX + .5; if (mirror) vx = 1 - vx;
+      const fx = Math.min(mw - 1.001, Math.max(0, vx*mw - .5)), x0 = fx | 0, wx = fx - x0, i0 = y0*mw + x0;
+      const m = (ma[i0]*(1-wx) + ma[i0+1]*wx)*(1-wy) + (ma[i0+mw]*(1-wx) + ma[i0+mw+1]*wx)*wy;
+      if (m < .38){ out[o+3] = 0; continue; }
+      const al = m > .62 ? 255 : ((m - .38)/.24*255) | 0;
+      if (strobe){ out[o] = out[o+1] = out[o+2] = 0; out[o+3] = al; continue; }
+      const l = (src[o]*.299 + src[o+1]*.587 + src[o+2]*.114)/255;
+      sum += l; cnt++;
+      if (l < lo){ out[o] = 0; out[o+1] = 0; out[o+2] = 0; }
+      else if (l < hi){ if (y & 1){ out[o] = out[o+1] = out[o+2] = 0; } else { out[o] = r1; out[o+1] = g1; out[o+2] = b1; } }
+      else { out[o] = r2; out[o+1] = g2; out[o+2] = b2; }
+      out[o+3] = al;
+    }
+  }
+  if (cnt > 50) EXPO.mean += (sum/cnt - EXPO.mean)*.2;
+  bctx.putImageData(bodyImg, 0, 0);
+  ctx.imageSmoothingEnabled = true;
+  ctx.drawImage(bodyCv, 0, 0, W, H);
+}
+
+/* ---------- render ---------- */
+const P0 = [0,0], P1 = [0,0];
+let lastT = 0;
+function resize(){
+  const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+  let w = Math.round(innerWidth*dpr), h = Math.round(innerHeight*dpr);
+  const k = Math.min(1, 1280 / Math.max(w, h)); w = Math.round(w*k); h = Math.round(h*k);
+  if (cv.width !== w || cv.height !== h){ cv.width = w; cv.height = h; }
+  W = w; H = h;
+  const sa = W/H, va = vidW/vidH;
+  SX = sa < va ? sa/va : 1; SY = sa < va ? 1 : va/sa;
+}
+function beamColor(sc, i){ return sc.beams[i % sc.beams.length]; }
+function strokeBeam(x0, y0, x1, y1, col, w, a){
+  ctx.globalAlpha = a*.18; ctx.strokeStyle = col; ctx.lineWidth = w*6;
+  ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+  ctx.globalAlpha = a*.9; ctx.lineWidth = w;
+  ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+  ctx.globalAlpha = a; ctx.strokeStyle = '#fff'; ctx.lineWidth = Math.max(1, w*.35);
+  ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+}
+function loop(now){
+  requestAnimationFrame(loop);
+  const dt = lastT ? Math.min(.1, (now - lastT)/1000) : .016; lastT = now;
+  if (video.videoWidth && (video.videoWidth !== vidW || video.videoHeight !== vidH)){ vidW = video.videoWidth; vidH = video.videoHeight; ensureGrid(); }
+  resize();
+  if (!T.external) segment(now);
+  if (detectClap(now, dt)) cue(now, true);
+  const t = now/1000, sc = SCENES[S.scene], short = Math.min(W, H);
+  const strobe = now < C.strobeUntil;
+  const since = (now - C.cueAt)/1000;
+  const person = T.present && T.hasMask;
+
+  // stage + haze
+  ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
+  ctx.fillStyle = strobe ? '#fff' : '#000'; ctx.fillRect(0, 0, W, H);
+  if (!strobe && S.haze > 0){
+    for (let k = 0; k < 3; k++){
+      const hx = W*(.5 + .35*Math.sin(t*.07 + k*2.1)), hy = H*(.55 + .25*Math.cos(t*.05 + k*1.3)), r = short*(.6 + .2*k);
+      const g = ctx.createRadialGradient(hx, hy, 0, hx, hy, r);
+      g.addColorStop(0, `rgba(${sc.haze},${.10*S.haze})`); g.addColorStop(1, `rgba(${sc.haze},0)`);
+      ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+    }
+  }
+  const head = P0; v2s(T.head[0], T.head[1], head);
+  const hx = head[0], hy = head[1];
+  ctx.lineCap = 'round';
+
+  // head fan (behind the body)
+  if (person && !strobe){
+    ctx.globalCompositeOperation = 'lighter';
+    const nF = 14, spin = t*.25, open = .5 + .5*Math.sin(t*.6);
+    for (let i = 0; i < nF; i++){
+      const a = -Math.PI/2 + (i/(nF-1) - .5) * (1.6 + 1.4*open) + .25*Math.sin(spin + i*.3);
+      const L = short*1.6;
+      strokeBeam(hx, hy, hx + Math.cos(a)*L, hy + Math.sin(a)*L, beamColor(sc, i), short*.005, .5*S.haze + .3);
+    }
+  }
+
+  // body
+  ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
+  if (person && MASKF) drawBody(sc, strobe);
+
+  // outline: laser contour with a moving scan dash
+  if (person && G.nPoly > 0){
+    ctx.globalCompositeOperation = strobe ? 'source-over' : 'lighter';
+    ctx.beginPath();
+    for (let p = 0; p < G.nPoly; p++){
+      const s0 = G.starts[p], n = G.lens[p];
+      for (let j = 0; j < n; j++){
+        g2s(G.px[s0+j], G.py[s0+j], P1);
+        if (j === 0) ctx.moveTo(P1[0], P1[1]); else ctx.lineTo(P1[0], P1[1]);
+      }
+    }
+    const col = sc.beams[0];
+    if (strobe){ ctx.strokeStyle = '#000'; ctx.lineWidth = short*.012; ctx.globalAlpha = 1; ctx.stroke(); }
+    else {
+      ctx.strokeStyle = col; ctx.setLineDash([]);
+      ctx.globalAlpha = .25; ctx.lineWidth = short*.02; ctx.stroke();
+      ctx.globalAlpha = .95; ctx.lineWidth = short*.007; ctx.stroke();
+      ctx.setLineDash([short*.06, short*.03]); ctx.lineDashOffset = -t*short*.6;
+      ctx.strokeStyle = '#fff'; ctx.globalAlpha = .95; ctx.lineWidth = short*.0022; ctx.stroke();
+      ctx.setLineDash([]);
+    }
+  }
+
+  // emitter beams riding the outline
+  if (!strobe){
+    ctx.globalCompositeOperation = 'lighter';
+    const nb = S.beams | 0;
+    for (let i = 0; i < nb; i++){
+      const b = beams[i];
+      const fromTop = i % 2 === 1;
+      const ex = W*((i >> 1) + .5)/Math.ceil(nb/2) + (fromTop ? W*.04 : -W*.04), ey = fromTop ? -short*.02 : H + short*.02;
+      let tx, ty, lit;
+      if (person && G.total > 0 && pointAt((b.phase + b.dir*b.speed*t) * G.total, P1)){
+        g2s(P1[0], P1[1], P1);
+        // after a cue, everyone converges on the head for a beat
+        const k = Math.max(0, 1 - since/0.5);
+        tx = P1[0] + (hx - P1[0])*k; ty = P1[1] + (hy - P1[1])*k;
+        if (!b.has){ b.tx = tx; b.ty = ty; b.has = true; }
+        b.tx += (tx - b.tx)*.45; b.ty += (ty - b.ty)*.45;
+        lit = 1;
+      } else {
+        // nobody on stage: slow sweeps, nothing to aim at
+        b.has = false;
+        b.sweep += dt*(.4 + .2*(i % 3));
+        const a = (fromTop ? Math.PI/2 : -Math.PI/2) + .9*Math.sin(b.sweep);
+        b.tx = ex + Math.cos(a)*short*2; b.ty = ey + Math.sin(a)*short*2;
+        lit = .55;
+      }
+      const col = beamColor(sc, i);
+      strokeBeam(ex, ey, b.tx, b.ty, col, short*.004, lit*(.55 + .45*S.haze));
+      if (lit === 1){
+        const r = short*(.018 + .01*Math.sin(t*20 + i));
+        const g = ctx.createRadialGradient(b.tx, b.ty, 0, b.tx, b.ty, r*3);
+        g.addColorStop(0, 'rgba(255,255,255,1)'); g.addColorStop(.25, col); g.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.globalAlpha = 1; ctx.fillStyle = g; ctx.fillRect(b.tx - r*3, b.ty - r*3, r*6, r*6);
+      }
+    }
+  }
+
+  // bloom: two downsampled copies added back
+  if (!strobe){
+    const bw = Math.max(16, W >> 3), bh = Math.max(16, H >> 3);
+    if (bloomA.width !== bw || bloomA.height !== bh){ bloomA.width = bw; bloomA.height = bh; bloomB.width = bw >> 1; bloomB.height = bh >> 1; }
+    baCtx.globalCompositeOperation = 'copy'; baCtx.drawImage(cv, 0, 0, bw, bh);
+    bbCtx.globalCompositeOperation = 'copy'; bbCtx.drawImage(bloomA, 0, 0, bloomB.width, bloomB.height);
+    ctx.globalCompositeOperation = 'lighter'; ctx.imageSmoothingEnabled = true;
+    ctx.globalAlpha = .45; ctx.drawImage(bloomA, 0, 0, W, H);
+    ctx.globalAlpha = .55; ctx.drawImage(bloomB, 0, 0, W, H);
+  }
+  ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
+}
+addEventListener('resize', resize);
+
+/* ---------- test hook (used by the local verification harness) ---------- */
+window.__KOUSEN = {
+  ingestMask(d, w, h){ if (!T.external) setStatus(''); T.external = true; ingestMask(d, w, h); },
+  clap(hold){ cue(performance.now(), true, hold); },
+  scene(i){ setScene(i); },
+  state: () => ({ present:T.present, cover:T.cover, head:T.head.slice(), polys:G.nPoly, pts:G.nPts, total:G.total,
+                  scene:S.scene, cues:C.count, strobe: performance.now() < C.strobeUntil,
+                  targets: beams.slice(0, S.beams).map(b => b.has ? [Math.round(b.tx), Math.round(b.ty)] : null) }),
+};
+</script>
+</body>
+</html>
