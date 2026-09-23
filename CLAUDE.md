@@ -7,7 +7,8 @@ Framework Preset: Other・ビルド無し・リポジトリのルートをその
 実行環境から `*.vercel.app` には届かない（egress proxy が拒否）ので、成否は GitHub の
 Deployments API で見る ── `GET /repos/{owner}/{repo}/deployments?sha=<sha>` のうち
 `creator.login == "vercel[bot]"`・`environment == "Production"` のものの statuses が
-`success` になっていればよい。URL はその status の `environment_url`。
+`success` になっていればよい（その status の `environment_url` はデプロイごとに変わる URL）。
+**公開用の固定 URL は https://oto-2.vercel.app/** ── 通知や台帳に載せるのはこちら。
 
 ## カテゴリ（2026-09-21 変更）
 
