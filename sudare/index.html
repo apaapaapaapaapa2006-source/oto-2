@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="description" content="部屋が夜のフィルム・ノワールになる。ブラインド越しの光の縞だけがあなたを照らし、縞のあいだは闇に沈む。光はゆっくり動き、体の輪郭には細い逆光が走る。">
+<meta name="theme-color" content="#070504">
+<title>SUDARE ─ ブラインド越しの光だけがあなたを照らす</title>
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  SUDARE 簾 ─ ブラインド越しの光だけがあなたを照らす   ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  MOOD       フィルム・ノワールの一場面。灯りを落とした部屋に、窓のブラインド
+             越しの光が斜めの縞になって差し込む。映る人は縞の当たったところ
+             だけが浮かび、あいだは完全な闇。部屋の壁にも縞は落ちるが、人より
+             ずっと暗い。輪郭には窓の側から細い逆光。
+  PALETTE    TUNGSTEN 光 #ffd29a・闇 #070504（街灯の琥珀）
+             MOON     光 #c4d6ff・闇 #04060a（月光）
+             NEON     光 #ff5a48・闇 #080304（向かいのネオン）
+             人物の色は 30% だけ残し、あとは光の色で染める。
+  TYPE       Libre Caslon Display（題字）・Libre Caslon Text Italic（小さな文字）。
+  MOTION     縞は 14 秒で一つぶん下へ滑る。ブラインドの角度は 40 秒周期でわずかに
+             揺れる。明滅・揺れ・フラッシュは使わない。
+  SIGNATURE  光の縞のなかにだけ現れる顔。
+  TECH       WebGL2 の一枚シェーダ。縞は短辺基準の画面座標で、奥ほど間隔が
+             わずかに開く（窓からの距離）。人物マスクで「人は明るく、部屋は暗く」
+             を分け、光の方向へずらしたマスクとの差で逆光の縁を取る。マスクが
+             無くても画面全体をノワールにして動く。
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Libre+Caslon+Display&family=Libre+Caslon+Text:ital@1&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#070504;--fg:#ffd29a;--dim:rgba(255,210,154,.5);--line:rgba(255,210,154,.22)}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none}
+html,body{margin:0;height:100%;background:var(--bg);overflow:hidden;color:var(--fg);
+  font-family:"Libre Caslon Text",Georgia,"Hiragino Mincho ProN",serif}
+#gl{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+#cam{position:fixed;left:0;top:0;width:2px;height:2px;opacity:.01;pointer-events:none}
+
+#start{position:fixed;inset:0;z-index:30;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:24px;
+  padding:28px;text-align:center;background:
+  repeating-linear-gradient(-14deg,rgba(255,210,154,.07) 0 18px,transparent 18px 40px),var(--bg)}
+#start h1{margin:0;font-family:"Libre Caslon Display",Georgia,serif;font-weight:400;font-size:min(22vw,120px);letter-spacing:.12em;margin-right:-.12em;line-height:1}
+#start p{margin:0;font-style:italic;font-size:16px;line-height:1.8;color:var(--dim)}
+#start p small{display:block;font-style:normal;font-family:-apple-system,"Hiragino Sans","Noto Sans JP",sans-serif;font-size:12px;letter-spacing:.08em;margin-top:8px}
+#go{appearance:none;border:1px solid var(--line);background:transparent;color:var(--fg);font:italic 14px "Libre Caslon Text",Georgia,serif;
+  letter-spacing:.2em;padding:13px 38px;cursor:pointer;transition:border-color .3s}
+#go:hover{border-color:var(--fg)}
+#err{font-size:12px;line-height:1.8;max-width:340px;min-height:1em;white-space:pre-line;color:#e7a0a0;font-family:-apple-system,"Hiragino Sans",sans-serif}
+
+.btn{position:fixed;z-index:12;appearance:none;border:0;background:transparent;color:var(--fg);font:italic 12px "Libre Caslon Text",Georgia,"Hiragino Sans",serif;
+  letter-spacing:.14em;padding:10px 8px;display:none;cursor:pointer;opacity:.55;transition:opacity .3s}
+.btn.show{display:block}
+.btn:hover{opacity:1}
+#gear{right:10px;top:calc(env(safe-area-inset-top) + 6px);font-style:normal;font-size:14px;letter-spacing:0}
+#flip{right:10px;top:calc(env(safe-area-inset-top) + 40px);font-style:normal;font-family:-apple-system,"Hiragino Sans",sans-serif;font-size:10px}
+#bar{position:fixed;left:0;right:0;bottom:calc(env(safe-area-inset-bottom) + 10px);z-index:12;display:none;justify-content:center;align-items:center;gap:30px}
+#bar.show{display:flex}
+#bar .btn{position:static;display:block}
+#bar #shoot{position:relative;width:42px;height:42px;border-radius:50%;border:1px solid var(--fg);padding:0}
+#shoot::after{content:"";position:absolute;inset:6px;border-radius:50%;background:var(--fg);opacity:.8}
+#rec.on{opacity:1}
+#status{position:fixed;left:14px;bottom:calc(env(safe-area-inset-bottom) + 66px);z-index:11;font:11px/1.7 -apple-system,"Hiragino Sans",sans-serif;
+  color:var(--dim);pointer-events:none;max-width:72vw;white-space:pre-line}
+
+#panel{position:fixed;right:10px;top:calc(env(safe-area-inset-top) + 78px);z-index:12;width:min(270px,calc(100vw - 20px));
+  background:rgba(7,5,4,.88);border:1px solid var(--line);padding:14px 16px;display:flex;flex-direction:column;gap:13px;transition:opacity .25s}
+#panel.hide{opacity:0;pointer-events:none}
+.chips{display:flex;border:1px solid var(--line)}
+.chips button{flex:1;appearance:none;border:0;background:transparent;color:var(--fg);padding:8px 2px;font:italic 11px "Libre Caslon Text",serif;
+  letter-spacing:.1em;cursor:pointer;opacity:.5}
+.chips button.on{opacity:1;background:rgba(255,255,255,.08)}
+#panel label{display:flex;align-items:center;gap:10px;font:11px -apple-system,"Hiragino Sans",sans-serif;letter-spacing:.04em}
+#panel label span{width:72px;flex:none;color:var(--dim)}
+#panel input[type=range]{flex:1;accent-color:var(--fg)}
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<video id="cam" playsinline muted autoplay></video>
+<div id="status"></div>
+<button id="gear" class="btn" aria-label="調整">⚙</button>
+<button id="flip" class="btn">⟲ カメラ</button>
+<div id="bar">
+  <button id="rec" class="btn">● rec</button>
+  <button id="shoot" class="btn" aria-label="撮る"></button>
+  <span class="btn show" style="visibility:hidden">● rec</span>
+</div>
+
+<div id="panel" class="hide">
+  <div class="chips" id="pals">
+    <button data-p="0" class="on">Tungsten</button>
+    <button data-p="1">Moon</button>
+    <button data-p="2">Neon</button>
+  </div>
+  <label><span>角度</span><input type="range" id="sAng" min="-40" max="40" step="1" value="-14"></label>
+  <label><span>縞の幅</span><input type="range" id="sPer" min="0.03" max="0.14" step="0.005" value="0.065"></label>
+  <label><span>やわらかさ</span><input type="range" id="sSoft" min="0" max="1" step="0.02" value="0.35"></label>
+  <label><span>部屋の明るさ</span><input type="range" id="sRoom" min="0" max="0.6" step="0.02" value="0.2"></label>
+  <label><span>粒子</span><input type="range" id="sGrain" min="0" max="1" step="0.02" value="0.4"></label>
+</div>
+
+<div id="start">
+  <h1>SUDARE</h1>
+  <p>Light through the blinds.<small>ブラインド越しの光だけが、あなたを照らす。</small></p>
+  <button id="go">enter the room</button>
+  <div id="err"></div>
+</div>
+
+<script>
+'use strict';
+const VISION_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs';
+const WASM_URL   = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm';
+const SEG_MODEL  = 'https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite';
+
+const $ = id => document.getElementById(id);
+const canvas = $('gl'), video = $('cam');
+
+const PALS = [
+  { name:'Tungsten', light:[1,.824,.604],  dark:[.027,.020,.016], bg:'#070504', fg:'#ffd29a' },
+  { name:'Moon',     light:[.769,.839,1],  dark:[.016,.024,.039], bg:'#04060a', fg:'#c4d6ff' },
+  { name:'Neon',     light:[1,.353,.282],  dark:[.031,.012,.016], bg:'#080304', fg:'#ff8a7a' },
+];
+const S = { pal:0, ang:-14, per:0.065, soft:0.35, room:0.2, grain:0.4 };
+
+/* ---------- GL ---------- */
+const gl = canvas.getContext('webgl2', { antialias:false, alpha:false, preserveDrawingBuffer:true, powerPreference:'high-performance' });
+const VS = `#version 300 es
+in vec2 p; out vec2 uv; void main(){ uv = p*.5+.5; gl_Position = vec4(p,0.,1.); }`;
+const FS = `#version 300 es
+precision highp float;
+in vec2 uv; out vec4 o;
+uniform sampler2D uVid, uMask;
+uniform vec2 uScale, uRes;
+uniform float uMirror, uHas, uWhole, uT, uAng, uPer, uSoft, uRoom, uGrain;
+uniform vec3 uLight, uDark;
+float h21(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233))) * 43758.5453); }
+float lum(vec3 c){ return dot(c, vec3(.2126,.7152,.0722)); }
+vec2 toV(vec2 s){ vec2 v = (vec2(s.x, 1. - s.y) - .5) * uScale + .5; if (uMirror > .5) v.x = 1. - v.x; return v; }
+void main(){
+  vec2 v = toV(uv);
+  vec3 cam = texture(uVid, v).rgb;
+  float m = uWhole > .5 ? 1. : (uHas > .5 ? smoothstep(.35, .7, texture(uMask, v).r) : 0.);
+
+  // the blinds: screen space in short-edge units, light from the upper left
+  float sh = min(uRes.x, uRes.y);
+  vec2 p = (uv * uRes - vec2(0., uRes.y)) / sh;          // origin top-left, y down is negative
+  float a = uAng + .03 * sin(uT * .157);
+  vec2 n = vec2(sin(a), cos(a));
+  float d = dot(p, n);
+  float per = uPer * (1. + .18 * (-p.y));                  // slats open up away from the window
+  float f = fract(d / per + uT / 14.);
+  float soft = .02 + .22 * uSoft;
+  float slat = smoothstep(0., soft, f) * (1. - smoothstep(.52 - soft, .52, f));
+  // a broad fall-off: the window is upper-left
+  float fall = clamp(1.15 - .55 * length(p - vec2(-.1, .1)), .15, 1.);
+  float light = slat * fall;
+
+  // the person: lit only where the slats land; colour mostly replaced by the light
+  float l = lum(cam);
+  vec3 grade = mix(vec3(l), cam, .3);
+  vec3 subj = grade * uLight * (light * 1.55 + .015);
+  subj = subj / (1. + subj * .35);                         // soft shoulder
+  // the room: the same slats, much dimmer
+  vec3 room = grade * uLight * (light * uRoom + .004);
+
+  // rim: inside the silhouette, where the pixel towards the window is outside
+  float rim = 0.;
+  if (uHas > .5 && uWhole < .5){
+    vec2 off = vec2(-.0045, -.0045) * vec2(uRes.y / uRes.x, 1.);
+    float mo = smoothstep(.35, .7, texture(uMask, toV(uv + vec2(off.x, -off.y))).r);
+    rim = m * (1. - mo) * fall * fall;
+  }
+  vec3 c = mix(room, subj, m) + uLight * rim * .5;
+  c = max(c, uDark * (1. - light));
+  // vignette + grain
+  vec2 q = uv - .5; q.x *= uRes.x / uRes.y;
+  c *= 1. - .6 * smoothstep(.3, 1., length(q));
+  float g = h21(floor(gl_FragCoord.xy / 1.5) + fract(uT * 5.3) * 77.) - .5;
+  c += g * uGrain * .07 * (.4 + lum(c));
+  o = vec4(clamp(c, 0., 1.), 1.);
+}`;
+let P, U = {}, texVid, texMask;
+function initGL(){
+  const mk = (t, s) => { const x = gl.createShader(t); gl.shaderSource(x, s); gl.compileShader(x);
+    if (!gl.getShaderParameter(x, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(x)); return x; };
+  P = gl.createProgram(); gl.attachShader(P, mk(gl.VERTEX_SHADER, VS)); gl.attachShader(P, mk(gl.FRAGMENT_SHADER, FS));
+  gl.bindAttribLocation(P, 0, 'p'); gl.linkProgram(P);
+  if (!gl.getProgramParameter(P, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(P));
+  gl.useProgram(P);
+  const n = gl.getProgramParameter(P, gl.ACTIVE_UNIFORMS);
+  for (let i = 0; i < n; i++){ const u = gl.getActiveUniform(P, i); U[u.name] = gl.getUniformLocation(P, u.name); }
+  const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+  const tex = unit => { const t = gl.createTexture(); gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, t);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE); return t; };
+  texVid = tex(0); texMask = tex(1);
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, 1, 1, 0, gl.RED, gl.UNSIGNED_BYTE, new Uint8Array([0]));
+  gl.uniform1i(U.uVid, 0); gl.uniform1i(U.uMask, 1);
+}
+
+/* ---------- mask (reused buffers) ---------- */
+const M = { w:0, h:0, f:null, u8:null, present:false, cover:0, has:false, external:false };
+function ingestMask(data, w, h){
+  if (!data || !(w > 0) || !(h > 0) || data.length < w*h) return;
+  if (M.w !== w || M.h !== h){ M.w = w; M.h = h; M.f = new Float32Array(w*h); M.u8 = new Uint8Array(w*h); }
+  const F = M.f, U8 = M.u8; let on = 0;
+  for (let i = 0, n = w*h; i < n; i++){
+    let m = data[i]; if (!(m >= 0)) m = 0; else if (m > 1) m = 1;
+    F[i] = F[i]*.35 + m*.65; U8[i] = F[i]*255 | 0; if (F[i] > .5) on++;
+  }
+  M.cover = on/(w*h); M.present = M.cover > .006; M.has = true;
+  if (gl && texMask){ gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, texMask);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, w, h, 0, gl.RED, gl.UNSIGNED_BYTE, U8); }
+}
+
+/* ---------- MediaPipe (dynamic import; the room still works without it) ---------- */
+let segmenter = null, lastTs = 0, lastVT = -1, fallback = false;
+async function initModel(){
+  try{
+    const vision = await import(VISION_URL);
+    const fs = await vision.FilesetResolver.forVisionTasks(WASM_URL);
+    const opts = d => ({ baseOptions:{ modelAssetPath:SEG_MODEL, delegate:d }, runningMode:'VIDEO', outputConfidenceMasks:true, outputCategoryMask:false });
+    try { segmenter = await vision.ImageSegmenter.createFromOptions(fs, opts('GPU')); }
+    catch(e){ segmenter = await vision.ImageSegmenter.createFromOptions(fs, opts('CPU')); }
+    setStatus('');
+  }catch(e){
+    if (M.external) return;
+    fallback = true;
+    setStatus('人物検出モデルを読み込めませんでした（ネット接続を確認）。\n部屋全体を照らして続けます。');
+  }
+}
+function segment(now){
+  if (!segmenter || video.readyState < 2) return;
+  const vt = video.currentTime; if (vt === lastVT) return; lastVT = vt;
+  try{
+    const ts = Math.max(lastTs + 1, Math.round(now)); lastTs = ts;
+    segmenter.segmentForVideo(video, ts, res => {
+      const ms = res && res.confidenceMasks;
+      if (!ms || !ms.length) return;
+      const mk = ms[ms.length - 1];                  // 2 masks → [0] is background, [1] is the person
+      ingestMask(mk.getAsFloat32Array(), mk.width, mk.height);
+    });
+  }catch(e){}
+}
+
+/* ---------- camera ---------- */
+let stream = null, facing = 'user', mirror = true, started = false, vidW = 1280, vidH = 720;
+function setStatus(t){ $('status').textContent = t || ''; }
+function camError(e){
+  const msg = (e && (e.message || e.name)) ? (e.message || e.name) : String(e || 'unknown');
+  const text = 'カメラを起動できませんでした：' + msg + '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+  $('err').textContent = text;
+  if (started) setStatus(text);
+}
+async function startCam(){
+  const md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) throw new Error('getUserMedia is unavailable');
+  const s = await md.getUserMedia({ video:{ facingMode:{ ideal:facing }, width:{ ideal:1280 }, height:{ ideal:720 } }, audio:false });
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = s; mirror = facing === 'user';
+  video.srcObject = s;
+  await new Promise(r => { if (video.readyState >= 1) r(); else video.onloadedmetadata = () => r(); });
+  await video.play().catch(()=>{});
+  vidW = video.videoWidth || 1280; vidH = video.videoHeight || 720;
+}
+
+/* ---------- audio: a quiet room tone + the shutter ---------- */
+let actx = null, bus = null, recDest = null;
+function ensureAudio(){
+  if (actx){ if (actx.state === 'suspended') actx.resume().catch(()=>{}); return; }
+  const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+  actx = new AC(); bus = actx.createGain(); bus.gain.value = .35; bus.connect(actx.destination);
+  recDest = actx.createMediaStreamDestination(); bus.connect(recDest);
+  // room tone: very low filtered noise, like a city behind glass
+  const len = actx.sampleRate*3, b = actx.createBuffer(1, len, actx.sampleRate), d = b.getChannelData(0);
+  let last = 0; for (let i = 0; i < len; i++){ last = last*.995 + (Math.random()*2 - 1)*.05; d[i] = last; }
+  const s = actx.createBufferSource(); s.buffer = b; s.loop = true;
+  const f = actx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 380;
+  const g = actx.createGain(); g.gain.value = .5;
+  s.connect(f); f.connect(g); g.connect(bus); s.start();
+  actx.resume().catch(()=>{});
+}
+function click(){
+  if (!actx || actx.state !== 'running') return;
+  const t = actx.currentTime, len = actx.sampleRate*.025 | 0, b = actx.createBuffer(1, len, actx.sampleRate), d = b.getChannelData(0);
+  for (let i = 0; i < len; i++) d[i] = (Math.random()*2 - 1) * Math.pow(1 - i/len, 5);
+  const s = actx.createBufferSource(); s.buffer = b;
+  const f = actx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 2000; f.Q.value = 1.2;
+  s.connect(f); f.connect(bus); s.start(t);
+}
+
+$('go').onclick = async () => {
+  $('err').textContent = '';
+  ensureAudio();
+  try{
+    if (!gl) throw new Error('WebGL2 に未対応のブラウザです');
+    if (!P) initGL();
+    await startCam();
+  }catch(e){ camError(e); return; }
+  $('start').style.display = 'none';
+  ['gear','flip','bar','rec','shoot'].forEach(id => $(id).classList.add('show'));
+  if (!started){ started = true; initModel(); requestAnimationFrame(loop); }
+};
+$('flip').onclick = async () => {
+  const prev = facing; facing = facing === 'user' ? 'environment' : 'user';
+  try { await startCam(); } catch(e){ facing = prev; camError(e); }
+};
+$('gear').onclick = () => $('panel').classList.toggle('hide');
+function setPal(i){
+  S.pal = i; const p = PALS[i];
+  [...$('pals').children].forEach(x => x.classList.toggle('on', +x.dataset.p === i));
+  const r = document.documentElement.style; r.setProperty('--bg', p.bg); r.setProperty('--fg', p.fg);
+}
+$('pals').onclick = e => { const b = e.target.closest('button'); if (b) setPal(+b.dataset.p); };
+[['sAng','ang'],['sPer','per'],['sSoft','soft'],['sRoom','room'],['sGrain','grain']].forEach(([id,k]) => { $(id).oninput = e => { S[k] = +e.target.value; }; });
+
+$('shoot').onclick = () => {
+  click();
+  try{ canvas.toBlob(b => { if (!b) return; const a = document.createElement('a'); a.href = URL.createObjectURL(b);
+    a.download = 'sudare-' + Date.now() + '.png'; a.click(); }, 'image/png'); }catch(e){ setStatus('保存できませんでした。'); }
+};
+let rec = null, chunks = [];
+$('rec').onclick = () => {
+  if (rec && rec.state === 'recording'){ rec.stop(); return; }
+  try{
+    ensureAudio();
+    const tracks = [...canvas.captureStream(30).getVideoTracks()];
+    if (recDest) tracks.push(...recDest.stream.getAudioTracks());
+    const mime = ['video/mp4;codecs=avc1','video/webm;codecs=vp9,opus','video/webm'].find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || '';
+    rec = new MediaRecorder(new MediaStream(tracks), mime ? { mimeType:mime } : {});
+    chunks = [];
+    rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+    rec.onstop = () => {
+      $('rec').classList.remove('on'); $('rec').textContent = '● rec';
+      const ext = (rec.mimeType || '').includes('mp4') ? 'mp4' : 'webm';
+      const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(chunks, { type:rec.mimeType || 'video/webm' }));
+      a.download = 'sudare.' + ext; a.click();
+    };
+    rec.start(); $('rec').classList.add('on'); $('rec').textContent = '■ stop';
+  }catch(e){ setStatus('録画を開始できませんでした。'); }
+};
+
+/* ---------- render ---------- */
+function loop(now){
+  requestAnimationFrame(loop);
+  if (video.videoWidth){ vidW = video.videoWidth; vidH = video.videoHeight; }
+  const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+  let W = Math.round(innerWidth*dpr), H = Math.round(innerHeight*dpr);
+  const k = Math.min(1, 1600 / Math.max(W, H)); W = Math.round(W*k); H = Math.round(H*k);
+  if (canvas.width !== W || canvas.height !== H){ canvas.width = W; canvas.height = H; }
+  if (!M.external) segment(now);
+  if (video.readyState < 2) return;
+  gl.viewport(0, 0, W, H);
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, texVid);
+  try { gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video); } catch(e){ return; }
+  const sa = W/H, va = vidW/vidH, sx = sa < va ? sa/va : 1, sy = sa < va ? 1 : va/sa;
+  const pal = PALS[S.pal];
+  gl.uniform2f(U.uScale, sx, sy); gl.uniform2f(U.uRes, W, H);
+  gl.uniform1f(U.uMirror, mirror ? 1 : 0);
+  gl.uniform1f(U.uHas, M.has && M.present ? 1 : 0);
+  gl.uniform1f(U.uWhole, (fallback && !M.external) || !M.has ? 1 : 0);
+  gl.uniform1f(U.uT, now/1000); gl.uniform1f(U.uAng, S.ang * Math.PI/180);
+  gl.uniform1f(U.uPer, S.per); gl.uniform1f(U.uSoft, S.soft); gl.uniform1f(U.uRoom, S.room); gl.uniform1f(U.uGrain, S.grain);
+  gl.uniform3fv(U.uLight, pal.light); gl.uniform3fv(U.uDark, pal.dark);
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+}
+
+/* ---------- test hook (used by the local verification harness) ---------- */
+window.__SUDARE = {
+  ingestMask(d, w, h){ if (!M.external) setStatus(''); M.external = true; fallback = false; ingestMask(d, w, h); },
+  palette(i){ setPal(i); },
+  state: () => ({ present:M.present, cover:M.cover, fallback }),
+};
+</script>
+</body>
+</html>
