@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="description" content="映った人がモノクロの銀塩プリントになり、ファッション誌の表紙に収まる。大きな題字はあなたの頭の後ろに回り込み、ゆっくりと光の帯が体を撫でていく。シャッターで表紙を一枚保存できる。">
+<meta name="theme-color" content="#0b0b0c">
+<title>HYOSHI ─ あなたが表紙になる</title>
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  HYOSHI 表紙 ─ あなたが表紙になる                  ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  MOOD       モード誌の表紙。人物だけが粒子の立ったモノクロの銀塩プリントに
+             切り抜かれ、画面いっぱいの題字の「前」に立つ ── 頭が題字の一部を
+             隠す、表紙の古典的な奥行き。飾りはしない。余白と書体と光だけ。
+  PALETTE    NOIR   背景 #0b0b0c・題字 #efece6・差し色 #b3001b（細い罫だけ）
+             BONE   背景 #ebe7df・題字 #111111・差し色 #111111
+             OXBLOOD背景 #3e0b10・題字 #efe3d3・人物は温黒調
+             人物は常に無彩色（OXBLOOD のみ温黒へ寄せる）。原色は使わない。
+  TYPE       Playfair Display 900（題字）・Instrument Serif Italic（見出し）・
+             Inter 500 の字間を広げた小さな大文字（号数・キャプション）。
+  MOTION     ほとんど動かない。9 秒周期で斜めの光の帯が体を一度だけ撫でて
+             いく（スタジオのストリップライトが通り過ぎるように）。粒子は毎
+             フレーム揺らぐ。題字は動かない。
+  SIGNATURE  頭が題字にかかる奥行き。人物がいないときは空の表紙が残る。
+  TECH       MediaPipe ImageSegmenter の人物マスク → 半解像度で輝度を自動
+             露出して S 字カーブ → 紙の階調へ写す。粒子は一枚のノイズを
+             パターンとして毎フレームずらして overlay。シャッターで PNG 保存、
+             REC で動画保存。
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&family=Instrument+Serif:ital@0;1&family=Playfair+Display:wght@900&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0b0b0c;--fg:#efece6;--line:rgba(239,236,230,.28)}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none}
+html,body{margin:0;height:100%;background:var(--bg);overflow:hidden;color:var(--fg);
+  font-family:Inter,-apple-system,"Hiragino Sans","Noto Sans JP",sans-serif}
+#cover{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+#cam{position:fixed;left:0;top:0;width:2px;height:2px;opacity:.01;pointer-events:none}
+
+#start{position:fixed;inset:0;z-index:30;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:22px;padding:28px;text-align:center;background:var(--bg)}
+#start .mast{font-family:"Playfair Display",Didot,serif;font-weight:900;font-size:min(30vw,168px);line-height:.9;letter-spacing:-.02em}
+#start .issue{font-size:10px;letter-spacing:.42em;margin-right:-.42em;opacity:.7}
+#start p{margin:0;font-family:"Instrument Serif",serif;font-style:italic;font-size:21px;line-height:1.45;opacity:.9}
+#start p small{display:block;font-family:-apple-system,"Hiragino Sans","Noto Sans JP",sans-serif;font-style:normal;font-size:12px;
+  letter-spacing:.08em;opacity:.65;margin-top:10px}
+#go{appearance:none;border:1px solid var(--fg);background:transparent;color:var(--fg);font:500 11px Inter,sans-serif;
+  letter-spacing:.4em;padding:14px 34px 14px 40px;cursor:pointer}
+#go:hover,#go:active{background:var(--fg);color:var(--bg)}
+#err{font-size:12px;line-height:1.8;max-width:340px;min-height:1em;white-space:pre-line;color:#e8a0a6}
+
+.btn{position:fixed;z-index:12;appearance:none;border:0;background:transparent;color:var(--fg);font:500 10px Inter,"Hiragino Sans",sans-serif;
+  letter-spacing:.28em;padding:10px 8px;display:none;cursor:pointer;opacity:.78;text-shadow:0 0 6px rgba(0,0,0,.35)}
+.btn.show{display:block}
+.btn:hover{opacity:1}
+#gear{right:10px;top:calc(env(safe-area-inset-top) + 6px);font-size:15px;letter-spacing:0}
+#flip{right:10px;top:calc(env(safe-area-inset-top) + 42px);letter-spacing:.12em}
+#bar{position:fixed;left:0;right:0;bottom:calc(env(safe-area-inset-bottom) + 8px);z-index:12;display:none;justify-content:center;gap:26px}
+#bar.show{display:flex}
+#bar .btn{position:static;display:block}
+#bar #shoot{position:relative}
+#shoot{width:46px;height:46px;border-radius:50%;border:1px solid var(--fg)!important;padding:0!important;position:relative}
+#shoot::after{content:"";position:absolute;inset:5px;border-radius:50%;background:var(--fg);opacity:.9}
+#rec.on{color:#d0293b;opacity:1}
+#status{position:fixed;left:12px;bottom:calc(env(safe-area-inset-bottom) + 70px);z-index:11;font-size:11px;letter-spacing:.06em;
+  opacity:.8;pointer-events:none;max-width:70vw;line-height:1.6;white-space:pre-line;text-shadow:0 0 6px rgba(0,0,0,.4)}
+#flash{position:fixed;inset:0;z-index:20;background:#fff;opacity:0;pointer-events:none;transition:opacity .6s ease-out}
+
+#panel{position:fixed;right:10px;top:calc(env(safe-area-inset-top) + 84px);z-index:12;width:min(280px,calc(100vw - 20px));
+  background:var(--bg);color:var(--fg);border:1px solid var(--line);padding:14px 16px;display:flex;flex-direction:column;gap:12px;
+  transition:opacity .2s}
+#panel.hide{opacity:0;pointer-events:none}
+.chips{display:flex;gap:0;border:1px solid var(--line)}
+.chips button{flex:1;appearance:none;border:0;background:transparent;color:var(--fg);padding:8px 2px;font:500 9px Inter,sans-serif;letter-spacing:.18em;cursor:pointer;opacity:.6}
+.chips button.on{opacity:1;background:var(--fg);color:var(--bg)}
+#panel label{display:flex;align-items:center;gap:10px;font-size:11px;letter-spacing:.06em}
+#panel label span{width:64px;flex:none;opacity:.75}
+#panel input[type=range]{flex:1;accent-color:var(--fg)}
+#panel input[type=text]{flex:1;min-width:0;background:transparent;border:0;border-bottom:1px solid var(--line);color:var(--fg);
+  font:900 18px "Playfair Display",serif;padding:4px 0;-webkit-user-select:text;user-select:text;outline:none}
+</style>
+</head>
+<body>
+<canvas id="cover"></canvas>
+<video id="cam" playsinline muted autoplay></video>
+<div id="flash"></div>
+<div id="status"></div>
+<button id="gear" class="btn" aria-label="調整">⚙</button>
+<button id="flip" class="btn">⟲ カメラ</button>
+<div id="bar">
+  <button id="rec" class="btn">● REC</button>
+  <button id="shoot" class="btn" aria-label="撮る"></button>
+  <span class="btn show" style="visibility:hidden">● REC</span>
+</div>
+
+<div id="panel" class="hide">
+  <div class="chips" id="pals">
+    <button data-p="0" class="on">NOIR</button>
+    <button data-p="1">BONE</button>
+    <button data-p="2">OXBLOOD</button>
+  </div>
+  <label><span>題字</span><input type="text" id="tTitle" maxlength="10" value="OTO" spellcheck="false" autocomplete="off"></label>
+  <label><span>コントラスト</span><input type="range" id="sCon" min="0.6" max="1.8" step="0.05" value="1.15"></label>
+  <label><span>粒子</span><input type="range" id="sGrain" min="0" max="1" step="0.05" value="0.5"></label>
+  <label><span>光の帯</span><input type="range" id="sSheen" min="0" max="1" step="0.05" value="0.6"></label>
+</div>
+
+<div id="start">
+  <div class="issue">ISSUE Nº 24 — SEPTEMBER</div>
+  <div class="mast">HYOSHI</div>
+  <p>You, on the cover.<small>モノクロの表紙になる。シャッターで一枚残せる。</small></p>
+  <button id="go">OPEN</button>
+  <div id="err"></div>
+</div>
+
+<script>
+'use strict';
+/* =====================================================================
+   HYOSHI — person mask → silver-gelatin monochrome on a magazine cover,
+   masthead behind the head, a slow strip-light sweep, grain, save.
+   ===================================================================== */
+const VISION_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs';
+const WASM_URL   = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm';
+const SEG_MODEL  = 'https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite';
+
+const $ = id => document.getElementById(id);
+const cv = $('cover'), ctx = cv.getContext('2d'), video = $('cam');
+
+const PALS = [
+  { name:'NOIR',    bg:'#0b0b0c', fg:'#efece6', acc:'#b3001b', dark:[8,8,9],    light:[242,239,233], line:'rgba(239,236,230,.28)' },
+  { name:'BONE',    bg:'#ebe7df', fg:'#111111', acc:'#111111', dark:[14,14,14], light:[250,248,244], line:'rgba(17,17,17,.25)' },
+  { name:'OXBLOOD', bg:'#3e0b10', fg:'#efe3d3', acc:'#efe3d3', dark:[20,12,10], light:[246,236,222], line:'rgba(239,227,211,.3)' },
+];
+const S = { pal:0, title:'OTO', con:1.15, grain:0.5, sheen:0.6 };
+
+/* ---------- mask (reused buffers) ---------- */
+const M = { w:0, h:0, a:null, present:false, cover:0, top:1, has:false, external:false };
+function ingestMask(data, w, h){
+  if (!data || !(w > 0) || !(h > 0) || data.length < w*h) return;
+  if (M.w !== w || M.h !== h){ M.w = w; M.h = h; M.a = new Float32Array(w*h); }
+  const A = M.a; let on = 0, top = -1;
+  for (let y = 0; y < h; y++){
+    let row = 0;
+    for (let x = 0, i = y*w; x < w; x++, i++){
+      let m = data[i]; if (!(m >= 0)) m = 0; else if (m > 1) m = 1;
+      A[i] = A[i]*0.3 + m*0.7;
+      if (A[i] > .5) row++;
+    }
+    on += row;
+    if (top < 0 && row > w*0.012) top = y;
+  }
+  M.cover = on / (w*h);
+  M.present = M.cover > 0.006 && top >= 0;
+  M.top = top >= 0 ? top / h : 1;
+  M.has = true;
+}
+
+/* ---------- audio: a shutter, nothing else ---------- */
+let actx = null, bus = null, recDest = null;
+function ensureAudio(){
+  if (actx){ if (actx.state === 'suspended') actx.resume().catch(()=>{}); return; }
+  const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+  actx = new AC(); bus = actx.createGain(); bus.gain.value = .5; bus.connect(actx.destination);
+  recDest = actx.createMediaStreamDestination(); bus.connect(recDest);
+  actx.resume().catch(()=>{});
+}
+function shutterSound(){
+  if (!actx || actx.state !== 'running') return;
+  const t = actx.currentTime;
+  [0, .055].forEach((dt, k) => {
+    const len = actx.sampleRate*.03 | 0, b = actx.createBuffer(1, len, actx.sampleRate), d = b.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = (Math.random()*2 - 1) * Math.pow(1 - i/len, 4);
+    const s = actx.createBufferSource(); s.buffer = b;
+    const f = actx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = k ? 2600 : 1700; f.Q.value = 1.4;
+    const g = actx.createGain(); g.gain.value = k ? .5 : .8;
+    s.connect(f); f.connect(g); g.connect(bus); s.start(t + dt);
+  });
+}
+
+/* ---------- MediaPipe (dynamic import; the cover still renders without it) ---------- */
+let segmenter = null, lastTs = 0, lastVT = -1, fallback = false;
+async function initModel(){
+  try{
+    const vision = await import(VISION_URL);
+    const fs = await vision.FilesetResolver.forVisionTasks(WASM_URL);
+    const opts = d => ({ baseOptions:{ modelAssetPath:SEG_MODEL, delegate:d }, runningMode:'VIDEO', outputConfidenceMasks:true, outputCategoryMask:false });
+    try { segmenter = await vision.ImageSegmenter.createFromOptions(fs, opts('GPU')); }
+    catch(e){ segmenter = await vision.ImageSegmenter.createFromOptions(fs, opts('CPU')); }
+    setStatus('');
+  }catch(e){
+    if (M.external) return;
+    fallback = true;
+    setStatus('人物検出モデルを読み込めませんでした（ネット接続を確認）。\n画面全体をモノクロにして続けます。');
+  }
+}
+function segment(now){
+  if (!segmenter || video.readyState < 2) return;
+  const vt = video.currentTime; if (vt === lastVT) return; lastVT = vt;
+  try{
+    const ts = Math.max(lastTs + 1, Math.round(now)); lastTs = ts;
+    segmenter.segmentForVideo(video, ts, res => {
+      const ms = res && res.confidenceMasks;
+      if (!ms || !ms.length) return;
+      const mk = ms[ms.length - 1];                  // 2 masks → [0] is background, [1] is the person
+      ingestMask(mk.getAsFloat32Array(), mk.width, mk.height);
+    });
+  }catch(e){}
+}
+
+/* ---------- camera ---------- */
+let stream = null, facing = 'user', mirror = true, started = false, vidW = 1280, vidH = 720;
+function setStatus(t){ $('status').textContent = t || ''; }
+function camError(e){
+  const msg = (e && (e.message || e.name)) ? (e.message || e.name) : String(e || 'unknown');
+  const text = 'カメラを起動できませんでした：' + msg + '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+  $('err').textContent = text;
+  if (started) setStatus(text);
+}
+async function startCam(){
+  const md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) throw new Error('getUserMedia is unavailable');
+  const s = await md.getUserMedia({ video:{ facingMode:{ ideal:facing }, width:{ ideal:1280 }, height:{ ideal:720 } }, audio:false });
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = s; mirror = facing === 'user';
+  video.srcObject = s;
+  await new Promise(r => { if (video.readyState >= 1) r(); else video.onloadedmetadata = () => r(); });
+  await video.play().catch(()=>{});
+  vidW = video.videoWidth || 1280; vidH = video.videoHeight || 720;
+}
+$('go').onclick = async () => {
+  $('err').textContent = '';
+  ensureAudio();
+  try { await startCam(); } catch(e){ camError(e); return; }
+  $('start').style.display = 'none';
+  ['gear','flip','bar','rec','shoot'].forEach(id => $(id).classList.add('show'));
+  if (!started){ started = true; initModel(); requestAnimationFrame(loop); }
+};
+$('flip').onclick = async () => {
+  const prev = facing; facing = facing === 'user' ? 'environment' : 'user';
+  try { await startCam(); } catch(e){ facing = prev; camError(e); }
+};
+$('gear').onclick = () => $('panel').classList.toggle('hide');
+function setPal(i){
+  S.pal = i; const p = PALS[i];
+  [...$('pals').children].forEach(x => x.classList.toggle('on', +x.dataset.p === i));
+  const r = document.documentElement.style;
+  r.setProperty('--bg', p.bg); r.setProperty('--fg', p.fg); r.setProperty('--line', p.line);
+}
+$('pals').onclick = e => { const b = e.target.closest('button'); if (b) setPal(+b.dataset.p); };
+$('tTitle').oninput = e => { S.title = (e.target.value || '').toUpperCase().slice(0, 10); };
+[['sCon','con'],['sGrain','grain'],['sSheen','sheen']].forEach(([id,k]) => { $(id).oninput = e => { S[k] = +e.target.value; }; });
+
+/* ---------- shutter (PNG) and REC (video) ---------- */
+$('shoot').onclick = () => {
+  shutterSound();
+  const f = $('flash'); f.style.transition = 'none'; f.style.opacity = '.85';
+  requestAnimationFrame(() => { f.style.transition = 'opacity .6s ease-out'; f.style.opacity = '0'; });
+  try{
+    cv.toBlob(b => {
+      if (!b) return;
+      const a = document.createElement('a'); a.href = URL.createObjectURL(b);
+      a.download = 'hyoshi-' + Date.now() + '.png'; a.click();
+    }, 'image/png');
+  }catch(e){ setStatus('保存できませんでした。'); }
+};
+let rec = null, chunks = [];
+$('rec').onclick = () => {
+  if (rec && rec.state === 'recording'){ rec.stop(); return; }
+  try{
+    ensureAudio();
+    const tracks = [...cv.captureStream(30).getVideoTracks()];
+    if (recDest) tracks.push(...recDest.stream.getAudioTracks());
+    const mime = ['video/mp4;codecs=avc1','video/webm;codecs=vp9,opus','video/webm'].find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || '';
+    rec = new MediaRecorder(new MediaStream(tracks), mime ? { mimeType:mime } : {});
+    chunks = [];
+    rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+    rec.onstop = () => {
+      $('rec').classList.remove('on'); $('rec').textContent = '● REC';
+      const ext = (rec.mimeType || '').includes('mp4') ? 'mp4' : 'webm';
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob(chunks, { type:rec.mimeType || 'video/webm' }));
+      a.download = 'hyoshi.' + ext; a.click();
+    };
+    rec.start(); $('rec').classList.add('on'); $('rec').textContent = '■ STOP';
+  }catch(e){ setStatus('録画を開始できませんでした。'); }
+};
+
+/* ---------- person layer: auto-exposed silver print ---------- */
+const pc = document.createElement('canvas'), pctx = pc.getContext('2d', { willReadFrequently:true });
+let pImg = null;
+const EXPO = { lo:.12, hi:.88 };
+const HIST = new Uint32Array(64);
+function drawPerson(W, H, SX, SY, t, pal, whole){
+  const bw = Math.max(64, Math.round(W/2)), bh = Math.max(64, Math.round(H/2));
+  if (pc.width !== bw || pc.height !== bh){ pc.width = bw; pc.height = bh; pImg = null; }
+  const cw = vidW*SX, ch = vidH*SY, cx0 = (vidW - cw)/2, cy0 = (vidH - ch)/2;
+  pctx.save();
+  if (mirror){ pctx.translate(bw, 0); pctx.scale(-1, 1); }
+  try { pctx.drawImage(video, cx0, cy0, cw, ch, 0, 0, bw, bh); } catch(e){}
+  pctx.restore();
+  if (!pImg) pImg = pctx.createImageData(bw, bh);
+  let src; try { src = pctx.getImageData(0, 0, bw, bh).data; } catch(e){ return false; }
+  const out = pImg.data, [d0, d1, d2] = pal.dark, [l0, l1, l2] = pal.light;
+  const mw = M.w, mh = M.h, ma = M.a;
+  const lo = EXPO.lo, span = Math.max(.08, EXPO.hi - EXPO.lo), con = S.con;
+  // the strip light: a soft diagonal band crossing the frame every 9 s
+  const ph = (t / 9) % 1, bandPos = -0.25 + ph*1.5, sheenK = S.sheen*0.55;
+  HIST.fill(0); let n = 0;
+  for (let y = 0, o = 0; y < bh; y++){
+    let fy = 0, y0 = 0, wy = 0;
+    if (!whole){ const vy = ((y + .5)/bh - .5)*SY + .5; fy = Math.min(mh - 1.001, Math.max(0, vy*mh - .5)); y0 = fy | 0; wy = fy - y0; }
+    for (let x = 0; x < bw; x++, o += 4){
+      let a = 255;
+      if (!whole){
+        let vx = ((x + .5)/bw - .5)*SX + .5; if (mirror) vx = 1 - vx;
+        const fx = Math.min(mw - 1.001, Math.max(0, vx*mw - .5)), x0 = fx | 0, wx = fx - x0, i0 = y0*mw + x0;
+        const m = (ma[i0]*(1-wx) + ma[i0+1]*wx)*(1-wy) + (ma[i0+mw]*(1-wx) + ma[i0+mw+1]*wx)*wy;
+        if (m < .35){ out[o+3] = 0; continue; }
+        a = m > .65 ? 255 : ((m - .35)/.3*255) | 0;
+      }
+      const l = (src[o]*.299 + src[o+1]*.587 + src[o+2]*.114)/255;
+      HIST[(l*63.99) | 0]++; n++;
+      let v = (l - lo)/span; v = v < 0 ? 0 : v > 1 ? 1 : v;
+      v = .5 + (v - .5)*con; v = v < 0 ? 0 : v > 1 ? 1 : v;
+      v = v*v*(3 - 2*v);                                        // S-curve: deep blacks, clean highlights
+      const d = (x/bw)*.6 + (y/bh)*.4 - bandPos;
+      v += sheenK*Math.exp(-d*d*90)*(.35 + v);
+      if (v > 1) v = 1;
+      out[o] = d0 + (l0 - d0)*v; out[o+1] = d1 + (l1 - d1)*v; out[o+2] = d2 + (l2 - d2)*v; out[o+3] = a;
+    }
+  }
+  // auto exposure from the person's own histogram (2% / 98%)
+  if (n > 200){
+    let c = 0, lo2 = -1, hi2 = 63;
+    for (let i = 0; i < 64; i++){ c += HIST[i]; if (lo2 < 0 && c > n*.02) lo2 = i; if (c > n*.98){ hi2 = i; break; } }
+    EXPO.lo += ((Math.max(0, lo2)/63) - EXPO.lo)*.08; EXPO.hi += (((hi2 + 1)/63) - EXPO.hi)*.08;
+  }
+  pctx.putImageData(pImg, 0, 0);
+  ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(pc, 0, 0, W, H);
+  return true;
+}
+
+/* ---------- grain ---------- */
+const grainCv = document.createElement('canvas'); grainCv.width = grainCv.height = 256;
+(() => { const g = grainCv.getContext('2d'), im = g.createImageData(256, 256), d = im.data;
+  for (let i = 0; i < d.length; i += 4){ const v = 128 + (Math.random() + Math.random() + Math.random() - 1.5)*120; d[i] = d[i+1] = d[i+2] = v; d[i+3] = 255; }
+  g.putImageData(im, 0, 0); })();
+let grainPat = null;
+
+/* ---------- typography ---------- */
+function fitMasthead(text, maxW, maxH){
+  let size = maxH;
+  ctx.font = `900 ${size}px "Playfair Display", Didot, "Bodoni 72", serif`;
+  const w = ctx.measureText(text).width;
+  if (w > maxW) size *= maxW / w;
+  return size;
+}
+
+/* ---------- render ---------- */
+let lastT = 0, drewPerson = false;
+function loop(now){
+  requestAnimationFrame(loop);
+  lastT = now;
+  if (video.videoWidth && (video.videoWidth !== vidW || video.videoHeight !== vidH)){ vidW = video.videoWidth; vidH = video.videoHeight; }
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  let W = Math.round(innerWidth*dpr), H = Math.round(innerHeight*dpr);
+  const k = Math.min(1, 1600 / Math.max(W, H)); W = Math.round(W*k); H = Math.round(H*k);
+  if (cv.width !== W || cv.height !== H){ cv.width = W; cv.height = H; grainPat = null; }
+  if (!M.external) segment(now);
+  const t = now/1000, pal = PALS[S.pal], short = Math.min(W, H), pad = short*.045;
+  const sa = W/H, va = vidW/vidH, SX = sa < va ? sa/va : 1, SY = sa < va ? 1 : va/sa;
+  const whole = (fallback && !M.external) || !M.has;
+  const person = whole || M.present;
+
+  // paper
+  ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
+  ctx.fillStyle = pal.bg; ctx.fillRect(0, 0, W, H);
+
+  // masthead (behind the person)
+  const title = S.title || ' ';
+  const mSize = fitMasthead(title, W - pad*2, Math.min(H*.3, W*.42));
+  ctx.font = `900 ${mSize}px "Playfair Display", Didot, "Bodoni 72", serif`;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic'; ctx.fillStyle = pal.fg;
+  const mBase = pad + mSize*.78;
+  if (!whole) ctx.fillText(title, W/2, mBase);
+
+  // the person
+  drewPerson = false;
+  if (person && video.readyState >= 2) drewPerson = drawPerson(W, H, SX, SY, t, pal, whole);
+  if (whole) ctx.fillText(title, W/2, mBase);                    // no mask: masthead goes on top
+
+  // soft vignette
+  const vg = ctx.createRadialGradient(W/2, H*.45, short*.35, W/2, H*.5, Math.hypot(W, H)*.62);
+  vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, S.pal === 1 ? 'rgba(60,50,40,.18)' : 'rgba(0,0,0,.45)');
+  ctx.fillStyle = vg; ctx.fillRect(0, 0, W, H);
+
+  // front matter: issue line, one cover line, a thin rule
+  const small = Math.max(9, short*.02);
+  ctx.fillStyle = pal.fg; ctx.textBaseline = 'top';
+  ctx.font = `500 ${small}px Inter, sans-serif`;
+  if ('letterSpacing' in ctx) ctx.letterSpacing = (small*.38) + 'px';
+  ctx.textAlign = 'left';  ctx.fillText('ISSUE Nº 24', pad, mBase + small*1.2);
+  ctx.textAlign = 'right'; ctx.fillText('SEPTEMBER 2026', W - pad, mBase + small*1.2);
+  const barH = 84 * (W / Math.max(1, innerWidth));                  // keep clear of the REC / shutter bar
+  const bl = H - Math.max(pad, barH) - short*.075;
+  ctx.textAlign = 'left'; ctx.fillText('THE PORTRAIT', pad, bl - small*2.1);
+  if ('letterSpacing' in ctx) ctx.letterSpacing = '0px';
+  const big = short*.062;
+  ctx.font = `italic ${big}px "Instrument Serif", Georgia, serif`;
+  ctx.fillText(person ? 'In the quiet light.' : 'Step into the frame.', pad, bl - small*.4);
+  ctx.fillStyle = pal.acc; ctx.fillRect(pad, bl + big*1.05, short*.12, Math.max(1, short*.003));
+
+  // grain over everything
+  if (S.grain > 0){
+    if (!grainPat){ grainPat = ctx.createPattern(grainCv, 'repeat'); }
+    if (grainPat && grainPat.setTransform){
+      const sc = Math.max(1, short/700);
+      grainPat.setTransform(new DOMMatrix().translate(Math.random()*256, Math.random()*256).scale(sc));
+    }
+    ctx.globalCompositeOperation = 'overlay'; ctx.globalAlpha = .08 + .32*S.grain;
+    ctx.fillStyle = grainPat; ctx.fillRect(0, 0, W, H);
+    ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
+  }
+}
+
+/* ---------- test hook (used by the local verification harness) ---------- */
+window.__HYOSHI = {
+  ingestMask(d, w, h){ if (!M.external) setStatus(''); M.external = true; ingestMask(d, w, h); },
+  palette(i){ setPal(i); },
+  title(s){ $('tTitle').value = s; S.title = s.toUpperCase().slice(0, 10); },
+  state: () => ({ present:M.present, cover:M.cover, top:M.top, drewPerson, expo:[EXPO.lo, EXPO.hi], fallback }),
+};
+</script>
+</body>
+</html>
