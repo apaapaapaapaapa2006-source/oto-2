@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="description" content="動くと、そのぶん自分の姿がストロボの分身として空中に焼き付いていく。速く動くほど分身は詰まって並び、止まればいまの自分だけが残る。連続写真のエフェクト。">
+<meta name="theme-color" content="#060709">
+<title>RENSHA ─ 動いたぶんだけ分身が焼き付く連続写真</title>
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  RENSHA 連写 ─ 動いたぶんだけ分身が焼き付く連続写真   ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  MOOD       暗いスタジオでストロボを連射したダンスの MV、あるいはマレーの
+             連続写真。動いた軌跡に沿って、そのときの自分が銀色の分身として
+             空中に焼き付き、並び、古いものから色を沈ませて消えていく。
+             止まっているかぎり何も起きない ── 画をつくるのは動き。
+  PALETTE    SILVER    新しい分身は白銀 #f2f4f6、古くなるほど鋼青 #3b5a7a へ
+             VIOLET    白銀 → 深い菫 #4a2f78
+             EMBER     白銀 → 燠の赤 #7a2a18
+             背景は #060709 の闇と床の淡い反射だけ。いまの自分はモノクロ。
+  TYPE       Red Hat Display 300（題字）・Red Hat Mono（小さな計器）。
+  MOTION     分身の間隔は動きの速さで決まる（ゆっくり＝まばら、速い＝詰まる）。
+             焼き付いた瞬間だけ分身が白く閃いて、2.8 秒かけて沈む。画面全体の
+             フラッシュや揺れは無い。
+  SIGNATURE  動きの軌跡が、そのまま分身の列になる。
+  TECH       64×48 に縮めた映像の輝度差（人物マスクの内側だけ）で動きの量を
+             測り、量に比例した「シャッター予算」が溜まるたびに半解像度の
+             人物スナップショットを 1 枚焼く（固定プール 14 枚、使い回し）。
+             描画は古い順に加算で重ね、分身ごとに年齢で色を沈める。
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@300;500&family=Red+Hat+Mono:wght@400&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#060709;--fg:#e9edf1;--dim:rgba(233,237,241,.5);--line:rgba(233,237,241,.2);--acc:#7fa3c7}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none}
+html,body{margin:0;height:100%;background:var(--bg);overflow:hidden;color:var(--fg);font-family:"Red Hat Display",-apple-system,"Hiragino Sans",sans-serif;font-weight:300}
+#stage{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+#cam{position:fixed;left:0;top:0;width:2px;height:2px;opacity:.01;pointer-events:none}
+
+#start{position:fixed;inset:0;z-index:30;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:24px;padding:28px;text-align:center;background:var(--bg)}
+#start .row{display:flex;gap:min(2.2vw,14px);align-items:flex-end;height:min(34vw,170px)}
+#start .row i{display:block;width:min(6vw,34px);border-radius:40% 40% 8% 8%;background:linear-gradient(180deg,#f2f4f6,#3b5a7a);}
+#start h1{margin:0;font-weight:300;font-size:min(14vw,84px);letter-spacing:.32em;margin-right:-.32em}
+#start p{margin:0;font-size:14px;line-height:1.9;color:var(--dim);letter-spacing:.06em}
+#start p small{display:block;font-family:-apple-system,"Hiragino Sans","Noto Sans JP",sans-serif;font-size:12px;margin-top:6px}
+#go{appearance:none;border:1px solid var(--line);background:transparent;color:var(--fg);font:500 11px "Red Hat Display",sans-serif;
+  letter-spacing:.45em;padding:15px 34px 15px 40px;cursor:pointer;transition:border-color .3s}
+#go:hover{border-color:var(--fg)}
+#err{font:12px/1.8 -apple-system,"Hiragino Sans",sans-serif;max-width:340px;min-height:1em;white-space:pre-line;color:#e0a3a3}
+
+.btn{position:fixed;z-index:12;appearance:none;border:0;background:transparent;color:var(--fg);font:400 10px "Red Hat Mono","Hiragino Sans",monospace;
+  letter-spacing:.2em;padding:10px 8px;display:none;cursor:pointer;opacity:.55;transition:opacity .3s}
+.btn.show{display:block}
+.btn:hover{opacity:1}
+#gear{right:10px;top:calc(env(safe-area-inset-top) + 6px);font-size:14px;letter-spacing:0}
+#flip{right:10px;top:calc(env(safe-area-inset-top) + 40px);font-family:-apple-system,"Hiragino Sans",sans-serif;letter-spacing:.1em}
+#bar{position:fixed;left:0;right:0;bottom:calc(env(safe-area-inset-bottom) + 10px);z-index:12;display:none;justify-content:center;align-items:center;gap:30px}
+#bar.show{display:flex}
+#bar .btn{position:static;display:block}
+#bar #shoot{position:relative;width:42px;height:42px;border-radius:50%;border:1px solid var(--fg);padding:0}
+#shoot::after{content:"";position:absolute;inset:6px;border-radius:50%;background:var(--fg);opacity:.8}
+#rec.on{opacity:1;color:#e08080}
+#hud{position:fixed;left:14px;top:calc(env(safe-area-inset-top) + 14px);z-index:11;font:400 9px/2 "Red Hat Mono",monospace;letter-spacing:.3em;
+  color:var(--dim);pointer-events:none;display:none;white-space:pre}
+#hud.show{display:block}
+#status{position:fixed;left:14px;bottom:calc(env(safe-area-inset-bottom) + 66px);z-index:11;font:11px/1.7 -apple-system,"Hiragino Sans",sans-serif;
+  color:var(--dim);pointer-events:none;max-width:72vw;white-space:pre-line}
+
+#panel{position:fixed;right:10px;top:calc(env(safe-area-inset-top) + 78px);z-index:12;width:min(270px,calc(100vw - 20px));
+  background:rgba(6,7,9,.88);border:1px solid var(--line);padding:14px 16px;display:flex;flex-direction:column;gap:13px;transition:opacity .25s}
+#panel.hide{opacity:0;pointer-events:none}
+.chips{display:flex;border:1px solid var(--line)}
+.chips button{flex:1;appearance:none;border:0;background:transparent;color:var(--fg);padding:8px 2px;font:400 9px "Red Hat Mono",monospace;letter-spacing:.14em;cursor:pointer;opacity:.5}
+.chips button.on{opacity:1;background:rgba(255,255,255,.08)}
+#panel label{display:flex;align-items:center;gap:10px;font:11px -apple-system,"Hiragino Sans",sans-serif;letter-spacing:.04em}
+#panel label span{width:72px;flex:none;color:var(--dim)}
+#panel input[type=range]{flex:1;accent-color:var(--acc)}
+</style>
+</head>
+<body>
+<canvas id="stage"></canvas>
+<video id="cam" playsinline muted autoplay></video>
+<div id="hud"></div>
+<div id="status"></div>
+<button id="gear" class="btn" aria-label="調整">⚙</button>
+<button id="flip" class="btn">⟲ カメラ</button>
+<div id="bar">
+  <button id="rec" class="btn">● REC</button>
+  <button id="shoot" class="btn" aria-label="撮る"></button>
+  <span class="btn show" style="visibility:hidden">● REC</span>
+</div>
+
+<div id="panel" class="hide">
+  <div class="chips" id="pals">
+    <button data-p="0" class="on">SILVER</button>
+    <button data-p="1">VIOLET</button>
+    <button data-p="2">EMBER</button>
+  </div>
+  <label><span>連写の速さ</span><input type="range" id="sRate" min="0.3" max="2" step="0.05" value="1"></label>
+  <label><span>残る長さ</span><input type="range" id="sLife" min="0.8" max="6" step="0.1" value="2.8"></label>
+  <label><span>分身の明るさ</span><input type="range" id="sGlow" min="0.2" max="1.2" step="0.02" value="0.9"></label>
+</div>
+
+<div id="start">
+  <div class="row"><i style="height:40%;opacity:.25"></i><i style="height:55%;opacity:.4"></i><i style="height:70%;opacity:.6"></i><i style="height:85%;opacity:.8"></i><i style="height:100%"></i></div>
+  <h1>RENSHA</h1>
+  <p>Move, and the strobe keeps you.<small>動いたぶんだけ、分身が焼き付く。</small></p>
+  <button id="go">START</button>
+  <div id="err"></div>
+</div>
+
+<script>
+'use strict';
+/* =====================================================================
+   RENSHA — motion energy fills a shutter budget; every time it is full,
+   one silver snapshot of the person is burnt into the air.
+   ===================================================================== */
+const VISION_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs';
+const WASM_URL   = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm';
+const SEG_MODEL  = 'https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite';
+
+const $ = id => document.getElementById(id);
+const cv = $('stage'), ctx = cv.getContext('2d'), video = $('cam');
+
+const PALS = [
+  { name:'SILVER', old:[59,90,122],  acc:'#7fa3c7' },
+  { name:'VIOLET', old:[74,47,120],  acc:'#a58bd6' },
+  { name:'EMBER',  old:[122,42,24],  acc:'#d08a6a' },
+];
+const S = { pal:0, rate:1, life:2.8, glow:.9 };
+const POOL = 14;
+
+/* ---------- mask (reused buffers) ---------- */
+const M = { w:0, h:0, a:null, present:false, cover:0, has:false, external:false };
+function ingestMask(data, w, h){
+  if (!data || !(w > 0) || !(h > 0) || data.length < w*h) return;
+  if (M.w !== w || M.h !== h){ M.w = w; M.h = h; M.a = new Float32Array(w*h); }
+  const A = M.a; let on = 0;
+  for (let i = 0, n = w*h; i < n; i++){
+    let m = data[i]; if (!(m >= 0)) m = 0; else if (m > 1) m = 1;
+    A[i] = A[i]*.3 + m*.7; if (A[i] > .5) on++;
+  }
+  M.cover = on/(w*h); M.present = M.cover > .006; M.has = true;
+}
+function maskAt(vx, vy){                       // bilinear, video uv
+  const mw = M.w, mh = M.h, ma = M.a;
+  const fx = Math.min(mw - 1.001, Math.max(0, vx*mw - .5)), fy = Math.min(mh - 1.001, Math.max(0, vy*mh - .5));
+  const x0 = fx | 0, y0 = fy | 0, wx = fx - x0, wy = fy - y0, i = y0*mw + x0;
+  return (ma[i]*(1-wx) + ma[i+1]*wx)*(1-wy) + (ma[i+mw]*(1-wx) + ma[i+mw+1]*wx)*wy;
+}
+
+/* ---------- motion energy: luminance difference on a 64×48 copy ---------- */
+const mo = document.createElement('canvas'); mo.width = 64; mo.height = 48;
+const moCtx = mo.getContext('2d', { willReadFrequently:true });
+const prevL = new Float32Array(64*48); let prevOK = false;
+const MOTION = { energy:0, budget:0, forced:-1 };
+let moVT = -1, moLast = 0, moT = 0;
+function measureMotion(){
+  if (MOTION.forced >= 0) return MOTION.forced;
+  // only compare distinct camera frames: on 90/120 Hz screens most animation frames repeat the last one
+  const vt = video.currentTime;
+  if (vt === moVT) return moLast;
+  moVT = vt;
+  const t = performance.now(), dtF = Math.min(.25, Math.max(.016, (t - moT)/1000)); moT = t;
+  // per second, not per frame: the same gesture reads the same at 15, 30 or 60 camera fps
+  return (moLast = Math.min(1, measureFrame() / dtF * .3));
+}
+function measureFrame(){
+  try { moCtx.drawImage(video, 0, 0, 64, 48); } catch(e){ return 0; }
+  let d; try { d = moCtx.getImageData(0, 0, 64, 48).data; } catch(e){ return 0; }
+  const useMask = M.has && M.present && !whole();
+  let sum = 0, n = 0;
+  for (let y = 0, i = 0; y < 48; y++) for (let x = 0; x < 64; x++, i++){
+    const l = (d[i*4]*.299 + d[i*4+1]*.587 + d[i*4+2]*.114) / 255;
+    if (prevOK){
+      const w = useMask ? Math.min(1, maskAt((x + .5)/64, (y + .5)/48)*1.5) : 1;
+      if (w > 0){ const dl = Math.abs(l - prevL[i]); sum += (dl > .06 ? dl : 0) * w; n += w; }
+    }
+    prevL[i] = l;
+  }
+  prevOK = true;
+  if (useMask && M.cover < .006) return 0;
+  // normalise by the whole frame so a small, fast hand still counts
+  return sum / (64*48) * 60;
+}
+
+/* ---------- snapshot pool (canvases are allocated once) ---------- */
+const clones = [];
+for (let i = 0; i < POOL; i++){ const c = document.createElement('canvas'); clones.push({ cv:c, ctx:c.getContext('2d'), born:-1e9, live:false, img:null }); }
+let cloneCursor = 0;
+const scratch = document.createElement('canvas'), sctx = scratch.getContext('2d');
+const grab = document.createElement('canvas'), gctx = grab.getContext('2d', { willReadFrequently:true });
+let W = 0, H = 0, SX = 1, SY = 1, mirror = true, vidW = 1280, vidH = 720, fallback = false;
+function whole(){ return (fallback && !M.external) || !M.has; }
+
+// bake the person (alpha-cut, graded monochrome) into ctx2 at bw×bh
+function bakePerson(dstCtx, dstImgHolder, bw, bh, echo){
+  if (grab.width !== bw || grab.height !== bh){ grab.width = bw; grab.height = bh; }
+  const cw = vidW*SX, ch = vidH*SY, cx0 = (vidW - cw)/2, cy0 = (vidH - ch)/2;
+  gctx.save(); if (mirror){ gctx.translate(bw, 0); gctx.scale(-1, 1); }
+  try { gctx.drawImage(video, cx0, cy0, cw, ch, 0, 0, bw, bh); } catch(e){ gctx.restore(); return false; }
+  gctx.restore();
+  let src; try { src = gctx.getImageData(0, 0, bw, bh).data; } catch(e){ return false; }
+  if (!dstImgHolder.img || dstImgHolder.img.width !== bw || dstImgHolder.img.height !== bh) dstImgHolder.img = dstCtx.createImageData(bw, bh);
+  const out = dstImgHolder.img.data, wh = whole();
+  const dx = 2.5/bw*SX, dy = 2.5/bh*SY;                    // ~2.5 px: the width of the burnt outline
+  for (let y = 0, o = 0; y < bh; y++){
+    const vy = ((y + .5)/bh - .5)*SY + .5;
+    for (let x = 0; x < bw; x++, o += 4){
+      let a = 255, edge = 0;
+      if (!wh){
+        let vx = ((x + .5)/bw - .5)*SX + .5; if (mirror) vx = 1 - vx;
+        const m = maskAt(vx, vy);
+        if (echo){
+          const gx = maskAt(vx + dx, vy) - maskAt(vx - dx, vy), gy = maskAt(vx, vy + dy) - maskAt(vx, vy - dy);
+          edge = Math.min(1, Math.sqrt(gx*gx + gy*gy) * 1.6);
+        }
+        if (m < .35 && edge < .05){ out[o+3] = 0; continue; }
+        a = m < .35 ? 0 : m > .65 ? 255 : ((m - .35)/.3*255) | 0;
+      }
+      let l = (src[o]*.299 + src[o+1]*.587 + src[o+2]*.114)/255;
+      l = l*l*(3 - 2*l);
+      if (echo){
+        // an echo is light: a burnt white outline and a faint body carrying the face
+        const v = 255*Math.min(1, .35 + .65*l);
+        out[o] = out[o+1] = out[o+2] = Math.max(v, edge*255);
+        out[o+3] = Math.max(a*(.18 + .3*l), edge*255) | 0;
+      } else {
+        l = l*l*(3 - 2*l);                                   // the present: hard, high-contrast monochrome
+        const v = 8 + l*240;
+        out[o] = out[o+1] = out[o+2] = v; out[o+3] = a;
+      }
+    }
+  }
+  if (dstCtx.canvas.width !== bw || dstCtx.canvas.height !== bh){ dstCtx.canvas.width = bw; dstCtx.canvas.height = bh; }
+  dstCtx.putImageData(dstImgHolder.img, 0, 0);
+  return true;
+}
+function stamp(now){
+  const c = clones[cloneCursor]; cloneCursor = (cloneCursor + 1) % POOL;
+  const bw = Math.max(64, Math.round(W/2)), bh = Math.max(64, Math.round(H/2));
+  if (bakePerson(c.ctx, c, bw, bh, true)){ c.born = now; c.live = true; shutter(); STATS.stamps++; }
+}
+const STATS = { stamps:0 };
+
+/* ---------- audio: a soft strobe tick per stamp ---------- */
+let actx = null, bus = null, recDest = null, lastTick = 0;
+function ensureAudio(){
+  if (actx){ if (actx.state === 'suspended') actx.resume().catch(()=>{}); return; }
+  const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+  actx = new AC(); bus = actx.createGain(); bus.gain.value = .25; bus.connect(actx.destination);
+  recDest = actx.createMediaStreamDestination(); bus.connect(recDest);
+  actx.resume().catch(()=>{});
+}
+function shutter(){
+  if (!actx || actx.state !== 'running') return;
+  const t = actx.currentTime; if (t - lastTick < .05) return; lastTick = t;
+  const o = actx.createOscillator(), g = actx.createGain(), f = actx.createBiquadFilter();
+  o.type = 'triangle'; o.frequency.setValueAtTime(1900 + Math.random()*300, t); o.frequency.exponentialRampToValueAtTime(700, t + .06);
+  f.type = 'highpass'; f.frequency.value = 500;
+  g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime(.5, t + .003); g.gain.exponentialRampToValueAtTime(.0001, t + .08);
+  o.connect(f); f.connect(g); g.connect(bus); o.start(t); o.stop(t + .09);
+}
+
+/* ---------- MediaPipe (dynamic import; multi-exposure of the whole frame without it) ---------- */
+let segmenter = null, lastTs = 0, lastVT = -1;
+async function initModel(){
+  try{
+    const vision = await import(VISION_URL);
+    const fs = await vision.FilesetResolver.forVisionTasks(WASM_URL);
+    const opts = d => ({ baseOptions:{ modelAssetPath:SEG_MODEL, delegate:d }, runningMode:'VIDEO', outputConfidenceMasks:true, outputCategoryMask:false });
+    try { segmenter = await vision.ImageSegmenter.createFromOptions(fs, opts('GPU')); }
+    catch(e){ segmenter = await vision.ImageSegmenter.createFromOptions(fs, opts('CPU')); }
+    setStatus('');
+  }catch(e){
+    if (M.external) return;
+    fallback = true;
+    setStatus('人物検出モデルを読み込めませんでした（ネット接続を確認）。\n画面全体の多重露光で続けます。');
+  }
+}
+function segment(now){
+  if (!segmenter || video.readyState < 2) return;
+  const vt = video.currentTime; if (vt === lastVT) return; lastVT = vt;
+  try{
+    const ts = Math.max(lastTs + 1, Math.round(now)); lastTs = ts;
+    segmenter.segmentForVideo(video, ts, res => {
+      const ms = res && res.confidenceMasks;
+      if (!ms || !ms.length) return;
+      const mk = ms[ms.length - 1];                  // 2 masks → [0] is background, [1] is the person
+      ingestMask(mk.getAsFloat32Array(), mk.width, mk.height);
+    });
+  }catch(e){}
+}
+
+/* ---------- camera ---------- */
+let stream = null, facing = 'user', started = false;
+function setStatus(t){ $('status').textContent = t || ''; }
+function camError(e){
+  const msg = (e && (e.message || e.name)) ? (e.message || e.name) : String(e || 'unknown');
+  const text = 'カメラを起動できませんでした：' + msg + '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+  $('err').textContent = text;
+  if (started) setStatus(text);
+}
+async function startCam(){
+  const md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) throw new Error('getUserMedia is unavailable');
+  const s = await md.getUserMedia({ video:{ facingMode:{ ideal:facing }, width:{ ideal:1280 }, height:{ ideal:720 } }, audio:false });
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = s; mirror = facing === 'user';
+  video.srcObject = s;
+  await new Promise(r => { if (video.readyState >= 1) r(); else video.onloadedmetadata = () => r(); });
+  await video.play().catch(()=>{});
+  vidW = video.videoWidth || 1280; vidH = video.videoHeight || 720;
+  prevOK = false; clones.forEach(c => c.live = false);
+}
+$('go').onclick = async () => {
+  $('err').textContent = '';
+  ensureAudio();
+  try { await startCam(); } catch(e){ camError(e); return; }
+  $('start').style.display = 'none';
+  ['gear','flip','bar','rec','shoot','hud'].forEach(id => $(id).classList.add('show'));
+  if (!started){ started = true; initModel(); requestAnimationFrame(loop); }
+};
+$('flip').onclick = async () => {
+  const prev = facing; facing = facing === 'user' ? 'environment' : 'user';
+  try { await startCam(); } catch(e){ facing = prev; camError(e); }
+};
+$('gear').onclick = () => $('panel').classList.toggle('hide');
+function setPal(i){
+  S.pal = i; [...$('pals').children].forEach(x => x.classList.toggle('on', +x.dataset.p === i));
+  document.documentElement.style.setProperty('--acc', PALS[i].acc);
+}
+$('pals').onclick = e => { const b = e.target.closest('button'); if (b) setPal(+b.dataset.p); };
+[['sRate','rate'],['sLife','life'],['sGlow','glow']].forEach(([id,k]) => { $(id).oninput = e => { S[k] = +e.target.value; }; });
+
+$('shoot').onclick = () => {
+  try{ cv.toBlob(b => { if (!b) return; const a = document.createElement('a'); a.href = URL.createObjectURL(b);
+    a.download = 'rensha-' + Date.now() + '.png'; a.click(); }, 'image/png'); }catch(e){ setStatus('保存できませんでした。'); }
+};
+let rec = null, chunks = [];
+$('rec').onclick = () => {
+  if (rec && rec.state === 'recording'){ rec.stop(); return; }
+  try{
+    ensureAudio();
+    const tracks = [...cv.captureStream(30).getVideoTracks()];
+    if (recDest) tracks.push(...recDest.stream.getAudioTracks());
+    const mime = ['video/mp4;codecs=avc1','video/webm;codecs=vp9,opus','video/webm'].find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || '';
+    rec = new MediaRecorder(new MediaStream(tracks), mime ? { mimeType:mime } : {});
+    chunks = [];
+    rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+    rec.onstop = () => {
+      $('rec').classList.remove('on'); $('rec').textContent = '● REC';
+      const ext = (rec.mimeType || '').includes('mp4') ? 'mp4' : 'webm';
+      const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(chunks, { type:rec.mimeType || 'video/webm' }));
+      a.download = 'rensha.' + ext; a.click();
+    };
+    rec.start(); $('rec').classList.add('on'); $('rec').textContent = '■ STOP';
+  }catch(e){ setStatus('録画を開始できませんでした。'); }
+};
+
+/* ---------- render ---------- */
+const live = { cv:document.createElement('canvas'), img:null }; live.ctx = live.cv.getContext('2d');
+let lastT = 0, hudT = 0, lastStamp = -1e9;
+function loop(now){
+  requestAnimationFrame(loop);
+  const dt = lastT ? Math.min(.1, (now - lastT)/1000) : 1/60; lastT = now;
+  if (video.videoWidth){ vidW = video.videoWidth; vidH = video.videoHeight; }
+  const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+  let w = Math.round(innerWidth*dpr), h = Math.round(innerHeight*dpr);
+  const k = Math.min(1, 1400 / Math.max(w, h)); w = Math.round(w*k); h = Math.round(h*k);
+  if (cv.width !== w || cv.height !== h){ cv.width = w; cv.height = h; clones.forEach(c => c.live = false); }
+  W = w; H = h;
+  const sa = W/H, va = vidW/vidH; SX = sa < va ? sa/va : 1; SY = sa < va ? 1 : va/sa;
+  if (!M.external) segment(now);
+  if (video.readyState < 2) return;
+
+  // motion → shutter budget → stamps (a still body never fills the budget)
+  const e = measureMotion();
+  MOTION.energy += (e - MOTION.energy) * Math.min(1, dt*12);
+  const personOK = whole() || M.present;
+  if (personOK && MOTION.energy > .045){
+    MOTION.budget += MOTION.energy * dt * 26 * S.rate;
+    if (MOTION.budget >= 1 && now - lastStamp > 55){ MOTION.budget = 0; lastStamp = now; stamp(now); }
+  } else MOTION.budget = Math.max(0, MOTION.budget - dt*2);
+
+  // stage
+  ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
+  const bg = ctx.createLinearGradient(0, 0, 0, H);
+  bg.addColorStop(0, '#08090c'); bg.addColorStop(.72, '#060709'); bg.addColorStop(1, '#0d0f13');
+  ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+
+  // clones: oldest first, additive, tinted by age
+  const pal = PALS[S.pal], life = S.life*1000;
+  const order = clones.filter(c => c.live).sort((a, b) => a.born - b.born);
+  ctx.imageSmoothingEnabled = true;
+  for (const c of order){
+    const age = (now - c.born) / life;
+    if (age >= 1){ c.live = false; continue; }
+    const flash = Math.max(0, 1 - (now - c.born)/140);          // the strobe: a brief white burn at birth
+    const ta = Math.min(1, age*1.6);
+    const r = 242 + (pal.old[0] - 242)*ta, g = 244 + (pal.old[1] - 244)*ta, b = 246 + (pal.old[2] - 246)*ta;
+    if (scratch.width !== c.cv.width || scratch.height !== c.cv.height){ scratch.width = c.cv.width; scratch.height = c.cv.height; }
+    sctx.globalCompositeOperation = 'copy'; sctx.drawImage(c.cv, 0, 0);
+    sctx.globalCompositeOperation = 'source-atop'; sctx.fillStyle = `rgb(${r|0},${g|0},${b|0})`;
+    sctx.globalAlpha = 1 - flash*.9; sctx.globalCompositeOperation = 'multiply'; sctx.fillRect(0, 0, scratch.width, scratch.height);
+    sctx.globalAlpha = 1; sctx.globalCompositeOperation = 'destination-in'; sctx.drawImage(c.cv, 0, 0);
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = Math.min(1, Math.pow(1 - age, 1.3) * S.glow * (1 + 1.2*flash));
+    ctx.drawImage(scratch, 0, 0, W, H);
+  }
+  ctx.globalAlpha = 1;
+
+  // the present: a monochrome, slightly darker live body on top
+  if (personOK){
+    const bw = Math.max(64, Math.round(W/2)), bh = Math.max(64, Math.round(H/2));
+    if (bakePerson(live.ctx, live, bw, bh, false)){
+      ctx.globalCompositeOperation = whole() ? 'lighten' : 'source-over';
+      ctx.globalAlpha = whole() ? .85 : 1;
+      ctx.drawImage(live.cv, 0, 0, W, H);
+    }
+  }
+  // floor reflection hint + vignette
+  ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
+  const vg = ctx.createRadialGradient(W/2, H*.45, Math.min(W, H)*.3, W/2, H*.5, Math.hypot(W, H)*.62);
+  vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,0,0,.55)');
+  ctx.fillStyle = vg; ctx.fillRect(0, 0, W, H);
+
+  hudT += dt;
+  if (hudT > .2){ hudT = 0;
+    const n = order.filter(c => c.live).length;
+    $('hud').textContent = 'FRAMES ' + String(n).padStart(2, '0') + '\nMOTION ' + '▮'.repeat(Math.round(MOTION.energy*10)).padEnd(10, '·'); }
+}
+
+/* ---------- test hook (used by the local verification harness) ---------- */
+window.__RENSHA = {
+  ingestMask(d, w, h){ if (!M.external) setStatus(''); M.external = true; fallback = false; ingestMask(d, w, h); },
+  palette(i){ setPal(i); },
+  state: () => ({ present:M.present, cover:M.cover, energy:MOTION.energy, clones:clones.filter(c => c.live).length, stamps:STATS.stamps, fallback }),
+};
+</script>
+</body>
+</html>
