@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="description" content="映った自分が一枚のガラスになる。速く動いたところから体が破片に砕けて光りながら飛び散り、止まると破片が元の場所へ吸い寄せられて組み上がる。">
+<meta name="theme-color" content="#08090b">
+<title>KUDAKE ─ 動くと砕けて、止まると組み上がるガラスの体</title>
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  KUDAKE 砕 ─ 動くと砕けて、止まると組み上がるガラスの体  ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  MOOD       香水や時計の広告のスローモーション。暗いスタジオに立つあなたは
+             一枚のガラスに焼き付けられた写真で、速く動いたところから三角の
+             破片に砕け、光を受けて閃きながら舞い、落ち、そして止まれば一枚
+             ずつ元の場所へ吸い寄せられて継ぎ目なく組み上がる。
+  PALETTE    ICE     破片は冷たいモノクロ #e8eef3・闇 #08090b・閃き 白
+             SMOKE   破片は煙色のガラス（くすんだ灰青）
+             AMBER   破片は琥珀のガラス（くすんだ金茶）
+             どれも彩度は低く、光っているのは縁と閃きだけ。
+  TYPE       Tenor Sans（題字・ラベル）。UI は小さく、画面は映像に譲る。
+  MOTION     砕けるのは一瞬（初速は動きの強さに比例）。飛んでいる破片は空気
+             抵抗と弱い重力で 0.7〜1.3 秒漂い、そのあと臨界減衰で 0.6 秒かけて
+             戻る。止まっているかぎり何も起きない。
+  SIGNATURE  動いた場所だけが砕け、止まれば組み上がる体。
+  TECH       画面を短辺基準の正三角ジッタ格子（約 900 片）に割り、各破片に
+             状態（静止／飛翔／帰還）と位置・回転・傾きを持たせる。砕ける判定は
+             画面座標にそろえた 48 列の輝度差を 1 秒あたりに直した動き量（人物
+             マスクの内側だけ）。描画は WebGL2 の三角形一回で、各頂点は「元の
+             位置の映像」を参照するので、飛んでいる破片は自分のかけらを運ぶ。
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Tenor+Sans&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#08090b;--fg:#e8eef3;--dim:rgba(232,238,243,.5);--line:rgba(232,238,243,.2)}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none}
+html,body{margin:0;height:100%;background:var(--bg);overflow:hidden;color:var(--fg);font-family:"Tenor Sans",-apple-system,"Hiragino Sans",sans-serif}
+#gl{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+#cam{position:fixed;left:0;top:0;width:2px;height:2px;opacity:.01;pointer-events:none}
+
+#start{position:fixed;inset:0;z-index:30;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:24px;padding:28px;text-align:center;
+  background:radial-gradient(ellipse at 50% 40%,#171a1f 0%,#08090b 70%)}
+#start svg{width:min(46vw,210px);height:auto}
+#start h1{margin:0;font-weight:400;font-size:min(13vw,72px);letter-spacing:.4em;margin-right:-.4em}
+#start p{margin:0;font-size:14px;letter-spacing:.08em;color:var(--dim);line-height:1.9}
+#start p small{display:block;font-family:-apple-system,"Hiragino Sans","Noto Sans JP",sans-serif;font-size:12px;margin-top:6px}
+#go{appearance:none;border:1px solid var(--line);background:transparent;color:var(--fg);font:400 11px "Tenor Sans",sans-serif;
+  letter-spacing:.45em;padding:15px 34px 15px 40px;cursor:pointer;transition:border-color .3s}
+#go:hover{border-color:var(--fg)}
+#err{font:12px/1.8 -apple-system,"Hiragino Sans",sans-serif;max-width:340px;min-height:1em;white-space:pre-line;color:#e0a3a3}
+
+.btn{position:fixed;z-index:12;appearance:none;border:0;background:transparent;color:var(--fg);font:400 10px "Tenor Sans","Hiragino Sans",sans-serif;
+  letter-spacing:.25em;padding:10px 8px;display:none;cursor:pointer;opacity:.55;transition:opacity .3s}
+.btn.show{display:block}
+.btn:hover{opacity:1}
+#gear{right:10px;top:calc(env(safe-area-inset-top) + 6px);font-size:14px;letter-spacing:0}
+#flip{right:10px;top:calc(env(safe-area-inset-top) + 40px);font-family:-apple-system,"Hiragino Sans",sans-serif;letter-spacing:.1em}
+#bar{position:fixed;left:0;right:0;bottom:calc(env(safe-area-inset-bottom) + 10px);z-index:12;display:none;justify-content:center;align-items:center;gap:30px}
+#bar.show{display:flex}
+#bar .btn{position:static;display:block}
+#bar #shoot{position:relative;width:42px;height:42px;border-radius:50%;border:1px solid var(--fg);padding:0}
+#shoot::after{content:"";position:absolute;inset:6px;border-radius:50%;background:var(--fg);opacity:.8}
+#rec.on{opacity:1;color:#e08080}
+#status{position:fixed;left:14px;bottom:calc(env(safe-area-inset-bottom) + 66px);z-index:11;font:11px/1.7 -apple-system,"Hiragino Sans",sans-serif;
+  color:var(--dim);pointer-events:none;max-width:72vw;white-space:pre-line}
+
+#panel{position:fixed;right:10px;top:calc(env(safe-area-inset-top) + 78px);z-index:12;width:min(270px,calc(100vw - 20px));
+  background:rgba(8,9,11,.88);border:1px solid var(--line);padding:14px 16px;display:flex;flex-direction:column;gap:13px;transition:opacity .25s}
+#panel.hide{opacity:0;pointer-events:none}
+.chips{display:flex;border:1px solid var(--line)}
+.chips button{flex:1;appearance:none;border:0;background:transparent;color:var(--fg);padding:8px 2px;font:400 9px "Tenor Sans",sans-serif;letter-spacing:.16em;cursor:pointer;opacity:.5}
+.chips button.on{opacity:1;background:rgba(255,255,255,.08)}
+#panel label{display:flex;align-items:center;gap:10px;font:11px -apple-system,"Hiragino Sans",sans-serif;letter-spacing:.04em}
+#panel label span{width:72px;flex:none;color:var(--dim)}
+#panel input[type=range]{flex:1;accent-color:#b9c6cf}
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<video id="cam" playsinline muted autoplay></video>
+<div id="status"></div>
+<button id="gear" class="btn" aria-label="調整">⚙</button>
+<button id="flip" class="btn">⟲ カメラ</button>
+<div id="bar">
+  <button id="rec" class="btn">● REC</button>
+  <button id="shoot" class="btn" aria-label="撮る"></button>
+  <span class="btn show" style="visibility:hidden">● REC</span>
+</div>
+
+<div id="panel" class="hide">
+  <div class="chips" id="pals">
+    <button data-p="0" class="on">ICE</button>
+    <button data-p="1">SMOKE</button>
+    <button data-p="2">AMBER</button>
+  </div>
+  <label><span>砕けやすさ</span><input type="range" id="sSens" min="0.3" max="2.5" step="0.05" value="1"></label>
+  <label><span>破片の細かさ</span><input type="range" id="sSize" min="10" max="30" step="1" value="17"></label>
+  <label><span>飛ぶ強さ</span><input type="range" id="sForce" min="0.3" max="2" step="0.05" value="1"></label>
+  <label><span>戻る速さ</span><input type="range" id="sBack" min="0.3" max="2" step="0.05" value="1"></label>
+</div>
+
+<div id="start">
+  <svg viewBox="0 0 100 100" fill="none" stroke="#e8eef3" stroke-width=".7"><path d="M20 10 L55 18 L48 50 Z"/><path d="M55 18 L85 30 L48 50 Z" opacity=".7"/><path d="M20 10 L48 50 L15 60 Z" opacity=".5"/><path d="M48 50 L85 30 L80 80 Z" opacity=".35"/><path d="M15 60 L48 50 L40 92 Z" opacity=".6" transform="translate(-4 3) rotate(-8 30 70)"/><path d="M48 50 L80 80 L40 92 Z" opacity=".8" transform="translate(6 5) rotate(10 60 75)"/></svg>
+  <h1>KUDAKE</h1>
+  <p>Move, and you break.<small>動くと砕け、止まれば組み上がる。</small></p>
+  <button id="go">START</button>
+  <div id="err"></div>
+</div>
+
+<script>
+'use strict';
+/* =====================================================================
+   KUDAKE — a jittered triangle mesh over the screen; where the person
+   moves fast, shards break loose, tumble, then spring home.
+   ===================================================================== */
+const VISION_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs';
+const WASM_URL   = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm';
+const SEG_MODEL  = 'https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite';
+
+const $ = id => document.getElementById(id);
+const canvas = $('gl'), video = $('cam');
+
+const PALS = [
+  { name:'ICE',   tint:[.91,.94,.97], dark:[.03,.035,.045], bg:[.031,.035,.043] },
+  { name:'SMOKE', tint:[.70,.75,.80], dark:[.02,.025,.03],  bg:[.027,.029,.033] },
+  { name:'AMBER', tint:[.95,.80,.58], dark:[.05,.035,.02],  bg:[.035,.030,.026] },
+];
+const S = { pal:0, sens:1, size:17, force:1, back:1 };
+
+/* ---------- GL ---------- */
+const gl = canvas.getContext('webgl2', { antialias:true, alpha:false, preserveDrawingBuffer:true, powerPreference:'high-performance' });
+const VS = `#version 300 es
+in vec2 aPos; in vec2 aHome; in vec2 aBary; in vec2 aShard;   // aShard = (glint, displaced)
+uniform vec2 uRes;
+out vec2 vHome; out vec3 vBary; out vec2 vShard;
+void main(){
+  vHome = aHome / uRes; vHome.y = 1. - vHome.y;
+  vBary = vec3(aBary, 1. - aBary.x - aBary.y);
+  vShard = aShard;
+  vec2 c = aPos / uRes * 2. - 1.; c.y = -c.y;
+  gl_Position = vec4(c, 0., 1.);
+}`;
+const FS = `#version 300 es
+precision highp float;
+in vec2 vHome; in vec3 vBary; in vec2 vShard;
+out vec4 o;
+uniform sampler2D uVid, uMask;
+uniform vec2 uScale;
+uniform float uMirror, uHas;
+uniform vec3 uTint, uDark, uBg;
+float lum(vec3 c){ return dot(c, vec3(.2126,.7152,.0722)); }
+void main(){
+  vec2 v = (vec2(vHome.x, 1. - vHome.y) - .5) * uScale + .5;
+  if (uMirror > .5) v.x = 1. - v.x;
+  float m = uHas > .5 ? smoothstep(.35, .65, texture(uMask, v).r) : 1.;
+  float l = lum(texture(uVid, v).rgb);
+  l = l*l*(3. - 2.*l);
+  vec3 c = mix(uDark, uTint, l);
+  float glint = vShard.x, disp = vShard.y;
+  c += vec3(1.) * glint * .85 * disp;
+  float e = min(vBary.x, min(vBary.y, vBary.z));
+  float fw = fwidth(e) * 1.4 + 1e-5;
+  float edge = 1. - smoothstep(0., fw, e);
+  c = mix(c, vec3(1.), edge * (.05 + .8 * disp));
+  float a = m * (disp > .001 ? 1. : 1.);
+  if (a < .02) discard;
+  o = vec4(mix(uBg, c, a), 1.);
+}`;
+let P, U = {}, A = {}, texVid, texMask, vbo;
+function initGL(){
+  const mk = (t, s) => { const x = gl.createShader(t); gl.shaderSource(x, s); gl.compileShader(x);
+    if (!gl.getShaderParameter(x, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(x)); return x; };
+  P = gl.createProgram(); gl.attachShader(P, mk(gl.VERTEX_SHADER, VS)); gl.attachShader(P, mk(gl.FRAGMENT_SHADER, FS));
+  gl.linkProgram(P); if (!gl.getProgramParameter(P, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(P));
+  gl.useProgram(P);
+  const n = gl.getProgramParameter(P, gl.ACTIVE_UNIFORMS);
+  for (let i = 0; i < n; i++){ const u = gl.getActiveUniform(P, i); U[u.name] = gl.getUniformLocation(P, u.name); }
+  ['aPos','aHome','aBary','aShard'].forEach(k => A[k] = gl.getAttribLocation(P, k));
+  vbo = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+  const st = 8*4;
+  [['aPos',0],['aHome',8],['aBary',16],['aShard',24]].forEach(([k,off]) => { gl.enableVertexAttribArray(A[k]); gl.vertexAttribPointer(A[k], 2, gl.FLOAT, false, st, off); });
+  const tex = unit => { const t = gl.createTexture(); gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, t);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE); return t; };
+  texVid = tex(0); texMask = tex(1);
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, 1, 1, 0, gl.RED, gl.UNSIGNED_BYTE, new Uint8Array([0]));
+  gl.uniform1i(U.uVid, 0); gl.uniform1i(U.uMask, 1);
+}
+
+/* ---------- mask ---------- */
+const M = { w:0, h:0, f:null, u8:null, present:false, cover:0, has:false, external:false };
+function ingestMask(data, w, h){
+  if (!data || !(w > 0) || !(h > 0) || data.length < w*h) return;
+  if (M.w !== w || M.h !== h){ M.w = w; M.h = h; M.f = new Float32Array(w*h); M.u8 = new Uint8Array(w*h); }
+  const F = M.f, U8 = M.u8; let on = 0;
+  for (let i = 0, n = w*h; i < n; i++){
+    let m = data[i]; if (!(m >= 0)) m = 0; else if (m > 1) m = 1;
+    F[i] = F[i]*.35 + m*.65; U8[i] = F[i]*255 | 0; if (F[i] > .5) on++;
+  }
+  M.cover = on/(w*h); M.present = M.cover > .006; M.has = true;
+  if (gl && texMask){ gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, texMask);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, w, h, 0, gl.RED, gl.UNSIGNED_BYTE, U8); }
+}
+function maskAtScreen(sx, sy){                 // screen px → video uv → mask
+  if (!M.has || !M.f) return 1;
+  let vx = (sx/W - .5)*SX + .5, vy = (sy/H - .5)*SY + .5; if (mirror) vx = 1 - vx;
+  const x = Math.min(M.w - 1, Math.max(0, vx*M.w | 0)), y = Math.min(M.h - 1, Math.max(0, vy*M.h | 0));
+  return M.f[y*M.w + x];
+}
+
+/* ---------- shards ---------- */
+let W = 0, H = 0, SX = 1, SY = 1, mirror = true, vidW = 1280, vidH = 720;
+let N = 0, SH = null, VB = null, meshKey = '';
+// per shard: 0-5 home verts, 6-7 centroid, 8 state, 9 t, 10 ox, 11 oy, 12 vx, 13 vy, 14 ang, 15 av, 16 tilt, 17 tv, 18 crack, 19 life
+const F = 20;
+let rnd = 1; const rand = () => (rnd = (rnd * 16807) % 2147483647) / 2147483647;
+function buildMesh(){
+  const key = W + 'x' + H + ':' + S.size;
+  if (key === meshKey) return; meshKey = key;
+  const cell = Math.min(W, H) / S.size;
+  const cols = Math.ceil(W / cell) + 1, rows = Math.ceil(H / cell) + 1;
+  const px = new Float32Array((cols+1)*(rows+1)), py = new Float32Array((cols+1)*(rows+1));
+  rnd = 7;
+  for (let j = 0; j <= rows; j++) for (let i = 0; i <= cols; i++){
+    const k = j*(cols+1) + i;
+    const edge = i === 0 || j === 0 || i === cols || j === rows;
+    px[k] = i*cell + (edge ? 0 : (rand() - .5)*.7*cell);
+    py[k] = j*cell + (edge ? 0 : (rand() - .5)*.7*cell);
+  }
+  N = cols*rows*2; SH = new Float32Array(N*F); VB = new Float32Array(N*3*8);
+  let s = 0;
+  for (let j = 0; j < rows; j++) for (let i = 0; i < cols; i++){
+    const a = j*(cols+1) + i, b = a + 1, c = a + cols + 1, d = c + 1;
+    const tris = rand() < .5 ? [[a,b,d],[a,d,c]] : [[a,b,c],[b,d,c]];
+    for (const t of tris){
+      const o = s*F;
+      for (let v = 0; v < 3; v++){ SH[o + v*2] = px[t[v]]; SH[o + v*2 + 1] = py[t[v]]; }
+      SH[o+6] = (SH[o] + SH[o+2] + SH[o+4]) / 3; SH[o+7] = (SH[o+1] + SH[o+3] + SH[o+5]) / 3;
+      s++;
+    }
+  }
+}
+const STATS = { breaks:0, flying:0 };
+
+/* ---------- motion grid (screen aligned, per second) ---------- */
+const mo = document.createElement('canvas'), moCtx = mo.getContext('2d', { willReadFrequently:true });
+let MG = null, prevL = null, moVT = -1, moT = 0, forced = -1, mgW = 48, mgH = 27;
+function measureMotion(){
+  const vt = video.currentTime; if (vt === moVT) return false; moVT = vt;
+  mgW = 48; mgH = Math.max(12, Math.round(48 * H / W));
+  if (mo.width !== mgW || mo.height !== mgH){ mo.width = mgW; mo.height = mgH; MG = new Float32Array(mgW*mgH); prevL = null; }
+  const cw = vidW*SX, ch = vidH*SY, cx0 = (vidW - cw)/2, cy0 = (vidH - ch)/2;
+  moCtx.save(); if (mirror){ moCtx.translate(mgW, 0); moCtx.scale(-1, 1); }
+  try { moCtx.drawImage(video, cx0, cy0, cw, ch, 0, 0, mgW, mgH); } catch(e){ moCtx.restore(); return false; }
+  moCtx.restore();
+  let d; try { d = moCtx.getImageData(0, 0, mgW, mgH).data; } catch(e){ return false; }
+  const t = performance.now(), dtF = Math.min(.25, Math.max(.016, (t - moT)/1000)); moT = t;
+  const fresh = !prevL; if (fresh) prevL = new Float32Array(mgW*mgH);
+  for (let y = 0, i = 0; y < mgH; y++) for (let x = 0; x < mgW; x++, i++){
+    const l = (d[i*4]*.299 + d[i*4+1]*.587 + d[i*4+2]*.114) / 255;
+    let e = 0;
+    if (!fresh){ const dl = Math.abs(l - prevL[i]); e = dl > .07 ? dl / dtF : 0; }
+    prevL[i] = l;
+    if (forced >= 0) e = forced;
+    const m = M.has ? maskAtScreen((x + .5)/mgW*W, (y + .5)/mgH*H) : 1;
+    MG[i] = MG[i]*.5 + e*(m > .3 ? 1 : 0)*.5;
+  }
+  return true;
+}
+
+/* ---------- audio: glass ---------- */
+let actx = null, bus = null, recDest = null, tinkBudget = 0;
+function ensureAudio(){
+  if (actx){ if (actx.state === 'suspended') actx.resume().catch(()=>{}); return; }
+  const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+  actx = new AC(); bus = actx.createGain(); bus.gain.value = .3; bus.connect(actx.destination);
+  recDest = actx.createMediaStreamDestination(); bus.connect(recDest);
+  actx.resume().catch(()=>{});
+}
+function tink(k){
+  if (!actx || actx.state !== 'running') return;
+  const t = actx.currentTime + Math.random()*.03;
+  const o = actx.createOscillator(), g = actx.createGain();
+  o.type = 'sine'; o.frequency.value = 2400 + Math.random()*3600;
+  g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime(.12*k, t + .002); g.gain.exponentialRampToValueAtTime(.0001, t + .25 + Math.random()*.3);
+  o.connect(g); g.connect(bus); o.start(t); o.stop(t + .6);
+}
+function crash(k){
+  if (!actx || actx.state !== 'running') return;
+  const t = actx.currentTime, len = actx.sampleRate*.35 | 0, b = actx.createBuffer(1, len, actx.sampleRate), d = b.getChannelData(0);
+  for (let i = 0; i < len; i++) d[i] = (Math.random()*2 - 1) * Math.pow(1 - i/len, 3);
+  const s = actx.createBufferSource(); s.buffer = b;
+  const f = actx.createBiquadFilter(); f.type = 'highpass'; f.frequency.value = 3000;
+  const g = actx.createGain(); g.gain.value = Math.min(.5, .12 + k*.02);
+  s.connect(f); f.connect(g); g.connect(bus); s.start(t);
+}
+
+/* ---------- MediaPipe ---------- */
+let segmenter = null, lastTs = 0, lastVT = -1, fallback = false;
+async function initModel(){
+  try{
+    const vision = await import(VISION_URL);
+    const fs = await vision.FilesetResolver.forVisionTasks(WASM_URL);
+    const opts = d => ({ baseOptions:{ modelAssetPath:SEG_MODEL, delegate:d }, runningMode:'VIDEO', outputConfidenceMasks:true, outputCategoryMask:false });
+    try { segmenter = await vision.ImageSegmenter.createFromOptions(fs, opts('GPU')); }
+    catch(e){ segmenter = await vision.ImageSegmenter.createFromOptions(fs, opts('CPU')); }
+    setStatus('');
+  }catch(e){
+    if (M.external) return;
+    fallback = true;
+    setStatus('人物検出モデルを読み込めませんでした（ネット接続を確認）。\n画面全体を一枚のガラスにして続けます。');
+  }
+}
+function segment(now){
+  if (!segmenter || video.readyState < 2) return;
+  const vt = video.currentTime; if (vt === lastVT) return; lastVT = vt;
+  try{
+    const ts = Math.max(lastTs + 1, Math.round(now)); lastTs = ts;
+    segmenter.segmentForVideo(video, ts, res => {
+      const ms = res && res.confidenceMasks;
+      if (!ms || !ms.length) return;
+      const mk = ms[ms.length - 1];                  // 2 masks → [0] is background, [1] is the person
+      ingestMask(mk.getAsFloat32Array(), mk.width, mk.height);
+    });
+  }catch(e){}
+}
+
+/* ---------- camera ---------- */
+let stream = null, facing = 'user', started = false;
+function setStatus(t){ $('status').textContent = t || ''; }
+function camError(e){
+  const msg = (e && (e.message || e.name)) ? (e.message || e.name) : String(e || 'unknown');
+  const text = 'カメラを起動できませんでした：' + msg + '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+  $('err').textContent = text;
+  if (started) setStatus(text);
+}
+async function startCam(){
+  const md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) throw new Error('getUserMedia is unavailable');
+  const s = await md.getUserMedia({ video:{ facingMode:{ ideal:facing }, width:{ ideal:1280 }, height:{ ideal:720 } }, audio:false });
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = s; mirror = facing === 'user';
+  video.srcObject = s;
+  await new Promise(r => { if (video.readyState >= 1) r(); else video.onloadedmetadata = () => r(); });
+  await video.play().catch(()=>{});
+  vidW = video.videoWidth || 1280; vidH = video.videoHeight || 720;
+  prevL = null;
+}
+$('go').onclick = async () => {
+  $('err').textContent = '';
+  ensureAudio();
+  try{
+    if (!gl) throw new Error('WebGL2 に未対応のブラウザです');
+    if (!P) initGL();
+    await startCam();
+  }catch(e){ camError(e); return; }
+  $('start').style.display = 'none';
+  ['gear','flip','bar','rec','shoot'].forEach(id => $(id).classList.add('show'));
+  if (!started){ started = true; initModel(); requestAnimationFrame(loop); }
+};
+$('flip').onclick = async () => {
+  const prev = facing; facing = facing === 'user' ? 'environment' : 'user';
+  try { await startCam(); } catch(e){ facing = prev; camError(e); }
+};
+$('gear').onclick = () => $('panel').classList.toggle('hide');
+function setPal(i){ S.pal = i; [...$('pals').children].forEach(x => x.classList.toggle('on', +x.dataset.p === i)); }
+$('pals').onclick = e => { const b = e.target.closest('button'); if (b) setPal(+b.dataset.p); };
+[['sSens','sens'],['sSize','size'],['sForce','force'],['sBack','back']].forEach(([id,k]) => { $(id).oninput = e => { S[k] = +e.target.value; }; });
+
+$('shoot').onclick = () => {
+  tink(1);
+  try{ canvas.toBlob(b => { if (!b) return; const a = document.createElement('a'); a.href = URL.createObjectURL(b);
+    a.download = 'kudake-' + Date.now() + '.png'; a.click(); }, 'image/png'); }catch(e){ setStatus('保存できませんでした。'); }
+};
+let rec = null, chunks = [];
+$('rec').onclick = () => {
+  if (rec && rec.state === 'recording'){ rec.stop(); return; }
+  try{
+    ensureAudio();
+    const tracks = [...canvas.captureStream(30).getVideoTracks()];
+    if (recDest) tracks.push(...recDest.stream.getAudioTracks());
+    const mime = ['video/mp4;codecs=avc1','video/webm;codecs=vp9,opus','video/webm'].find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || '';
+    rec = new MediaRecorder(new MediaStream(tracks), mime ? { mimeType:mime } : {});
+    chunks = [];
+    rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+    rec.onstop = () => {
+      $('rec').classList.remove('on'); $('rec').textContent = '● REC';
+      const ext = (rec.mimeType || '').includes('mp4') ? 'mp4' : 'webm';
+      const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(chunks, { type:rec.mimeType || 'video/webm' }));
+      a.download = 'kudake.' + ext; a.click();
+    };
+    rec.start(); $('rec').classList.add('on'); $('rec').textContent = '■ STOP';
+  }catch(e){ setStatus('録画を開始できませんでした。'); }
+};
+
+/* ---------- simulation + render ---------- */
+let lastT = 0;
+function whole(){ return (fallback && !M.external) || !M.has; }
+function step(dt){
+  const short = Math.min(W, H);
+  const thr = 1.2 / S.sens;
+  // the body's centre: shards burst away from it
+  let cx = W/2, cy = H*.45, n = 0, sx = 0, sy = 0;
+  if (MG) for (let y = 0, i = 0; y < mgH; y++) for (let x = 0; x < mgW; x++, i++) if (MG[i] > .05){ sx += x; sy += y; n++; }
+  if (n){ cx = (sx/n + .5)/mgW*W; cy = (sy/n + .5)/mgH*H; }
+  let newly = 0, flying = 0;
+  const personOK = whole() || M.present;
+  for (let s = 0; s < N; s++){
+    const o = s*F;
+    const st = SH[o+8];
+    if (st === 0){
+      if (!MG || !personOK) continue;
+      const gx = Math.min(mgW - 1, Math.max(0, SH[o+6]/W*mgW | 0)), gy = Math.min(mgH - 1, Math.max(0, SH[o+7]/H*mgH | 0));
+      const e = MG[gy*mgW + gx];
+      if (e > thr && (whole() || maskAtScreen(SH[o+6], SH[o+7]) > .4)){
+        let dx = SH[o+6] - cx, dy = SH[o+7] - cy; const dl = Math.hypot(dx, dy) || 1; dx /= dl; dy /= dl;
+        const sp = short * (.35 + .5*Math.min(3, e/thr)) * S.force * (.6 + .8*rand());
+        SH[o+8] = 1; SH[o+9] = 0; SH[o+10] = 0; SH[o+11] = 0;
+        SH[o+12] = (dx + (rand() - .5)*.8) * sp; SH[o+13] = (dy + (rand() - .5)*.8 - .35) * sp;
+        SH[o+14] = 0; SH[o+15] = (rand() - .5) * 9; SH[o+16] = 0; SH[o+17] = (rand() - .5) * 12;
+        SH[o+19] = .7 + rand()*.6; SH[o+18] = 1;
+        newly++;
+      }
+    } else if (st === 1){
+      SH[o+9] += dt;
+      const drag = Math.exp(-dt*1.7);
+      SH[o+12] *= drag; SH[o+13] = SH[o+13]*drag + short*.35*dt;   // a little gravity
+      SH[o+10] += SH[o+12]*dt; SH[o+11] += SH[o+13]*dt;
+      SH[o+15] *= Math.exp(-dt*.8); SH[o+17] *= Math.exp(-dt*.8);
+      SH[o+14] += SH[o+15]*dt; SH[o+16] += SH[o+17]*dt;
+      if (SH[o+9] > SH[o+19]){ SH[o+8] = 2; SH[o+9] = 0; }
+      flying++;
+    } else {
+      // return home: critically damped towards zero offset / rotation
+      const k = 1 - Math.exp(-dt * 5.5 * S.back);
+      SH[o+10] -= SH[o+10]*k; SH[o+11] -= SH[o+11]*k;
+      SH[o+14] -= SH[o+14]*k; SH[o+16] -= SH[o+16]*k;
+      if (Math.abs(SH[o+10]) + Math.abs(SH[o+11]) < .6 && Math.abs(SH[o+14]) < .01){
+        SH[o+8] = 0; SH[o+10] = SH[o+11] = SH[o+14] = SH[o+16] = 0;
+      }
+      flying++;
+    }
+    if (SH[o+18] > 0) SH[o+18] = Math.max(0, SH[o+18] - dt*.8);
+  }
+  STATS.breaks += newly; STATS.flying = flying;
+  if (newly){ crash(newly); for (let i = 0; i < Math.min(5, newly); i++) tink(.6 + Math.random()*.4); }
+}
+function build(){
+  // resting shards first, moving ones on top
+  let w = 0;
+  for (let pass = 0; pass < 2; pass++) for (let s = 0; s < N; s++){
+    const o = s*F, moving = SH[o+8] !== 0 || SH[o+18] > 0;
+    if ((pass === 0) === moving) continue;
+    const cx = SH[o+6], cy = SH[o+7], ox = SH[o+10], oy = SH[o+11];
+    const ca = Math.cos(SH[o+14]), sa = Math.sin(SH[o+14]), tilt = Math.cos(SH[o+16]);
+    const off = Math.hypot(ox, oy);
+    const disp = Math.min(1, off / (Math.min(W, H)*.03) + Math.abs(SH[o+14])*.8);
+    const glint = Math.pow(Math.abs(Math.sin(SH[o+16]*1.3 + SH[o+14])), 6);
+    for (let v = 0; v < 3; v++){
+      const hx = SH[o + v*2], hy = SH[o + v*2 + 1];
+      let lx = (hx - cx) * tilt, ly = hy - cy;
+      const rx = lx*ca - ly*sa, ry = lx*sa + ly*ca;
+      VB[w++] = cx + ox + rx; VB[w++] = cy + oy + ry;
+      VB[w++] = hx; VB[w++] = hy;
+      VB[w++] = v === 0 ? 1 : 0; VB[w++] = v === 1 ? 1 : 0;
+      VB[w++] = glint; VB[w++] = Math.max(disp, SH[o+18]*.25);
+    }
+  }
+}
+function loop(now){
+  requestAnimationFrame(loop);
+  const dt = lastT ? Math.min(.05, (now - lastT)/1000) : 1/60; lastT = now;
+  if (video.videoWidth){ vidW = video.videoWidth; vidH = video.videoHeight; }
+  const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+  let w = Math.round(innerWidth*dpr), h = Math.round(innerHeight*dpr);
+  const k = Math.min(1, 1500 / Math.max(w, h)); w = Math.round(w*k); h = Math.round(h*k);
+  if (canvas.width !== w || canvas.height !== h){ canvas.width = w; canvas.height = h; }
+  W = w; H = h;
+  const sa = W/H, va = vidW/vidH; SX = sa < va ? sa/va : 1; SY = sa < va ? 1 : va/sa;
+  buildMesh();
+  if (!M.external) segment(now);
+  if (video.readyState < 2) return;
+  measureMotion();
+  step(dt);
+  build();
+
+  const pal = PALS[S.pal];
+  gl.viewport(0, 0, W, H);
+  gl.clearColor(pal.bg[0], pal.bg[1], pal.bg[2], 1); gl.clear(gl.COLOR_BUFFER_BIT);
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, texVid);
+  try { gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video); } catch(e){ return; }
+  gl.useProgram(P);
+  gl.uniform2f(U.uRes, W, H); gl.uniform2f(U.uScale, SX, SY);
+  gl.uniform1f(U.uMirror, mirror ? 1 : 0);
+  gl.uniform1f(U.uHas, whole() ? 0 : 1);
+  gl.uniform3fv(U.uTint, pal.tint); gl.uniform3fv(U.uDark, pal.dark); gl.uniform3fv(U.uBg, pal.bg);
+  gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+  gl.bufferData(gl.ARRAY_BUFFER, VB, gl.DYNAMIC_DRAW);
+  gl.drawArrays(gl.TRIANGLES, 0, N*3);
+}
+
+/* ---------- test hook (used by the local verification harness) ---------- */
+window.__KUDAKE = {
+  ingestMask(d, w, h){ if (!M.external) setStatus(''); M.external = true; fallback = false; ingestMask(d, w, h); },
+  palette(i){ setPal(i); },
+  state: () => ({ present:M.present, cover:M.cover, shards:N, breaks:STATS.breaks, flying:STATS.flying, fallback }),
+};
+</script>
+</body>
+</html>
