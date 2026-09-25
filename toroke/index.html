@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="description" content="動いたところだけ映像の圧縮が壊れる、データモッシュのカメラ。体は前の絵を引きずって溶け流れ、止まれば元に戻る。タップすると最後の動きがあふれ続ける。">
+<meta name="theme-color" content="#0c0c0b">
+<title>TOROKE ─ 動くと溶ける、データモッシュ</title>
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  TOROKE 蕩け ─ 動くと溶ける、データモッシュ           ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  MOOD       2000年代末〜のMVで使われた「データモッシュ」。キーフレームを
+             抜いた動画のように、動いた体は新しい絵を描かず、前の絵の
+             ピクセルを動きの向きへ引きずって溶け流れる。腕を振れば壁の色で
+             できた腕が流れ、止まると一秒ほどで元の自分に結晶しなおす。
+  PALETTE    BLEACH 止まった部分は銀残しのように彩度を落とし、溶けた部分だけ
+                    色が濃く滲む（地 #0c0c0b・文字 #e9e6df）。
+             NOIR   完全なモノクロ＋溶けた部分だけ朱 #ff4a1c の一色。
+             RAW    素の色、コントラストだけ強く。
+  TYPE       Azeret Mono 300/500。小さな大文字、広い字間。UI は四隅に小さく。
+  MOTION     溶けは動いた量にそのまま比例し、止まると0.3〜1秒で戻る。
+             タップ＝キーフレームを抜く：最後の動きが1.6秒だけ流れ続ける。
+             フラッシュ・揺れは使わない。
+  SIGNATURE  動いた人が「前の絵」でできていること。
+  TECH       縮小したグレー画像で8px ブロックの動きベクトルを毎フレーム探索
+             （静止ブロックは早期打ち切り）。WebGL2 で前フレームの結果を
+             ベクトルぶんずらして写し（NEAREST）、静かなブロックだけ今の
+             映像へ戻す。色だけ少し先へずらして滲ませ、溶けた部分は色を
+             マクロブロックごとに平均化する。
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Azeret+Mono:wght@200;300;500&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0c0c0b;--fg:#e9e6df;--dim:rgba(233,230,223,.55);--line:rgba(233,230,223,.22);--acc:#ff4a1c}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none}
+html,body{margin:0;height:100%;background:var(--bg);overflow:hidden;color:var(--fg);
+  font-family:"Azeret Mono",ui-monospace,"Hiragino Sans","Noto Sans JP",monospace;font-weight:300}
+#gl{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:crosshair}
+#cam{position:fixed;left:0;top:0;width:2px;height:2px;opacity:.01;pointer-events:none}
+#est{display:none}
+
+#start{position:fixed;inset:0;z-index:30;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:24px;
+  padding:28px;text-align:center;background:var(--bg)}
+#start .t{font-size:10px;letter-spacing:.6em;margin-right:-.6em;color:var(--dim)}
+#start h1{margin:0;font-weight:200;font-size:min(17vw,104px);line-height:1;letter-spacing:.18em;margin-right:-.18em;position:relative}
+#start h1 i{font-style:normal;display:inline-block;color:var(--acc);transform:translateY(.12em);filter:blur(.4px)}
+#start p{margin:0;font-size:12px;line-height:2.1;color:var(--dim);letter-spacing:.06em;font-family:"Hiragino Sans","Noto Sans JP",sans-serif;font-weight:300}
+#go{appearance:none;border:1px solid var(--line);background:transparent;color:var(--fg);font:500 10px "Azeret Mono",monospace;
+  letter-spacing:.45em;padding:15px 30px 15px 36px;cursor:pointer;transition:border-color .3s}
+#go:hover{border-color:var(--fg)}
+#err{font-size:12px;line-height:1.8;max-width:340px;min-height:1em;white-space:pre-line;color:#e0a08c;font-family:"Hiragino Sans","Noto Sans JP",sans-serif}
+
+.btn{position:fixed;z-index:12;appearance:none;border:0;background:transparent;color:var(--fg);font:500 10px "Azeret Mono","Hiragino Sans",monospace;
+  letter-spacing:.24em;padding:10px 8px;display:none;cursor:pointer;opacity:.62;transition:opacity .3s}
+.btn.show{display:block}
+.btn:hover{opacity:1}
+#gear{right:10px;top:calc(env(safe-area-inset-top) + 6px);font-size:14px;letter-spacing:0}
+#flip{right:10px;top:calc(env(safe-area-inset-top) + 40px);letter-spacing:.1em;font-family:"Hiragino Sans","Noto Sans JP",sans-serif}
+#bar{position:fixed;left:0;right:0;bottom:calc(env(safe-area-inset-bottom) + 10px);z-index:12;display:none;justify-content:center;align-items:center;gap:28px}
+#bar.show{display:flex}
+#bar .btn{position:static;display:block}
+#bar #shoot{position:relative;width:42px;height:42px;border:1px solid var(--fg);padding:0;opacity:.7}
+#shoot::after{content:"";position:absolute;inset:7px;background:var(--fg);opacity:.85}
+#rec.on{opacity:1;color:var(--acc)}
+#hud{position:fixed;left:14px;top:calc(env(safe-area-inset-top) + 14px);z-index:11;font-size:9px;letter-spacing:.3em;color:var(--dim);
+  pointer-events:none;display:none;line-height:2.1;white-space:pre}
+#hud.show{display:block}
+#hud b{font-weight:500;color:var(--acc)}
+#status{position:fixed;left:14px;bottom:calc(env(safe-area-inset-bottom) + 66px);z-index:11;font-size:11px;letter-spacing:.04em;
+  color:var(--dim);pointer-events:none;max-width:72vw;line-height:1.7;white-space:pre-line;font-family:"Hiragino Sans","Noto Sans JP",sans-serif}
+
+#panel{position:fixed;right:10px;top:calc(env(safe-area-inset-top) + 78px);z-index:12;width:min(270px,calc(100vw - 20px));
+  background:rgba(12,12,11,.86);border:1px solid var(--line);padding:14px 16px;display:flex;flex-direction:column;gap:13px;
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);transition:opacity .25s}
+#panel.hide{opacity:0;pointer-events:none}
+.chips{display:flex;border:1px solid var(--line)}
+.chips button{flex:1;appearance:none;border:0;background:transparent;color:var(--fg);padding:8px 2px;font:500 9px "Azeret Mono",monospace;
+  letter-spacing:.2em;cursor:pointer;opacity:.55}
+.chips button.on{opacity:1;background:rgba(233,230,223,.12)}
+#panel label{display:flex;align-items:center;gap:10px;font-size:11px;letter-spacing:.04em;font-family:"Hiragino Sans","Noto Sans JP",sans-serif}
+#panel label span{width:74px;flex:none;color:var(--dim)}
+#panel input[type=range]{flex:1;accent-color:#c9c4ba}
+#panel .note{font-size:10px;color:var(--dim);line-height:1.7;font-family:"Hiragino Sans","Noto Sans JP",sans-serif}
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<canvas id="est"></canvas>
+<video id="cam" playsinline muted autoplay></video>
+<div id="hud"></div>
+<div id="status"></div>
+<button id="gear" class="btn" aria-label="調整">⚙</button>
+<button id="flip" class="btn">⟲ カメラ</button>
+<div id="bar">
+  <button id="rec" class="btn">● REC</button>
+  <button id="shoot" class="btn" aria-label="撮る"></button>
+  <button id="key" class="btn">I-FRAME</button>
+</div>
+
+<div id="panel" class="hide">
+  <div class="chips" id="pals">
+    <button data-p="0" class="on">BLEACH</button>
+    <button data-p="1">NOIR</button>
+    <button data-p="2">RAW</button>
+  </div>
+  <label><span>溶けの強さ</span><input type="range" id="sGain" min="0" max="1" step="0.01" value="0.55"></label>
+  <label><span>戻る速さ</span><input type="range" id="sHeal" min="0" max="1" step="0.01" value="0.45"></label>
+  <label><span>色の滲み</span><input type="range" id="sBleed" min="0" max="1" step="0.01" value="0.5"></label>
+  <label><span>ブロック</span><input type="range" id="sBlock" min="0" max="1" step="0.01" value="0.7"></label>
+  <div class="note">画面をタップ：最後の動きが流れつづける。<br>I-FRAME：いったん全部を今の映像に戻す。</div>
+</div>
+
+<div id="start">
+  <div class="t">DATAMOSH CAMERA</div>
+  <h1>TORO<i>K</i>E</h1>
+  <p>動いたところから、映像が溶ける。<br>止まれば、あなたに戻る。</p>
+  <button id="go">DROP THE KEYFRAME</button>
+  <div id="err"></div>
+</div>
+
+<script>
+'use strict';
+/* =====================================================================
+   TOROKE — datamosh. Block motion vectors are estimated on the CPU from
+   a small grey copy of the camera; the GPU then moves last frame's
+   *result* by those vectors instead of showing the new picture, so a
+   moving body is painted with old pixels. Quiet blocks heal back.
+   ===================================================================== */
+const $ = id => document.getElementById(id);
+const canvas = $('gl'), video = $('cam'), est = $('est');
+const ectx = est.getContext('2d', { willReadFrequently:true });
+
+const PALS = [
+  { name:'BLEACH', clean:.28, hot:1.45, noir:0, bg:'#0c0c0b', fg:'#e9e6df' },
+  { name:'NOIR',   clean:0,   hot:0,    noir:1, bg:'#0a0a0a', fg:'#ecebe8' },
+  { name:'RAW',    clean:1,   hot:1.2,  noir:0, bg:'#0c0c0b', fg:'#e9e6df' },
+];
+const S = { pal:0, gain:.55, heal:.45, bleed:.5, block:.7 };
+
+/* ---------- GL ---------- */
+const gl = canvas.getContext('webgl2', { antialias:false, alpha:false, preserveDrawingBuffer:true, powerPreference:'high-performance' });
+const VS = `#version 300 es
+in vec2 p; out vec2 uv; void main(){ uv = p*.5+.5; gl_Position = vec4(p,0.,1.); }`;
+
+// pass 1: motion-compensate the previous result (the "P-frame" without its residual)
+const FS_MOSH = `#version 300 es
+precision highp float;
+in vec2 uv; out vec4 o;
+uniform sampler2D uPrev, uVid, uField;
+uniform vec2 uScale, uBlocks;
+uniform float uMirror, uGain, uBleed, uBlock, uReset;
+vec3 cam(vec2 s){
+  vec2 v = (vec2(s.x, 1. - s.y) - .5) * uScale + .5;
+  if (uMirror > .5) v.x = 1. - v.x;
+  return texture(uVid, v).rgb;
+}
+const vec3 LW = vec3(.299,.587,.114);
+void main(){
+  vec3 cur = cam(uv);
+  if (uReset > .5){ o = vec4(cur, 1.); return; }
+  // nearest block = macroblock tearing; linear = a smooth melt
+  vec4 fn = texelFetch(uField, ivec2(clamp(uv * uBlocks, vec2(0.), uBlocks - 1.)), 0);
+  vec4 fl = texture(uField, uv);
+  vec2 d = mix(fl.xy, fn.xy, uBlock) * uGain;
+  float heal = mix(fl.z, fn.z, .5);
+  vec3 a = texture(uPrev, uv + d).rgb;
+  vec3 b = texture(uPrev, uv + d * (1. + 1.4 * uBleed)).rgb;     // colour runs a little further than light
+  float la = dot(a, LW);
+  vec3 m = vec3(la) + (b - vec3(dot(b, LW)));
+  m = mix(a, m, step(1e-5, dot(d, d)) * .85);
+  o = vec4(clamp(mix(m, cur, heal), 0., 1.), 1.);
+}`;
+
+// pass 2: grade
+const FS_OUT = `#version 300 es
+precision highp float;
+in vec2 uv; out vec4 o;
+uniform sampler2D uMosh, uField;
+uniform vec2 uRes, uBlocks;
+uniform float uT, uClean, uHot, uNoir, uBlock;
+uniform vec3 uAcc;
+float h21(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233))) * 43758.5453); }
+const vec3 LW = vec3(.2126,.7152,.0722);
+void main(){
+  vec3 c = texture(uMosh, uv).rgb;
+  float hot = clamp(texture(uField, uv).w, 0., 1.);
+  // inside melted blocks the colour is averaged per macroblock, like a starved encoder
+  vec2 bc = (floor(uv * uBlocks) + .5) / uBlocks;
+  vec3 cb = texture(uMosh, bc).rgb;
+  float l = dot(c, LW);
+  vec3 ch = mix(c - vec3(l), cb - vec3(dot(cb, LW)), hot * uBlock * .8);
+  l = smoothstep(.03, .97, l); l = mix(l, l*l*(3. - 2.*l), .55);
+  float sat = mix(uClean, uHot, smoothstep(.05, .6, hot));
+  vec3 g = vec3(l) + ch * sat;
+  if (uNoir > .5){
+    float k = smoothstep(.08, .7, hot) * clamp(length(ch) * 4.5 + .25, 0., 1.);
+    g = mix(vec3(l), uAcc * (.25 + 1.1 * l), k);
+  }
+  vec2 q = uv - .5; q.x *= uRes.x / uRes.y;
+  g *= 1. - .42 * smoothstep(.45, 1.1, length(q));
+  g += (h21(floor(gl_FragCoord.xy / 1.5) + fract(uT * 7.13) * 91.7) - .5) * .05;
+  o = vec4(clamp(g, 0., 1.), 1.);
+}`;
+
+function sh(type, src){ const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s; }
+function prog(fs){ const p = gl.createProgram(); gl.attachShader(p, sh(gl.VERTEX_SHADER, VS)); gl.attachShader(p, sh(gl.FRAGMENT_SHADER, fs));
+  gl.bindAttribLocation(p, 0, 'p'); gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+  const U = {}, n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+  for (let i = 0; i < n; i++){ const u = gl.getActiveUniform(p, i); U[u.name] = gl.getUniformLocation(p, u.name); }
+  return { p, U }; }
+function tex(filter){ const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, filter); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, filter);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE); return t; }
+let PM, PO, texVid, texField, mosh = [null, null], fbo = [null, null], mw = 0, mh = 0, ping = 0, needReset = true;
+function initGL(){
+  PM = prog(FS_MOSH); PO = prog(FS_OUT);
+  const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+  texVid = tex(gl.LINEAR); texField = tex(gl.LINEAR);
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+}
+function ensureMosh(w, h){
+  if (w === mw && h === mh) return;
+  mw = w; mh = h;
+  for (let i = 0; i < 2; i++){
+    if (mosh[i]) gl.deleteTexture(mosh[i]); if (fbo[i]) gl.deleteFramebuffer(fbo[i]);
+    mosh[i] = tex(gl.NEAREST);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    fbo[i] = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, fbo[i]);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, mosh[i], 0);
+  }
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  needReset = true;
+}
+
+/* ---------- motion estimation (all buffers reused) ---------- */
+const BS = 8, SHORT = 184, R = 8;              // block px, estimation short edge, search radius
+const E = { w:0, h:0, bw:0, bh:0, cur:null, prev:null, have:false,
+  dx:null, dy:null, sx:null, sy:null, hot:null, heal:null, mem:null, field:null, hotMean:0, hotMax:0, cx:.5, cy:.5 };
+function ensureEst(W, H){
+  let w, h;
+  if (W >= H){ h = SHORT; w = Math.round(SHORT * W / H / BS) * BS; } else { w = SHORT; h = Math.round(SHORT * H / W / BS) * BS; }
+  w = Math.max(BS*4, Math.min(w, 640)); h = Math.max(BS*4, Math.min(h, 640));
+  if (w === E.w && h === E.h) return;
+  E.w = w; E.h = h; est.width = w; est.height = h;
+  E.bw = w / BS | 0; E.bh = h / BS | 0; const n = E.bw * E.bh;
+  E.cur = new Uint8Array(w*h); E.prev = new Uint8Array(w*h); E.have = false;
+  E.dx = new Float32Array(n); E.dy = new Float32Array(n); E.sx = new Float32Array(n); E.sy = new Float32Array(n);
+  E.hot = new Float32Array(n); E.heal = new Float32Array(n).fill(1); E.mem = new Float32Array(n*2);
+  E.field = new Float32Array(n*4);
+}
+function grab(){
+  const w = E.w, h = E.h, vw = video.videoWidth, vh = video.videoHeight;
+  if (!(vw > 0 && vh > 0)) return false;
+  const sa = w / h, va = vw / vh;
+  let cw = vw, ch = vh; if (va > sa) cw = vh * sa; else ch = vw / sa;
+  ectx.setTransform(mirror ? -1 : 1, 0, 0, 1, mirror ? w : 0, 0);
+  try { ectx.drawImage(video, (vw - cw)/2, (vh - ch)/2, cw, ch, 0, 0, w, h); } catch(e){ return false; }
+  const d = ectx.getImageData(0, 0, w, h).data;
+  const t = E.prev; E.prev = E.cur; E.cur = t;
+  const C = E.cur;
+  for (let i = 0, j = 0, n = w*h; i < n; i++, j += 4) C[i] = (d[j]*77 + d[j+1]*150 + d[j+2]*29) >> 8;
+  const ok = E.have; E.have = true;
+  return ok;
+}
+// SAD of block (bx,by) in cur against prev displaced by (ox,oy), every other pixel
+function sad(x0, y0, ox, oy){
+  const w = E.w, C = E.cur, P = E.prev; let s = 0;
+  for (let y = 0; y < BS; y += 2){
+    let ci = (y0 + y) * w + x0, pi = (y0 + y + oy) * w + x0 + ox;
+    for (let x = 0; x < BS; x += 2){ const v = C[ci + x] - P[pi + x]; s += v < 0 ? -v : v; }
+  }
+  return s;
+}
+const THR = 16 * 5;                              // 16 samples × mean |Δ| of 5 grey levels = camera noise
+function estimate(dt){
+  const { w, h, bw, bh } = E;
+  const tHot = Math.exp(-dt / (.25 + .9 * (1 - S.heal)));
+  const healStill = 1 - Math.exp(-dt / (.06 + .5 * (1 - S.heal)));
+  let hs = 0, hm = 0, cxs = 0, cys = 0;
+  for (let by = 0; by < bh; by++) for (let bx = 0; bx < bw; bx++){
+    const b = by * bw + bx, x0 = bx * BS, y0 = by * BS;
+    const s0 = sad(x0, y0, 0, 0);
+    let ox = 0, oy = 0, motion = 0;
+    if (s0 > THR){
+      let best = s0 * .85, bxo = 0, byo = 0;    // a tiny bias to zero keeps flat walls still
+      const xl = Math.max(-R, -x0), xr = Math.min(R, w - BS - x0), yt = Math.max(-R, -y0), yb = Math.min(R, h - BS - y0);
+      for (let oy2 = yt; oy2 <= yb; oy2 += 2) for (let ox2 = xl; ox2 <= xr; ox2 += 2){
+        if (!ox2 && !oy2) continue;
+        const s = sad(x0, y0, ox2, oy2); if (s < best){ best = s; bxo = ox2; byo = oy2; }
+      }
+      const cx = bxo, cy = byo;
+      // refine ±1 around the coarse winner
+      for (let ry = -1; ry <= 1; ry++) for (let rx = -1; rx <= 1; rx++){
+        if (!rx && !ry) continue;
+        const ox2 = cx + rx, oy2 = cy + ry;
+        if (x0 + ox2 < 0 || y0 + oy2 < 0 || x0 + ox2 > w - BS || y0 + oy2 > h - BS) continue;
+        const s = sad(x0, y0, ox2, oy2); if (s < best){ best = s; bxo = ox2; byo = oy2; }
+      }
+      ox = bxo; oy = byo;
+      motion = Math.min(1, (s0 - THR) / (16 * 22));
+    }
+    // light temporal smoothing of the vectors so a limb drags as one piece
+    E.sx[b] = E.sx[b] * .35 + ox * .65; E.sy[b] = E.sy[b] * .35 + oy * .65;
+    if (!motion){ E.sx[b] *= .5; E.sy[b] *= .5; }
+    const hot = Math.max(E.hot[b] * tHot, motion);
+    E.hot[b] = hot;
+    E.heal[b] = Math.min(1, healStill * (1 - hot) * (1 - hot) + .012);
+    if (motion > .15 && (ox || oy)){ E.mem[b*2] = ox; E.mem[b*2+1] = oy; }
+    hs += hot; if (hot > hm) hm = hot; cxs += hot * (bx + .5); cys += hot * (by + .5);
+  }
+  E.hotMean = hs / (bw * bh); E.hotMax = hm;
+  if (hs > .5){ E.cx = cxs / hs / bw; E.cy = cys / hs / bh; }
+}
+function fillField(bloomK){
+  const { w, h, bw, bh, field:F } = E;
+  for (let by = 0; by < bh; by++) for (let bx = 0; bx < bw; bx++){
+    const b = by * bw + bx, r = ((bh - 1 - by) * bw + bx) * 4;   // GL rows go bottom-up
+    let dx = E.sx[b], dy = E.sy[b], heal = E.heal[b], hot = E.hot[b];
+    if (bloomK > 0){                              // keyframe dropped: last vectors keep pouring
+      dx = dx * (1 - bloomK) + E.mem[b*2] * bloomK * .45; dy = dy * (1 - bloomK) + E.mem[b*2+1] * bloomK * .45;
+      heal *= 1 - bloomK; hot = Math.max(hot, bloomK * Math.min(1, Math.hypot(E.mem[b*2], E.mem[b*2+1]) / 3));
+    }
+    F[r] = dx / w; F[r+1] = -dy / h; F[r+2] = heal; F[r+3] = hot;
+  }
+  gl.bindTexture(gl.TEXTURE_2D, texField);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, bw, bh, 0, gl.RGBA, gl.FLOAT, F);
+}
+
+/* ---------- camera ---------- */
+let stream = null, facing = 'user', mirror = true, started = false, vidW = 1280, vidH = 720, lastVT = -1;
+function setStatus(t){ $('status').textContent = t || ''; }
+function camError(e){
+  const msg = (e && (e.message || e.name)) ? (e.message || e.name) : String(e || 'unknown');
+  const text = 'カメラを起動できませんでした：' + msg + '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+  $('err').textContent = text;
+  if (started) setStatus(text);
+}
+async function startCam(){
+  const md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) throw new Error('getUserMedia is unavailable');
+  const s = await md.getUserMedia({ video:{ facingMode:{ ideal:facing }, width:{ ideal:1280 }, height:{ ideal:720 } }, audio:false });
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = s; mirror = facing === 'user';
+  video.srcObject = s;
+  await new Promise(r => { if (video.readyState >= 1) r(); else video.onloadedmetadata = () => r(); });
+  await video.play().catch(()=>{});
+  vidW = video.videoWidth || 1280; vidH = video.videoHeight || 720;
+  needReset = true; E.have = false;
+}
+
+/* ---------- audio: a low digital crunch when the keyframe is dropped ---------- */
+let actx = null, bus = null, recDest = null;
+function ensureAudio(){
+  if (actx){ if (actx.state === 'suspended') actx.resume().catch(()=>{}); return; }
+  const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+  actx = new AC(); bus = actx.createGain(); bus.gain.value = .35; bus.connect(actx.destination);
+  recDest = actx.createMediaStreamDestination(); bus.connect(recDest);
+  actx.resume().catch(()=>{});
+}
+function crunch(len){
+  if (!actx || actx.state !== 'running') return;
+  const sr = actx.sampleRate, n = sr * len | 0, b = actx.createBuffer(1, n, sr), d = b.getChannelData(0);
+  let hold = 0, v = 0;
+  for (let i = 0; i < n; i++){                     // sample-and-hold noise = a starved decoder
+    if (hold-- <= 0){ hold = 30 + (Math.random() * 400 | 0); v = (Math.random()*2 - 1); }
+    d[i] = v * Math.pow(1 - i/n, 2) * .6;
+  }
+  const s = actx.createBufferSource(); s.buffer = b;
+  const f = actx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 900; f.Q.value = 4;
+  s.connect(f); f.connect(bus); s.start();
+}
+
+$('go').onclick = async () => {
+  $('err').textContent = '';
+  ensureAudio();
+  try{
+    if (!gl) throw new Error('WebGL2 に未対応のブラウザです');
+    if (!PM) initGL();
+    await startCam();
+  }catch(e){ camError(e); return; }
+  $('start').style.display = 'none';
+  ['gear','flip','bar','rec','shoot','key','hud'].forEach(id => $(id).classList.add('show'));
+  if (!started){ started = true; requestAnimationFrame(loop); }
+};
+$('flip').onclick = async () => {
+  const prev = facing; facing = facing === 'user' ? 'environment' : 'user';
+  try { await startCam(); } catch(e){ facing = prev; camError(e); }
+};
+$('gear').onclick = () => $('panel').classList.toggle('hide');
+$('key').onclick = () => { needReset = true; bloomT = 0; };
+let bloomT = 0;
+function bloom(){ if (!started) return; bloomT = 1.6; crunch(.9); }
+canvas.addEventListener('pointerdown', e => { if (e.isPrimary !== false) bloom(); });
+function setPal(i){
+  S.pal = i; const p = PALS[i];
+  [...$('pals').children].forEach(x => x.classList.toggle('on', +x.dataset.p === i));
+  document.documentElement.style.setProperty('--bg', p.bg); document.documentElement.style.setProperty('--fg', p.fg);
+}
+$('pals').onclick = e => { const b = e.target.closest('button'); if (b) setPal(+b.dataset.p); };
+[['sGain','gain'],['sHeal','heal'],['sBleed','bleed'],['sBlock','block']].forEach(([id,k]) => { $(id).oninput = e => { S[k] = +e.target.value; }; });
+
+$('shoot').onclick = () => {
+  try{
+    canvas.toBlob(b => { if (!b) return; const a = document.createElement('a'); a.href = URL.createObjectURL(b);
+      a.download = 'toroke-' + Date.now() + '.png'; a.click(); }, 'image/png');
+  }catch(e){ setStatus('保存できませんでした。'); }
+};
+let rec = null, chunks = [];
+$('rec').onclick = () => {
+  if (rec && rec.state === 'recording'){ rec.stop(); return; }
+  try{
+    ensureAudio();
+    const tracks = [...canvas.captureStream(30).getVideoTracks()];
+    if (recDest) tracks.push(...recDest.stream.getAudioTracks());
+    const mime = ['video/mp4;codecs=avc1','video/webm;codecs=vp9,opus','video/webm'].find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || '';
+    rec = new MediaRecorder(new MediaStream(tracks), mime ? { mimeType:mime } : {});
+    chunks = [];
+    rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+    rec.onstop = () => {
+      $('rec').classList.remove('on'); $('rec').textContent = '● REC';
+      const ext = (rec.mimeType || '').includes('mp4') ? 'mp4' : 'webm';
+      const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(chunks, { type:rec.mimeType || 'video/webm' }));
+      a.download = 'toroke.' + ext; a.click();
+    };
+    rec.start(); $('rec').classList.add('on'); $('rec').textContent = '■ STOP';
+  }catch(e){ setStatus('録画を開始できませんでした。'); }
+};
+
+/* ---------- render ---------- */
+const ACC = [1, .29, .11];
+let lastT = 0, hudT = 0, pframes = 0;
+function newVideoFrame(){
+  const vt = video.currentTime;
+  if (vt === lastVT) return false;
+  lastVT = vt; return true;
+}
+function loop(now){
+  requestAnimationFrame(loop);
+  const dt = lastT ? Math.min(.1, (now - lastT)/1000) : 1/60; lastT = now;
+  if (video.videoWidth && (video.videoWidth !== vidW || video.videoHeight !== vidH)){ vidW = video.videoWidth; vidH = video.videoHeight; needReset = true; E.have = false; }
+  const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+  let W = Math.round(innerWidth*dpr), H = Math.round(innerHeight*dpr);
+  const k = Math.min(1, 1400 / Math.max(W, H)); W = Math.round(W*k); H = Math.round(H*k);
+  if (canvas.width !== W || canvas.height !== H){ canvas.width = W; canvas.height = H; }
+  ensureMosh(W, H); ensureEst(W, H);
+  if (video.readyState < 2) return;
+
+  const fresh = newVideoFrame();
+  if (bloomT > 0) bloomT = Math.max(0, bloomT - dt);
+  const bk = bloomT > 0 ? Math.min(1, bloomT / .5) : 0;
+  let stepMosh = false;
+  if (fresh && grab()){ estimate(Math.max(dt, 1/60)); stepMosh = true; pframes++; }
+  if (bk > 0) stepMosh = true;
+  if (!stepMosh && !needReset){ present(now, W, H); return; }
+  fillField(bk);
+
+  gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, texVid);
+  if (fresh || needReset){ try { gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video); } catch(e){ return; } }
+  const sa = W/H, va = vidW/vidH, sx = sa < va ? sa/va : 1, sy = sa < va ? 1 : va/sa;
+
+  const src = ping, dst = 1 - ping;
+  gl.bindFramebuffer(gl.FRAMEBUFFER, fbo[dst]); gl.viewport(0, 0, mw, mh);
+  gl.useProgram(PM.p);
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, mosh[src]);
+  gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, texField);
+  gl.uniform1i(PM.U.uPrev, 0); gl.uniform1i(PM.U.uVid, 1); gl.uniform1i(PM.U.uField, 2);
+  gl.uniform2f(PM.U.uScale, sx, sy); gl.uniform2f(PM.U.uBlocks, E.bw, E.bh);
+  gl.uniform1f(PM.U.uMirror, mirror ? 1 : 0);
+  gl.uniform1f(PM.U.uGain, .6 + 2.2 * S.gain);
+  gl.uniform1f(PM.U.uBleed, S.bleed); gl.uniform1f(PM.U.uBlock, S.block);
+  gl.uniform1f(PM.U.uReset, needReset ? 1 : 0);
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  needReset = false; ping = dst;
+  present(now, W, H);
+}
+function present(now, W, H){
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, 0, W, H);
+  gl.useProgram(PO.p);
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, mosh[ping]);
+  gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, texField);
+  gl.uniform1i(PO.U.uMosh, 0); gl.uniform1i(PO.U.uField, 2);
+  gl.uniform2f(PO.U.uRes, W, H); gl.uniform2f(PO.U.uBlocks, E.bw, E.bh);
+  const p = PALS[S.pal];
+  gl.uniform1f(PO.U.uT, now/1000); gl.uniform1f(PO.U.uClean, p.clean); gl.uniform1f(PO.U.uHot, p.hot);
+  gl.uniform1f(PO.U.uNoir, p.noir); gl.uniform1f(PO.U.uBlock, S.block); gl.uniform3fv(PO.U.uAcc, ACC);
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+  hudT += 1;
+  if (hudT > 12){ hudT = 0;
+    $('hud').innerHTML = 'TOROKE  ' + p.name + '\nP-FRAME ' + String(pframes).padStart(6, '0') +
+      '\n' + (bloomT > 0 ? '<b>I-FRAME DROPPED</b>' : 'MOSH ' + (E.hotMean * 100).toFixed(0).padStart(3, '0') + '%'); }
+}
+
+/* ---------- test hook (used by the local verification harness) ---------- */
+window.__TOROKE = {
+  state: () => ({ hotMean:E.hotMean, hotMax:E.hotMax, cx:E.cx, cy:E.cy, bw:E.bw, bh:E.bh, bloom:bloomT, pframes }),
+  hotAt(x, y){ const bx = Math.min(E.bw - 1, Math.max(0, x * E.bw | 0)), by = Math.min(E.bh - 1, Math.max(0, y * E.bh | 0)); return E.hot[by * E.bw + bx]; },
+  palette(i){ setPal(i); },
+  bloom,
+};
+</script>
+</body>
+</html>
