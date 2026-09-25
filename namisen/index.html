@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="description" content="画面ぜんぶが白黒の縞の壁になり、映った人がその壁を内側から押し上げて浮き出す。縞は体の丸みに巻きつき、動けば体の後ろの縞が波紋のように押しのけられて渦を巻く。">
+<meta name="theme-color" content="#f2f0ec">
+<title>NAMISEN ─ 縞の壁から浮き出る体</title>
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  NAMISEN 波線 ─ 縞の壁から浮き出る体                ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  MOOD       オプ・アートの彫刻写真。画面ぜんぶが波打つ白黒の縞の壁で、映った
+             人はその壁を裏から押し上げて浮き出た像になる。縞は体の丸みに巻き
+             つき、指や頬の凹凸は縞のゆがみとして読める。左上からの光が陰影と
+             壁への落ち影をつくり、平面の縞が立体に見える。
+  PALETTE    MONO   紙 #f2f0ec・墨 #0e0e0e
+             BONE   紙 #e9e1d3・墨 #1b1712（温かい写真の白黒）
+             RED    紙 #f4efe8・墨 #9e0f1c（一色刷り）
+  TYPE       Major Mono Display（題字）。UI はシステム書体を小さく。
+  MOTION     壁の縞は 1 分ほどかけてゆっくり流れる。動いた場所には「引き波」が
+             たまり、縞を渦のように押しのけてから 3 秒ほどで凪ぐ。
+  SIGNATURE  体に巻きつく縞と、動いたあとに残る縞の渦。
+  TECH       人物マスクを正方セル格子へ落として広くぼかした「高さ場」と、
+             マスクのフレーム差分を積んで減衰させる「引き波場」（ともに R16F）。
+             シェーダは縞の位相 = 壁の座標 + 高さ×深さ + 引き波 で縞を引き、
+             高さの勾配から法線を出して陰影、ずらした高さで落ち影をつける。
+             マスクが無ければ映像の明るさを高さにして画面全体を浮かせる。
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Major+Mono+Display&display=swap" rel="stylesheet">
+<style>
+:root{--paper:#f2f0ec;--ink:#0e0e0e;--dim:rgba(14,14,14,.55);--line:rgba(14,14,14,.25)}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none}
+html,body{margin:0;height:100%;background:var(--paper);overflow:hidden;color:var(--ink);font-family:-apple-system,"Hiragino Sans","Noto Sans JP",sans-serif}
+#gl{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+#cam{position:fixed;left:0;top:0;width:2px;height:2px;opacity:.01;pointer-events:none}
+
+#start{position:fixed;inset:0;z-index:30;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;padding:28px;text-align:center;
+  background:repeating-radial-gradient(ellipse at 50% 120%,var(--paper) 0 9px,var(--ink) 9px 17px)}
+#start .card{background:var(--paper);padding:30px 34px;display:flex;flex-direction:column;align-items:center;gap:18px;box-shadow:0 20px 60px rgba(0,0,0,.35)}
+#start h1{margin:0;font-family:"Major Mono Display",monospace;font-weight:400;font-size:min(11vw,64px);letter-spacing:.08em}
+#start p{margin:0;font-size:13px;line-height:1.9;color:var(--dim)}
+#go{appearance:none;border:1px solid var(--ink);background:var(--ink);color:var(--paper);font:500 11px -apple-system,sans-serif;
+  letter-spacing:.4em;padding:14px 34px 14px 40px;cursor:pointer}
+#err{font-size:12px;line-height:1.8;max-width:320px;min-height:1em;white-space:pre-line;color:#9e0f1c}
+
+.btn{position:fixed;z-index:12;appearance:none;border:0;background:var(--paper);color:var(--ink);font:500 10px -apple-system,"Hiragino Sans",sans-serif;
+  letter-spacing:.2em;padding:8px 10px;display:none;cursor:pointer;opacity:.85}
+.btn.show{display:block}
+#gear{right:10px;top:calc(env(safe-area-inset-top) + 8px);font-size:14px;letter-spacing:0}
+#flip{right:10px;top:calc(env(safe-area-inset-top) + 46px);letter-spacing:.08em}
+#bar{position:fixed;left:0;right:0;bottom:calc(env(safe-area-inset-bottom) + 12px);z-index:12;display:none;justify-content:center;align-items:center;gap:22px}
+#bar.show{display:flex}
+#bar .btn{position:static;display:block}
+#bar #shoot{position:relative;width:44px;height:44px;border-radius:50%;border:2px solid var(--ink);padding:0}
+#shoot::after{content:"";position:absolute;inset:6px;border-radius:50%;background:var(--ink)}
+#rec.on{background:#9e0f1c;color:#fff}
+#status{position:fixed;left:12px;bottom:calc(env(safe-area-inset-bottom) + 70px);z-index:11;font-size:11px;line-height:1.7;background:var(--paper);
+  padding:0 4px;pointer-events:none;max-width:72vw;white-space:pre-line}
+#status:empty{display:none}
+
+#panel{position:fixed;right:10px;top:calc(env(safe-area-inset-top) + 84px);z-index:12;width:min(270px,calc(100vw - 20px));
+  background:var(--paper);border:1px solid var(--ink);padding:14px 16px;display:flex;flex-direction:column;gap:13px;transition:opacity .2s}
+#panel.hide{opacity:0;pointer-events:none}
+.chips{display:flex;border:1px solid var(--ink)}
+.chips button{flex:1;appearance:none;border:0;background:transparent;color:var(--ink);padding:8px 2px;font:500 10px -apple-system,sans-serif;letter-spacing:.14em;cursor:pointer}
+.chips button.on{background:var(--ink);color:var(--paper)}
+#panel label{display:flex;align-items:center;gap:10px;font-size:11px}
+#panel label span{width:70px;flex:none;color:var(--dim)}
+#panel input[type=range]{flex:1;accent-color:var(--ink)}
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<video id="cam" playsinline muted autoplay></video>
+<div id="status"></div>
+<button id="gear" class="btn" aria-label="調整">⚙</button>
+<button id="flip" class="btn">⟲ カメラ</button>
+<div id="bar">
+  <button id="rec" class="btn">● REC</button>
+  <button id="shoot" class="btn" aria-label="撮る"></button>
+  <span class="btn show" style="visibility:hidden">● REC</span>
+</div>
+
+<div id="panel" class="hide">
+  <div class="chips" id="pals">
+    <button data-p="0" class="on">MONO</button>
+    <button data-p="1">BONE</button>
+    <button data-p="2">RED</button>
+  </div>
+  <label><span>縞の細かさ</span><input type="range" id="sFreq" min="12" max="60" step="1" value="30"></label>
+  <label><span>浮き出し</span><input type="range" id="sDepth" min="0.2" max="1.6" step="0.02" value="0.9"></label>
+  <label><span>引き波</span><input type="range" id="sWake" min="0" max="1.5" step="0.02" value="0.8"></label>
+  <label><span>壁のうねり</span><input type="range" id="sFlow" min="0" max="1" step="0.02" value="0.5"></label>
+</div>
+
+<div id="start">
+  <div class="card">
+    <h1>namisen</h1>
+    <p>縞の壁から、あなたが浮き出す。<br>動けば、縞が渦を巻く。</p>
+    <button id="go">START</button>
+    <div id="err"></div>
+  </div>
+</div>
+
+<script>
+'use strict';
+/* =====================================================================
+   NAMISEN — person → height field (+ a decaying wake of motion) →
+   op-art stripes whose phase is pushed by the height, shaded like a relief.
+   ===================================================================== */
+const VISION_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs';
+const WASM_URL   = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm';
+const SEG_MODEL  = 'https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite';
+
+const $ = id => document.getElementById(id);
+const canvas = $('gl'), video = $('cam');
+
+const PALS = [
+  { name:'MONO', paper:[.949,.941,.925], ink:[.055,.055,.055], css:['#f2f0ec','#0e0e0e'] },
+  { name:'BONE', paper:[.914,.882,.827], ink:[.106,.090,.071], css:['#e9e1d3','#1b1712'] },
+  { name:'RED',  paper:[.957,.937,.910], ink:[.620,.059,.110], css:['#f4efe8','#9e0f1c'] },
+];
+const S = { pal:0, freq:30, depth:.9, wake:.8, flow:.5 };
+
+/* ---------- GL ---------- */
+const gl = canvas.getContext('webgl2', { antialias:false, alpha:false, preserveDrawingBuffer:true, powerPreference:'high-performance' });
+const VS = `#version 300 es
+in vec2 p; out vec2 uv; void main(){ uv = p*.5+.5; gl_Position = vec4(p,0.,1.); }`;
+const FS = `#version 300 es
+precision highp float;
+in vec2 uv; out vec4 o;
+uniform sampler2D uVid, uMask, uField, uWake;
+uniform vec2 uScale, uRes;
+uniform float uMirror, uHas, uWhole, uT, uFreq, uDepth, uWakeK, uFlow;
+uniform vec3 uPaper, uInk;
+float lum(vec3 c){ return dot(c, vec3(.2126,.7152,.0722)); }
+vec2 toV(vec2 s){ vec2 v = (vec2(s.x, 1. - s.y) - .5) * uScale + .5; if (uMirror > .5) v.x = 1. - v.x; return v; }
+float body(vec2 s){
+  vec2 v = toV(s);
+  if (uWhole > .5) return lum(textureLod(uVid, v, 3.).rgb) * .8;
+  return uHas > .5 ? smoothstep(0., 1., texture(uField, v).r) : 0.;
+}
+float height(vec2 s){
+  float b = body(s);
+  float face = uWhole > .5 ? 0. : lum(textureLod(uVid, toV(s), 2.5).rgb) * .12 * b;
+  return b + face;
+}
+void main(){
+  float sh = min(uRes.x, uRes.y);
+  vec2 p = (uv * uRes) / sh;                               // short-edge units, y up
+  vec2 v = toV(uv);
+  float m = uWhole > .5 ? 1. : (uHas > .5 ? smoothstep(.4, .65, texture(uMask, v).r) : 0.);
+  float H = height(uv);
+  float wk = uHas > .5 && uWhole < .5 ? texture(uWake, v).r : 0.;
+
+  // the wall: gently undulating lines that drift
+  float t = uT * .1 * uFlow;
+  float wall = p.y
+    + .055 * sin(p.x * 2.6 + t * 3.1 + sin(p.y * 1.7 - t))
+    + .035 * sin(p.x * 5.3 - p.y * 2.2 - t * 2.3)
+    + .02  * sin(length(p - vec2(.3, .9)) * 9. - t * 4.);
+  float phase = wall * uFreq * 6.2832
+              + H * uDepth * 26.                            // the body pushes the lines
+              + m * 2.4                                     // a break at the silhouette: the body sits in front of the wall
+              + wk * uWakeK * 18. * sin(wk * 6. + p.x * 3.); // motion leaves a swirl
+
+  float sn = sin(phase);
+  float aa = fwidth(sn) * 1.1 + 1e-4;
+  float stripe = smoothstep(-aa, aa, sn);                  // 1 = paper, 0 = ink
+  vec3 col = mix(uInk, uPaper, stripe);
+
+  // relief shading: normal from the height, light from the upper left
+  vec2 e = 3.5 / uRes;
+  float hx = height(uv + vec2(e.x, 0.)) - height(uv - vec2(e.x, 0.));
+  float hy = height(uv + vec2(0., e.y)) - height(uv - vec2(0., e.y));
+  vec3 n = normalize(vec3(-hx * sh * .09, -hy * sh * .09, 1.));
+  vec3 L = normalize(vec3(-.55, .6, .6));
+  float shade = clamp(.52 + .6 * dot(n, L), .2, 1.18);
+  // cast shadow on the wall: is the body up-left of here?
+  vec2 so = vec2(-.018, .022) * vec2(sh / uRes.x, sh / uRes.y);
+  float shadowC = smoothstep(.15, .7, body(uv + so)) * (1. - m);
+  float wallShade = 1. - .5 * shadowC;
+  col *= mix(wallShade, shade, m);
+  // a soft contact darkening right at the silhouette
+  col *= 1. - .25 * m * (1. - smoothstep(.2, .6, body(uv)));
+  // vignette
+  vec2 q = uv - .5; q.x *= uRes.x / uRes.y;
+  col *= 1. - .22 * smoothstep(.45, 1.1, length(q));
+  o = vec4(clamp(col, 0., 1.), 1.);
+}`;
+let P, U = {}, texVid, texMask, texField, texWake;
+function initGL(){
+  const mk = (t, s) => { const x = gl.createShader(t); gl.shaderSource(x, s); gl.compileShader(x);
+    if (!gl.getShaderParameter(x, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(x)); return x; };
+  P = gl.createProgram(); gl.attachShader(P, mk(gl.VERTEX_SHADER, VS)); gl.attachShader(P, mk(gl.FRAGMENT_SHADER, FS));
+  gl.bindAttribLocation(P, 0, 'p'); gl.linkProgram(P);
+  if (!gl.getProgramParameter(P, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(P));
+  gl.useProgram(P);
+  const n = gl.getProgramParameter(P, gl.ACTIVE_UNIFORMS);
+  for (let i = 0; i < n; i++){ const u = gl.getActiveUniform(P, i); U[u.name] = gl.getUniformLocation(P, u.name); }
+  const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+  const tex = (unit, minF) => { const t = gl.createTexture(); gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, t);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, minF); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE); return t; };
+  texVid = tex(0, gl.LINEAR_MIPMAP_LINEAR); texMask = tex(1, gl.LINEAR); texField = tex(2, gl.LINEAR); texWake = tex(3, gl.LINEAR);
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+  gl.activeTexture(gl.TEXTURE1); gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, 1, 1, 0, gl.RED, gl.UNSIGNED_BYTE, new Uint8Array([0]));
+  gl.activeTexture(gl.TEXTURE2); gl.texImage2D(gl.TEXTURE_2D, 0, gl.R16F, 1, 1, 0, gl.RED, gl.FLOAT, new Float32Array([0]));
+  gl.activeTexture(gl.TEXTURE3); gl.texImage2D(gl.TEXTURE_2D, 0, gl.R16F, 1, 1, 0, gl.RED, gl.FLOAT, new Float32Array([0]));
+  gl.uniform1i(U.uVid, 0); gl.uniform1i(U.uMask, 1); gl.uniform1i(U.uField, 2); gl.uniform1i(U.uWake, 3);
+}
+
+/* ---------- mask → height field + wake (reused buffers) ---------- */
+let vidW = 1280, vidH = 720;
+const M = { w:0, h:0, f:null, u8:null, present:false, cover:0, has:false, external:false, lastT:0 };
+const G = { w:0, h:0, raw:null, prev:null, a:null, b:null, wake:null, wtmp:null, wakeSum:0 };
+function ensureGrid(){
+  const gw = vidW >= vidH ? 160 : Math.max(40, Math.round(160 * vidW / vidH));
+  const gh = vidW >= vidH ? Math.max(40, Math.round(160 * vidH / vidW)) : 160;
+  if (G.w === gw && G.h === gh) return;
+  G.w = gw; G.h = gh; const n = gw*gh;
+  G.raw = new Float32Array(n); G.prev = new Float32Array(n); G.a = new Float32Array(n); G.b = new Float32Array(n);
+  G.wake = new Float32Array(n); G.wtmp = new Float32Array(n);
+}
+function boxH(src, dst, w, h, r){ const inv = 1/(2*r+1);
+  for (let y = 0; y < h; y++){ const o = y*w; let s = 0;
+    for (let x = -r; x <= r; x++) s += src[o + Math.min(w-1, Math.max(0, x))];
+    for (let x = 0; x < w; x++){ dst[o+x] = s*inv; s += src[o + Math.min(w-1, x+r+1)] - src[o + Math.max(0, x-r)]; } } }
+function boxV(src, dst, w, h, r){ const inv = 1/(2*r+1);
+  for (let x = 0; x < w; x++){ let s = 0;
+    for (let y = -r; y <= r; y++) s += src[Math.min(h-1, Math.max(0, y))*w + x];
+    for (let y = 0; y < h; y++){ dst[y*w+x] = s*inv; s += src[Math.min(h-1, y+r+1)*w + x] - src[Math.max(0, y-r)*w + x]; } } }
+function ingestMask(data, w, h){
+  if (!data || !(w > 0) || !(h > 0) || data.length < w*h) return;
+  const now = performance.now(), dt = M.lastT ? Math.min(.2, (now - M.lastT)/1000) : .033; M.lastT = now;
+  if (M.w !== w || M.h !== h){ M.w = w; M.h = h; M.f = new Float32Array(w*h); M.u8 = new Uint8Array(w*h); }
+  const F = M.f, U8 = M.u8; let on = 0;
+  for (let i = 0, n = w*h; i < n; i++){
+    let m = data[i]; if (!(m >= 0)) m = 0; else if (m > 1) m = 1;
+    F[i] = F[i]*.35 + m*.65; U8[i] = F[i]*255 | 0; if (F[i] > .5) on++;
+  }
+  M.cover = on/(w*h); M.present = M.cover > .006; M.has = true;
+  ensureGrid();
+  const gw = G.w, gh = G.h, R = G.raw, PV = G.prev, A = G.a, B = G.b, WK = G.wake, WT = G.wtmp;
+  for (let y = 0; y < gh; y++){
+    const my = Math.min(h-1, ((y + .5)/gh*h) | 0) * w;
+    for (let x = 0; x < gw; x++) R[y*gw + x] = F[my + Math.min(w-1, ((x + .5)/gw*w) | 0)];
+  }
+  // wake: where the silhouette just changed, decaying over ~3 s (frame-rate independent)
+  const decay = Math.exp(-dt / 1.1);
+  let ws = 0;
+  for (let i = 0, n = gw*gh; i < n; i++){ const d = Math.abs(R[i] - PV[i]); WT[i] = WK[i]*decay + d*1.4; PV[i] = R[i]; }
+  const rw = Math.max(1, Math.round(Math.min(gw, gh) * .03));
+  boxH(WT, B, gw, gh, rw); boxV(B, WT, gw, gh, rw);
+  for (let i = 0, n = gw*gh; i < n; i++){ const v = Math.min(3, WT[i]); WK[i] = v; ws += v; }
+  G.wakeSum = ws / (gw*gh);
+  // height: a wide blur makes the body a rounded relief
+  A.set(R);
+  const r = Math.max(2, Math.round(Math.min(gw, gh) * .06));
+  boxH(A, B, gw, gh, r); boxV(B, A, gw, gh, r); boxH(A, B, gw, gh, r); boxV(B, A, gw, gh, r);
+  if (gl && texMask){
+    gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, texMask);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, w, h, 0, gl.RED, gl.UNSIGNED_BYTE, U8);
+    gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, texField);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R16F, gw, gh, 0, gl.RED, gl.FLOAT, A);
+    gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, texWake);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R16F, gw, gh, 0, gl.RED, gl.FLOAT, WK);
+  }
+}
+
+/* ---------- MediaPipe (dynamic import; a relief of the whole frame without it) ---------- */
+let segmenter = null, lastTs = 0, lastVT = -1, fallback = false;
+async function initModel(){
+  try{
+    const vision = await import(VISION_URL);
+    const fs = await vision.FilesetResolver.forVisionTasks(WASM_URL);
+    const opts = d => ({ baseOptions:{ modelAssetPath:SEG_MODEL, delegate:d }, runningMode:'VIDEO', outputConfidenceMasks:true, outputCategoryMask:false });
+    try { segmenter = await vision.ImageSegmenter.createFromOptions(fs, opts('GPU')); }
+    catch(e){ segmenter = await vision.ImageSegmenter.createFromOptions(fs, opts('CPU')); }
+    setStatus('');
+  }catch(e){
+    if (M.external) return;
+    fallback = true;
+    setStatus('人物検出モデルを読み込めませんでした（ネット接続を確認）。\n映像の明るさで壁を浮かせて続けます。');
+  }
+}
+function segment(now){
+  if (!segmenter || video.readyState < 2) return;
+  const vt = video.currentTime; if (vt === lastVT) return; lastVT = vt;
+  try{
+    const ts = Math.max(lastTs + 1, Math.round(now)); lastTs = ts;
+    segmenter.segmentForVideo(video, ts, res => {
+      const ms = res && res.confidenceMasks;
+      if (!ms || !ms.length) return;
+      const mk = ms[ms.length - 1];                  // 2 masks → [0] is background, [1] is the person
+      ingestMask(mk.getAsFloat32Array(), mk.width, mk.height);
+    });
+  }catch(e){}
+}
+
+/* ---------- camera ---------- */
+let stream = null, facing = 'user', mirror = true, started = false;
+function setStatus(t){ $('status').textContent = t || ''; }
+function camError(e){
+  const msg = (e && (e.message || e.name)) ? (e.message || e.name) : String(e || 'unknown');
+  const text = 'カメラを起動できませんでした：' + msg + '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+  $('err').textContent = text;
+  if (started) setStatus(text);
+}
+async function startCam(){
+  const md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) throw new Error('getUserMedia is unavailable');
+  const s = await md.getUserMedia({ video:{ facingMode:{ ideal:facing }, width:{ ideal:1280 }, height:{ ideal:720 } }, audio:false });
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = s; mirror = facing === 'user';
+  video.srcObject = s;
+  await new Promise(r => { if (video.readyState >= 1) r(); else video.onloadedmetadata = () => r(); });
+  await video.play().catch(()=>{});
+  vidW = video.videoWidth || 1280; vidH = video.videoHeight || 720;
+  ensureGrid();
+}
+
+/* ---------- audio: the shutter only ---------- */
+let actx = null, bus = null, recDest = null;
+function ensureAudio(){
+  if (actx){ if (actx.state === 'suspended') actx.resume().catch(()=>{}); return; }
+  const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+  actx = new AC(); bus = actx.createGain(); bus.gain.value = .35; bus.connect(actx.destination);
+  recDest = actx.createMediaStreamDestination(); bus.connect(recDest);
+  actx.resume().catch(()=>{});
+}
+function click(){
+  if (!actx || actx.state !== 'running') return;
+  const t = actx.currentTime, len = actx.sampleRate*.025 | 0, b = actx.createBuffer(1, len, actx.sampleRate), d = b.getChannelData(0);
+  for (let i = 0; i < len; i++) d[i] = (Math.random()*2 - 1) * Math.pow(1 - i/len, 5);
+  const s = actx.createBufferSource(); s.buffer = b;
+  const f = actx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 2200; f.Q.value = 1.2;
+  s.connect(f); f.connect(bus); s.start(t);
+}
+
+$('go').onclick = async () => {
+  $('err').textContent = '';
+  ensureAudio();
+  try{
+    if (!gl) throw new Error('WebGL2 に未対応のブラウザです');
+    if (!P) initGL();
+    await startCam();
+  }catch(e){ camError(e); return; }
+  $('start').style.display = 'none';
+  ['gear','flip','bar','rec','shoot'].forEach(id => $(id).classList.add('show'));
+  if (!started){ started = true; initModel(); requestAnimationFrame(loop); }
+};
+$('flip').onclick = async () => {
+  const prev = facing; facing = facing === 'user' ? 'environment' : 'user';
+  try { await startCam(); } catch(e){ facing = prev; camError(e); }
+};
+$('gear').onclick = () => $('panel').classList.toggle('hide');
+function setPal(i){
+  S.pal = i; const p = PALS[i];
+  [...$('pals').children].forEach(x => x.classList.toggle('on', +x.dataset.p === i));
+  const r = document.documentElement.style; r.setProperty('--paper', p.css[0]); r.setProperty('--ink', p.css[1]);
+}
+$('pals').onclick = e => { const b = e.target.closest('button'); if (b) setPal(+b.dataset.p); };
+[['sFreq','freq'],['sDepth','depth'],['sWake','wake'],['sFlow','flow']].forEach(([id,k]) => { $(id).oninput = e => { S[k] = +e.target.value; }; });
+
+$('shoot').onclick = () => {
+  click();
+  try{ canvas.toBlob(b => { if (!b) return; const a = document.createElement('a'); a.href = URL.createObjectURL(b);
+    a.download = 'namisen-' + Date.now() + '.png'; a.click(); }, 'image/png'); }catch(e){ setStatus('保存できませんでした。'); }
+};
+let rec = null, chunks = [];
+$('rec').onclick = () => {
+  if (rec && rec.state === 'recording'){ rec.stop(); return; }
+  try{
+    ensureAudio();
+    const tracks = [...canvas.captureStream(30).getVideoTracks()];
+    if (recDest) tracks.push(...recDest.stream.getAudioTracks());
+    const mime = ['video/mp4;codecs=avc1','video/webm;codecs=vp9,opus','video/webm'].find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || '';
+    rec = new MediaRecorder(new MediaStream(tracks), mime ? { mimeType:mime } : {});
+    chunks = [];
+    rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+    rec.onstop = () => {
+      $('rec').classList.remove('on'); $('rec').textContent = '● REC';
+      const ext = (rec.mimeType || '').includes('mp4') ? 'mp4' : 'webm';
+      const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(chunks, { type:rec.mimeType || 'video/webm' }));
+      a.download = 'namisen.' + ext; a.click();
+    };
+    rec.start(); $('rec').classList.add('on'); $('rec').textContent = '■ STOP';
+  }catch(e){ setStatus('録画を開始できませんでした。'); }
+};
+
+/* ---------- render ---------- */
+function loop(now){
+  requestAnimationFrame(loop);
+  if (video.videoWidth && (video.videoWidth !== vidW || video.videoHeight !== vidH)){ vidW = video.videoWidth; vidH = video.videoHeight; ensureGrid(); }
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  let W = Math.round(innerWidth*dpr), H = Math.round(innerHeight*dpr);
+  const k = Math.min(1, 1800 / Math.max(W, H)); W = Math.round(W*k); H = Math.round(H*k);
+  if (canvas.width !== W || canvas.height !== H){ canvas.width = W; canvas.height = H; }
+  if (!M.external) segment(now);
+  if (video.readyState < 2) return;
+  gl.viewport(0, 0, W, H);
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, texVid);
+  try { gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video); gl.generateMipmap(gl.TEXTURE_2D); } catch(e){ return; }
+  const sa = W/H, va = vidW/vidH, sx = sa < va ? sa/va : 1, sy = sa < va ? 1 : va/sa;
+  const pal = PALS[S.pal];
+  gl.uniform2f(U.uScale, sx, sy); gl.uniform2f(U.uRes, W, H);
+  gl.uniform1f(U.uMirror, mirror ? 1 : 0);
+  gl.uniform1f(U.uHas, M.has && M.present ? 1 : 0);
+  gl.uniform1f(U.uWhole, (fallback && !M.external) || !M.has ? 1 : 0);
+  gl.uniform1f(U.uT, now/1000); gl.uniform1f(U.uFreq, S.freq); gl.uniform1f(U.uDepth, S.depth);
+  gl.uniform1f(U.uWakeK, S.wake); gl.uniform1f(U.uFlow, S.flow);
+  gl.uniform3fv(U.uPaper, pal.paper); gl.uniform3fv(U.uInk, pal.ink);
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+}
+
+/* ---------- test hook (used by the local verification harness) ---------- */
+window.__NAMISEN = {
+  ingestMask(d, w, h){ if (!M.external) setStatus(''); M.external = true; fallback = false; ingestMask(d, w, h); },
+  palette(i){ setPal(i); },
+  state: () => ({ present:M.present, cover:M.cover, wake:G.wakeSum, fallback }),
+};
+</script>
+</body>
+</html>
