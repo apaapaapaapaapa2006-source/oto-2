@@ -1,0 +1,559 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="description" content="映った人が暗い空間に浮かぶ三次元の点群スキャンになる。動いたところから体が粉になって風に流れ、止まれば点がまた集まって体に戻る。">
+<meta name="theme-color" content="#05070a">
+<title>TENGUN ─ 動くと崩れる、点群の体</title>
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  TENGUN 点群 ─ 動くと崩れる、点群の体               ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  MOOD       レーザースキャナが撮った夜の点群。映った人だけが数万の光の点で
+             できた浮き彫りになり、真っ暗な空間でゆっくり回る。動いたところ
+             から体が粉になって風へほどけ、止まると点が戻って体を組み直す。
+             カメラ一台で撮った MV のような、冷たくて静かな画。
+  PALETTE    SCAN   地 #05070a・点 #eef2f5・粉 #6fa8ff（差し色は青一色）
+             AMBER  地 #0a0705・点 #ffc27a・粉 #f4efe6
+             PAPER  地 #ebe8e1・点 #16181c（紙に刷った点描）・粉 #2a47a8
+  TYPE       Geist 200/400（細身のグロテスク）＋ Geist Mono（数字）。
+  MOTION     点群は 20 秒周期でゆっくり首を振る。ドラッグで回せる。
+             走査の光が 7 秒に一度、上から下へ体をなぞる（タップで今すぐ）。
+             粉は約 2.5 秒で流れて消え、崩れた場所は同じ時間で埋まり直す。
+  SIGNATURE  動いたぶんだけ体が空間へ散って、止まれば戻ること。
+  TECH       WebGL2 の gl.POINTS。数万点の頂点シェーダがカメラ映像・人物
+             マスク・「崩れてからの時間」を読んで、奥行き（マスクをぼかした
+             膨らみ＋明るさ）と飛散の位置を毎フレーム決める。CPU はマスクを
+             画面座標へ写し、フレーム差で崩れた升目の時計を始めるだけ。
+             マスクが無くても（モデル読込失敗時）画面全体の点群として動く。
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@200;400&family=Geist+Mono:wght@300&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#05070a;--fg:#eef2f5;--dim:rgba(238,242,245,.5);--line:rgba(238,242,245,.2);--acc:#6fa8ff}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none}
+html,body{margin:0;height:100%;background:var(--bg);overflow:hidden;color:var(--fg);
+  font-family:Geist,"Hiragino Sans","Noto Sans JP",sans-serif;font-weight:200;transition:background .4s}
+#gl{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:grab}
+#cam{position:fixed;left:0;top:0;width:2px;height:2px;opacity:.01;pointer-events:none}
+#est{display:none}
+
+#start{position:fixed;inset:0;z-index:30;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:26px;
+  padding:28px;text-align:center;background:var(--bg)}
+#start .t{font:300 10px "Geist Mono",monospace;letter-spacing:.5em;margin-right:-.5em;color:var(--dim)}
+#start h1{margin:0;font-weight:200;font-size:min(16vw,96px);line-height:1;letter-spacing:.32em;margin-right:-.32em}
+#start .dots{width:min(64vw,300px);height:1px;background:radial-gradient(circle,var(--fg) .6px,transparent 1px) 0 0/6px 1px}
+#start p{margin:0;font-size:12px;line-height:2.1;color:var(--dim);letter-spacing:.08em;font-family:"Hiragino Sans","Noto Sans JP",sans-serif;font-weight:300}
+#go{appearance:none;border:1px solid var(--line);background:transparent;color:var(--fg);font:400 10px Geist,sans-serif;
+  letter-spacing:.5em;padding:15px 30px 15px 36px;cursor:pointer;transition:border-color .3s}
+#go:hover{border-color:var(--fg)}
+#err{font-size:12px;line-height:1.8;max-width:340px;min-height:1em;white-space:pre-line;color:#e0a3a3;font-family:"Hiragino Sans","Noto Sans JP",sans-serif}
+
+.btn{position:fixed;z-index:12;appearance:none;border:0;background:transparent;color:var(--fg);font:400 10px Geist,"Hiragino Sans",sans-serif;
+  letter-spacing:.3em;padding:10px 8px;display:none;cursor:pointer;opacity:.6;transition:opacity .3s}
+.btn.show{display:block}
+.btn:hover{opacity:1}
+#gear{right:10px;top:calc(env(safe-area-inset-top) + 6px);font-size:14px;letter-spacing:0}
+#flip{right:10px;top:calc(env(safe-area-inset-top) + 40px);letter-spacing:.1em;font-family:"Hiragino Sans","Noto Sans JP",sans-serif}
+#bar{position:fixed;left:0;right:0;bottom:calc(env(safe-area-inset-bottom) + 10px);z-index:12;display:none;justify-content:center;align-items:center;gap:28px}
+#bar.show{display:flex}
+#bar .btn{position:static;display:block}
+#bar #shoot{position:relative;width:42px;height:42px;border-radius:50%;border:1px dotted var(--fg);padding:0;opacity:.75}
+#shoot::after{content:"";position:absolute;inset:8px;border-radius:50%;background:radial-gradient(circle,var(--fg) 1px,transparent 1.4px) 0 0/4px 4px}
+#rec.on{opacity:1;color:var(--acc)}
+#hud{position:fixed;left:14px;top:calc(env(safe-area-inset-top) + 14px);z-index:11;font:300 9px "Geist Mono",monospace;letter-spacing:.26em;color:var(--dim);
+  pointer-events:none;display:none;line-height:2.1;white-space:pre}
+#hud.show{display:block}
+#status{position:fixed;left:14px;bottom:calc(env(safe-area-inset-bottom) + 66px);z-index:11;font-size:11px;letter-spacing:.04em;
+  color:var(--dim);pointer-events:none;max-width:72vw;line-height:1.7;white-space:pre-line;font-family:"Hiragino Sans","Noto Sans JP",sans-serif}
+
+#panel{position:fixed;right:10px;top:calc(env(safe-area-inset-top) + 78px);z-index:12;width:min(270px,calc(100vw - 20px));
+  background:color-mix(in srgb,var(--bg) 86%,transparent);border:1px solid var(--line);padding:14px 16px;display:flex;flex-direction:column;gap:13px;
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);transition:opacity .25s}
+#panel.hide{opacity:0;pointer-events:none}
+.chips{display:flex;border:1px solid var(--line)}
+.chips button{flex:1;appearance:none;border:0;background:transparent;color:var(--fg);padding:8px 2px;font:400 9px Geist,sans-serif;
+  letter-spacing:.22em;cursor:pointer;opacity:.55}
+.chips button.on{opacity:1;background:color-mix(in srgb,var(--fg) 12%,transparent)}
+#panel label{display:flex;align-items:center;gap:10px;font-size:11px;letter-spacing:.04em;font-family:"Hiragino Sans","Noto Sans JP",sans-serif;font-weight:300}
+#panel label span{width:74px;flex:none;color:var(--dim)}
+#panel input[type=range]{flex:1;accent-color:var(--acc)}
+#panel .note{font-size:10px;color:var(--dim);line-height:1.7;font-family:"Hiragino Sans","Noto Sans JP",sans-serif}
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<canvas id="est"></canvas>
+<video id="cam" playsinline muted autoplay></video>
+<div id="hud"></div>
+<div id="status"></div>
+<button id="gear" class="btn" aria-label="調整">⚙</button>
+<button id="flip" class="btn">⟲ カメラ</button>
+<div id="bar">
+  <button id="rec" class="btn">● REC</button>
+  <button id="shoot" class="btn" aria-label="撮る"></button>
+  <button id="scan" class="btn">SCAN</button>
+</div>
+
+<div id="panel" class="hide">
+  <div class="chips" id="pals">
+    <button data-p="0" class="on">SCAN</button>
+    <button data-p="1">AMBER</button>
+    <button data-p="2">PAPER</button>
+  </div>
+  <label><span>点の数</span><input type="range" id="sDense" min="0" max="1" step="0.01" value="0.5"></label>
+  <label><span>奥行き</span><input type="range" id="sDepth" min="0" max="1" step="0.01" value="0.55"></label>
+  <label><span>崩れやすさ</span><input type="range" id="sSens" min="0" max="1" step="0.01" value="0.55"></label>
+  <label><span>粉の流れ</span><input type="range" id="sDrift" min="0" max="1" step="0.01" value="0.55"></label>
+  <label><span>首振り</span><input type="range" id="sOrbit" min="0" max="1" step="0.01" value="0.5"></label>
+  <div class="note">ドラッグで回す。タップで走査。</div>
+</div>
+
+<div id="start">
+  <div class="t">POINT CLOUD</div>
+  <h1>TENGUN</h1>
+  <div class="dots"></div>
+  <p>あなたは数万の点になる。<br>動いたところから、粉になって流れる。</p>
+  <button id="go">START SCAN</button>
+  <div id="err"></div>
+</div>
+
+<script>
+'use strict';
+/* =====================================================================
+   TENGUN — the person as a point cloud. One vertex per grid cell; the
+   vertex shader lifts it into 3D from a blurred person mask (+ a little
+   brightness) and, where the CPU has started a cell's "crumble clock",
+   a second pass of the same points blows away as dust.
+   ===================================================================== */
+const VISION_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs';
+const WASM_URL   = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm';
+const SEG_MODEL  = 'https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite';
+
+const $ = id => document.getElementById(id);
+const canvas = $('gl'), video = $('cam'), est = $('est');
+const ectx = est.getContext('2d', { willReadFrequently:true });
+
+const PALS = [
+  { name:'SCAN',  bg:[.020,.027,.039], pt:[.93,.95,.96], dust:[.44,.66,1.0], neg:0, css:['#05070a','#eef2f5','#6fa8ff'] },
+  { name:'AMBER', bg:[.039,.027,.020], pt:[1.0,.76,.48], dust:[.96,.94,.90], neg:0, css:['#0a0705','#ffc27a','#f4efe6'] },
+  { name:'PAPER', bg:[.922,.910,.882], pt:[.91,.90,.87], dust:[.75,.66,.30], neg:1, css:['#ebe8e1','#16181c','#2a47a8'] },
+];
+const S = { pal:0, dense:.5, depth:.55, sens:.55, drift:.55, orbit:.5 };
+const LIFE = 2.6;                                  // seconds a crumbled cell takes to fly off and grow back
+
+/* ---------- GL ---------- */
+const gl = canvas.getContext('webgl2', { antialias:false, alpha:false, preserveDrawingBuffer:true, powerPreference:'high-performance' });
+const VS = `#version 300 es
+precision highp float;
+in vec2 aUV; in float aSeed;
+uniform sampler2D uVid, uField;
+uniform vec2 uScale, uSpan;
+uniform float uMirror, uHasMask, uLayer, uYaw, uPitch, uDepth, uDrift, uT, uPx, uScan, uNeg;
+out vec3 vCol; out float vA;
+uniform vec3 uPt, uDust;
+float h(float n){ return fract(sin(n) * 43758.5453); }
+void main(){
+  vec2 v = (vec2(aUV.x, 1. - aUV.y) - .5) * uScale + .5;
+  if (uMirror > .5) v.x = 1. - v.x;
+  vec3 c = texture(uVid, v).rgb;
+  float l = dot(c, vec3(.2126,.7152,.0722));
+  vec4 f = texture(uField, vec2(aUV.x, 1. - aUV.y));       // r mask, g soft bulge, b crumble age 0..1, a mask at crumble
+  float m = uHasMask > .5 ? f.r : 1.;
+  vec3 p = vec3((aUV - .5) * uSpan, 0.);
+  p.z = (f.g * .42 + l * .06 * m) * uDepth;
+  // jitter the lattice a hair so it reads as a scan, not a grid
+  p.xy += (vec2(h(aSeed * 17.1), h(aSeed * 31.7)) - .5) * .0035;
+  float age = f.b, a;
+  vec3 col;
+  if (uLayer < .5){
+    a = m * smoothstep(.18, .95, age);                        // the body, with holes where it crumbled
+    col = uPt * (uNeg > .5 ? 1.25 - 1.05 * l : .2 + 1.35 * l);   // on paper, shadows take the most ink
+    float band = exp(-pow((p.y - uScan) * 38., 2.));          // the scanning light
+    col += uDust * band * .9 * m; a = max(a, band * m * .8 * step(.18, age));
+  } else {
+    float k = 1. - age;
+    a = f.a * k * step(age, .995) * (.55 + .45 * h(aSeed * 5.3));
+    // dust: burst outward, rise, drift with the wind, curl a little
+    vec3 dir = normalize(vec3(h(aSeed) - .5, h(aSeed + 1.7) - .5, h(aSeed + 3.1) - .5) + vec3(sign(p.x + 1e-4) * .35, .45, .15));
+    float e = 1. - pow(1. - age, 2.2);
+    p += dir * e * (.18 + .55 * uDrift) * (.5 + h(aSeed * 9.7));
+    p.x += e * e * .5 * uDrift;
+    p += vec3(sin(uT * 1.3 + aSeed * 40.), cos(uT * 1.1 + aSeed * 23.), sin(uT * .9 + aSeed * 11.)) * .03 * e;
+    col = mix(uPt * (.3 + l), uDust, .75) * (1.1 - .4 * age);
+  }
+  // orbit
+  float cy = cos(uYaw), sy = sin(uYaw), cp = cos(uPitch), sp = sin(uPitch);
+  p = vec3(cy * p.x + sy * p.z, p.y, -sy * p.x + cy * p.z);
+  p = vec3(p.x, cp * p.y - sp * p.z, sp * p.y + cp * p.z);
+  float D = 2.2, zc = D - p.z;
+  vec2 ndc = p.xy * (D / zc) * 2. / uSpan * .92;
+  gl_Position = vec4(ndc, 0., 1.);
+  gl_PointSize = uPx * (D / zc) * (uLayer < .5 ? 1. : .8);
+  vCol = col; vA = a;
+  if (a < .01) gl_Position = vec4(2., 2., 2., 1.);
+}`;
+const FS = `#version 300 es
+precision mediump float;
+in vec3 vCol; in float vA; out vec4 o;
+void main(){
+  vec2 q = gl_PointCoord - .5;
+  float r = 1. - smoothstep(.25, .5, length(q));
+  o = vec4(vCol * vA * r, 1.);
+}`;
+const VS_Q = `#version 300 es
+in vec2 p; void main(){ gl_Position = vec4(p, 0., 1.); }`;
+const FS_BG = `#version 300 es
+precision mediump float;
+uniform vec3 uBg; uniform vec2 uRes; uniform float uT; out vec4 o;
+float h21(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233))) * 43758.5453); }
+void main(){
+  vec2 q = gl_FragCoord.xy / uRes - .5; q.x *= uRes.x / uRes.y;
+  float v = 1. - .5 * smoothstep(.3, 1.1, length(q));
+  vec3 c = uBg * mix(1., v, .6);
+  c += (h21(floor(gl_FragCoord.xy / 1.5) + fract(uT * 7.13) * 91.7) - .5) * .025;
+  o = vec4(c, 1.);
+}`;
+function sh(type, src){ const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s; }
+function prog(vs, fs, attrs){ const p = gl.createProgram(); gl.attachShader(p, sh(gl.VERTEX_SHADER, vs)); gl.attachShader(p, sh(gl.FRAGMENT_SHADER, fs));
+  attrs.forEach((a, i) => gl.bindAttribLocation(p, i, a)); gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+  const U = {}, n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+  for (let i = 0; i < n; i++){ const u = gl.getActiveUniform(p, i); U[u.name] = gl.getUniformLocation(p, u.name); }
+  return { p, U }; }
+function tex(){ const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE); return t; }
+let PP, PB, vaoPts, vaoQuad, bufPts, nPts = 0, gridKey = '', texVid, texField;
+function initGL(){
+  PP = prog(VS, FS, ['aUV', 'aSeed']); PB = prog(VS_Q, FS_BG, ['p']);
+  vaoQuad = gl.createVertexArray(); gl.bindVertexArray(vaoQuad);
+  const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+  vaoPts = gl.createVertexArray(); gl.bindVertexArray(vaoPts);
+  bufPts = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, bufPts);
+  gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 12, 0);
+  gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 1, gl.FLOAT, false, 12, 8);
+  gl.bindVertexArray(null);
+  texVid = tex(); texField = tex();
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+}
+function ensureGrid(W, H){
+  const short = Math.round(110 + 150 * S.dense);   // points across the short edge
+  let gw, gh; if (W >= H){ gh = short; gw = Math.round(short * W / H); } else { gw = short; gh = Math.round(short * H / W); }
+  const key = gw + 'x' + gh; if (key === gridKey) return; gridKey = key;
+  const d = new Float32Array(gw * gh * 3); let k = 0;
+  for (let y = 0; y < gh; y++) for (let x = 0; x < gw; x++){
+    d[k++] = (x + .5) / gw; d[k++] = (y + .5) / gh; d[k++] = Math.random() * 100;
+  }
+  nPts = gw * gh;
+  gl.bindBuffer(gl.ARRAY_BUFFER, bufPts); gl.bufferData(gl.ARRAY_BUFFER, d, gl.STATIC_DRAW);
+}
+
+/* ---------- field: mask in screen space + crumble clocks (all buffers reused) ---------- */
+const FSHORT = 96;
+const F = { w:0, h:0, cur:null, prev:null, have:false, sm:null, blur:null, tmp:null, age:null, hitM:null, px:null, idx:null, idxKey:'',
+  hits:0, cover:0, cx:.5, cy:.5, crumbling:0 };
+function ensureField(W, H){
+  let w, h; if (W >= H){ h = FSHORT; w = Math.round(FSHORT * W / H); } else { w = FSHORT; h = Math.round(FSHORT * H / W); }
+  if (w === F.w && h === F.h) return;
+  F.w = w; F.h = h; est.width = w; est.height = h; const n = w * h;
+  F.cur = new Uint8Array(n); F.prev = new Uint8Array(n); F.have = false;
+  F.sm = new Float32Array(n); F.blur = new Float32Array(n); F.tmp = new Float32Array(n);
+  F.age = new Float32Array(n).fill(1); F.hitM = new Float32Array(n); F.px = new Uint8Array(n * 4); F.idxKey = '';
+}
+function grab(){
+  const w = F.w, h = F.h, vw = video.videoWidth, vh = video.videoHeight;
+  if (!(vw > 0 && vh > 0)) return false;
+  const sa = w / h, va = vw / vh;
+  let cw = vw, ch = vh; if (va > sa) cw = vh * sa; else ch = vw / sa;
+  ectx.setTransform(mirror ? -1 : 1, 0, 0, 1, mirror ? w : 0, 0);
+  try { ectx.drawImage(video, (vw - cw)/2, (vh - ch)/2, cw, ch, 0, 0, w, h); } catch(e){ return false; }
+  const d = ectx.getImageData(0, 0, w, h).data;
+  const t = F.prev; F.prev = F.cur; F.cur = t;
+  for (let i = 0, j = 0, n = w*h; i < n; i++, j += 4) F.cur[i] = (d[j]*77 + d[j+1]*150 + d[j+2]*29) >> 8;
+  const ok = F.have; F.have = true; return ok;
+}
+// screen cell → mask index (cover crop + mirror), rebuilt only when sizes change
+function ensureIdx(){
+  const key = F.w + 'x' + F.h + ':' + M.w + 'x' + M.h + ':' + (mirror ? 1 : 0) + ':' + vidW + 'x' + vidH;
+  if (key === F.idxKey) return; F.idxKey = key;
+  if (!F.idx || F.idx.length !== F.w * F.h) F.idx = new Int32Array(F.w * F.h);
+  const sa = F.w / F.h, va = vidW / vidH, sx = sa < va ? sa / va : 1, sy = sa < va ? 1 : va / sa;
+  for (let y = 0; y < F.h; y++) for (let x = 0; x < F.w; x++){
+    let u = ((x + .5) / F.w - .5) * sx + .5, v = ((y + .5) / F.h - .5) * sy + .5;
+    if (mirror) u = 1 - u;
+    const mx = Math.min(M.w - 1, Math.max(0, u * M.w | 0)), my = Math.min(M.h - 1, Math.max(0, v * M.h | 0));
+    F.idx[y * F.w + x] = my * M.w + mx;
+  }
+}
+function boxBlur(src, dst, tmp, w, h, r){
+  const inv = 1 / (2 * r + 1);
+  for (let y = 0; y < h; y++){ const o = y * w; let s = 0;
+    for (let x = -r; x <= r; x++) s += src[o + Math.min(w - 1, Math.max(0, x))];
+    for (let x = 0; x < w; x++){ tmp[o + x] = s * inv; s += src[o + Math.min(w - 1, x + r + 1)] - src[o + Math.max(0, x - r)]; } }
+  for (let x = 0; x < w; x++){ let s = 0;
+    for (let y = -r; y <= r; y++) s += tmp[Math.min(h - 1, Math.max(0, y)) * w + x];
+    for (let y = 0; y < h; y++){ dst[y * w + x] = s * inv; s += tmp[Math.min(h - 1, y + r + 1) * w + x] - tmp[Math.max(0, y - r) * w + x]; } }
+}
+function updateField(dt, fresh){
+  const n = F.w * F.h, useMask = M.has && M.live;
+  if (useMask) ensureIdx();
+  const thr = 44 - 30 * S.sens, da = dt / LIFE;
+  let hits = 0, on = 0, cxs = 0, cys = 0, cn = 0, crum = 0;
+  // a cut, not a gesture: camera warm-up, exposure jumps and camera flips change most of the frame at once
+  let armed = fresh && F.have && performance.now() - camT0 > 900;
+  if (armed){ let ch = 0; for (let i = 0; i < n; i += 7){ const dv = F.cur[i] - F.prev[i]; if (dv > thr || -dv > thr) ch++; } if (ch * 7 > n * .35) armed = false; }
+  for (let i = 0; i < n; i++){
+    const mk = useMask ? M.f[F.idx[i]] : 1;
+    F.sm[i] = F.sm[i] * .45 + mk * .55;
+    let a = F.age[i] + da; if (a > 1) a = 1;
+    if (armed){
+      const dv = F.cur[i] - F.prev[i];
+      if ((dv > thr || -dv > thr) && a > .3 && F.sm[i] > .4){ a = 0; F.hitM[i] = F.sm[i]; hits++; }
+    }
+    F.age[i] = a;
+    if (a < .5) crum++;
+    if (F.sm[i] > .5){ on++; if (a < .5){ cxs += i % F.w; cys += i / F.w | 0; cn++; } }
+  }
+  boxBlur(F.sm, F.blur, F.tmp, F.w, F.h, Math.max(2, F.w / 26 | 0));
+  boxBlur(F.blur, F.blur, F.tmp, F.w, F.h, Math.max(2, F.w / 26 | 0));
+  const P = F.px;
+  for (let i = 0, j = 0; i < n; i++, j += 4){
+    P[j] = F.sm[i] * 255; P[j+1] = Math.min(1, F.blur[i] * 1.6) * 255; P[j+2] = F.age[i] * 255; P[j+3] = F.hitM[i] * 255;
+  }
+  gl.bindTexture(gl.TEXTURE_2D, texField);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, F.w, F.h, 0, gl.RGBA, gl.UNSIGNED_BYTE, P);
+  F.hits = hits; F.cover = on / n; F.crumbling = crum / n;
+  if (cn > 0){ F.cx = (cxs / cn + .5) / F.w; F.cy = (cys / cn + .5) / F.h; }
+}
+
+/* ---------- mask ---------- */
+const M = { w:0, h:0, f:null, has:false, live:false, external:false, lastT:0 };
+function ingestMask(data, w, h){
+  if (!data || !(w > 0) || !(h > 0) || !(w * h <= 4e6) || data.length < w * h) return false;
+  if (M.w !== w || M.h !== h){ M.w = w; M.h = h; M.f = new Float32Array(w * h); }
+  for (let i = 0, n = w * h; i < n; i++){ let m = data[i]; if (!(m >= 0)) m = 0; else if (m > 1) m = 1; M.f[i] = m; }
+  M.has = true; M.live = true; M.lastT = performance.now();
+  return true;
+}
+let segmenter = null, lastTs = 0, lastSegVT = -1;
+async function initModel(){
+  try{
+    const vision = await import(VISION_URL);
+    const fs = await vision.FilesetResolver.forVisionTasks(WASM_URL);
+    const opts = d => ({ baseOptions:{ modelAssetPath:SEG_MODEL, delegate:d }, runningMode:'VIDEO', outputConfidenceMasks:true, outputCategoryMask:false });
+    try { segmenter = await vision.ImageSegmenter.createFromOptions(fs, opts('GPU')); }
+    catch(e){ segmenter = await vision.ImageSegmenter.createFromOptions(fs, opts('CPU')); }
+    setStatus('');
+  }catch(e){
+    if (M.external) return;
+    setStatus('人物検出モデルを読み込めませんでした（ネット接続を確認）。\n画面全体を点群にして続けます。');
+  }
+}
+function segment(now){
+  if (!segmenter || video.readyState < 2) return;
+  const vt = video.currentTime; if (vt === lastSegVT) return; lastSegVT = vt;
+  try{
+    const ts = Math.max(lastTs + 1, Math.round(now)); lastTs = ts;
+    segmenter.segmentForVideo(video, ts, res => {
+      const ms = res && res.confidenceMasks;
+      if (!ms || !ms.length) return;
+      const mk = ms[ms.length - 1];
+      ingestMask(mk.getAsFloat32Array(), mk.width, mk.height);
+    });
+  }catch(e){}
+}
+
+/* ---------- camera ---------- */
+let stream = null, facing = 'user', mirror = true, started = false, vidW = 1280, vidH = 720, lastVT = -1, camT0 = 0;
+function setStatus(t){ $('status').textContent = t || ''; }
+function camError(e){
+  const msg = (e && (e.message || e.name)) ? (e.message || e.name) : String(e || 'unknown');
+  const text = 'カメラを起動できませんでした：' + msg + '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+  $('err').textContent = text;
+  if (started) setStatus(text);
+}
+async function startCam(){
+  const md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) throw new Error('getUserMedia is unavailable');
+  const s = await md.getUserMedia({ video:{ facingMode:{ ideal:facing }, width:{ ideal:1280 }, height:{ ideal:720 } }, audio:false });
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = s; mirror = facing === 'user';
+  video.srcObject = s;
+  await new Promise(r => { if (video.readyState >= 1) r(); else video.onloadedmetadata = () => r(); });
+  await video.play().catch(()=>{});
+  vidW = video.videoWidth || 1280; vidH = video.videoHeight || 720;
+  F.have = false; F.idxKey = ''; camT0 = performance.now();
+}
+
+/* ---------- audio: a soft air hiss that follows how much of you is blowing away ---------- */
+let actx = null, bus = null, recDest = null, hiss = null, hissF = null;
+function ensureAudio(){
+  if (actx){ if (actx.state === 'suspended') actx.resume().catch(()=>{}); return; }
+  const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+  actx = new AC(); bus = actx.createGain(); bus.gain.value = .5; bus.connect(actx.destination);
+  recDest = actx.createMediaStreamDestination(); bus.connect(recDest);
+  const sr = actx.sampleRate, n = sr * 2, b = actx.createBuffer(1, n, sr), d = b.getChannelData(0);
+  for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+  const src = actx.createBufferSource(); src.buffer = b; src.loop = true;
+  hissF = actx.createBiquadFilter(); hissF.type = 'bandpass'; hissF.frequency.value = 2400; hissF.Q.value = .7;
+  hiss = actx.createGain(); hiss.gain.value = 0;
+  src.connect(hissF); hissF.connect(hiss); hiss.connect(bus); src.start();
+  actx.resume().catch(()=>{});
+}
+
+let scanT = 0, scanFast = 0;
+$('go').onclick = async () => {
+  $('err').textContent = '';
+  ensureAudio();
+  try{
+    if (!gl) throw new Error('WebGL2 に未対応のブラウザです');
+    if (!PP) initGL();
+    await startCam();
+  }catch(e){ camError(e); return; }
+  $('start').style.display = 'none';
+  ['gear','flip','bar','rec','shoot','scan','hud'].forEach(id => $(id).classList.add('show'));
+  if (!started){ started = true; initModel(); requestAnimationFrame(loop); }
+};
+$('flip').onclick = async () => {
+  const prev = facing; facing = facing === 'user' ? 'environment' : 'user';
+  try { await startCam(); } catch(e){ facing = prev; camError(e); }
+};
+$('gear').onclick = () => $('panel').classList.toggle('hide');
+$('scan').onclick = () => { scanFast = 1; scanT = 0; };
+function setPal(i){
+  S.pal = i; const p = PALS[i];
+  [...$('pals').children].forEach(x => x.classList.toggle('on', +x.dataset.p === i));
+  const r = document.documentElement.style;
+  r.setProperty('--bg', p.css[0]); r.setProperty('--fg', p.css[1]); r.setProperty('--acc', p.css[2]);
+  r.setProperty('--dim', p.neg ? 'rgba(22,24,28,.55)' : 'rgba(238,242,245,.5)'); r.setProperty('--line', p.neg ? 'rgba(22,24,28,.22)' : 'rgba(238,242,245,.2)');
+}
+$('pals').onclick = e => { const b = e.target.closest('button'); if (b) setPal(+b.dataset.p); };
+[['sDense','dense'],['sDepth','depth'],['sSens','sens'],['sDrift','drift'],['sOrbit','orbit']].forEach(([id,k]) => { $(id).oninput = e => { S[k] = +e.target.value; }; });
+
+// drag to orbit, tap to scan
+let drag = null, yawUser = 0, pitchUser = 0;
+canvas.addEventListener('pointerdown', e => { drag = { x:e.clientX, y:e.clientY, y0:yawUser, p0:pitchUser, moved:false }; canvas.setPointerCapture(e.pointerId); });
+canvas.addEventListener('pointermove', e => {
+  if (!drag) return; const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+  if (Math.abs(dx) + Math.abs(dy) > 6) drag.moved = true;
+  const s = Math.min(innerWidth, innerHeight);
+  yawUser = Math.max(-1.1, Math.min(1.1, drag.y0 + dx / s * 2.2)); pitchUser = Math.max(-.5, Math.min(.5, drag.p0 + dy / s * 1.2));
+});
+const endDrag = () => { if (drag && !drag.moved){ scanFast = 1; scanT = 0; } drag = null; };
+canvas.addEventListener('pointerup', endDrag); canvas.addEventListener('pointercancel', () => { drag = null; });
+
+$('shoot').onclick = () => {
+  try{
+    canvas.toBlob(b => { if (!b) return; const a = document.createElement('a'); a.href = URL.createObjectURL(b);
+      a.download = 'tengun-' + Date.now() + '.png'; a.click(); }, 'image/png');
+  }catch(e){ setStatus('保存できませんでした。'); }
+};
+let rec = null, chunks = [];
+$('rec').onclick = () => {
+  if (rec && rec.state === 'recording'){ rec.stop(); return; }
+  try{
+    ensureAudio();
+    const tracks = [...canvas.captureStream(30).getVideoTracks()];
+    if (recDest) tracks.push(...recDest.stream.getAudioTracks());
+    const mime = ['video/mp4;codecs=avc1','video/webm;codecs=vp9,opus','video/webm'].find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || '';
+    rec = new MediaRecorder(new MediaStream(tracks), mime ? { mimeType:mime } : {});
+    chunks = [];
+    rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+    rec.onstop = () => {
+      $('rec').classList.remove('on'); $('rec').textContent = '● REC';
+      const ext = (rec.mimeType || '').includes('mp4') ? 'mp4' : 'webm';
+      const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(chunks, { type:rec.mimeType || 'video/webm' }));
+      a.download = 'tengun.' + ext; a.click();
+    };
+    rec.start(); $('rec').classList.add('on'); $('rec').textContent = '■ STOP';
+  }catch(e){ setStatus('録画を開始できませんでした。'); }
+};
+
+/* ---------- render ---------- */
+let lastT = 0, hudT = 0, yaw = 0, pitch = 0;
+function loop(now){
+  requestAnimationFrame(loop);
+  const dt = lastT ? Math.min(.1, (now - lastT)/1000) : 1/60; lastT = now;
+  const t = now / 1000;
+  if (video.videoWidth && (video.videoWidth !== vidW || video.videoHeight !== vidH)){ vidW = video.videoWidth; vidH = video.videoHeight; F.have = false; F.idxKey = ''; }
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  let W = Math.round(innerWidth*dpr), H = Math.round(innerHeight*dpr);
+  const k = Math.min(1, 2000 / Math.max(W, H)); W = Math.round(W*k); H = Math.round(H*k);
+  if (canvas.width !== W || canvas.height !== H){ canvas.width = W; canvas.height = H; }
+  ensureGrid(W, H); ensureField(W, H);
+  if (!M.external) segment(now);
+  if (M.live && now - M.lastT > 1500) M.live = false;   // mask went stale: stop crumbling, show nothing new
+  if (video.readyState < 2) return;
+
+  const vt = video.currentTime, fresh = vt !== lastVT; lastVT = vt;
+  const grabbed = fresh && grab();
+  updateField(dt, grabbed);
+  if (fresh){ gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, texVid);
+    try { gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video); } catch(e){ return; } }
+
+  // camera: slow sway + user drag (which eases back)
+  if (!drag){ yawUser *= Math.exp(-dt / 3); pitchUser *= Math.exp(-dt / 3); }
+  const amp = .55 * S.orbit;
+  yaw += ((Math.sin(t * .31) * amp + yawUser) - yaw) * (1 - Math.exp(-dt * 4));
+  pitch += ((Math.sin(t * .23) * .08 * S.orbit - .06 * S.orbit + pitchUser) - pitch) * (1 - Math.exp(-dt * 4));
+  // scan sweep: every 7 s, 2.2 s top to bottom (tap = now)
+  scanT += dt * (scanFast ? 1.6 : 1);
+  if (scanT > 7){ scanT = 0; scanFast = 0; }
+  const sweep = scanT / 2.2;
+  const span = W >= H ? [W / H, 1] : [1, H / W];
+  const scanY = sweep < 1 ? (.5 - sweep * 1.1) * span[1] : 99;
+
+  const p = PALS[S.pal];
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, 0, W, H);
+  gl.disable(gl.BLEND);
+  gl.useProgram(PB.p); gl.bindVertexArray(vaoQuad);
+  gl.uniform3fv(PB.U.uBg, p.bg); gl.uniform2f(PB.U.uRes, W, H); gl.uniform1f(PB.U.uT, t);
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+  gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE);
+  gl.blendEquation(p.neg ? gl.FUNC_REVERSE_SUBTRACT : gl.FUNC_ADD);
+  gl.useProgram(PP.p); gl.bindVertexArray(vaoPts);
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, texVid);
+  gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, texField);
+  gl.uniform1i(PP.U.uVid, 0); gl.uniform1i(PP.U.uField, 1);
+  const sa = W/H, va = vidW/vidH;
+  gl.uniform2f(PP.U.uScale, sa < va ? sa/va : 1, sa < va ? 1 : va/sa);
+  gl.uniform2f(PP.U.uSpan, span[0], span[1]);
+  gl.uniform1f(PP.U.uMirror, mirror ? 1 : 0); gl.uniform1f(PP.U.uHasMask, M.has && M.live ? 1 : 0);
+  gl.uniform1f(PP.U.uYaw, yaw); gl.uniform1f(PP.U.uPitch, pitch);
+  gl.uniform1f(PP.U.uDepth, .3 + 1.2 * S.depth); gl.uniform1f(PP.U.uDrift, S.drift);
+  gl.uniform1f(PP.U.uT, t); gl.uniform1f(PP.U.uScan, scanY);
+  const gh = W >= H ? Math.round(110 + 150 * S.dense) : Math.round((110 + 150 * S.dense) * H / W);
+  gl.uniform1f(PP.U.uPx, Math.max(1.6, H / gh * .78));
+  gl.uniform3fv(PP.U.uPt, p.pt); gl.uniform3fv(PP.U.uDust, p.dust); gl.uniform1f(PP.U.uNeg, p.neg);
+  gl.uniform1f(PP.U.uLayer, 0); gl.drawArrays(gl.POINTS, 0, nPts);
+  gl.uniform1f(PP.U.uLayer, 1); gl.drawArrays(gl.POINTS, 0, nPts);
+  gl.blendEquation(gl.FUNC_ADD); gl.disable(gl.BLEND);
+  gl.bindVertexArray(null);
+
+  if (hiss && actx){ const g = Math.min(.5, F.crumbling * 3); hiss.gain.setTargetAtTime(g * .5, actx.currentTime, .15); }
+
+  hudT += dt;
+  if (hudT > .3){ hudT = 0;
+    $('hud').textContent = 'TENGUN  ' + p.name + '\nPOINTS ' + nPts.toLocaleString('en-US') +
+      '\nYAW ' + (yaw * 57.3 >= 0 ? '+' : '−') + Math.abs(yaw * 57.3).toFixed(1).padStart(4, '0') + '°' +
+      '\nDISPERSE ' + (F.crumbling * 100).toFixed(1).padStart(4, '0') + '%'; }
+}
+
+/* ---------- test hook (used by the local verification harness) ---------- */
+window.__TENGUN = {
+  ingestMask(d, w, h){ if (!M.external) setStatus(''); M.external = true; return ingestMask(d, w, h); },
+  state: () => ({ hasMask:M.has, live:M.live, cover:F.cover, crumbling:F.crumbling, hits:F.hits, cx:F.cx, cy:F.cy, nPts }),
+  ageAt(x, y){ const fx = Math.min(F.w - 1, Math.max(0, x * F.w | 0)), fy = Math.min(F.h - 1, Math.max(0, y * F.h | 0)); return F.age ? F.age[fy * F.w + fx] : 1; },
+  palette(i){ setPal(i); },
+};
+</script>
+</body>
+</html>
