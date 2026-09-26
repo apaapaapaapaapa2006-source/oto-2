@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="description" content="切り抜かれたあなたが八人に増え、紙の上で万華鏡の花になる。一人ずつ少しずつ遅れているので、動けば波が輪を一周し、花は回り出して朱の刷り跡を残す。止まれば完璧な紋章に戻る。">
+<meta name="theme-color" content="#ebe5d9">
+<title>RINBU ─ 遅れて踊る、八人の万華鏡</title>
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  RINBU 輪舞 ─ 遅れて踊る、八人の万華鏡                ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  MOOD       スイス派のレコードジャケット／バスビー・バークレーの俯瞰ショット。
+             切り抜かれたあなたが墨一色の版になり、輪になって紙の上に咲く。
+             一人ずつ少しずつ過去の自分なので、動くとその動きが波になって輪を
+             一周する。動きが大きいと花そのものが回り出し、朱の版がずれて尾を
+             引く。止まれば回転はいちばん近い対称の位置でぴたりと止まり、
+             完璧な紋章に戻る。
+  PALETTE    PAPER   紙 #ebe5d9・墨 #151413・朱 #c7361f
+             NOIR    闇 #0f0f0e・銀 #e6e0d2・朱 #c7361f
+             COBALT  紙 #e8e3d6・藍 #1d2d6b・鉛 #8f98a3
+             一画面三色まで。網点やグラデーションは使わず、二値の版で刷る。
+  TYPE       Schibsted Grotesk 500（題字・詰めた大文字）・Spline Sans Mono 300（UI・版の注記）。
+  MOTION     回転は動きの量で加速し、摩擦でゆっくり止まり、最後はばねで対称位置に
+             吸い付く。朱の刷り跡は約 0.6 秒で消える。揺れ・フラッシュは無し。
+  SIGNATURE  止まっている一枚は紋章、動いている一枚は時間のずれた輪舞。
+  TECH       Canvas 2D。人物マスク × 二値化した映像で「切り抜いた版」を 1/30 秒
+             ごとにリングバッファへ刷り、k 番目の分身は k × 遅れ だけ前の版を使う
+             （時間は描画フレームではなく壁時計で数える）。朱の層は分身の影を
+             destination-out で少しずつ消しながら重ねる。バッファはすべて再利用。
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@500&family=Spline+Sans+Mono:wght@300;500&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#ebe5d9;--fg:#151413;--dim:rgba(21,20,19,.55);--line:rgba(21,20,19,.25);--acc:#c7361f}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none}
+html,body{margin:0;height:100%;background:var(--bg);overflow:hidden;color:var(--fg);
+  font-family:"Spline Sans Mono",ui-monospace,"Hiragino Sans","Noto Sans JP",monospace;font-weight:300}
+#cv{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+#cam{position:fixed;left:0;top:0;width:2px;height:2px;opacity:.01;pointer-events:none}
+
+#start{position:fixed;inset:0;z-index:30;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;
+  padding:28px;text-align:center;background:var(--bg)}
+#start .ring{width:min(46vw,190px);aspect-ratio:1;border-radius:50%;border:1px solid var(--fg);position:relative}
+#start .ring::before{content:"";position:absolute;inset:18%;border-radius:50%;background:var(--acc)}
+#start .ring::after{content:"";position:absolute;inset:40%;border-radius:50%;background:var(--bg)}
+#start .t{font-size:10px;letter-spacing:.6em;margin-right:-.6em;color:var(--dim)}
+#start h1{margin:0;font-family:"Schibsted Grotesk",Helvetica,sans-serif;font-weight:500;font-size:min(19vw,104px);line-height:.9;letter-spacing:-.045em}
+#start p{margin:0;font-size:12px;line-height:2.1;color:var(--dim);letter-spacing:.05em;font-family:"Spline Sans Mono","Hiragino Sans",sans-serif}
+#go{appearance:none;border:1px solid var(--fg);background:var(--fg);color:var(--bg);font:500 10px "Spline Sans Mono",monospace;
+  letter-spacing:.42em;padding:15px 32px 15px 38px;cursor:pointer}
+#go:hover{background:var(--acc);border-color:var(--acc)}
+#err{font-size:12px;line-height:1.8;max-width:340px;min-height:1em;white-space:pre-line;color:var(--acc);font-family:"Hiragino Sans",sans-serif}
+
+.btn{position:fixed;z-index:12;appearance:none;border:0;background:transparent;color:var(--fg);font:500 10px "Spline Sans Mono","Hiragino Sans",monospace;
+  letter-spacing:.22em;padding:10px 8px;display:none;cursor:pointer;opacity:.7;transition:opacity .3s}
+.btn.show{display:block}
+.btn:hover{opacity:1}
+#gear{right:10px;top:calc(env(safe-area-inset-top) + 6px);font-size:14px;letter-spacing:0}
+#flip{right:10px;top:calc(env(safe-area-inset-top) + 40px);letter-spacing:.08em}
+#bar{position:fixed;left:0;right:0;bottom:calc(env(safe-area-inset-bottom) + 10px);z-index:12;display:none;justify-content:center;align-items:center;gap:28px}
+#bar.show{display:flex}
+#bar .btn{position:static;display:block}
+#bar #shoot{position:relative;width:42px;height:42px;border-radius:50%;border:1px solid var(--fg);padding:0;opacity:.8}
+#shoot::after{content:"";position:absolute;inset:6px;border-radius:50%;background:var(--acc)}
+#rec.on{opacity:1;color:var(--acc)}
+#status{position:fixed;left:14px;bottom:calc(env(safe-area-inset-bottom) + 66px);z-index:11;font-size:11px;letter-spacing:.04em;
+  color:var(--dim);pointer-events:none;max-width:72vw;line-height:1.7;white-space:pre-line;font-family:"Hiragino Sans",sans-serif}
+
+#panel{position:fixed;right:10px;top:calc(env(safe-area-inset-top) + 78px);z-index:12;width:min(272px,calc(100vw - 20px));
+  background:var(--bg);border:1px solid var(--line);padding:14px 16px;display:flex;flex-direction:column;gap:13px;transition:opacity .25s}
+#panel.hide{opacity:0;pointer-events:none}
+.chips{display:flex;border:1px solid var(--line)}
+.chips button{flex:1;appearance:none;border:0;background:transparent;color:var(--fg);padding:8px 2px;font:500 9px "Spline Sans Mono",monospace;
+  letter-spacing:.14em;cursor:pointer;opacity:.5}
+.chips button.on{opacity:1;background:var(--fg);color:var(--bg)}
+#panel label{display:flex;align-items:center;gap:10px;font-size:11px;letter-spacing:.04em;font-family:"Hiragino Sans","Spline Sans Mono",sans-serif}
+#panel label span{width:78px;flex:none;color:var(--dim)}
+#panel input[type=range]{flex:1;accent-color:var(--acc)}
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<video id="cam" playsinline muted autoplay></video>
+<div id="status"></div>
+<button id="gear" class="btn" aria-label="調整">⚙</button>
+<button id="flip" class="btn">⟲ カメラ</button>
+<div id="bar">
+  <button id="rec" class="btn">● REC</button>
+  <button id="shoot" class="btn" aria-label="撮る"></button>
+  <button id="still" class="btn">HOLD</button>
+</div>
+
+<div id="panel" class="hide">
+  <div class="chips" id="pals">
+    <button data-p="0" class="on">PAPER</button>
+    <button data-p="1">NOIR</button>
+    <button data-p="2">COBALT</button>
+  </div>
+  <div class="chips" id="counts">
+    <button data-n="6">6</button>
+    <button data-n="8" class="on">8</button>
+    <button data-n="12">12</button>
+  </div>
+  <label><span>遅れ</span><input type="range" id="sLag" min="0" max="1" step="0.01" value="0.45"></label>
+  <label><span>回転</span><input type="range" id="sSpin" min="0" max="1" step="0.01" value="0.55"></label>
+  <label><span>墨の量</span><input type="range" id="sInk" min="0" max="1" step="0.01" value="0.5"></label>
+  <label><span>朱の残り</span><input type="range" id="sTrail" min="0" max="1" step="0.01" value="0.5"></label>
+</div>
+
+<div id="start">
+  <div class="ring"></div>
+  <div class="t">RONDO FOR ONE</div>
+  <h1>RINBU</h1>
+  <p>八人のあなたが、少しずつ遅れて踊る。<br>止まれば、紋章になる。</p>
+  <button id="go">BEGIN</button>
+  <div id="err"></div>
+</div>
+
+<script>
+'use strict';
+/* =====================================================================
+   RINBU — a ring of time-delayed cut-outs. Copy k shows the print from
+   k × lag seconds ago, so motion travels around the ring as a wave;
+   motion also spins the ring, which leaves a fading vermilion plate.
+   ===================================================================== */
+const VISION_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs';
+const WASM_URL   = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm';
+const SEG_MODEL  = 'https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite';
+
+const $ = id => document.getElementById(id);
+const cv = $('cv'), ctx = cv.getContext('2d'), video = $('cam');
+
+const PALS = [ // bg, shadow ink, highlight (body paper), outline, accent
+  { name:'PAPER',  bg:'#ebe5d9', ink:[21,20,19],   hi:[235,229,217], line:'#151413', acc:'#c7361f', fg:'#151413' },
+  { name:'NOIR',   bg:'#0f0f0e', ink:[15,15,14],   hi:[230,224,210], line:'#e6e0d2', acc:'#c7361f', fg:'#e6e0d2' },
+  { name:'COBALT', bg:'#e8e3d6', ink:[29,45,107],  hi:[232,227,214], line:'#1d2d6b', acc:'#8f98a3', fg:'#1d2d6b' },
+];
+const S = { pal:0, n:8, lag:0.45, spin:0.55, ink:0.5, trail:0.5, hold:false };
+
+/* ---------- the print: cut-out, two tones, outlined ---------- */
+const CUT = 240;                           // plates are square, cropped to the body
+const CAP_HZ = 30, MAX_LAG = .26, MAX_N = 12;
+const RING_LEN = Math.ceil(MAX_N * MAX_LAG * CAP_HZ) + 3;
+const P = { w:0, h:0, work:null, wctx:null, img:null, lum:null, alpha:null, mapI:null, ring:[], head:0, count:0, thr:.5 };
+const C = { top:.2, cx:.5, init:false };      // smoothed crop: head top and body centre (camera coords)
+function ensurePlates(){
+  const h = CUT, w = CUT;
+  if (w === P.w && h === P.h) return;
+  P.w = w; P.h = h;
+  P.work = document.createElement('canvas'); P.work.width = w; P.work.height = h;
+  P.wctx = P.work.getContext('2d', { willReadFrequently:true });
+  P.img = P.wctx.createImageData(w, h);
+  P.lum = new Float32Array(w*h); P.alpha = new Float32Array(w*h); P.mapI = new Int32Array(w*h);
+  P.ring = [];
+  for (let i = 0; i < RING_LEN; i++){ const c = document.createElement('canvas'); c.width = w; c.height = h; P.ring.push(c); }
+  P.head = 0; P.count = 0;
+}
+// work pixel -> mask index for the current crop (mirror-aware); no allocation
+function buildMap(x0, y0, sw, sh){
+  const w = P.w, h = P.h, mw = M.w, mh = M.h, map = P.mapI;
+  for (let y = 0; y < h; y++){
+    const v = (y0 + (y + .5) / h * sh) / vidH;
+    const my = Math.min(mh - 1, Math.max(0, v * mh | 0));
+    for (let x = 0; x < w; x++){
+      const xx = mirror ? w - 1 - x : x;
+      const u = (x0 + (xx + .5) / w * sw) / vidW;
+      map[y*w + x] = my * mw + Math.min(mw - 1, Math.max(0, u * mw | 0));
+    }
+  }
+}
+let lastCap = 0, noModelDiff = 0;
+function capture(now){
+  if (video.readyState < 2 || !P.w) return;
+  const w = P.w, h = P.h, n = w*h, wc = P.wctx;
+  // crop: from just above the head to the bottom of the frame, square, centred on the body
+  if (M.present){
+    const k = C.init ? .18 : 1; C.init = true;
+    C.top += (M.top - C.top) * k; C.cx += (M.bcx - C.cx) * k;
+  }
+  let sh = Math.min(vidH, Math.max(vidH * .35, (1 - C.top + .07) * vidH));
+  let sw = sh; if (sw > vidW){ sw = vidW; sh = sw; }
+  const x0 = Math.min(vidW - sw, Math.max(0, C.cx * vidW - sw / 2)), y0 = vidH - sh;
+  wc.save();
+  if (mirror){ wc.translate(w, 0); wc.scale(-1, 1); }
+  wc.drawImage(video, x0, y0, sw, sh, 0, 0, w, h);
+  wc.restore();
+  let src;
+  try { src = wc.getImageData(0, 0, w, h).data; } catch(e){ return; }
+  const useMask = M.has && M.w > 0; if (useMask) buildMap(x0, y0, sw, sh);
+  const L = P.lum, A = P.alpha, F = M.f, map = P.mapI;
+  // luminance + alpha; running mean of lum inside the body picks the threshold
+  let sum = 0, cnt = 0, diff = 0;
+  for (let i = 0; i < n; i++){
+    const j = i*4, l = (src[j]*.299 + src[j+1]*.587 + src[j+2]*.114) / 255;
+    if (!useMask){ const d = l - L[i]; diff += d < 0 ? -d : d; }
+    L[i] = l;
+    let a = useMask ? F[map[i]] : 1;
+    a = a < .38 ? 0 : a > .62 ? 1 : (a - .38) / .24;
+    A[i] = a;
+    if (a > .5){ sum += l; cnt++; }
+  }
+  if (!useMask) noModelDiff = diff / n;
+  const mean = cnt ? sum / cnt : .5;
+  P.thr += ((mean + (S.ink - .5) * .35) - P.thr) * .2;
+  const pal = PALS[S.pal], ink = pal.ink, hi = pal.hi, thr = P.thr;
+  const out = P.img.data, lineRGB = hexRGB(pal.line);
+  for (let y = 0; y < h; y++){
+    for (let x = 0; x < w; x++){
+      const i = y*w + x, j = i*4, a = A[i];
+      if (a <= 0){ out[j+3] = 0; continue; }
+      // outline: a hairline where the cut-out meets the air
+      const edge = (x > 0 && A[i-1] <= 0) || (x < w-1 && A[i+1] <= 0) || (y > 0 && A[i-w] <= 0) || (y < h-1 && A[i+w] <= 0);
+      let r, g, b;
+      if (edge){ r = lineRGB[0]; g = lineRGB[1]; b = lineRGB[2]; }
+      else {
+        // two tones with a narrow soft step (the print), plus a whisper of paper tooth
+        const t = Math.min(1, Math.max(0, (L[i] - thr) * 14 + .5 + ((i * 2654435761 >>> 0) % 97 / 97 - .5) * .35));
+        r = ink[0] + (hi[0] - ink[0]) * t; g = ink[1] + (hi[1] - ink[1]) * t; b = ink[2] + (hi[2] - ink[2]) * t;
+      }
+      out[j] = r; out[j+1] = g; out[j+2] = b; out[j+3] = a * 255;
+    }
+  }
+  const slot = P.ring[P.head];
+  slot.getContext('2d').putImageData(P.img, 0, 0);
+  P.head = (P.head + 1) % RING_LEN; P.count = Math.min(RING_LEN, P.count + 1);
+}
+const RGBC = {};
+function hexRGB(hx){ if (RGBC[hx]) return RGBC[hx]; const v = parseInt(hx.slice(1), 16); return (RGBC[hx] = [v >> 16 & 255, v >> 8 & 255, v & 255]); }
+function plateAgo(frames){
+  if (!P.count) return null;
+  const f = Math.min(P.count - 1, Math.max(0, frames | 0));
+  return P.ring[(P.head - 1 - f + RING_LEN * 2) % RING_LEN];
+}
+
+/* ---------- mask (reused buffers) + motion ---------- */
+const M = { w:0, h:0, f:null, present:false, has:false, external:false, lastT:0, raw:0, cx:.5, vx:0, top:.2, bcx:.5 };
+const E = { v:0, target:0 };
+function ingestMask(data, w, h){
+  if (!data || !(w > 0) || !(h > 0) || data.length < w*h) return;
+  w |= 0; h |= 0;
+  if (M.w !== w || M.h !== h){ M.w = w; M.h = h; M.f = new Float32Array(w*h); }
+  const F = M.f, n = w*h;
+  let on = 0, diff = 0, sx = 0, top = -1;
+  const rowMin = Math.max(3, w * .02 | 0);
+  for (let y = 0; y < h; y++){
+    let rc = 0;
+    for (let x = 0, i = y*w; x < w; x++, i++){
+      let m = data[i]; if (!(m >= 0)) m = 0; else if (m > 1) m = 1;
+      if ((F[i] > .5) !== (m > .5)) diff++;
+      F[i] = F[i]*.3 + m*.7;
+      if (F[i] > .5){ on++; sx += x; rc++; }
+    }
+    if (top < 0 && rc >= rowMin) top = y;
+  }
+  const now = performance.now(), dt = M.lastT ? Math.min(.25, (now - M.lastT)/1000) : 1/30; M.lastT = now;
+  const was = M.present;
+  M.present = on / n > .008; M.has = true;
+  if (M.present){
+    M.bcx = sx / on / w; M.top = Math.max(0, top) / h;
+    let cx = M.bcx; if (mirror) cx = 1 - cx;             // screen-facing direction
+    const v = was ? (cx - M.cx) / Math.max(dt, 1e-3) : 0;
+    M.vx += (v - M.vx) * .3; M.cx = cx;
+    M.raw = diff / Math.max(on, n * .02);
+    E.target = Math.min(1, Math.max(0, M.raw - .015) * 10);
+  } else { M.raw = 0; M.vx = 0; E.target = 0; }
+}
+
+/* ---------- MediaPipe (dynamic import; without it the whole frame is the plate) ---------- */
+let segmenter = null, lastTs = 0, lastVT = -1;
+async function initModel(){
+  try{
+    const vision = await import(VISION_URL);
+    const fs = await vision.FilesetResolver.forVisionTasks(WASM_URL);
+    const opts = d => ({ baseOptions:{ modelAssetPath:SEG_MODEL, delegate:d }, runningMode:'VIDEO', outputConfidenceMasks:true, outputCategoryMask:false });
+    try { segmenter = await vision.ImageSegmenter.createFromOptions(fs, opts('GPU')); }
+    catch(e){ segmenter = await vision.ImageSegmenter.createFromOptions(fs, opts('CPU')); }
+    setStatus('');
+  }catch(e){
+    if (M.external) return;
+    setStatus('人物検出モデルを読み込めませんでした（ネット接続を確認）。\n画面ごと切り抜いて続けます。');
+  }
+}
+function segment(now){
+  if (!segmenter || video.readyState < 2) return;
+  const vt = video.currentTime; if (vt === lastVT) return; lastVT = vt;
+  try{
+    const ts = Math.max(lastTs + 1, Math.round(now)); lastTs = ts;
+    segmenter.segmentForVideo(video, ts, res => {
+      const ms = res && res.confidenceMasks;
+      if (!ms || !ms.length) return;
+      const mk = ms[ms.length - 1];
+      ingestMask(mk.getAsFloat32Array(), mk.width, mk.height);
+    });
+  }catch(e){}
+}
+
+/* ---------- camera ---------- */
+let stream = null, facing = 'user', mirror = true, started = false, vidW = 1280, vidH = 720;
+function setStatus(t){ $('status').textContent = t || ''; }
+function camError(e){
+  const msg = (e && (e.message || e.name)) ? (e.message || e.name) : String(e || 'unknown');
+  const text = 'カメラを起動できませんでした：' + msg + '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+  $('err').textContent = text;
+  if (started) setStatus(text);
+}
+async function startCam(){
+  const md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) throw new Error('getUserMedia is unavailable');
+  const s = await md.getUserMedia({ video:{ facingMode:{ ideal:facing }, width:{ ideal:1280 }, height:{ ideal:720 } }, audio:false });
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = s; mirror = facing === 'user';
+  video.srcObject = s;
+  await new Promise(r => { if (video.readyState >= 1) r(); else video.onloadedmetadata = () => r(); });
+  await video.play().catch(()=>{});
+  vidW = video.videoWidth || 1280; vidH = video.videoHeight || 720;
+}
+
+/* ---------- audio: a soft wooden tick each time the ring settles into symmetry ---------- */
+let actx = null, bus = null, recDest = null;
+function ensureAudio(){
+  if (actx){ if (actx.state === 'suspended') actx.resume().catch(()=>{}); return; }
+  const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+  actx = new AC(); bus = actx.createGain(); bus.gain.value = .45; bus.connect(actx.destination);
+  recDest = actx.createMediaStreamDestination(); bus.connect(recDest);
+  actx.resume().catch(()=>{});
+}
+function tick(freq, vol){
+  if (!actx || actx.state !== 'running') return;
+  const t = actx.currentTime, o = actx.createOscillator(), g = actx.createGain();
+  o.type = 'triangle'; o.frequency.setValueAtTime(freq, t); o.frequency.exponentialRampToValueAtTime(freq * .5, t + .12);
+  g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(vol, t + .004); g.gain.exponentialRampToValueAtTime(.0001, t + .25);
+  o.connect(g); g.connect(bus); o.start(t); o.stop(t + .3);
+}
+
+/* ---------- UI ---------- */
+$('go').onclick = async () => {
+  $('err').textContent = '';
+  ensureAudio();
+  try { await startCam(); } catch(e){ camError(e); return; }
+  $('start').style.display = 'none';
+  ['gear','flip','bar','rec','shoot','still'].forEach(id => $(id).classList.add('show'));
+  if (!started){ started = true; initModel(); requestAnimationFrame(loop); }
+};
+$('flip').onclick = async () => {
+  const prev = facing; facing = facing === 'user' ? 'environment' : 'user';
+  try { await startCam(); } catch(e){ facing = prev; camError(e); }
+};
+$('gear').onclick = () => $('panel').classList.toggle('hide');
+function setPal(i){
+  S.pal = i; const p = PALS[i];
+  [...$('pals').children].forEach(x => x.classList.toggle('on', +x.dataset.p === i));
+  const r = document.documentElement.style;
+  r.setProperty('--bg', p.bg); r.setProperty('--fg', p.fg); r.setProperty('--acc', p.acc);
+  r.setProperty('--dim', p.fg + '8c'); r.setProperty('--line', p.fg + '40');
+  document.querySelector('meta[name=theme-color]').content = p.bg;
+  P.count = 0;                                        // plates are printed in the old inks: start a fresh ring
+  if (trail.width) tctx.clearRect(0, 0, trail.width, trail.height);
+}
+$('pals').onclick = e => { const b = e.target.closest('button'); if (b) setPal(+b.dataset.p); };
+$('counts').onclick = e => { const b = e.target.closest('button'); if (!b) return; S.n = +b.dataset.n;
+  [...$('counts').children].forEach(x => x.classList.toggle('on', x === b)); };
+[['sLag','lag'],['sSpin','spin'],['sInk','ink'],['sTrail','trail']].forEach(([id,k]) => { $(id).oninput = e => { S[k] = +e.target.value; }; });
+// HOLD: freeze the plates (the ring keeps its last dance) — tap again to release
+$('still').onclick = () => { S.hold = !S.hold; $('still').textContent = S.hold ? 'RELEASE' : 'HOLD'; tick(900, .25); };
+
+$('shoot').onclick = () => {
+  tick(1400, .3);
+  try{
+    cv.toBlob(b => { if (!b) return; const a = document.createElement('a'); a.href = URL.createObjectURL(b);
+      a.download = 'rinbu-' + Date.now() + '.png'; a.click(); }, 'image/png');
+  }catch(e){ setStatus('保存できませんでした。'); }
+};
+let rec = null, chunks = [];
+$('rec').onclick = () => {
+  if (rec && rec.state === 'recording'){ rec.stop(); return; }
+  try{
+    ensureAudio();
+    const tracks = [...cv.captureStream(30).getVideoTracks()];
+    if (recDest) tracks.push(...recDest.stream.getAudioTracks());
+    const mime = ['video/mp4;codecs=avc1','video/webm;codecs=vp9,opus','video/webm'].find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || '';
+    rec = new MediaRecorder(new MediaStream(tracks), mime ? { mimeType:mime } : {});
+    chunks = [];
+    rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+    rec.onstop = () => {
+      $('rec').classList.remove('on'); $('rec').textContent = '● REC';
+      const ext = (rec.mimeType || '').includes('mp4') ? 'mp4' : 'webm';
+      const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(chunks, { type:rec.mimeType || 'video/webm' }));
+      a.download = 'rinbu.' + ext; a.click();
+    };
+    rec.start(); $('rec').classList.add('on'); $('rec').textContent = '■ STOP';
+  }catch(e){ setStatus('録画を開始できませんでした。'); }
+};
+
+/* ---------- layers (reused) ---------- */
+const trail = document.createElement('canvas'), tctx = trail.getContext('2d');
+const layer = document.createElement('canvas'), lctx = layer.getContext('2d');
+let grain = null;
+function makeGrain(){
+  grain = document.createElement('canvas'); grain.width = grain.height = 256;
+  const g = grain.getContext('2d'), im = g.createImageData(256, 256), d = im.data;
+  for (let i = 0; i < d.length; i += 4){ const v = Math.random() * 255; d[i] = d[i+1] = d[i+2] = v; d[i+3] = 22; }
+  g.putImageData(im, 0, 0);
+}
+
+/* ---------- render ---------- */
+const R = { angle:0, omega:0, settled:true };
+let lastT = 0, lastE = 0, capAcc = 0;
+function drawRing(c, a0, N, lagF, cx, cy, r0, ch, cw){
+  // most delayed first, so the present lies on top
+  for (let k = N - 1; k >= 0; k--){
+    const pl = plateAgo(k * lagF); if (!pl) continue;
+    c.save();
+    c.translate(cx, cy); c.rotate(a0 + k * Math.PI * 2 / N);
+    if (k % 2 === 1) c.scale(-1, 1);                 // alternate mirror: a true kaleidoscope
+    c.drawImage(pl, -cw/2, -r0 - ch, cw, ch);
+    c.restore();
+  }
+}
+function loop(now){
+  requestAnimationFrame(loop);
+  const dt = lastT ? Math.min(.1, (now - lastT)/1000) : 1/60; lastT = now;
+  const edt = Math.min(.5, lastE ? (now - lastE)/1000 : 1/60); lastE = now;   // wall time
+  if (video.videoWidth){ vidW = video.videoWidth; vidH = video.videoHeight; }
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  let W = Math.round(innerWidth*dpr), H = Math.round(innerHeight*dpr);
+  const k = Math.min(1, 1600 / Math.max(W, H)); W = Math.round(W*k); H = Math.round(H*k);
+  if (cv.width !== W || cv.height !== H){ cv.width = W; cv.height = H; trail.width = layer.width = Math.round(W/2); trail.height = layer.height = Math.round(H/2); }
+  if (!grain) makeGrain();
+  if (!M.external) segment(now);
+  ensurePlates();
+
+  // capture on the wall clock: delays are seconds, not render frames
+  capAcc += edt;
+  if (capAcc >= 1 / CAP_HZ){ capAcc = Math.min(capAcc - 1 / CAP_HZ, 2 / CAP_HZ); if (!S.hold) capture(now); }
+
+  // motion → spin. Lost tracking: no push, the ring coasts to rest.
+  if ((M.external || segmenter) && now - M.lastT > 400){ M.present = false; E.target = 0; M.vx = 0; }
+  let tgt = M.present ? E.target : 0;
+  if (!M.has && !segmenter && !M.external) tgt = Math.min(1, Math.max(0, noModelDiff - .012) * 25);
+  if (S.hold) tgt = 0;
+  E.v += (tgt - E.v) * (tgt > E.v ? 1 - Math.exp(-edt/.1) : 1 - Math.exp(-edt/.6));
+  const N = S.n, step = Math.PI * 2 / N;
+  const dir = M.vx < -.05 ? -1 : 1;
+  R.omega += dir * E.v * (1.5 + 9 * S.spin) * edt;
+  R.omega *= Math.exp(-edt / 1.1);
+  if (Math.abs(R.omega) < .35 && E.v < .15){
+    // settle into the nearest symmetric position with a damped spring
+    const target = Math.round(R.angle / step) * step;
+    R.omega += ((target - R.angle) * 18 - R.omega * 6) * edt;
+    if (!R.settled && Math.abs(target - R.angle) < .002 && Math.abs(R.omega) < .01){ R.settled = true; tick(620, .22); }
+  } else R.settled = false;
+  R.angle += R.omega * edt;
+  if (Math.abs(R.angle) > 1e4) R.angle %= Math.PI * 2;
+
+  // geometry, anchored to the short edge
+  const pal = PALS[S.pal];
+  const short = Math.min(W, H), cx = W/2, cy = H/2 + (H > W ? -short*.02 : 0);
+  const Rout = short * (H > W ? .47 : .455), r0 = short * .05;
+  const ch = Rout - r0, cw = ch;
+  const lagF = Math.round((.03 + .23 * S.lag) * CAP_HZ);
+
+  // paper
+  ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
+  ctx.fillStyle = pal.bg; ctx.fillRect(0, 0, W, H);
+
+  // vermilion plate: silhouettes of the ring, fading slowly (half resolution)
+  const tw = trail.width, th = trail.height;
+  tctx.globalCompositeOperation = 'destination-out';
+  tctx.globalAlpha = 1 - Math.exp(-dt / (.15 + .9 * S.trail)); tctx.fillRect(0, 0, tw, th);
+  lctx.globalCompositeOperation = 'source-over'; lctx.clearRect(0, 0, tw, th);
+  drawRing(lctx, R.angle, N, lagF, tw/2, th/2 + (cy - H/2)/2, r0/2, ch/2, cw/2);
+  lctx.globalCompositeOperation = 'source-in'; lctx.fillStyle = pal.acc; lctx.fillRect(0, 0, tw, th);
+  tctx.globalCompositeOperation = 'source-over'; tctx.globalAlpha = .85; tctx.drawImage(layer, 0, 0);
+  tctx.globalAlpha = 1;
+  // the plate is offset a hair, like a second colour printed slightly out of register
+  const off = short * .006 * (.3 + E.v);
+  ctx.globalAlpha = S.pal === 1 ? .9 : .95;
+  ctx.drawImage(trail, off, off * .6, W, H);
+  ctx.globalAlpha = 1;
+
+  // hairline register marks: a circle and N ticks
+  ctx.strokeStyle = pal.line; ctx.lineWidth = Math.max(1, short * .0015); ctx.globalAlpha = .55;
+  ctx.beginPath(); ctx.arc(cx, cy, Rout + short * .02, 0, Math.PI * 2); ctx.stroke();
+  for (let i = 0; i < N; i++){
+    const a = R.angle + i * step - Math.PI/2, r1 = Rout + short * .02, r2 = r1 + short * (i === 0 ? .035 : .018);
+    ctx.beginPath(); ctx.moveTo(cx + Math.cos(a) * r1, cy + Math.sin(a) * r1); ctx.lineTo(cx + Math.cos(a) * r2, cy + Math.sin(a) * r2); ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+
+  // the ring itself
+  drawRing(ctx, R.angle, N, lagF, cx, cy, r0, ch, cw);
+
+  // paper tooth over everything
+  ctx.globalCompositeOperation = S.pal === 1 ? 'screen' : 'multiply';
+  ctx.fillStyle = ctx.createPattern(grain, 'repeat'); ctx.fillRect(0, 0, W, H);
+  ctx.globalCompositeOperation = 'source-over';
+
+  // colophon
+  const fs = Math.max(9, short * .018);
+  ctx.fillStyle = pal.fg; ctx.globalAlpha = .75;
+  ctx.font = `300 ${fs}px "Spline Sans Mono", monospace`;
+  ctx.textBaseline = 'alphabetic';
+  const lagS = (lagF / CAP_HZ).toFixed(2);
+  const y1 = H - Math.max(fs * 7, H * .12);
+  ctx.textAlign = 'left';
+  ctx.fillText('RINBU', fs * 1.5, fs * 2.6);
+  ctx.fillText('N° ' + String(N).padStart(2, '0') + '  /  Δ ' + lagS + ' S', fs * 1.5, fs * 4.2);
+  ctx.textAlign = 'right';
+  const deg = ((R.angle * 180 / Math.PI) % 360 + 360) % 360;
+  ctx.fillText(deg.toFixed(1).padStart(5, '0') + '°', W - fs * 1.5, y1);
+  ctx.textAlign = 'left';
+  ctx.fillText(S.hold ? 'HELD' : M.present ? 'IN RING' : '—', fs * 1.5, y1);
+  ctx.globalAlpha = 1;
+}
+
+/* ---------- test hook (used by the local verification harness) ---------- */
+window.__RINBU = {
+  ingestMask(d, w, h){ if (!M.external) setStatus(''); M.external = true; ingestMask(d, w, h); },
+  palette(i){ setPal(i); },
+  set(k, v){ if (k in S) S[k] = v; },
+  state: () => ({ present:M.present, energy:E.v, target:E.target, raw:M.raw, angle:R.angle, omega:R.omega, settled:R.settled, frames:P.count, vx:M.vx }),
+};
+</script>
+</body>
+</html>
