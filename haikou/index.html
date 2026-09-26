@@ -1,0 +1,579 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="description" content="頭のうしろに強い光が灯り、あなたの輪郭のすきまから光の筋が霧の中へ噴き出す。止まれば静かな後光、動くほど光芒は長く激しくなって画面をのみこむ。">
+<meta name="theme-color" content="#070605">
+<title>HAIKOU ─ 動くほど噴き出す、背中の光芒</title>
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  HAIKOU 背光 ─ 動くほど噴き出す、背中の光芒          ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  MOOD       スモークを焚いた暗いステージ、あるいは教会の逆光。頭のうしろに
+             一灯だけ強い光があり、あなたは黒い影になる。光は輪郭・指のすき
+             ま・腕と胴のあいだから霧の中へ筋になって噴き出す。止まっている
+             と静かな後光。動けば動くほど光芒は長く、明るく、画面を裂く。
+  PALETTE    TUNGSTEN 闇 #070605 → 光 #ffd9a8（琥珀の白）
+             MERCURY  闇 #04070a → 光 #cfe4ff（水銀灯の青白）
+             CRIMSON  闇 #080303 → 光 #ff5a3a（深い緋）
+             一枚の画面に使う色は「闇＋光の一色」だけ。
+  TYPE       Gloock（題字・高コントラストのセリフ）・Martian Mono 200（UI）。
+  MOTION     光芒の長さと明るさは体の動きの量で決まる。立ち上がりは速く、
+             引きは約 1.5 秒かけてゆっくり。揺れやフラッシュは使わない。
+  SIGNATURE  体そのものが光を切り分ける遮光板になること。影になった自分の
+             輪郭だけが、細い縁の光で浮かぶ。
+  TECH       WebGL2・3 パス。(1) 低解像度の遮光バッファ：頭の後ろの光源 ×
+             (1 − 人物マスク)。(2) 光源へ向かう放射ブラー（体積光）。
+             (3) 合成：影の体・縁光・光芒・横に流れるフレア・粒子・周辺減光。
+             光源の位置はマスクの頭頂部から追う（タップで手動、AUTO で戻す）。
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Gloock&family=Martian+Mono:wght@200;400&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#070605;--fg:#ffe7c6;--dim:rgba(255,231,198,.5);--line:rgba(255,231,198,.2)}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none}
+html,body{margin:0;height:100%;background:var(--bg);overflow:hidden;color:var(--fg);
+  font-family:"Martian Mono",ui-monospace,"Hiragino Sans","Noto Sans JP",monospace;font-weight:200}
+#gl{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+#cam{position:fixed;left:0;top:0;width:2px;height:2px;opacity:.01;pointer-events:none}
+
+#start{position:fixed;inset:0;z-index:30;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:24px;
+  padding:28px;text-align:center;background:radial-gradient(circle at 50% 38%,#2a2118 0%,#0d0b09 34%,#070605 70%)}
+#start .t{font-size:10px;letter-spacing:.7em;margin-right:-.7em;color:var(--dim)}
+#start h1{margin:0;font-family:Gloock,Georgia,serif;font-weight:400;font-size:min(21vw,120px);line-height:.95;letter-spacing:.02em;
+  text-shadow:0 0 40px rgba(255,210,150,.25)}
+#start p{margin:0;font-size:12px;line-height:2.1;color:var(--dim);letter-spacing:.06em;font-family:"Martian Mono","Hiragino Sans",sans-serif}
+#go{appearance:none;border:1px solid var(--line);background:transparent;color:var(--fg);font:400 10px "Martian Mono",monospace;
+  letter-spacing:.45em;padding:15px 34px 15px 40px;cursor:pointer;transition:border-color .3s}
+#go:hover{border-color:var(--fg)}
+#err{font-size:12px;line-height:1.8;max-width:340px;min-height:1em;white-space:pre-line;color:#e0a08c;font-family:"Hiragino Sans",sans-serif}
+
+.btn{position:fixed;z-index:12;appearance:none;border:0;background:transparent;color:var(--fg);font:400 10px "Martian Mono","Hiragino Sans",monospace;
+  letter-spacing:.25em;padding:10px 8px;display:none;cursor:pointer;opacity:.6;transition:opacity .3s}
+.btn.show{display:block}
+.btn:hover{opacity:1}
+#gear{right:10px;top:calc(env(safe-area-inset-top) + 6px);font-size:14px;letter-spacing:0}
+#flip{right:10px;top:calc(env(safe-area-inset-top) + 40px);letter-spacing:.1em}
+#bar{position:fixed;left:0;right:0;bottom:calc(env(safe-area-inset-bottom) + 10px);z-index:12;display:none;justify-content:center;align-items:center;gap:28px}
+#bar.show{display:flex}
+#bar .btn{position:static;display:block}
+#bar #shoot{position:relative;width:42px;height:42px;border-radius:50%;border:1px solid var(--fg);padding:0;opacity:.7}
+#shoot::after{content:"";position:absolute;inset:6px;border-radius:50%;background:var(--fg);opacity:.85}
+#rec.on{opacity:1;color:#ff7a5c}
+#auto.on{opacity:.25}
+#hud{position:fixed;left:14px;top:calc(env(safe-area-inset-top) + 14px);z-index:11;font-size:9px;letter-spacing:.3em;color:var(--dim);
+  pointer-events:none;display:none;line-height:2;white-space:pre}
+#hud.show{display:block}
+#status{position:fixed;left:14px;bottom:calc(env(safe-area-inset-bottom) + 66px);z-index:11;font-size:11px;letter-spacing:.04em;
+  color:var(--dim);pointer-events:none;max-width:72vw;line-height:1.7;white-space:pre-line;font-family:"Hiragino Sans",sans-serif}
+
+#panel{position:fixed;right:10px;top:calc(env(safe-area-inset-top) + 78px);z-index:12;width:min(272px,calc(100vw - 20px));
+  background:rgba(7,6,5,.84);border:1px solid var(--line);padding:14px 16px;display:flex;flex-direction:column;gap:13px;
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);transition:opacity .25s}
+#panel.hide{opacity:0;pointer-events:none}
+.chips{display:flex;border:1px solid var(--line)}
+.chips button{flex:1;appearance:none;border:0;background:transparent;color:var(--fg);padding:8px 2px;font:400 8.5px "Martian Mono",monospace;
+  letter-spacing:.16em;cursor:pointer;opacity:.5}
+.chips button.on{opacity:1;background:rgba(255,231,198,.1)}
+#panel label{display:flex;align-items:center;gap:10px;font-size:11px;letter-spacing:.04em;font-family:"Hiragino Sans","Martian Mono",sans-serif}
+#panel label span{width:78px;flex:none;color:var(--dim)}
+#panel input[type=range]{flex:1;accent-color:#d9b98f}
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<video id="cam" playsinline muted autoplay></video>
+<div id="hud"></div>
+<div id="status"></div>
+<button id="gear" class="btn" aria-label="調整">⚙</button>
+<button id="flip" class="btn">⟲ カメラ</button>
+<div id="bar">
+  <button id="rec" class="btn">● REC</button>
+  <button id="shoot" class="btn" aria-label="撮る"></button>
+  <button id="auto" class="btn on">AUTO</button>
+</div>
+
+<div id="panel" class="hide">
+  <div class="chips" id="pals">
+    <button data-p="0" class="on">TUNGSTEN</button>
+    <button data-p="1">MERCURY</button>
+    <button data-p="2">CRIMSON</button>
+  </div>
+  <label><span>光の強さ</span><input type="range" id="sPow" min="0" max="1" step="0.01" value="0.55"></label>
+  <label><span>動きへの反応</span><input type="range" id="sSens" min="0" max="1" step="0.01" value="0.6"></label>
+  <label><span>顔の明るさ</span><input type="range" id="sFill" min="0" max="1" step="0.01" value="0.3"></label>
+  <label><span>粒子</span><input type="range" id="sGrain" min="0" max="1" step="0.01" value="0.4"></label>
+</div>
+
+<div id="start">
+  <div class="t">BACKLIGHT</div>
+  <h1>Haikou</h1>
+  <p>頭のうしろに、一灯。<br>動くほど、光があふれる。</p>
+  <button id="go">LIGHTS ON</button>
+  <div id="err"></div>
+</div>
+
+<script>
+'use strict';
+/* =====================================================================
+   HAIKOU — the person is the occluder of a single light placed behind
+   their head. Volumetric shafts come from a radial blur of
+   (light × (1 − mask)); how long and bright they get is driven by how
+   much the silhouette is moving.
+   ===================================================================== */
+const VISION_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs';
+const WASM_URL   = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm';
+const SEG_MODEL  = 'https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite';
+
+const $ = id => document.getElementById(id);
+const canvas = $('gl'), video = $('cam');
+
+const PALS = [
+  { name:'TUNGSTEN', dark:[.027,.023,.020], light:[1.00,.85,.66], rim:[1.0,.90,.76], bg:'#070605', fg:'#ffe7c6', acc:'#d9b98f' },
+  { name:'MERCURY',  dark:[.016,.027,.039], light:[.80,.89,1.00], rim:[.88,.94,1.0], bg:'#04070a', fg:'#dcebff', acc:'#9fb8d6' },
+  { name:'CRIMSON',  dark:[.031,.012,.012], light:[1.00,.35,.23], rim:[1.0,.62,.50], bg:'#080303', fg:'#ffd2c6', acc:'#d9705a' },
+];
+const S = { pal:0, pow:0.55, sens:0.6, fill:0.3, grain:0.4 };
+
+/* ---------- GL ---------- */
+const gl = canvas.getContext('webgl2', { antialias:false, alpha:false, preserveDrawingBuffer:true, powerPreference:'high-performance' });
+
+const VS = `#version 300 es
+in vec2 p; out vec2 uv; void main(){ uv = p*.5+.5; gl_Position = vec4(p,0.,1.); }`;
+
+// shared: screen uv (y up) -> camera texture coords
+const CAMV = `
+uniform vec2 uScale; uniform float uMirror;
+vec2 camv(vec2 s){ vec2 v = (vec2(s.x, 1. - s.y) - .5) * uScale + .5; if (uMirror > .5) v.x = 1. - v.x; return v; }`;
+
+// pass 1: the light, cut by the body
+const FS_OCC = `#version 300 es
+precision highp float;
+in vec2 uv; out vec4 o;
+uniform sampler2D uVid, uMask;
+uniform vec2 uL, uAsp;           // light pos (screen uv), aspect factors (short edge = 1)
+uniform float uR, uHas, uT, uE;
+${CAMV}
+float h21(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233))) * 43758.5453); }
+float n11(float x){ float i = floor(x), f = fract(x); f = f*f*(3.-2.*f);
+  return mix(fract(sin(i*91.17)*4375.5), fract(sin((i+1.)*91.17)*4375.5), f); }
+float occ(vec2 s){
+  vec2 v = camv(s);
+  if (uHas > .5) return smoothstep(.35, .7, texture(uMask, v).r);
+  float l = dot(texture(uVid, v).rgb, vec3(.2126,.7152,.0722));
+  return 1. - smoothstep(.22, .55, l);              // no model: dark things block the light
+}
+void main(){
+  vec2 q = (uv - uL) * uAsp;
+  float d = length(q);
+  float a = atan(q.y, q.x);
+  float disc = smoothstep(uR, uR*.72, d);
+  float halo = exp(-d / (uR*.55)) * .5;
+  // angular structure in the haze: even open air breaks into distinct shafts
+  float s1 = n11(a * 19. + uT * .06), s2 = n11(a * 6.3 - uT * .04 + 3.);
+  float streak = .18 + .82 * pow(s1 * s2, 1.3) * 2.2;
+  float L = (disc * 1.5 + halo) * mix(.55, 1., smoothstep(uR*.6, uR*1.4, d)) * streak;
+  o = vec4(L * (1. - occ(uv)), 0., 0., 1.);
+}`;
+
+// pass 2: radial blur toward the light (volumetric shafts)
+const FS_RAY = `#version 300 es
+precision highp float;
+in vec2 uv; out vec4 o;
+uniform sampler2D uOcc;
+uniform vec2 uL;
+uniform float uDensity, uDecay, uWeight;
+float h21(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233))) * 43758.5453); }
+void main(){
+  const int N = 72;
+  vec2 d = (uv - uL) * (uDensity / float(N));
+  vec2 p = uv - d * h21(gl_FragCoord.xy);      // jitter the start: no banding
+  float dec = 1., sum = 0.;
+  for (int i = 0; i < N; i++){
+    sum += texture(uOcc, p).r * dec;
+    dec *= uDecay; p -= d;
+  }
+  o = vec4(sum * uWeight, 0., 0., 1.);
+}`;
+
+// pass 3: composite
+const FS_OUT = `#version 300 es
+precision highp float;
+in vec2 uv; out vec4 o;
+uniform sampler2D uVid, uMask, uRay, uOcc;
+uniform vec2 uL, uAsp, uRes, uMTex;
+uniform float uHas, uExp, uFill, uGrain, uT, uE, uFlare, uRim;
+uniform vec3 uDark, uLight, uRimC;
+${CAMV}
+float h21(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233))) * 43758.5453); }
+float lum(vec3 c){ return dot(c, vec3(.2126,.7152,.0722)); }
+float mk(vec2 s){
+  vec2 v = camv(s);
+  if (uHas > .5) return smoothstep(.35, .7, texture(uMask, v).r);
+  return 1. - smoothstep(.22, .55, lum(texture(uVid, v).rgb));
+}
+void main(){
+  vec2 v = camv(uv);
+  vec3 cam = texture(uVid, v).rgb;
+  float m = mk(uv);
+  // rim: inside the silhouette, near its edge, brighter on the side facing the light
+  vec2 px = uMTex;
+  float mb = 0.;
+  for (int i = 0; i < 8; i++){ float a = float(i) * .785398; mb += mk(uv + vec2(cos(a), sin(a)) * px * 1.4); }
+  mb *= .125;
+  vec2 dl = (uL - uv) * uAsp;
+  vec2 toL = normalize(dl + 1e-5);
+  float side = mk(uv + toL / uAsp * px.y * 2.5);
+  // a thin edge of light, only on the side that faces the source, fading with distance from it
+  float rim = clamp((m - mb) * 3.5, 0., 1.) * (1. - side) * exp(-length(dl) * 1.6);
+  // the body: low-key, almost black, only a whisper of the face
+  float l = lum(cam);
+  vec3 body = uDark * .6 + uLight * pow(l, 1.7) * (.02 + .34 * uFill);
+  vec3 air  = uDark;
+  vec3 c = mix(air, body, m);
+  // shafts veil the body a little: there is haze between you and the lens
+  float r = texture(uRay, uv).r;
+  c += uLight * r * uExp * (1. - m * .72);
+  c += uRimC * rim * uRim;
+  // anamorphic streak through the source, only while moving
+  vec2 q = (uv - uL) * uAsp;
+  float vis = texture(uOcc, uL).r;
+  c += uLight * uFlare * vis * exp(-abs(q.y) * 90.) * exp(-abs(q.x) * 1.6) * .9;
+  // film response
+  c = 1. - exp(-c * 1.35);
+  vec2 g = (uv - .5) * uAsp / max(uAsp.x, uAsp.y);
+  c *= 1. - .5 * smoothstep(.3, .78, length(g));
+  float n = h21(floor(gl_FragCoord.xy / 1.5) + fract(uT * 7.31) * 113.) - .5;
+  c += n * uGrain * .07;
+  o = vec4(clamp(c, 0., 1.), 1.);
+}`;
+
+function sh(type, src){ const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s; }
+function prog(fs){ const p = gl.createProgram(); gl.attachShader(p, sh(gl.VERTEX_SHADER, VS)); gl.attachShader(p, sh(gl.FRAGMENT_SHADER, fs));
+  gl.bindAttribLocation(p, 0, 'p'); gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+  const U = {}, n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+  for (let i = 0; i < n; i++){ const u = gl.getActiveUniform(p, i); U[u.name] = gl.getUniformLocation(p, u.name); }
+  return { p, U }; }
+function tex(filter){ const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, filter); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, filter);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE); return t; }
+let PO_, PR, PC, texVid, texMask, fmt = null;
+const RT = { occ:null, ray:null, fOcc:null, fRay:null, w:0, h:0 };
+function initGL(){
+  const half = !!gl.getExtension('EXT_color_buffer_float');
+  gl.getExtension('OES_texture_float_linear');
+  fmt = half ? [gl.RGBA16F, gl.RGBA, gl.HALF_FLOAT] : [gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE];
+  PO_ = prog(FS_OCC); PR = prog(FS_RAY); PC = prog(FS_OUT);
+  const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+  texVid = tex(gl.LINEAR); texMask = tex(gl.LINEAR);
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, 1, 1, 0, gl.RED, gl.UNSIGNED_BYTE, new Uint8Array([0]));
+}
+function ensureRT(w, h){
+  if (w === RT.w && h === RT.h) return;
+  RT.w = w; RT.h = h;
+  for (const k of ['occ','ray']){
+    if (RT[k]) gl.deleteTexture(RT[k]);
+    const fk = k === 'occ' ? 'fOcc' : 'fRay'; if (RT[fk]) gl.deleteFramebuffer(RT[fk]);
+    RT[k] = tex(gl.LINEAR);
+    gl.texImage2D(gl.TEXTURE_2D, 0, fmt[0], w, h, 0, fmt[1], fmt[2], null);
+    RT[fk] = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, RT[fk]);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, RT[k], 0);
+    if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE && fmt[0] !== gl.RGBA8){
+      fmt = [gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE]; RT.w = 0; gl.bindFramebuffer(gl.FRAMEBUFFER, null); return ensureRT(w, h);
+    }
+  }
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+}
+
+/* ---------- mask → silhouette, head position, motion (buffers reused) ---------- */
+const M = { w:0, h:0, f:null, u8:null, present:false, has:false, external:false, lastT:0,
+            headX:.5, headY:.35, headW:.12, raw:0 };
+const E = { v:0, target:0 };            // motion energy 0..1
+function ingestMask(data, w, h){
+  if (!data || !(w > 0) || !(h > 0) || data.length < w*h) return;
+  w |= 0; h |= 0;
+  if (M.w !== w || M.h !== h){ M.w = w; M.h = h; M.f = new Float32Array(w*h); M.u8 = new Uint8Array(w*h); }
+  const F = M.f, U8 = M.u8, n = w*h;
+  let on = 0, diff = 0, top = -1;
+  const rowMin = Math.max(3, w * .02 | 0);
+  for (let y = 0; y < h; y++){
+    let rc = 0; const o = y*w;
+    for (let x = 0; x < w; x++){
+      const i = o + x;
+      let m = data[i]; if (!(m >= 0)) m = 0; else if (m > 1) m = 1;
+      const was = F[i] > .5, is = m > .5;
+      if (was !== is) diff++;
+      F[i] = F[i]*.3 + m*.7; U8[i] = F[i]*255 | 0;
+      if (F[i] > .5){ on++; rc++; }
+    }
+    if (top < 0 && rc >= rowMin) top = y;
+  }
+  const now = performance.now(), dt = M.lastT ? Math.min(.25, (now - M.lastT)/1000) : 1/30; M.lastT = now;
+  const wasPresent = M.present;
+  M.present = on / n > .008; M.has = true;
+  if (M.present && top >= 0){
+    // the head: centroid and width of the band just under the top of the silhouette
+    const band = Math.max(2, h * .1 | 0), y1 = Math.min(h, top + band);
+    let sx = 0, c = 0, minX = w, maxX = 0;
+    for (let y = top; y < y1; y++){ const o = y*w;
+      for (let x = 0; x < w; x++) if (F[o + x] > .5){ sx += x; c++; if (x < minX) minX = x; if (x > maxX) maxX = x; } }
+    if (c > 0){
+      const hx = sx / c / w, hy = Math.min(1, (top + band * .9) / h), hw = Math.max(.04, (maxX - minX + 1) / w);
+      const k = wasPresent ? 1 - Math.exp(-dt / .12) : 1;
+      M.headX += (hx - M.headX) * k; M.headY += (hy - M.headY) * k; M.headW += (hw - M.headW) * k;
+    }
+    // moving-edge fraction relative to the body's own size: scale-free, frame-rate aware
+    M.raw = diff / Math.max(on, n * .02);
+    E.target = Math.min(1, Math.max(0, M.raw - .015) * (3 + 14 * S.sens));
+  } else {
+    M.raw = 0; E.target = 0;             // tracking lost: nothing fires
+  }
+  if (gl && texMask){ gl.bindTexture(gl.TEXTURE_2D, texMask); gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, w, h, 0, gl.RED, gl.UNSIGNED_BYTE, U8); }
+}
+
+/* ---------- MediaPipe (dynamic import; without it dark shapes block the light) ---------- */
+let segmenter = null, lastTs = 0, lastVT = -1;
+async function initModel(){
+  try{
+    const vision = await import(VISION_URL);
+    const fs = await vision.FilesetResolver.forVisionTasks(WASM_URL);
+    const opts = d => ({ baseOptions:{ modelAssetPath:SEG_MODEL, delegate:d }, runningMode:'VIDEO', outputConfidenceMasks:true, outputCategoryMask:false });
+    try { segmenter = await vision.ImageSegmenter.createFromOptions(fs, opts('GPU')); }
+    catch(e){ segmenter = await vision.ImageSegmenter.createFromOptions(fs, opts('CPU')); }
+    setStatus('');
+  }catch(e){
+    if (M.external) return;
+    setStatus('人物検出モデルを読み込めませんでした（ネット接続を確認）。\n暗いものの影で光を切ります。');
+  }
+}
+function segment(now){
+  if (!segmenter || video.readyState < 2) return;
+  const vt = video.currentTime; if (vt === lastVT) return; lastVT = vt;
+  try{
+    const ts = Math.max(lastTs + 1, Math.round(now)); lastTs = ts;
+    segmenter.segmentForVideo(video, ts, res => {
+      const ms = res && res.confidenceMasks;
+      if (!ms || !ms.length) return;
+      const mk = ms[ms.length - 1];
+      ingestMask(mk.getAsFloat32Array(), mk.width, mk.height);
+    });
+  }catch(e){}
+}
+
+/* ---------- camera ---------- */
+let stream = null, facing = 'user', mirror = true, started = false, vidW = 1280, vidH = 720;
+function setStatus(t){ $('status').textContent = t || ''; }
+function camError(e){
+  const msg = (e && (e.message || e.name)) ? (e.message || e.name) : String(e || 'unknown');
+  const text = 'カメラを起動できませんでした：' + msg + '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+  $('err').textContent = text;
+  if (started) setStatus(text);
+}
+async function startCam(){
+  const md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) throw new Error('getUserMedia is unavailable');
+  const s = await md.getUserMedia({ video:{ facingMode:{ ideal:facing }, width:{ ideal:1280 }, height:{ ideal:720 } }, audio:false });
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = s; mirror = facing === 'user';
+  video.srcObject = s;
+  await new Promise(r => { if (video.readyState >= 1) r(); else video.onloadedmetadata = () => r(); });
+  await video.play().catch(()=>{});
+  vidW = video.videoWidth || 1280; vidH = video.videoHeight || 720;
+}
+
+/* ---------- audio: a room of haze that breathes with the light ---------- */
+let actx = null, bus = null, recDest = null, hum = null;
+function ensureAudio(){
+  if (actx){ if (actx.state === 'suspended') actx.resume().catch(()=>{}); return; }
+  const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+  actx = new AC(); bus = actx.createGain(); bus.gain.value = .5; bus.connect(actx.destination);
+  recDest = actx.createMediaStreamDestination(); bus.connect(recDest);
+  // brown noise through a lowpass that opens as the shafts grow
+  const len = actx.sampleRate * 2, b = actx.createBuffer(1, len, actx.sampleRate), d = b.getChannelData(0);
+  let last = 0; for (let i = 0; i < len; i++){ last = (last + .02 * (Math.random()*2 - 1)) / 1.02; d[i] = last * 3.2; }
+  const src = actx.createBufferSource(); src.buffer = b; src.loop = true;
+  const lp = actx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 180; lp.Q.value = .6;
+  const g = actx.createGain(); g.gain.value = 0;
+  const o = actx.createOscillator(); o.type = 'sine'; o.frequency.value = 55;
+  const og = actx.createGain(); og.gain.value = 0;
+  src.connect(lp); lp.connect(g); g.connect(bus); o.connect(og); og.connect(bus);
+  src.start(); o.start();
+  hum = { lp, g, og };
+  actx.resume().catch(()=>{});
+}
+function click(){
+  if (!actx || actx.state !== 'running') return;
+  const t = actx.currentTime, len = actx.sampleRate*.025 | 0, b = actx.createBuffer(1, len, actx.sampleRate), d = b.getChannelData(0);
+  for (let i = 0; i < len; i++) d[i] = (Math.random()*2 - 1) * Math.pow(1 - i/len, 5);
+  const s = actx.createBufferSource(); s.buffer = b;
+  const f = actx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 2000; f.Q.value = 1.1;
+  s.connect(f); f.connect(bus); s.start(t);
+}
+
+/* ---------- UI ---------- */
+$('go').onclick = async () => {
+  $('err').textContent = '';
+  ensureAudio();
+  try{
+    if (!gl) throw new Error('WebGL2 に未対応のブラウザです');
+    if (!PC) initGL();
+    await startCam();
+  }catch(e){ camError(e); return; }
+  $('start').style.display = 'none';
+  ['gear','flip','bar','rec','shoot','auto','hud'].forEach(id => $(id).classList.add('show'));
+  if (!started){ started = true; initModel(); requestAnimationFrame(loop); }
+};
+$('flip').onclick = async () => {
+  const prev = facing; facing = facing === 'user' ? 'environment' : 'user';
+  try { await startCam(); } catch(e){ facing = prev; camError(e); }
+};
+$('gear').onclick = () => $('panel').classList.toggle('hide');
+function setPal(i){
+  S.pal = i; const p = PALS[i];
+  [...$('pals').children].forEach(x => x.classList.toggle('on', +x.dataset.p === i));
+  const r = document.documentElement.style;
+  r.setProperty('--bg', p.bg); r.setProperty('--fg', p.fg);
+  r.setProperty('--dim', p.fg + '80'); r.setProperty('--line', p.fg + '33');
+}
+$('pals').onclick = e => { const b = e.target.closest('button'); if (b) setPal(+b.dataset.p); };
+[['sPow','pow'],['sSens','sens'],['sFill','fill'],['sGrain','grain']].forEach(([id,k]) => { $(id).oninput = e => { S[k] = +e.target.value; }; });
+
+// light position: follows the head, or pinned where you tap
+const LP = { x:.5, y:.62, manual:false, mx:.5, my:.62 };
+canvas.addEventListener('pointerdown', e => {
+  if (!started) return;
+  const r = canvas.getBoundingClientRect();
+  LP.mx = (e.clientX - r.left) / r.width; LP.my = 1 - (e.clientY - r.top) / r.height;
+  LP.manual = true; $('auto').classList.remove('on');
+});
+$('auto').onclick = () => { LP.manual = false; $('auto').classList.add('on'); };
+
+$('shoot').onclick = () => {
+  click();
+  try{
+    canvas.toBlob(b => { if (!b) return; const a = document.createElement('a'); a.href = URL.createObjectURL(b);
+      a.download = 'haikou-' + Date.now() + '.png'; a.click(); }, 'image/png');
+  }catch(e){ setStatus('保存できませんでした。'); }
+};
+let rec = null, chunks = [];
+$('rec').onclick = () => {
+  if (rec && rec.state === 'recording'){ rec.stop(); return; }
+  try{
+    ensureAudio();
+    const tracks = [...canvas.captureStream(30).getVideoTracks()];
+    if (recDest) tracks.push(...recDest.stream.getAudioTracks());
+    const mime = ['video/mp4;codecs=avc1','video/webm;codecs=vp9,opus','video/webm'].find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || '';
+    rec = new MediaRecorder(new MediaStream(tracks), mime ? { mimeType:mime } : {});
+    chunks = [];
+    rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+    rec.onstop = () => {
+      $('rec').classList.remove('on'); $('rec').textContent = '● REC';
+      const ext = (rec.mimeType || '').includes('mp4') ? 'mp4' : 'webm';
+      const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(chunks, { type:rec.mimeType || 'video/webm' }));
+      a.download = 'haikou.' + ext; a.click();
+    };
+    rec.start(); $('rec').classList.add('on'); $('rec').textContent = '■ STOP';
+  }catch(e){ setStatus('録画を開始できませんでした。'); }
+};
+
+/* ---------- render ---------- */
+let lastT = 0, lastE = 0, hudT = 0;
+function loop(now){
+  requestAnimationFrame(loop);
+  const dt = lastT ? Math.min(.1, (now - lastT)/1000) : 1/60; lastT = now;
+  if (video.videoWidth){ vidW = video.videoWidth; vidH = video.videoHeight; }
+  const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+  let W = Math.round(innerWidth*dpr), H = Math.round(innerHeight*dpr);
+  const k = Math.min(1, 1500 / Math.max(W, H)); W = Math.round(W*k); H = Math.round(H*k);
+  if (canvas.width !== W || canvas.height !== H){ canvas.width = W; canvas.height = H; }
+  const short = Math.min(W, H), rs = 300 / short;
+  const rw = Math.max(32, Math.round(W*rs)), rh = Math.max(32, Math.round(H*rs));
+  ensureRT(rw, rh);
+  if (!M.external) segment(now);
+  if (video.readyState < 2) return;
+
+  gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, texVid);
+  try { gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video); } catch(e){ return; }
+  const sa = W/H, va = vidW/vidH, sx = sa < va ? sa/va : 1, sy = sa < va ? 1 : va/sa;
+  const asp = [W/short, H/short];
+
+  // motion energy: fast attack, slow (≈1.5 s) release; decays on its own when tracking is lost
+  if (M.external || segmenter){ if (now - M.lastT > 400){ M.present = false; E.target = 0; } }
+  const tgt = M.present ? E.target : 0;
+  const edt = Math.min(.5, lastE ? (now - lastE)/1000 : 1/60); lastE = now;   // wall time, even on slow devices
+  E.v += (tgt - E.v) * (tgt > E.v ? 1 - Math.exp(-edt/.08) : 1 - Math.exp(-edt/(M.present ? 1.5 : .5)));
+  const e = E.v;
+
+  // light position: head (camera coords) -> screen uv, y up
+  let hx = .5, hy = .62, hr = .16;
+  if (M.present){
+    let cx = M.headX; if (mirror) cx = 1 - cx;
+    hx = (cx - .5) / sx + .5;
+    hy = 1 - ((M.headY - .5) / sy + .5);
+    hr = M.headW / sx * asp[0] * .5;          // head half-width in short-edge units
+  }
+  if (LP.manual){ hx = LP.mx; hy = LP.my; }
+  const kk = 1 - Math.exp(-dt / .1);
+  LP.x += (hx - LP.x) * kk; LP.y += (hy - LP.y) * kk;
+  const R = Math.min(.42, Math.max(.07, hr * 1.08)) * (1 + .2 * e);
+
+  // pass 1: occlusion
+  gl.bindFramebuffer(gl.FRAMEBUFFER, RT.fOcc); gl.viewport(0, 0, rw, rh);
+  gl.useProgram(PO_.p);
+  gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, texMask);
+  gl.uniform1i(PO_.U.uVid, 1); gl.uniform1i(PO_.U.uMask, 2);
+  gl.uniform2f(PO_.U.uScale, sx, sy); gl.uniform1f(PO_.U.uMirror, mirror ? 1 : 0);
+  gl.uniform2f(PO_.U.uL, LP.x, LP.y); gl.uniform2f(PO_.U.uAsp, asp[0], asp[1]);
+  gl.uniform1f(PO_.U.uR, R); gl.uniform1f(PO_.U.uHas, M.has ? 1 : 0); gl.uniform1f(PO_.U.uT, now/1000); gl.uniform1f(PO_.U.uE, e);
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+  // pass 2: shafts — still: a short soft glow; moving: long blazing beams
+  gl.bindFramebuffer(gl.FRAMEBUFFER, RT.fRay);
+  gl.useProgram(PR.p);
+  gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, RT.occ);
+  gl.uniform1i(PR.U.uOcc, 3); gl.uniform2f(PR.U.uL, LP.x, LP.y);
+  const decay = .935 + .05 * e;
+  gl.uniform1f(PR.U.uDensity, .55 + .5 * e); gl.uniform1f(PR.U.uDecay, decay);
+  gl.uniform1f(PR.U.uWeight, (1 - decay) * 1.15);
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+  // pass 3: composite
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, 0, W, H);
+  gl.useProgram(PC.p);
+  gl.activeTexture(gl.TEXTURE4); gl.bindTexture(gl.TEXTURE_2D, RT.ray);
+  gl.uniform1i(PC.U.uVid, 1); gl.uniform1i(PC.U.uMask, 2); gl.uniform1i(PC.U.uOcc, 3); gl.uniform1i(PC.U.uRay, 4);
+  gl.uniform2f(PC.U.uScale, sx, sy); gl.uniform1f(PC.U.uMirror, mirror ? 1 : 0);
+  gl.uniform2f(PC.U.uL, LP.x, LP.y); gl.uniform2f(PC.U.uAsp, asp[0], asp[1]); gl.uniform2f(PC.U.uRes, W, H);
+  gl.uniform2f(PC.U.uMTex, Math.max(1.5/W, 1/(M.w || 256)/sx), Math.max(1.5/H, 1/(M.h || 256)/sy));
+  gl.uniform1f(PC.U.uHas, M.has ? 1 : 0);
+  gl.uniform1f(PC.U.uExp, (.6 + 1.2 * S.pow) * (.8 + 1.5 * e));
+  gl.uniform1f(PC.U.uFill, S.fill); gl.uniform1f(PC.U.uGrain, S.grain); gl.uniform1f(PC.U.uT, now/1000);
+  gl.uniform1f(PC.U.uE, e); gl.uniform1f(PC.U.uFlare, e * (.4 + S.pow)); gl.uniform1f(PC.U.uRim, 1.1 + 1.2 * e);
+  const pal = PALS[S.pal];
+  gl.uniform3fv(PC.U.uDark, pal.dark); gl.uniform3fv(PC.U.uLight, pal.light); gl.uniform3fv(PC.U.uRimC, pal.rim);
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+  hudT += dt;
+  if (hudT > .25){ hudT = 0;
+    const bars = '▮'.repeat(Math.round(e*8)).padEnd(8, '·');
+    $('hud').textContent = pal.name + '  ' + bars + '\n' + (LP.manual ? 'PINNED' : M.present ? 'FOLLOWING' : 'NO SUBJECT'); }
+}
+
+/* ---------- test hook (used by the local verification harness) ---------- */
+window.__HAIKOU = {
+  ingestMask(d, w, h){ if (!M.external) setStatus(''); M.external = true; ingestMask(d, w, h); },
+  palette(i){ setPal(i); },
+  set(k, v){ if (k in S) S[k] = v; },
+  state: () => ({ present:M.present, energy:E.v, target:E.target, raw:M.raw, light:[LP.x, LP.y], head:[M.headX, M.headY, M.headW] }),
+};
+</script>
+</body>
+</html>
