@@ -1,0 +1,753 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="description" content="動くと、その場に真っ赤な残像が置いていかれる。残像は少しのあいだ留まり、点の格子に崩れて、赤い球になって落ちて消える。">
+<meta name="theme-color" content="#000000">
+<title>TAMAYURA ─ 赤い残像が球になる</title>
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  TAMAYURA 玉響 ─ 赤い残像が球になる                   ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  MOOD       暗い舞台。いまの自分だけが白く照らされ、動いたぶんだけ、
+             ついさっきの自分が真紅の影としてその場に置いていかれる。
+             影は少しのあいだ留まり、網点の格子に崩れ、点がふくらんで
+             球になり、こぼれて床に転がり、消える。玉響（たまゆら）は
+             玉が触れあうほどのかすかな間 ── 残像が残っている時間のこと。
+  PALETTE    闇 #000 ／ 舞台の床 ほぼ黒の灰 ／ いまの自分 漆喰の白 #ecebe6
+             残像 深紅 #4a0006 → 真紅 #ff1a12 → 桃 #ff6f7c → 灰 #b8b0b0
+             色は赤一系統だけ。白と赤と黒以外は出さない。
+  TYPE       Cormorant Garamond（題字・数字）と Zen Kaku Gothic New。
+  MOTION     残像は置かれた場所から一歩も動かない。動くのは崩れて
+             球になってから。球は一部が落ちて床で跳ね、一部は宙に漂う。
+             フラッシュも揺れも使わない。
+  SIGNATURE  自分の輪郭をした赤い影が、網点を経て、球の群れにほどけること。
+  TECH       人物マスクは MediaPipe ImageSegmenter（読めなければ背景差分）。
+             残像は RG8 の 2D テクスチャ配列（R=マスク・G=その瞬間の明るさ）
+             に最大 14 枚積み、全画面一回のパスで古い順に重ねる。
+             残像を置くかどうかは時間ではなく「前の残像からどれだけ
+             形が変わったか」で決めるので、止まっていれば増えない。
+             球は CPU の固定プール（6000）で動かし、点スプライト一回で
+             描く。陰影は点の中で球の法線を復元して計算する。
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;500&family=Zen+Kaku+Gothic+New:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#000;--fg:#ecebe6;--dim:rgba(236,235,230,.52);--line:rgba(236,235,230,.2);--acc:#ff1a12}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none}
+html,body{margin:0;height:100%;background:#000;overflow:hidden;color:var(--fg);
+  font-family:"Zen Kaku Gothic New",ui-sans-serif,"Hiragino Sans",system-ui,sans-serif;font-weight:400}
+#gl{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:crosshair}
+#cam{position:fixed;left:0;top:0;width:2px;height:2px;opacity:.01;pointer-events:none}
+#work{display:none}
+
+#start{position:fixed;inset:0;z-index:30;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;
+  padding:28px;text-align:center;background:#000}
+#start .t{font-size:10px;letter-spacing:.55em;margin-right:-.55em;color:var(--dim)}
+#start h1{margin:0;font-family:"Cormorant Garamond",serif;font-weight:300;font-size:min(15vw,96px);line-height:1;letter-spacing:.14em;margin-right:-.14em}
+#start h1 i{font-style:normal;color:var(--acc)}
+#start p{margin:0;font-size:12.5px;line-height:2.1;color:var(--dim);letter-spacing:.04em}
+#go{appearance:none;border:1px solid var(--line);background:transparent;color:var(--fg);
+  font:500 11px "Cormorant Garamond",serif;letter-spacing:.5em;padding:14px 30px 14px 36px;cursor:pointer;transition:border-color .3s}
+#go:hover{border-color:var(--fg)}
+#err{font-size:12px;line-height:1.8;max-width:340px;min-height:1em;white-space:pre-line;color:#ff9c8a}
+
+.btn{position:fixed;z-index:12;appearance:none;border:0;background:transparent;color:var(--fg);
+  font:500 10px "Zen Kaku Gothic New",sans-serif;letter-spacing:.22em;padding:10px 8px;display:none;cursor:pointer;opacity:.62;transition:opacity .3s}
+.btn.show{display:block}
+.btn:hover{opacity:1}
+#gear{right:10px;top:calc(env(safe-area-inset-top) + 6px);font-size:14px;letter-spacing:0}
+#flip{right:10px;top:calc(env(safe-area-inset-top) + 40px)}
+#bar{position:fixed;left:0;right:0;bottom:calc(env(safe-area-inset-bottom) + 10px);z-index:12;display:none;justify-content:center;align-items:center;gap:26px}
+#bar.show{display:flex}
+#bar .btn{position:static;display:block}
+#bar #shoot{position:relative;width:42px;height:42px;border:1px solid var(--fg);padding:0;opacity:.7;border-radius:50%}
+#shoot::after{content:"";position:absolute;inset:7px;background:var(--fg);border-radius:50%;opacity:.85}
+#rec.on{opacity:1;color:var(--acc)}
+#hud{position:fixed;left:14px;top:calc(env(safe-area-inset-top) + 14px);z-index:11;font-size:9px;letter-spacing:.3em;color:var(--dim);
+  pointer-events:none;display:none;line-height:2.1;white-space:pre}
+#hud.show{display:block}
+#hud b{font-weight:500;color:var(--acc)}
+#status{position:fixed;left:14px;bottom:calc(env(safe-area-inset-bottom) + 118px);z-index:11;font-size:11px;
+  color:var(--dim);pointer-events:none;max-width:78vw;line-height:1.7;white-space:pre-line}
+
+#panel{position:fixed;right:10px;top:calc(env(safe-area-inset-top) + 78px);z-index:12;width:min(272px,calc(100vw - 20px));
+  background:rgba(0,0,0,.84);border:1px solid var(--line);padding:14px 16px;display:flex;flex-direction:column;gap:13px;
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);transition:opacity .25s}
+#panel.hide{opacity:0;pointer-events:none}
+.chips{display:flex;border:1px solid var(--line)}
+.chips button{flex:1;appearance:none;border:0;background:transparent;color:var(--fg);padding:8px 2px;
+  font:500 10px "Zen Kaku Gothic New",sans-serif;letter-spacing:.2em;cursor:pointer;opacity:.5}
+.chips button.on{opacity:1;background:rgba(236,235,230,.12)}
+#panel label{display:flex;align-items:center;gap:10px;font-size:11px;letter-spacing:.03em}
+#panel label span{width:78px;flex:none;color:var(--dim)}
+#panel input[type=range]{flex:1;accent-color:#d8d4cc}
+#panel .note{font-size:10px;color:var(--dim);line-height:1.8}
+#mode{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom) + 70px);z-index:13;display:none;
+  appearance:none;border:1px solid var(--line);background:rgba(0,0,0,.5);color:var(--fg);
+  font:500 11px "Cormorant Garamond",serif;letter-spacing:.42em;padding:12px 22px 12px 28px;cursor:pointer;
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);transition:border-color .3s}
+#mode.show{display:block}
+#mode:hover{border-color:var(--fg)}
+body.cam #mode{border-color:rgba(255,255,255,.6);color:#fff;background:rgba(0,0,0,.3)}
+body.cam .btn{color:#fff;text-shadow:0 0 8px rgba(0,0,0,.6)}
+body.cam #bar #shoot{border-color:#fff}
+body.cam #hud, body.cam #burst{visibility:hidden}
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<canvas id="work"></canvas>
+<video id="cam" playsinline muted autoplay></video>
+<div id="hud"></div>
+<div id="status"></div>
+<button id="gear" class="btn" aria-label="調整">⚙</button>
+<button id="flip" class="btn">⟲ カメラ</button>
+<button id="mode">▸ TAMAYURA</button>
+<div id="bar">
+  <button id="rec" class="btn">● REC</button>
+  <button id="shoot" class="btn" aria-label="撮る"></button>
+  <button id="burst" class="btn">散らす</button>
+</div>
+
+<div id="panel" class="hide">
+  <div class="chips" id="stage">
+    <button data-s="0" class="on">舞台</button>
+    <button data-s="1">闇</button>
+  </div>
+  <label><span>残る長さ</span><input type="range" id="sLife" min="0" max="1" step="0.01" value="0.55"></label>
+  <label><span>残像の多さ</span><input type="range" id="sRate" min="0" max="1" step="0.01" value="0.55"></label>
+  <label><span>球の量</span><input type="range" id="sBalls" min="0" max="1" step="0.01" value="0.42"></label>
+  <label><span>球の大きさ</span><input type="range" id="sSize" min="0" max="1" step="0.01" value="0.5"></label>
+  <label><span>落ちる</span><input type="range" id="sFall" min="0" max="1" step="0.01" value="0.6"></label>
+  <div class="note">動いたぶんだけ残像が置かれ、止まっていれば増えない。<br>画面をタップ／散らす：いまある残像を一度に球にする。</div>
+</div>
+
+<div id="start">
+  <div class="t">AFTERIMAGE / RED SPHERES</div>
+  <h1>TAMA<i>Y</i>URA</h1>
+  <p>まずは、いつものカメラ。<br>ボタンを押すと舞台が暗くなり、あなただけが白く残ります。<br>動くと、その場に赤い残像が置いていかれ、<br>少し留まってから、赤い球になって消えていきます。</p>
+  <button id="go">START</button>
+  <div id="err"></div>
+</div>
+
+<script>
+'use strict';
+/* =====================================================================
+   TAMAYURA — each afterimage is a snapshot of the person mask plus the
+   brightness under it, stacked in a texture array and never moved. It
+   ages through three states in one shader: solid red, a wavy dot lattice
+   that thins and cools toward ash, and — handed to the CPU at a fixed
+   age — a burst of shaded spheres that fall or hang and then fade.
+   ===================================================================== */
+const MP_VER   = '0.10.21';
+const MP_BASE  = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP_VER}`;
+const MODEL_URL= 'https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite';
+
+const $ = id => document.getElementById(id);
+const canvas = $('gl'), video = $('cam'), work = $('work');
+const wctx = work.getContext('2d', { willReadFrequently:true });
+const S = { stage:0, life:.55, rate:.55, balls:.42, size:.5, fall:.6 };
+
+const NG = 14;                 // afterimages alive at once
+const SOLID = .55;             // fraction of a life spent as a solid red shape
+const BALL_AT = .62;           // age at which the lattice starts turning into balls
+const MAXB = 6000;             // sphere pool
+
+/* ---------- GL ---------- */
+const gl = canvas.getContext('webgl2', { antialias:false, alpha:false, premultipliedAlpha:false, preserveDrawingBuffer:true, powerPreference:'high-performance' });
+const VS = `#version 300 es
+in vec2 p; out vec2 uv; void main(){ uv = p*.5+.5; gl_Position = vec4(p,0.,1.); }`;
+
+const MAP = `
+uniform vec2 uScale; uniform float uMirror;
+vec2 toVid(vec2 s){
+  vec2 v = (vec2(s.x, 1.-s.y) - .5) * uScale + .5;
+  if (uMirror > .5) v.x = 1.-v.x;
+  return v;
+}`;
+
+// pass A: the dark stage and every afterimage, oldest first
+const FS_STAGE = `#version 300 es
+precision highp float; precision highp sampler2DArray;
+in vec2 uv; out vec4 o;
+uniform sampler2D uVid;
+uniform sampler2DArray uG;
+uniform vec2 uRes;
+uniform float uStage, uRev, uCell, uT, uPass;
+uniform int uN;
+uniform float uLay[${NG}], uAge[${NG}];
+const vec3 LW = vec3(.2126,.7152,.0722);
+const vec3 RED = vec3(1.,.10,.07), PINK = vec3(1.,.44,.49), ASH = vec3(.72,.69,.69);
+${MAP}
+float h21(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7))) * 43758.5453); }
+void main(){
+  vec2 v = toVid(uv);
+  float l = dot(texture(uVid, v).rgb, LW);
+  // the room is still there, only just: a stage with the house lights down
+  // Two passes over the same afterimages. Pass 0 is the stage and the
+  // copies that have already broken into dots; pass 1 is the copies that
+  // are still solid, drawn after the spheres. Spheres come out of OLD
+  // copies, so the young solid ones belong in front of them — drawn in one
+  // pass, the ball cloud buried the very afterimage the piece is about.
+  vec3 c = uPass < .5 ? vec3(l * l) * .30 * (1. - uStage) : vec3(0.);
+  float alpha = uPass < .5 ? 1. : 0.;
+  vec2 fc = gl_FragCoord.xy;
+  for (int k = 0; k < ${NG}; k++){
+    if (k >= uN) break;
+    float lay = uLay[k], a = uAge[k];
+    if (uPass > .5 && a < ${SOLID.toFixed(2)} + .03){
+      vec2 g = texture(uG, vec3(v, lay)).rg;
+      float m = smoothstep(.38, .62, g.r) * smoothstep(0., .035, a);
+      // Shaded by the light that was on you at that instant, so the copy
+      // keeps its folds — but only within a band of red. Mapping all of the
+      // brightness sank dark clothes to near-black maroon; the copy has to
+      // read as red whatever you were wearing.
+      float sh = smoothstep(.02, .7, g.g);
+      vec3 red = RED * (.62 + .38 * sh) + vec3(.18, .06, .04) * sh * sh;
+      float w = 1. - smoothstep(${SOLID.toFixed(2)} - .05, ${SOLID.toFixed(2)} + .03, a);
+      c = mix(c, red, m * w);
+      alpha = max(alpha, m * w);
+    }
+    if (uPass < .5 && a > ${SOLID.toFixed(2)} - .05){
+      float t = clamp((a - ${SOLID.toFixed(2)}) / (1. - ${SOLID.toFixed(2)}), 0., 1.);
+      // a lattice that is not quite square: rows ripple, which is what
+      // makes the moire in the reference instead of a clean halftone
+      vec2 q = fc + vec2(sin(fc.y * .052 + lay * 1.7 + a * 5.) * uCell * .32,
+                         sin(fc.x * .041 + lay) * uCell * .18);
+      vec2 id = floor(q / uCell);
+      vec2 cen = fc + ((id + .5) * uCell - q);
+      vec2 g = texture(uG, vec3(toVid(cen / uRes), lay)).rg;
+      float keep = step(h21(id + lay * 17.3), 1. - t * t * .93);
+      float rad = mix(.47, .15, t) * (.6 + .4 * g.g);
+      float d = length(fract(q / uCell) - .5);
+      float dotA = smoothstep(rad, rad - .13, d) * step(.5, g.r) * keep;
+      vec3 dc = t < .45 ? mix(RED, PINK, t / .45) : mix(PINK, ASH, (t - .45) / .55);
+      float w = smoothstep(${SOLID.toFixed(2)} - .05, ${SOLID.toFixed(2)} + .03, a) * (1. - smoothstep(.62, 1., t));
+      c = mix(c, dc * (.72 + .28 * g.g), dotA * w);
+    }
+  }
+  float rv = smoothstep(0., .4, uRev);
+  o = uPass < .5 ? vec4(c * rv, 1.) : vec4(c * alpha * rv, alpha * rv);
+}`;
+
+// pass B: spheres as point sprites, shaded by reconstructing the normal
+const VS_BALL = `#version 300 es
+in vec2 aPos; in vec2 aSz; in float aTone;
+uniform vec2 uRes;
+out float vA; out float vTone;
+void main(){
+  gl_Position = vec4(aPos / uRes * 2. - 1., 0., 1.);
+  gl_PointSize = aSz.x * 2.;
+  vA = aSz.y; vTone = aTone;
+}`;
+const FS_BALL = `#version 300 es
+precision mediump float;
+in float vA; in float vTone; out vec4 o;
+void main(){
+  vec2 p = gl_PointCoord * 2. - 1.; p.y = -p.y;
+  float d2 = dot(p, p);
+  if (d2 > 1.) discard;
+  vec3 n = vec3(p, sqrt(1. - d2));
+  vec3 L = normalize(vec3(-.45, .62, .64));
+  float diff = max(dot(n, L), 0.);
+  float spec = pow(max(dot(reflect(-L, n), vec3(0., 0., 1.)), 0.), 26.);
+  vec3 base = mix(vec3(.42, .0, .03), vec3(1., .09, .06), vTone);
+  vec3 c = base * (.16 + .95 * diff) + vec3(1., .78, .74) * spec * .55;
+  c *= .78 + .22 * smoothstep(0., .5, n.z);          // a darker limb, so it is a ball and not a disc
+  float a = vA * smoothstep(1., .86, d2);
+  o = vec4(c * a, a);
+}`;
+
+// pass C: the person, white as plaster, in front of everything
+const FS_ME = `#version 300 es
+precision highp float;
+in vec2 uv; out vec4 o;
+uniform sampler2D uVid, uMask;
+uniform float uRev;
+${MAP}
+const vec3 LW = vec3(.2126,.7152,.0722);
+void main(){
+  vec2 v = toVid(uv);
+  float l = dot(texture(uVid, v).rgb, LW);
+  float m = smoothstep(.40, .66, texture(uMask, v).r) * uRev;
+  vec3 c = vec3(.93, .92, .89) * (.44 + .64 * pow(l, .6));
+  o = vec4(c * m, m);
+}`;
+
+const FS_CAM = `#version 300 es
+precision mediump float;
+in vec2 uv; out vec4 o;
+uniform sampler2D uVid; uniform float uA;
+${MAP}
+void main(){ o = vec4(texture(uVid, toVid(uv)).rgb * uA, 1.); }`;
+
+function sh(t, src){ const s = gl.createShader(t); gl.shaderSource(s, src); gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s; }
+function prog(vs, fs, attrs){ const p = gl.createProgram(); gl.attachShader(p, sh(gl.VERTEX_SHADER, vs)); gl.attachShader(p, sh(gl.FRAGMENT_SHADER, fs));
+  (attrs || ['p']).forEach((a, i) => gl.bindAttribLocation(p, i, a)); gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+  const U = {}, n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+  for (let i = 0; i < n; i++){ const u = gl.getActiveUniform(p, i); U[u.name] = gl.getUniformLocation(p, u.name); }
+  return { p, U }; }
+function tex(filter){ const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, filter); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, filter);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE); return t; }
+
+let PA, PB, PC, PK, quad, vaoQ, vaoB, ballBuf, texVid, texMask, texG = null, pointMax = 64;
+function initGL(){
+  PA = prog(VS, FS_STAGE); PC = prog(VS, FS_ME); PK = prog(VS, FS_CAM);
+  PB = prog(VS_BALL, FS_BALL, ['aPos', 'aSz', 'aTone']);
+  vaoQ = gl.createVertexArray(); gl.bindVertexArray(vaoQ);
+  quad = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, quad);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+  vaoB = gl.createVertexArray(); gl.bindVertexArray(vaoB);
+  ballBuf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, ballBuf);
+  gl.bufferData(gl.ARRAY_BUFFER, MAXB * 5 * 4, gl.DYNAMIC_DRAW);
+  gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 20, 0);
+  gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 2, gl.FLOAT, false, 20, 8);
+  gl.enableVertexAttribArray(2); gl.vertexAttribPointer(2, 1, gl.FLOAT, false, 20, 16);
+  gl.bindVertexArray(null);
+  texVid = tex(gl.LINEAR); texMask = tex(gl.LINEAR);
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+  const r = gl.getParameter(gl.ALIASED_POINT_SIZE_RANGE); if (r && r[1]) pointMax = r[1];
+}
+
+/* ---------- masks and afterimages ---------- */
+let MW = 0, MH = 0, u8 = null, luma = null, rg = null;
+const G = [];                               // afterimage slots
+for (let i = 0; i < NG; i++) G.push({ on:false, born:0, spawned:false, mask:null, lum:null });
+let lastGhost = null, lastGhostT = 0, ghostCount = 0;
+function allocMasks(w, h){
+  if (w === MW && h === MH) return;
+  MW = w; MH = h; work.width = w; work.height = h;
+  u8 = new Uint8Array(w*h); luma = new Uint8Array(w*h); rg = new Uint8Array(w*h*2);
+  for (const g of G){ g.on = false; g.mask = new Uint8Array(w*h); g.lum = new Uint8Array(w*h); }
+  lastGhost = new Uint8Array(w*h);
+  if (texG) gl.deleteTexture(texG);
+  texG = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D_ARRAY, texG);
+  gl.texStorage3D(gl.TEXTURE_2D_ARRAY, 1, gl.RG8, w, h, NG);
+  gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.bindTexture(gl.TEXTURE_2D, texMask);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, w, h, 0, gl.RED, gl.UNSIGNED_BYTE, u8);
+}
+function dimsFor(w, h){ const s = 256; return w < h ? [s, Math.round(s*h/w)] : [Math.round(s*w/h), s]; }
+function lifeSec(){ return 1.4 + S.life * 3.4; }
+
+// how different the current shape is from the last afterimage we left
+function changeSinceLast(){
+  let area = 0, diff = 0;
+  for (let i = 0, n = MW*MH; i < n; i += 3){
+    const a = u8[i] > 127, b = lastGhost[i] > 127;
+    if (a) area++;
+    if (a !== b) diff++;
+  }
+  return { area: area / (MW*MH / 3), diff: area ? diff / Math.max(area, 1) : 0 };
+}
+function maybeGhost(now){
+  if (!MODE.on || MODE.reveal < .6) return;
+  const ch = changeSinceLast();
+  STAT.area = ch.area; STAT.change = ch.diff;
+  if (ch.area < .012) return;
+  // Laid down by how far the shape has moved on, not by a clock: standing
+  // still must not pile up identical copies on top of you.
+  const need = .52 - .40 * S.rate;
+  if (ch.diff < need || now - lastGhostT < 55) return;
+  // the frame the mask came from is still in the work canvas
+  const d = wctx.getImageData(0, 0, MW, MH).data;
+  for (let i = 0, j = 0, n = MW*MH; i < n; i++, j += 4) luma[i] = (d[j]*77 + d[j+1]*150 + d[j+2]*29) >> 8;
+  let slot = -1, oldest = -1, oldT = Infinity;
+  for (let i = 0; i < NG; i++){
+    if (!G[i].on){ slot = i; break; }
+    if (G[i].born < oldT){ oldT = G[i].born; oldest = i; }
+  }
+  if (slot < 0){ slot = oldest; if (!G[slot].spawned) burstGhost(G[slot]); }
+  const g = G[slot];
+  g.mask.set(u8); g.lum.set(luma); g.on = true; g.born = now; g.spawned = false;
+  for (let i = 0, n = MW*MH; i < n; i++){ rg[i*2] = u8[i]; rg[i*2+1] = luma[i]; }
+  gl.bindTexture(gl.TEXTURE_2D_ARRAY, texG);
+  gl.texSubImage3D(gl.TEXTURE_2D_ARRAY, 0, 0, 0, slot, MW, MH, 1, gl.RG, gl.UNSIGNED_BYTE, rg);
+  lastGhost.set(u8); lastGhostT = now; ghostCount++;
+}
+
+/* ---------- spheres ---------- */
+const B = { n:0, x:new Float32Array(MAXB), y:new Float32Array(MAXB), vx:new Float32Array(MAXB), vy:new Float32Array(MAXB),
+  r:new Float32Array(MAXB), t:new Float32Array(MAXB), life:new Float32Array(MAXB), gk:new Float32Array(MAXB),
+  tone:new Float32Array(MAXB), out:new Float32Array(MAXB * 5) };
+let CW = 1, CH = 1, scaleX = 1, scaleY = 1, spawnedTotal = 0;
+// mask pixel (video space) -> canvas pixel (y up); the inverse of toVid()
+function vidToCanvas(mx, my){
+  let vx = (mx + .5) / MW, vy = (my + .5) / MH;
+  if (mirror) vx = 1 - vx;
+  const sx = (vx - .5) / scaleX + .5, sy = 1 - ((vy - .5) / scaleY + .5);
+  return [sx * CW, sy * CH];
+}
+function burstGhost(g){
+  g.spawned = true;
+  const step = Math.max(3, Math.round(11 - 6 * S.balls));
+  const prob = .22 + .55 * S.balls;
+  const base = Math.min(CW, CH) * (.0055 + .009 * S.size);
+  const up = Math.min(CW, CH);
+  let made = 0;
+  const jit = (Math.random() * step) | 0;
+  for (let my = jit; my < MH; my += step){
+    for (let mx = (my * 7 + jit) % step; mx < MW; mx += step){
+      const i = my * MW + mx;
+      if (g.mask[i] < 150 || Math.random() > prob) continue;
+      if (B.n >= MAXB) break;
+      const [px, py] = vidToCanvas(mx + (Math.random() - .5) * step, my + (Math.random() - .5) * step);
+      if (px < -20 || px > CW + 20 || py < -20 || py > CH + 20) continue;
+      const k = B.n++;
+      const rr = Math.random();
+      B.x[k] = px; B.y[k] = py;
+      B.vx[k] = (Math.random() - .5) * up * .10;
+      B.vy[k] = (Math.random() * .7 - .15) * up * .09;
+      B.r[k] = Math.min(pointMax * .5 - 1, base * (.45 + rr * rr * 1.8));
+      B.t[k] = 0; B.life[k] = 1.7 + Math.random() * 1.8 + S.life * 1.2;
+      // most fall; some hang in the air the way they do in the reference
+      B.gk[k] = Math.random() < .38 ? .05 + Math.random() * .1 : 1;
+      B.tone[k] = Math.min(1, .55 + .45 * (g.lum[i] / 255) + (Math.random() - .5) * .3);
+      made++;
+    }
+  }
+  spawnedTotal += made;
+  if (made) pop(made);
+}
+function stepBalls(dt){
+  const g = Math.min(CW, CH) * (.55 + 1.35 * S.fall), floor = CH * .035, drag = Math.exp(-dt * .9);
+  let w = 0;
+  for (let k = 0; k < B.n; k++){
+    let t = B.t[k] + dt;
+    if (t >= B.life[k]) continue;                 // dropped: compacted below
+    let x = B.x[k], y = B.y[k], vx = B.vx[k] * drag, vy = B.vy[k] * drag - g * B.gk[k] * dt;
+    x += vx * dt; y += vy * dt;
+    const r = B.r[k];
+    if (y - r < floor){ y = floor + r; if (vy < 0){ vy = -vy * .32; vx *= .72; } }
+    const u = t / B.life[k];
+    // inflate out of the lattice dot, hold, then shrink away
+    const grow = 1 - Math.pow(1 - Math.min(1, t / .22), 3);
+    const shrink = u > .72 ? 1 - (u - .72) / .28 : 1;
+    const o = w * 5;
+    B.out[o] = x; B.out[o+1] = y; B.out[o+2] = Math.max(.5, r * grow * (.35 + .65 * shrink));
+    B.out[o+3] = Math.min(1, shrink * 1.4); B.out[o+4] = B.tone[k];
+    B.x[w] = x; B.y[w] = y; B.vx[w] = vx; B.vy[w] = vy; B.r[w] = r; B.t[w] = t;
+    B.life[w] = B.life[k]; B.gk[w] = B.gk[k]; B.tone[w] = B.tone[k];
+    w++;
+  }
+  B.n = w;
+}
+
+/* ---------- segmentation (with a background-difference fallback) ---------- */
+let seg = null, segFails = 0, lastTs = 0, polScore = 0, polLocked = false, bg = null;
+const STAT = { area:0, change:0, mode:'…' };
+function setStatus(t){ $('status').textContent = t || ''; }
+async function initSeg(){
+  try{
+    setStatus('人物の切り抜きを読み込み中…（先に簡易モードで動かします）');
+    const mod = await import(`${MP_BASE}/vision_bundle.mjs`);
+    const fileset = await mod.FilesetResolver.forVisionTasks(`${MP_BASE}/wasm`);
+    const make = delegate => mod.ImageSegmenter.createFromOptions(fileset, {
+      baseOptions:{ modelAssetPath: MODEL_URL, delegate },
+      runningMode:'VIDEO', outputConfidenceMasks:true, outputCategoryMask:false });
+    try { seg = await make('GPU'); } catch(e){ seg = await make('CPU'); }
+    polScore = 0; polLocked = false; segFails = 0; STAT.mode = 'AI';
+    setStatus('');
+  }catch(e){
+    seg = null; STAT.mode = 'BG';
+    setStatus('切り抜きを読み込めませんでした → 簡易モード（背景差分）\nスマホを固定して、はじめは画面から外れてください');
+    setTimeout(() => setStatus(''), 9000);
+  }
+}
+function polarity(A){
+  if (polLocked) return polScore < 0;
+  let sAll = 0, nAll = 0, sC = 0, nC = 0;
+  for (let y = 0; y < MH; y += 4) for (let x = 0; x < MW; x += 4){
+    const v = A[y*MW + x]; sAll += v; nAll++;
+    if (x > MW*.3 && x < MW*.7 && y > MH*.3 && y < MH*.75){ sC += v; nC++; }
+  }
+  const d = sC / Math.max(nC, 1) - sAll / Math.max(nAll, 1);
+  if (Math.abs(d) > .06){ polScore += d > 0 ? 1 : -1; if (Math.abs(polScore) >= 8) polLocked = true; }
+  return polScore < 0;
+}
+function runSeg(now){
+  wctx.drawImage(video, 0, 0, MW, MH);
+  const ts = Math.max(lastTs + 1, Math.round(now)); lastTs = ts;
+  let ok = false;
+  try{
+    seg.segmentForVideo(work, ts, res => {
+      const ms = res.confidenceMasks; if (!ms || !ms.length) return;
+      const m = ms[0]; if (m.width !== MW || m.height !== MH) return;
+      const A = m.getAsFloat32Array();
+      const inv = ms.length >= 2 ? true : polarity(A);
+      for (let i = 0; i < u8.length; i++){ const v = inv ? 1 - A[i] : A[i]; u8[i] = v <= 0 ? 0 : v >= 1 ? 255 : (v * 255) | 0; }
+      ok = true;
+    });
+    segFails = 0;
+  }catch(e){ if (++segFails >= 3){ seg = null; STAT.mode = 'BG'; setStatus('切り抜きが止まりました → 簡易モード（背景差分）'); } }
+  return ok;
+}
+function runBgSub(){
+  wctx.drawImage(video, 0, 0, MW, MH);
+  const id = wctx.getImageData(0, 0, MW, MH).data, n = MW*MH;
+  if (!bg || bg.length !== n*3){
+    bg = new Float32Array(n*3);
+    for (let i = 0, j = 0, k = 0; i < n; i++, j += 4, k += 3){ bg[k] = id[j]; bg[k+1] = id[j+1]; bg[k+2] = id[j+2]; }
+  }
+  for (let i = 0, j = 0, k = 0; i < n; i++, j += 4, k += 3){
+    const dr = id[j]-bg[k], dg = id[j+1]-bg[k+1], db = id[j+2]-bg[k+2];
+    const d = Math.abs(dr) + Math.abs(dg) + Math.abs(db);
+    const r = d < 60 ? .05 : .004;
+    bg[k] += dr*r; bg[k+1] += dg*r; bg[k+2] += db*r;
+    let m = (d - 45) / 50; m = m < 0 ? 0 : m > 1 ? 1 : m;
+    u8[i] = (u8[i] * .4 + m * 255 * .6) | 0;
+  }
+  return true;
+}
+
+/* ---------- camera ---------- */
+let stream = null, facing = 'user', mirror = true, started = false, vidW = 1280, vidH = 720, lastVT = -1;
+function camError(e){
+  const msg = (e && (e.message || e.name)) ? (e.message || e.name) : String(e || 'unknown');
+  const text = 'カメラを起動できませんでした：' + msg + '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+  $('err').textContent = text;
+  if (started) setStatus(text);
+}
+async function startCam(){
+  const md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) throw new Error('getUserMedia is unavailable');
+  const s = await md.getUserMedia({ video:{ facingMode:{ ideal:facing }, width:{ ideal:1280 }, height:{ ideal:720 } }, audio:false });
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = s; mirror = facing === 'user';
+  video.srcObject = s;
+  await new Promise(r => { if (video.readyState >= 1) r(); else video.onloadedmetadata = () => r(); });
+  await video.play().catch(()=>{});
+  vidW = video.videoWidth || 1280; vidH = video.videoHeight || 720;
+  bg = null; polScore = 0; polLocked = false;
+  const [w, h] = dimsFor(vidW, vidH); allocMasks(w, h);
+}
+
+/* ---------- audio: a soft scatter when a shape comes apart ---------- */
+let actx = null, bus = null, recDest = null, lastPop = 0;
+function ensureAudio(){
+  if (actx){ if (actx.state === 'suspended') actx.resume().catch(()=>{}); return; }
+  const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+  actx = new AC(); bus = actx.createGain(); bus.gain.value = .28; bus.connect(actx.destination);
+  recDest = actx.createMediaStreamDestination(); bus.connect(recDest);
+  actx.resume().catch(()=>{});
+}
+function pop(count){
+  if (!actx || actx.state !== 'running') return;
+  const t0 = actx.currentTime; if (t0 - lastPop < .09) return; lastPop = t0;
+  const amt = Math.min(1, count / 180);
+  const sr = actx.sampleRate, n = sr * .5 | 0, b = actx.createBuffer(1, n, sr), d = b.getChannelData(0);
+  // many small beads let go at once: sparse clicks, not a hiss
+  for (let i = 0; i < n; i++){ const e = Math.pow(1 - i/n, 3); d[i] = (Math.random() < .018 * e ? (Math.random()*2 - 1) : 0) * e; }
+  const s = actx.createBufferSource(); s.buffer = b;
+  const f = actx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 2600 + Math.random() * 1600; f.Q.value = 1.4;
+  const g = actx.createGain(); g.gain.value = .25 + .75 * amt;
+  s.connect(f); f.connect(g); g.connect(bus); s.start();
+  const o = actx.createOscillator(), og = actx.createGain();
+  o.type = 'sine'; o.frequency.setValueAtTime(92, t0); o.frequency.exponentialRampToValueAtTime(58, t0 + .35);
+  og.gain.setValueAtTime(.12 * amt, t0); og.gain.exponentialRampToValueAtTime(.0008, t0 + .4);
+  o.connect(og); og.connect(bus); o.start(t0); o.stop(t0 + .42);
+}
+
+/* ---------- ui ---------- */
+$('go').onclick = async () => {
+  $('err').textContent = '';
+  ensureAudio();
+  try{
+    if (!gl) throw new Error('WebGL2 に未対応のブラウザです');
+    if (!PA) initGL();
+    await startCam();
+  }catch(e){ camError(e); return; }
+  $('start').style.display = 'none';
+  ['gear','flip','bar','rec','shoot','burst','hud','mode'].forEach(id => $(id).classList.add('show'));
+  MODE.on = true; setMode(false); MODE.X = 0;
+  if (!started){ started = true; requestAnimationFrame(loop); initSeg(); }
+};
+$('flip').onclick = async () => {
+  const prev = facing; facing = facing === 'user' ? 'environment' : 'user';
+  try { await startCam(); } catch(e){ facing = prev; camError(e); }
+};
+$('gear').onclick = () => $('panel').classList.toggle('hide');
+function burstAll(){ for (const g of G) if (g.on && !g.spawned){ burstGhost(g); g.on = false; } }
+$('burst').onclick = burstAll;
+canvas.addEventListener('pointerdown', e => { if (e.isPrimary !== false && started && MODE.on && MODE.reveal > .6) burstAll(); });
+
+const MODE = { on:false, X:0, reveal:0, camA:1 };
+function setMode(m){
+  if (m === MODE.on) return; MODE.on = m;
+  $('mode').textContent = m ? '◂ CAMERA' : '▸ TAMAYURA';
+  document.body.classList.toggle('cam', !m);
+  if (!m){ for (const g of G) g.on = false; B.n = 0; }
+}
+$('mode').onclick = () => setMode(!MODE.on);
+addEventListener('keydown', e => {
+  if (!started || document.activeElement.tagName === 'INPUT') return;
+  if (e.key === ' ' || e.key === 'Enter'){ e.preventDefault(); setMode(!MODE.on); }
+});
+$('stage').onclick = e => { const b = e.target.closest('button'); if (!b) return; S.stage = +b.dataset.s;
+  [...$('stage').children].forEach(x => x.classList.toggle('on', x === b)); };
+[['sLife','life'],['sRate','rate'],['sBalls','balls'],['sSize','size'],['sFall','fall']].forEach(([id,k]) => { $(id).oninput = e => { S[k] = +e.target.value; }; });
+
+$('shoot').onclick = () => {
+  try{
+    canvas.toBlob(b => { if (!b) return; const a = document.createElement('a'); a.href = URL.createObjectURL(b);
+      a.download = 'tamayura-' + Date.now() + '.png'; a.click(); }, 'image/png');
+  }catch(e){ setStatus('保存できませんでした。'); }
+};
+let rec = null, chunks = [];
+$('rec').onclick = () => {
+  if (rec && rec.state === 'recording'){ rec.stop(); return; }
+  try{
+    ensureAudio();
+    const tracks = [...canvas.captureStream(30).getVideoTracks()];
+    if (recDest) tracks.push(...recDest.stream.getAudioTracks());
+    const mime = ['video/mp4;codecs=avc1','video/webm;codecs=vp9,opus','video/webm'].find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || '';
+    rec = new MediaRecorder(new MediaStream(tracks), mime ? { mimeType:mime } : {});
+    chunks = [];
+    rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+    rec.onstop = () => {
+      $('rec').classList.remove('on'); $('rec').textContent = '● REC';
+      const ext = (rec.mimeType || '').includes('mp4') ? 'mp4' : 'webm';
+      const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(chunks, { type:rec.mimeType || 'video/webm' }));
+      a.download = 'tamayura.' + ext; a.click();
+    };
+    rec.start(); $('rec').classList.add('on'); $('rec').textContent = '■ STOP';
+  }catch(e){ setStatus('録画を開始できませんでした。'); }
+};
+
+/* ---------- render ---------- */
+let lastT = 0, hudT = 0, segT = 0;
+function newVideoFrame(){ const vt = video.currentTime; if (vt === lastVT) return false; lastVT = vt; return true; }
+function quadDraw(){ gl.bindVertexArray(vaoQ); gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4); }
+function loop(now){
+  requestAnimationFrame(loop);
+  const dt = lastT ? Math.min(.1, (now - lastT)/1000) : 1/60; lastT = now;
+  if (video.videoWidth && (video.videoWidth !== vidW || video.videoHeight !== vidH)){
+    vidW = video.videoWidth; vidH = video.videoHeight; const [w, h] = dimsFor(vidW, vidH); allocMasks(w, h);
+  }
+  const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+  let W = Math.round(innerWidth*dpr), H = Math.round(innerHeight*dpr);
+  const k = Math.min(1, 1400 / Math.max(W, H)); W = Math.round(W*k); H = Math.round(H*k);
+  if (canvas.width !== W || canvas.height !== H){ canvas.width = W; canvas.height = H; }
+  CW = W; CH = H;
+  if (video.readyState < 2 || !MW) return;
+
+  const fresh = newVideoFrame();
+  MODE.X = MODE.on ? Math.min(1.6, MODE.X + dt) : Math.max(0, MODE.X - dt * 2.8);
+  MODE.camA = 1 - Math.min(1, MODE.X / .3);
+  MODE.reveal = Math.max(0, Math.min(1, (MODE.X - .38) / .7));
+  const sa = W/H, va = vidW/vidH;
+  scaleX = sa < va ? sa/va : 1; scaleY = sa < va ? 1 : va/sa;
+
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, texVid);
+  if (fresh){ try { gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video); } catch(e){ return; } }
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, 0, W, H);
+
+  if (MODE.reveal <= 0){
+    gl.disable(gl.BLEND);
+    gl.useProgram(PK.p); gl.uniform1i(PK.U.uVid, 0);
+    gl.uniform2f(PK.U.uScale, scaleX, scaleY); gl.uniform1f(PK.U.uMirror, mirror ? 1 : 0);
+    gl.uniform1f(PK.U.uA, MODE.camA * MODE.camA);
+    quadDraw();
+    return;
+  }
+
+  // mask at most ~30 times a second; the picture runs as fast as it can
+  if (fresh && now - segT > 30){
+    segT = now;
+    const got = seg ? runSeg(now) : runBgSub();
+    if (got){
+      gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, texMask);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, MW, MH, 0, gl.RED, gl.UNSIGNED_BYTE, u8);
+      maybeGhost(now);
+    }
+  }
+
+  // age the afterimages; hand them to the spheres at the right moment
+  const L = lifeSec() * 1000;
+  const lay = [], age = [];
+  const order = G.map((g, i) => i).filter(i => G[i].on).sort((a, b) => G[a].born - G[b].born);
+  for (const i of order){
+    const g = G[i], a = (now - g.born) / L;
+    if (!g.spawned && a >= BALL_AT) burstGhost(g);
+    if (a >= 1){ g.on = false; continue; }
+    lay.push(i); age.push(a);
+  }
+  stepBalls(dt);
+
+  // A: stage and afterimages
+  gl.disable(gl.BLEND);
+  gl.useProgram(PA.p);
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, texVid);
+  gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D_ARRAY, texG);
+  gl.uniform1i(PA.U.uVid, 0); gl.uniform1i(PA.U.uG, 2);
+  gl.uniform2f(PA.U.uScale, scaleX, scaleY); gl.uniform1f(PA.U.uMirror, mirror ? 1 : 0);
+  gl.uniform2f(PA.U.uRes, W, H);
+  gl.uniform1f(PA.U.uStage, S.stage); gl.uniform1f(PA.U.uRev, MODE.reveal);
+  gl.uniform1f(PA.U.uCell, Math.max(3, Math.min(W, H) * .0105));
+  gl.uniform1f(PA.U.uT, now / 1000);
+  gl.uniform1i(PA.U.uN, lay.length);
+  const LA = new Float32Array(NG), AG = new Float32Array(NG);
+  LA.set(lay); AG.set(age);
+  gl.uniform1fv(PA.U['uLay[0]'], LA); gl.uniform1fv(PA.U['uAge[0]'], AG);
+  gl.uniform1f(PA.U.uPass, 0);
+  quadDraw();
+
+  // B: spheres
+  if (B.n){
+    gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+    gl.useProgram(PB.p); gl.uniform2f(PB.U.uRes, W, H);
+    gl.bindVertexArray(vaoB); gl.bindBuffer(gl.ARRAY_BUFFER, ballBuf);
+    gl.bufferSubData(gl.ARRAY_BUFFER, 0, B.out, 0, B.n * 5);
+    gl.drawArrays(gl.POINTS, 0, B.n);
+  }
+
+  // A': the copies that are still solid, in front of the spheres
+  if (lay.length){
+    gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+    gl.useProgram(PA.p);
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, texVid);
+    gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D_ARRAY, texG);
+    gl.uniform1f(PA.U.uPass, 1);
+    quadDraw();
+  }
+
+  // C: you, in front of all of it
+  gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+  gl.useProgram(PC.p);
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, texVid);
+  gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, texMask);
+  gl.uniform1i(PC.U.uVid, 0); gl.uniform1i(PC.U.uMask, 1);
+  gl.uniform2f(PC.U.uScale, scaleX, scaleY); gl.uniform1f(PC.U.uMirror, mirror ? 1 : 0);
+  gl.uniform1f(PC.U.uRev, MODE.reveal);
+  quadDraw();
+  gl.disable(gl.BLEND);
+
+  if (++hudT > 12){
+    hudT = 0;
+    $('hud').innerHTML = 'TAMAYURA  ' + STAT.mode + '\n残像 ' + String(lay.length).padStart(2, '0') +
+      '\n球   ' + String(B.n).padStart(4, '0');
+  }
+}
+
+/* ---------- test hook (used by the local verification harness) ---------- */
+window.__TAMAYURA = {
+  state: () => ({ mw:MW, mh:MH, ghosts:G.filter(g => g.on).length, laid:ghostCount, balls:B.n, spawned:spawnedTotal,
+                  area:STAT.area, change:STAT.change, mode:STAT.mode, reveal:MODE.reveal, on:MODE.on, pointMax }),
+  mode(m){ setMode(!!m); }, burst: burstAll,
+  set(k, v){ if (k in S) S[k] = v; },
+  ballsY: () => Array.from(B.y.subarray(0, B.n)),
+};
+</script>
+</body>
+</html>
