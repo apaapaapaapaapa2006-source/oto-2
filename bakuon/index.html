@@ -1,0 +1,831 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="description" content="体の動きがそのまま歪むノイズシンセになる。自分の姿を縦に切った一本の線が波形そのもので、動けば七つの発振器が折れて唸り、太鼓が組み上がる。">
+<meta name="theme-color" content="#000000">
+<title>BAKUON ─ 体で鳴らすノイズ</title>
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  BAKUON 爆音 ─ 体で鳴らすノイズ                       ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  MOOD       ボアダムズ。うるさくて、しつこくて、なぜか陽気なノイズ。
+             冷たい工業ノイズではなく、祭りの太鼓が七本の発振器に化けて
+             倒れこんでくるほうの騒音。動けば鳴る、止まれば唸る。
+  PALETTE    爆 黒 #000 ── 血赤 #c1121f ── 橙 #ff7a18 ── 白
+             極 黒と白だけ。差し色なし。閃光でしか色が出ない。
+             祝 黒 ── マゼンタ #ff2fb0 ── シアン #17e0ff ── 黄 #ffe600
+             中間色は作らない。カメラ映像は四階調に潰してから色を当てる。
+  TYPE       Anton（数字と題字、詰めて大きく）と Zen Kaku Gothic New。
+  MOTION     すべて音に従う。画面の横ずれは出力波形そのもので、
+             太鼓が入るたびに画が一拍ぶん膨らむ。イージングは無い。
+  SIGNATURE  画面を横切る巨大なオシロスコープの線と、
+             その線が自分の体を縦に切った断面からできていること。
+  TECH       音は AudioWorklet 一枚。七つの発振器が共有の 1024 点
+             ウェーブテーブルを読むが、そのテーブルは毎フレーム
+             カメラから来る ── 動きの重心を通る縦一列の輝度である。
+             だから音色は映っているものそのもの。そのあと三角波折り返し
+             （ウェーブフォルダ）→ 自己発振する帰還ディレイ →
+             ステートバリアブル帯域通過 → サンプル&ホールド。
+             太鼓は 16・12・7 拍の三人が別々に叩くのでずれ続ける。
+             体からは四つの数しか取らない ── 動きの総量・その重心の高さ・
+             横の広がり・急な跳ね。手も顔も検出しないので、
+             外部モデルもネットワークも一切要らない。
+             画は四階調のベタ塗りだが、切る位置はそのフレームの
+             ヒストグラムの等面積分位。固定のしきい値だと普通の部屋が
+             まるごと一階調に入って人が消える。そのうえに「動いた所」の
+             熱を重ねて焼く ── 鳴らしているのは動きなので、
+             光るのも動きであるべきで、跡はゆっくり褪せる。
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Zen+Kaku+Gothic+New:wght@400;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#000;--fg:#fff;--dim:rgba(255,255,255,.55);--line:rgba(255,255,255,.22);--acc:#ff7a18}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none}
+html,body{margin:0;height:100%;background:#000;overflow:hidden;color:var(--fg);
+  font-family:"Zen Kaku Gothic New",ui-sans-serif,"Hiragino Sans",system-ui,sans-serif;font-weight:400}
+#gl{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:crosshair}
+#cam{position:fixed;left:0;top:0;width:2px;height:2px;opacity:.01;pointer-events:none}
+#est{display:none}
+
+#start{position:fixed;inset:0;z-index:30;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;
+  padding:28px;text-align:center;background:#000}
+#start .t{font-size:10px;letter-spacing:.55em;margin-right:-.55em;color:var(--dim)}
+#start h1{margin:0;font-family:Anton,"Zen Kaku Gothic New",sans-serif;font-weight:400;
+  font-size:min(22vw,150px);line-height:.88;letter-spacing:-.01em}
+#start h1 i{font-style:normal;color:var(--acc)}
+#start p{margin:0;font-size:12.5px;line-height:2;color:var(--dim);letter-spacing:.04em}
+#go{appearance:none;border:2px solid var(--fg);background:transparent;color:var(--fg);
+  font:400 13px Anton,sans-serif;letter-spacing:.4em;padding:14px 26px 14px 32px;cursor:pointer;transition:background .2s,color .2s}
+#go:hover{background:var(--fg);color:#000}
+#err{font-size:12px;line-height:1.8;max-width:340px;min-height:1em;white-space:pre-line;color:#ff9c7a}
+#warn{font-size:10.5px;line-height:1.9;color:rgba(255,255,255,.4);max-width:300px}
+
+.btn{position:fixed;z-index:12;appearance:none;border:0;background:transparent;color:var(--fg);
+  font:700 10px "Zen Kaku Gothic New",sans-serif;letter-spacing:.22em;padding:10px 8px;display:none;cursor:pointer;
+  opacity:.65;transition:opacity .2s;text-shadow:0 0 10px #000}
+.btn.show{display:block}
+.btn:hover{opacity:1}
+#gear{right:10px;top:calc(env(safe-area-inset-top) + 6px);font-size:14px;letter-spacing:0}
+#flip{right:10px;top:calc(env(safe-area-inset-top) + 40px)}
+#bar{position:fixed;left:0;right:0;bottom:calc(env(safe-area-inset-bottom) + 10px);z-index:12;display:none;justify-content:center;align-items:center;gap:26px}
+#bar.show{display:flex}
+#bar .btn{position:static;display:block}
+#bar #shoot{position:relative;width:42px;height:42px;border:2px solid var(--fg);padding:0;opacity:.75;border-radius:50%}
+#shoot::after{content:"";position:absolute;inset:7px;background:var(--fg);border-radius:50%}
+#rec.on{opacity:1;color:#ff2f2f}
+#hud{position:fixed;left:14px;top:calc(env(safe-area-inset-top) + 12px);z-index:11;pointer-events:none;display:none;
+  font-family:Anton,sans-serif;letter-spacing:.06em;line-height:1.05;text-shadow:0 0 14px #000}
+#hud.show{display:block}
+#hud .big{font-size:52px;display:block}
+#hud .sub{font-size:10px;letter-spacing:.28em;color:var(--dim);font-family:"Zen Kaku Gothic New",sans-serif;font-weight:700}
+#status{position:fixed;left:14px;bottom:calc(env(safe-area-inset-bottom) + 66px);z-index:11;font-size:11px;
+  color:var(--dim);pointer-events:none;max-width:72vw;line-height:1.7;white-space:pre-line}
+
+#panel{position:fixed;right:10px;top:calc(env(safe-area-inset-top) + 78px);z-index:12;width:min(272px,calc(100vw - 20px));
+  background:rgba(0,0,0,.84);border:1px solid var(--line);padding:14px 16px;display:flex;flex-direction:column;gap:13px;
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);transition:opacity .2s}
+#panel.hide{opacity:0;pointer-events:none}
+.chips{display:flex;border:1px solid var(--line)}
+.chips button{flex:1;appearance:none;border:0;background:transparent;color:var(--fg);padding:9px 2px;
+  font:700 11px "Zen Kaku Gothic New",sans-serif;letter-spacing:.18em;cursor:pointer;opacity:.5}
+.chips button.on{opacity:1;background:rgba(255,255,255,.14)}
+#panel label{display:flex;align-items:center;gap:10px;font-size:11px;letter-spacing:.03em}
+#panel label span{width:66px;flex:none;color:var(--dim)}
+#panel input[type=range]{flex:1;accent-color:#fff}
+#panel .note{font-size:10px;color:var(--dim);line-height:1.8}
+#mode{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom) + 70px);z-index:13;display:none;
+  appearance:none;border:2px solid var(--fg);background:rgba(0,0,0,.4);color:var(--fg);
+  font:400 12px Anton,sans-serif;letter-spacing:.34em;padding:12px 20px 12px 26px;cursor:pointer;
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);transition:background .2s,color .2s}
+#mode.show{display:block}
+#mode:hover{background:var(--fg);color:#000}
+body.cam #hud{visibility:hidden}
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<canvas id="est"></canvas>
+<video id="cam" playsinline muted autoplay></video>
+<div id="hud"></div>
+<div id="status"></div>
+<button id="gear" class="btn" aria-label="調整">⚙</button>
+<button id="flip" class="btn">⟲ カメラ</button>
+<button id="mode">▸ BAKUON</button>
+<div id="bar">
+  <button id="rec" class="btn">● REC</button>
+  <button id="shoot" class="btn" aria-label="撮る"></button>
+  <button id="hit" class="btn">一撃</button>
+</div>
+
+<div id="panel" class="hide">
+  <div class="chips" id="pals">
+    <button data-p="0" class="on">爆</button>
+    <button data-p="1">極</button>
+    <button data-p="2">祝</button>
+  </div>
+  <label><span>音量</span><input type="range" id="sVol" min="0" max="1" step="0.01" value="0.5"></label>
+  <label><span>荒さ</span><input type="range" id="sDrive" min="0" max="1" step="0.01" value="0.55"></label>
+  <label><span>唸り</span><input type="range" id="sFb" min="0" max="1" step="0.01" value="0.55"></label>
+  <label><span>太鼓</span><input type="range" id="sDrum" min="0" max="1" step="0.01" value="0.7"></label>
+  <label><span>感度</span><input type="range" id="sGain" min="0" max="1" step="0.01" value="0.5"></label>
+  <div class="note">動けば鳴る。高いところで動けば高く、低いところで動けば低い。<br>両腕を広げるほど七本の発振器がばらける。<br>画面をタップ：一撃。</div>
+</div>
+
+<div id="start">
+  <div class="t">NOISE SYNTH / BODY PLAYED</div>
+  <h1>BAKU<i>O</i>N</h1>
+  <p>体の動きが、そのまま歪んだ音になります。<br>音色を作っているのは、あなたの姿を縦に切った一本の線です。<br>止まれば低く唸り、暴れれば太鼓が組み上がります。</p>
+  <button id="go">START</button>
+  <div id="err"></div>
+  <div id="warn">音が出ます。音量をさげてからはじめてください。</div>
+</div>
+
+<script id="dsp" type="text/worklet">
+/* =====================================================================
+   BAKUON DSP — seven oscillators reading one wavetable that the camera
+   rewrites every frame, then a wavefolder, a delay line pushed into
+   self-oscillation, a state-variable bandpass, and a sample-and-hold.
+   The drums are three players on 16, 12 and 7 steps, so they drift.
+   ===================================================================== */
+class Bakuon extends AudioWorkletProcessor {
+  static get parameterDescriptors(){
+    return [
+      { name:'freq',   defaultValue:55,    minValue:18,    maxValue:1200, automationRate:'k-rate' },
+      { name:'drive',  defaultValue:1.2,   minValue:0.2,   maxValue:34,   automationRate:'k-rate' },
+      { name:'fb',     defaultValue:0,     minValue:0,     maxValue:0.94, automationRate:'k-rate' },
+      { name:'fbTime', defaultValue:0.013, minValue:0.0007,maxValue:0.085,automationRate:'k-rate' },
+      { name:'cut',    defaultValue:1200,  minValue:90,    maxValue:7000, automationRate:'k-rate' },
+      { name:'res',    defaultValue:2,     minValue:0.4,   maxValue:16,   automationRate:'k-rate' },
+      { name:'spread', defaultValue:0.004, minValue:0,     maxValue:0.42, automationRate:'k-rate' },
+      { name:'crush',  defaultValue:1,     minValue:1,     maxValue:70,   automationRate:'k-rate' },
+      { name:'level',  defaultValue:0,     minValue:0,     maxValue:1,    automationRate:'k-rate' },
+      { name:'bpm',    defaultValue:92,    minValue:40,    maxValue:260,  automationRate:'k-rate' },
+      { name:'beat',   defaultValue:0,     minValue:0,     maxValue:1,    automationRate:'k-rate' }
+    ];
+  }
+  constructor(){
+    super();
+    const N = this.N = 1024;
+    this.tab = new Float32Array(N);
+    this.pend = null;
+    for (let i = 0; i < N; i++) this.tab[i] = Math.sin(i / N * 6.283185307);
+    this.V = 7;                                     // seven necks
+    this.ph  = new Float32Array(this.V);
+    this.rat = new Float32Array([1, 1.003, 1.5, 2.002, 2.997, 4.01, 5.99]);
+    this.amp = new Float32Array([1, .78, .52, .40, .30, .23, .18]);
+    let s = 0; for (let v = 0; v < this.V; v++) s += this.amp[v];
+    for (let v = 0; v < this.V; v++) this.amp[v] /= s;
+    this.dr = new Float32Array(this.V);
+    this.dt = new Float32Array(this.V);
+    for (let v = 0; v < this.V; v++) this.dt[v] = Math.random() * 2 - 1;
+    this.DL = Math.max(256, (sampleRate * 0.1) | 0);
+    this.dl = new Float32Array(this.DL);
+    this.dw = 0;
+    this.lp = 0; this.bp = 0;
+    this.shv = 0; this.shc = 0;
+    this.dx = 0; this.dy = 0;
+    this.acc = 0; this.step = 0;
+    this.hits = [];
+    this.peak = 0;
+    this.port.onmessage = e => {
+      const d = e.data;
+      if (!d) return;
+      if (d.tab) this.pend = d.tab;
+      if (d.hit) this.fire(d.hit, d.low);
+    };
+  }
+  fire(power, low){
+    if (this.hits.length > 9) this.hits.shift();
+    this.hits.push({ t:0, p:0,
+      f0: low ? 118 + Math.random()*40 : 168 + Math.random()*150,
+      dur: low ? .30 + Math.random()*.18 : .13 + Math.random()*.14,
+      amp: Math.max(0, Math.min(1.2, power)),
+      nz: low ? .30 : .55 });
+  }
+  seq(s, amp){
+    // three players who never line up again after the first beat
+    if (s % 4 === 0) this.fire(amp * 1.05, true);
+    if (s % 12 === 5) this.fire(amp * .72, false);
+    if (s % 7 === 3) this.fire(amp * .58, false);
+    if (amp > .62 && s % 2 === 1 && Math.random() < .34) this.fire(amp * .42, false);
+  }
+  process(inputs, outputs, p){
+    const out = outputs[0][0];
+    if (!out) return true;
+    const n = out.length, sr = sampleRate, N = this.N, M = N - 1, V = this.V;
+    if (this.pend){ this.tab.set(this.pend); this.pend = null; }
+    const tab = this.tab, ph = this.ph, rat = this.rat, amp = this.amp, dr = this.dr;
+    const freq = p.freq[0], drive = p.drive[0], fb = p.fb[0];
+    const cut = p.cut[0], res = p.res[0], spread = p.spread[0];
+    const crush = p.crush[0], level = p.level[0], bpm = p.bpm[0], beat = p.beat[0];
+
+    // per-block: drift the detuning so the swarm never settles
+    for (let v = 0; v < V; v++){
+      dr[v] += (this.dt[v] - dr[v]) * 0.0016;
+      if (Math.random() < 0.004) this.dt[v] = Math.random() * 2 - 1;
+    }
+    const inc = new Float32Array(V);
+    for (let v = 0; v < V; v++) inc[v] = freq * rat[v] * (1 + dr[v] * spread) / sr;
+
+    const dsamp = Math.max(2, Math.min(this.DL - 2, p.fbTime[0] * sr));
+    // the SVF goes unstable above sr/6, and this patch lives at the edge
+    const f = Math.min(0.98, 2 * Math.sin(Math.PI * Math.min(cut, sr * 0.16) / sr));
+    const q = 1 / Math.max(0.55, res);
+    const bpGain = 0.55 + res * 0.05;
+    const spb = 60 / bpm / 4;
+    const dl = this.dl, DL = this.DL, hits = this.hits;
+    let pk = 0;
+
+    for (let i = 0; i < n; i++){
+      let s = 0;
+      for (let v = 0; v < V; v++){
+        let x = ph[v] + inc[v];
+        x -= Math.floor(x);
+        ph[v] = x;
+        const t = x * N, i0 = t | 0, fr = t - i0;
+        const a = tab[i0 & M], b = tab[(i0 + 1) & M];
+        s += (a + (b - a) * fr) * amp[v];
+      }
+      // triangle wavefolder: the more you drive it the more times it folds
+      let z = s * drive * 0.25 + 0.25;
+      z -= Math.floor(z);
+      let y = Math.abs(z * 4 - 2) - 1;
+
+      // delay line with enough gain to sing on its own
+      let rp = this.dw - dsamp; if (rp < 0) rp += DL;
+      const j0 = rp | 0, jf = rp - j0;
+      const dA = dl[j0], dB = dl[(j0 + 1) % DL];
+      y += fb * Math.tanh((dA + (dB - dA) * jf) * 1.45);
+      dl[this.dw] = y;
+      if (++this.dw >= DL) this.dw = 0;
+
+      // state-variable bandpass
+      this.lp += f * this.bp;
+      const hp = y - this.lp - q * this.bp;
+      this.bp += f * hp;
+      if (this.lp > 6) this.lp = 6; else if (this.lp < -6) this.lp = -6;
+      if (this.bp > 6) this.bp = 6; else if (this.bp < -6) this.bp = -6;
+      let o = this.bp * bpGain + this.lp * 0.42;
+
+      if (crush > 1.05){
+        if (++this.shc >= crush){ this.shc = 0; this.shv = o; }
+        o = this.shv;
+      }
+
+      // drums
+      this.acc += 1 / sr;
+      if (this.acc >= spb){
+        this.acc -= spb;
+        this.step = (this.step + 1) % 1680;          // lcm(16,12,7) = 336
+        if (beat > 0.02) this.seq(this.step, beat);
+      }
+      let d = 0;
+      for (let k = 0; k < hits.length; k++){
+        const h = hits[k];
+        const e = 1 - h.t / h.dur;
+        if (e <= 0) continue;
+        const env = e * e;
+        h.p += h.f0 * (0.20 + 0.80 * env * env) / sr;
+        if (h.p >= 1) h.p -= 1;
+        d += (Math.sin(h.p * 6.283185307) * (1 - h.nz)
+              + (Math.random() * 2 - 1) * h.nz * env * env * env) * env * h.amp;
+        h.t += 1 / sr;
+      }
+
+      // The chain loses about 30dB between the table and here (the folder
+      // squeezes, the bandpass throws most of the band away), so make it up
+      // before the limiter instead of after: this patch is supposed to be
+      // pushed into the tanh, not politely kept under it.
+      // The drums keep a floor under them. Running them through the same
+      // energy gate as the synth meant a hit while you were standing still —
+      // the one moment you would reach for it — came out nearly silent.
+      let m = o * 2.4 * level + d * 1.6 * (0.35 + 0.65 * level);
+      const dc = m - this.dx + 0.995 * this.dy;
+      this.dx = m; this.dy = dc;
+      const v2 = Math.tanh(dc * 2.2) * 0.9;
+      out[i] = v2;
+      const av = v2 < 0 ? -v2 : v2;
+      if (av > pk) pk = av;
+    }
+    for (let k = hits.length - 1; k >= 0; k--) if (hits[k].t >= hits[k].dur) hits.splice(k, 1);
+
+    // one NaN would silence the instrument for good; catch it and restart the filters
+    if (!(this.lp === this.lp) || !(this.bp === this.bp) || !(this.dy === this.dy)){
+      this.lp = this.bp = this.dx = this.dy = this.shv = 0;
+      dl.fill(0);
+      for (let v = 0; v < V; v++) ph[v] = 0;
+    }
+    this.peak = pk;
+    return true;
+  }
+}
+registerProcessor('bakuon', Bakuon);
+</script>
+
+<script>
+'use strict';
+/* =====================================================================
+   BAKUON — the body is the only controller. Four numbers come off the
+   camera (how much moved, how high, how wide, and how suddenly) and a
+   vertical slice of the picture becomes the wavetable the oscillators
+   read, so what you hear is literally the shape of what is in frame.
+   ===================================================================== */
+const $ = id => document.getElementById(id);
+const canvas = $('gl'), video = $('cam'), est = $('est');
+const ectx = est.getContext('2d', { willReadFrequently:true });
+
+const PALS = [
+  { name:'爆', a:[0.76,0.07,0.12], b:[1.0,0.48,0.09], c:[1,1,1],       psy:0 },
+  { name:'極', a:[0.42,0.42,0.44], b:[0.85,0.85,0.87], c:[1,1,1],      psy:0 },
+  { name:'祝', a:[1.0,0.18,0.69],  b:[0.09,0.88,1.0],  c:[1,0.90,0.0], psy:1 },
+];
+const S = { pal:0, vol:.5, drive:.55, fb:.55, drum:.7, gain:.5 };
+
+/* ---------- GL ---------- */
+const gl = canvas.getContext('webgl2', { antialias:false, alpha:false, preserveDrawingBuffer:true, powerPreference:'high-performance' });
+const VS = `#version 300 es
+in vec2 p; out vec2 uv; void main(){ uv = p*.5+.5; gl_Position = vec4(p,0.,1.); }`;
+
+const FS_MAIN = `#version 300 es
+precision highp float;
+in vec2 uv; out vec4 o;
+uniform sampler2D uVid, uWave, uSpec, uHeat;
+uniform vec2 uScale, uRes;
+uniform vec3 uA, uB, uC, uThr;
+uniform float uMirror, uShake, uFlash, uEnergy, uPsy, uT, uScope, uRev;
+const vec3 LW = vec3(.2126,.7152,.0722);
+float h21(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7))) * 43758.5453); }
+float wav(float x){ return texture(uWave, vec2(clamp(x,0.,1.), .5)).r * 2. - 1.; }
+vec3 cam(vec2 s){
+  vec2 v = (vec2(s.x, 1.-s.y) - .5) * uScale + .5;
+  if (uMirror > .5) v.x = 1.-v.x;
+  return texture(uVid, clamp(v, .002, .998)).rgb;
+}
+// Four steps, no in-between. The cuts are equal-area quantiles of this
+// frame's own histogram, not fixed levels: a fixed ladder puts an entire
+// ordinary room into one band and the person disappears into it.
+float bandOf(vec2 p){
+  float l = dot(cam(p), LW);
+  return l < uThr.x ? 0. : l < uThr.y ? 1. : l < uThr.z ? 2. : 3.;
+}
+void main(){
+  float asp = uRes.x / uRes.y;
+  // every row of the picture is pushed sideways by the sound at that height.
+  // The neighbours for the outline are taken AFTER that shear, not before:
+  // each row is displaced by a different amount, so comparing across rows in
+  // screen space lights up every row boundary and the outline becomes a comb.
+  vec2 p0 = vec2(uv.x + wav(uv.y) * uShake, uv.y);
+  float b = bandOf(p0);
+  vec3 c = b < .5 ? vec3(0.) : b < 1.5 ? uA * .72 : b < 2.5 ? uB : uC;
+  if (uPsy > .5){
+    float r = fract(uT * .07 + b * .27);
+    c = mix(c, r < .33 ? uA : r < .66 ? uB : uC, .45);
+  }
+  c *= .55 + .45 * uEnergy;
+
+  // the cut between two bands, drawn as a line: without it the poster is
+  // flat fields and you cannot tell where the body ends
+  float e2 = 2.0 / uRes.y;
+  float bn = abs(bandOf(p0 + vec2(e2 / asp, 0.)) - b) + abs(bandOf(p0 + vec2(0., e2)) - b);
+  c = mix(c, uC, clamp(bn, 0., 1.) * (.55 + .35 * uEnergy));
+
+  // Whatever is moving is what is playing, so that is what gets lit. Flat
+  // luminance bands alone will not separate a person from the wall behind
+  // them; this does, and it leaves a trail of where they have been.
+  float ht = texture(uHeat, vec2(p0.x, 1. - p0.y)).r;
+  c = mix(c, uC, smoothstep(.34, .95, ht) * .6);
+  c += uB * smoothstep(.05, .48, ht) * (.30 + .45 * uEnergy);
+
+  // the spectrum as a spiky ring around the centre, slowly turning
+  vec2 g = (uv - .5) * vec2(asp, 1.);
+  float rr = length(g);
+  float ang = fract(atan(g.y, g.x) / 6.2831853 + .5 + uT * .035);
+  float m = texture(uSpec, vec2(fract(ang * 3.), .5)).r;
+  float dr = abs(rr - (.13 + m * .31 * (.35 + .65 * uEnergy)));
+  c += (uB * .6 + uC * .4) * smoothstep(.005, 0., dr) * (.45 + .55 * uEnergy);
+  c += uB * smoothstep(.035, 0., dr) * m * .22;
+
+  // the trace: an implicit line through the waveform, thickness corrected
+  // by its own slope so the steep parts do not thin out to nothing
+  float e = 1.5 / uRes.x;
+  float y0 = .5 + wav(uv.x) * uScope;
+  float dydx = (wav(uv.x + e) - wav(uv.x - e)) * uScope / (2. * e);
+  float d = abs(uv.y - y0) / sqrt(1. + dydx * dydx);
+  float lw = 1.6 / uRes.y;
+  c += uC * smoothstep(lw * 2.4, 0., d) * (.55 + .45 * uEnergy);
+  c += uC * smoothstep(lw * 9., 0., d) * .12;
+
+  c += vec3(uFlash);
+  c += (h21(floor(gl_FragCoord.xy / 1.5) + fract(uT * 9.7) * 71.3) - .5) * .05;
+  if (uRev < 1.){
+    float f = uRev * 1.4 - h21(vec2(floor(uv.y * 90.), 3.1)) * .9;
+    if (f < 0.){ o = vec4(0.,0.,0.,1.); return; }
+    c = mix(c, uC, (1. - smoothstep(0., .14, f)) * .8);
+  }
+  o = vec4(clamp(c, 0., 1.), 1.);
+}`;
+
+const FS_CAM = `#version 300 es
+precision mediump float;
+in vec2 uv; out vec4 o;
+uniform sampler2D uVid; uniform vec2 uScale; uniform float uMirror, uA;
+void main(){
+  vec2 v = (vec2(uv.x, 1.-uv.y) - .5) * uScale + .5;
+  if (uMirror > .5) v.x = 1.-v.x;
+  o = vec4(texture(uVid, v).rgb * uA, 1.);
+}`;
+
+function sh(t, src){ const s = gl.createShader(t); gl.shaderSource(s, src); gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s; }
+function prog(fs){ const p = gl.createProgram(); gl.attachShader(p, sh(gl.VERTEX_SHADER, VS)); gl.attachShader(p, sh(gl.FRAGMENT_SHADER, fs));
+  gl.bindAttribLocation(p, 0, 'p'); gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+  const U = {}, n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+  for (let i = 0; i < n; i++){ const u = gl.getActiveUniform(p, i); U[u.name] = gl.getUniformLocation(p, u.name); }
+  return { p, U }; }
+function tex(filter){ const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, filter); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, filter);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE); return t; }
+let PM, PC, texVid, texWave, texSpec, texHeat;
+function initGL(){
+  PM = prog(FS_MAIN); PC = prog(FS_CAM);
+  const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+  texVid = tex(gl.LINEAR); texWave = tex(gl.LINEAR); texSpec = tex(gl.LINEAR); texHeat = tex(gl.LINEAR);
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+}
+
+/* ---------- what the camera gives the instrument ----------------------
+   Four numbers and one slice. Nothing is detected, classified or tracked,
+   so there is no model to load and nothing to fail.                     */
+const EST = { w:0, h:0, cur:null, prev:null, have:false, col:null,
+              e:0, cy:.5, cx:.5, wide:0, slice:null, sx:0,
+              hist:new Uint32Array(64), thr:new Float32Array([.25,.5,.75]),
+              heat:null, heat8:null };
+const WAVE_N = 1024;
+const waveTab = new Float32Array(WAVE_N);
+function ensureEst(W, H){
+  const SH = 96; let w, h;
+  if (W >= H){ h = SH; w = Math.round(SH * W / H); } else { w = SH; h = Math.round(SH * H / W); }
+  w = Math.max(32, Math.min(w, 220)); h = Math.max(32, Math.min(h, 220));
+  if (w === EST.w && h === EST.h) return;
+  EST.w = w; EST.h = h; est.width = w; est.height = h;
+  EST.cur = new Uint8Array(w*h); EST.prev = new Uint8Array(w*h); EST.have = false;
+  EST.col = new Float32Array(w); EST.slice = new Float32Array(h);
+  EST.heat = new Float32Array(w*h); EST.heat8 = new Uint8Array(w*h);
+}
+function measure(){
+  const w = EST.w, h = EST.h, vw = video.videoWidth, vh = video.videoHeight;
+  if (!(vw > 0 && vh > 0)) return false;
+  const sa = w / h, va = vw / vh;
+  let cw = vw, ch = vh; if (va > sa) cw = vh * sa; else ch = vw / sa;
+  ectx.setTransform(mirror ? -1 : 1, 0, 0, 1, mirror ? w : 0, 0);
+  try { ectx.drawImage(video, (vw - cw)/2, (vh - ch)/2, cw, ch, 0, 0, w, h); } catch(e){ return false; }
+  const d = ectx.getImageData(0, 0, w, h).data;
+  const t = EST.prev; EST.prev = EST.cur; EST.cur = t;
+  const C = EST.cur;
+  for (let i = 0, j = 0, n = w*h; i < n; i++, j += 4) C[i] = (d[j]*77 + d[j+1]*150 + d[j+2]*29) >> 8;
+  if (!EST.have){ EST.have = true; return false; }
+  const P = EST.prev, col = EST.col, heat = EST.heat, h8 = EST.heat8;
+  col.fill(0);
+  let tot = 0, sy = 0, sx = 0;
+  for (let y = 0; y < h; y++){
+    const o = y * w;
+    let rs = 0;
+    for (let x = 0; x < w; x++){
+      const i = o + x;
+      let v = C[i] - P[i]; if (v < 0) v = -v;
+      v = v > 6 ? v - 6 : 0;
+      if (v){ col[x] += v; rs += v; }
+      // where you moved stays lit and fades: the picture keeps the trace of
+      // the same signal the instrument is being played with
+      const hv = heat[i] * .90;
+      const nv = v * .022;
+      heat[i] = nv > hv ? Math.min(1.6, nv) : hv;
+      h8[i] = heat[i] > 1 ? 255 : (heat[i] * 255) | 0;
+    }
+    if (rs){ tot += rs; sy += rs * y; }
+  }
+  for (let x = 0; x < w; x++) sx += col[x] * x;
+  EST.e = tot / (w*h) / 70;
+  if (tot > w * 2){
+    // Smoothed, because these two are played: raw per-frame centroids jump
+    // between swings and the pitch warbles instead of holding a note.
+    EST.cy += ((1 - (sy / tot) / h) - EST.cy) * .25;   // screen y runs down, pitch runs up
+    EST.cx += (((sx / tot) / w) - EST.cx) * .25;
+    // How much of the frame's width is moving, counted against the sensor
+    // noise floor rather than against this frame's own peak. A fast body edge
+    // is an enormous peak in two columns, so a relative threshold made a big
+    // sweeping move read NARROWER than a small one — the measure inverted.
+    let cnt = 0;
+    for (let x = 0; x < w; x++) if (col[x] > h * 2.5) cnt++;
+    const raw = Math.min(1, (cnt / w) / .45);   // one person with arms out is about this wide
+    EST.wide += (raw - EST.wide) * .14;
+  }
+  // the wavetable: one column of the picture, taken where the movement is
+  const px = Math.max(0, Math.min(w - 1, Math.round(EST.cx * w)));
+  EST.sx = px;
+  // equal-area cuts, so all four bands are always in use whatever the room
+  // is lit like; eased in over time so the poster does not flicker
+  const hist = EST.hist, thr = EST.thr, N = w * h;
+  hist.fill(0);
+  for (let i = 0; i < N; i++) hist[C[i] >> 2]++;
+  for (let k = 0, acc = 0, want = 1; k < 64 && want < 4; k++){
+    acc += hist[k];
+    while (want < 4 && acc >= N * want / 4){
+      const t = (k + 1) / 64;
+      thr[want - 1] += (t - thr[want - 1]) * .18;
+      want++;
+    }
+  }
+  // a flat wall can push two cuts onto the same value, which erases a band
+  for (let k = 1; k < 3; k++) if (thr[k] < thr[k-1] + .012) thr[k] = thr[k-1] + .012;
+
+  const sl = EST.slice;
+  for (let y = 0; y < h; y++) sl[y] = C[y * w + px] / 255;
+  for (let i = 0; i < WAVE_N; i++){
+    const t2 = i / WAVE_N * (h - 1), i0 = t2 | 0, fr = t2 - i0;
+    const a = sl[i0], b = sl[Math.min(h - 1, i0 + 1)];
+    waveTab[i] = a + (b - a) * fr;
+  }
+  // The table loops every cycle, so a step between its last and first sample
+  // is a click at f0 — audible as a buzz that no filter setting removes.
+  // Taking out the linear trend lands both ends on zero and kills the DC too.
+  const d0 = waveTab[0], slope = (waveTab[WAVE_N - 1] - d0) / (WAVE_N - 1);
+  let peak = 1e-4;
+  for (let i = 0; i < WAVE_N; i++){
+    const v = waveTab[i] - (d0 + slope * i);
+    waveTab[i] = v;
+    const a = v < 0 ? -v : v;
+    if (a > peak) peak = a;
+  }
+  const k = 1 / peak;
+  for (let i = 0; i < WAVE_N; i++) waveTab[i] *= k;
+  return true;
+}
+
+/* ---------- audio ---------- */
+let actx = null, node = null, master = null, ana = null, recDest = null, ready = false;
+let waveBuf = null, specBuf = null;
+async function ensureAudio(){
+  if (actx){ if (actx.state === 'suspended') await actx.resume().catch(()=>{}); return; }
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) throw new Error('Web Audio に未対応のブラウザです');
+  actx = new AC();
+  await actx.resume().catch(()=>{});
+  if (!actx.audioWorklet) throw new Error('AudioWorklet に未対応のブラウザです');
+  const src = $('dsp').textContent;
+  const url = URL.createObjectURL(new Blob([src], { type:'text/javascript' }));
+  try { await actx.audioWorklet.addModule(url); } finally { URL.revokeObjectURL(url); }
+  node = new AudioWorkletNode(actx, 'bakuon', { numberOfInputs:0, numberOfOutputs:1, outputChannelCount:[1] });
+  master = actx.createGain(); master.gain.value = S.vol * 0.9;
+  ana = actx.createAnalyser(); ana.fftSize = 2048; ana.smoothingTimeConstant = .55;
+  node.connect(master); master.connect(ana); master.connect(actx.destination);
+  recDest = actx.createMediaStreamDestination(); master.connect(recDest);
+  waveBuf = new Uint8Array(ana.fftSize);
+  specBuf = new Uint8Array(256);
+  ready = true;
+}
+function P(name){ return node.parameters.get(name); }
+function set(name, v, tau){
+  const p = P(name); if (!p) return;
+  const x = Math.max(p.minValue, Math.min(p.maxValue, v));
+  if (tau) p.setTargetAtTime(x, actx.currentTime, tau); else p.value = x;
+}
+function punch(power){
+  if (!ready) return;
+  node.port.postMessage({ hit: Math.min(1.2, power), low: Math.random() < .5 });
+  FX.flash = Math.min(1, FX.flash + .3 + power * .3);
+}
+
+/* ---------- camera ---------- */
+let stream = null, facing = 'user', mirror = true, started = false, vidW = 1280, vidH = 720, lastVT = -1;
+function setStatus(t){ $('status').textContent = t || ''; }
+function camError(e){
+  const msg = (e && (e.message || e.name)) ? (e.message || e.name) : String(e || 'unknown');
+  const text = 'カメラを起動できませんでした：' + msg + '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+  $('err').textContent = text;
+  if (started) setStatus(text);
+}
+async function startCam(){
+  const md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) throw new Error('getUserMedia is unavailable');
+  const s = await md.getUserMedia({ video:{ facingMode:{ ideal:facing }, width:{ ideal:1280 }, height:{ ideal:720 } }, audio:false });
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = s; mirror = facing === 'user';
+  video.srcObject = s;
+  await new Promise(r => { if (video.readyState >= 1) r(); else video.onloadedmetadata = () => r(); });
+  await video.play().catch(()=>{});
+  vidW = video.videoWidth || 1280; vidH = video.videoHeight || 720;
+  EST.have = false;
+}
+
+/* ---------- ui ---------- */
+$('go').onclick = async () => {
+  $('err').textContent = '';
+  try{
+    if (!gl) throw new Error('WebGL2 に未対応のブラウザです');
+    if (!PM) initGL();
+    await ensureAudio();
+    await startCam();
+  }catch(e){ camError(e); return; }
+  $('start').style.display = 'none';
+  ['gear','flip','bar','rec','shoot','hit','hud','mode'].forEach(id => $(id).classList.add('show'));
+  MODE.on = true; setMode(false); MODE.X = 0;
+  if (!started){ started = true; requestAnimationFrame(loop); }
+};
+$('flip').onclick = async () => {
+  const prev = facing; facing = facing === 'user' ? 'environment' : 'user';
+  try { await startCam(); } catch(e){ facing = prev; camError(e); }
+};
+$('gear').onclick = () => $('panel').classList.toggle('hide');
+$('hit').onclick = () => punch(1);
+
+const MODE = { on:false, X:0, reveal:0, camA:1 };
+function setMode(m){
+  if (m === MODE.on) return; MODE.on = m;
+  $('mode').textContent = m ? '◂ CAMERA' : '▸ BAKUON';
+  document.body.classList.toggle('cam', !m);
+  if (m) punch(1.1);
+}
+$('mode').onclick = () => setMode(!MODE.on);
+addEventListener('keydown', e => {
+  if (!started || document.activeElement.tagName === 'INPUT') return;
+  if (e.key === ' ' || e.key === 'Enter'){ e.preventDefault(); setMode(!MODE.on); }
+});
+canvas.addEventListener('pointerdown', e => {
+  if (e.isPrimary === false || !started || !MODE.on || MODE.X < .8) return;
+  punch(1);
+});
+function setPal(i){ S.pal = i; [...$('pals').children].forEach(x => x.classList.toggle('on', +x.dataset.p === i)); }
+$('pals').onclick = e => { const b = e.target.closest('button'); if (b) setPal(+b.dataset.p); };
+[['sVol','vol'],['sDrive','drive'],['sFb','fb'],['sDrum','drum'],['sGain','gain']].forEach(([id,k]) => {
+  $(id).oninput = e => { S[k] = +e.target.value; if (k === 'vol' && master) master.gain.value = S.vol * 0.9; };
+});
+$('shoot').onclick = () => {
+  try{
+    canvas.toBlob(b => { if (!b) return; const a = document.createElement('a'); a.href = URL.createObjectURL(b);
+      a.download = 'bakuon-' + Date.now() + '.png'; a.click(); }, 'image/png');
+  }catch(e){ setStatus('保存できませんでした。'); }
+};
+let rec = null, chunks = [];
+$('rec').onclick = () => {
+  if (rec && rec.state === 'recording'){ rec.stop(); return; }
+  try{
+    const tracks = [...canvas.captureStream(30).getVideoTracks()];
+    if (recDest) tracks.push(...recDest.stream.getAudioTracks());
+    const mime = ['video/mp4;codecs=avc1','video/webm;codecs=vp9,opus','video/webm'].find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || '';
+    rec = new MediaRecorder(new MediaStream(tracks), mime ? { mimeType:mime } : {});
+    chunks = [];
+    rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+    rec.onstop = () => {
+      $('rec').classList.remove('on'); $('rec').textContent = '● REC';
+      const ext = (rec.mimeType || '').includes('mp4') ? 'mp4' : 'webm';
+      const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(chunks, { type:rec.mimeType || 'video/webm' }));
+      a.download = 'bakuon.' + ext; a.click();
+    };
+    rec.start(); $('rec').classList.add('on'); $('rec').textContent = '■ STOP';
+  }catch(e){ setStatus('録画を開始できませんでした。'); }
+};
+
+/* ---------- the instrument ---------- */
+const FX = { energy:0, raw:0, hot:0, flash:0, shake:0, scope:.16, bpm:92, last:0, lastHit:0 };
+let lastT = 0, hudT = 0, sendT = 0;
+function newVideoFrame(){ const vt = video.currentTime; if (vt === lastVT) return false; lastVT = vt; return true; }
+
+function drive(dt, now){
+  const g = .55 + S.gain * 1.5;
+  const raw = Math.min(1.4, EST.e * 16 * g);
+  FX.raw = raw;
+  // Fast to rise, slow to fall. The release has to outlast the dead spot at
+  // the end of every swing, or the instrument stutters in time with your arm
+  // instead of holding the note you just threw at it.
+  FX.energy += (raw - FX.energy) * (raw > FX.energy ? Math.min(1, dt * 18) : Math.min(1, dt * 1.1));
+  const E = Math.min(1, FX.energy);
+  FX.hot += (E - FX.hot) * Math.min(1, dt * .6);
+
+  // a sudden jump is a hit — you can punch the air and the drum answers
+  const jump = raw - FX.last; FX.last = raw;
+  if (jump > .30 && now - FX.lastHit > 130){ FX.lastHit = now; punch(Math.min(1.2, .5 + jump)); }
+
+  if (!ready) return E;
+  const base = 34 * Math.pow(2, EST.cy * 3.15);         // low if you move low
+  set('freq', base, .05);
+  set('drive', 0.9 + (0.6 + 6.0 * S.drive) * E * E * 4.2, .06);
+  set('fb', Math.min(.94, (.16 + .72 * S.fb) * (.25 + .75 * E)), .08);
+  set('fbTime', .0012 + .055 * (1 - EST.cy) * (1 - .5 * EST.wide), .05);
+  set('cut', 150 + 5200 * Math.pow(E, .75) * (.35 + .65 * EST.cy), .05);
+  set('res', 1.2 + 11 * E, .08);
+  set('spread', .002 + .40 * EST.wide * (.55 + .45 * E), .10);
+  set('crush', 1 + 34 * Math.max(0, E - .45) * S.drive, .04);
+  set('level', Math.min(1, .16 + .90 * E), .05);
+  set('bpm', 72 + 132 * FX.hot, .30);
+  // the pulse rides the slow envelope, so once it has locked in it does not
+  // drop out in the dead spot at the end of a swing — it fades when you stop
+  set('beat', S.drum * Math.max(0, Math.min(1, (Math.max(E, FX.hot) - .14) * 1.9)), .12);
+  return E;
+}
+
+function loop(now){
+  requestAnimationFrame(loop);
+  const dt = lastT ? Math.min(.1, (now - lastT)/1000) : 1/60; lastT = now;
+  if (video.videoWidth && (video.videoWidth !== vidW || video.videoHeight !== vidH)){ vidW = video.videoWidth; vidH = video.videoHeight; }
+  const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+  let W = Math.round(innerWidth*dpr), H = Math.round(innerHeight*dpr);
+  const k = Math.min(1, 1400 / Math.max(W, H)); W = Math.round(W*k); H = Math.round(H*k);
+  if (canvas.width !== W || canvas.height !== H){ canvas.width = W; canvas.height = H; }
+  ensureEst(W, H);
+  if (video.readyState < 2) return;
+
+  const fresh = newVideoFrame();
+  MODE.X = MODE.on ? Math.min(1.6, MODE.X + dt) : Math.max(0, MODE.X - dt * 2.8);
+  const camA = 1 - Math.min(1, MODE.X / .24);
+  const reveal = Math.max(0, Math.min(1, (MODE.X - .26) / .62));
+  MODE.camA = camA; MODE.reveal = reveal;
+
+  gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, texVid);
+  if (fresh){ try { gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video); } catch(e){ return; } }
+  const sa = W/H, va = vidW/vidH, ux = sa < va ? sa/va : 1, uy = sa < va ? 1 : va/sa;
+
+  if (reveal <= 0){
+    if (ready){ set('level', 0, .05); set('beat', 0, .05); }
+    FX.energy = 0; FX.hot = 0; EST.have = false;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, 0, W, H);
+    gl.clearColor(0,0,0,1); gl.clear(gl.COLOR_BUFFER_BIT);
+    if (camA > 0){
+      gl.useProgram(PC.p); gl.uniform1i(PC.U.uVid, 1);
+      gl.uniform2f(PC.U.uScale, ux, uy);
+      gl.uniform1f(PC.U.uMirror, mirror ? 1 : 0); gl.uniform1f(PC.U.uA, camA*camA);
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    }
+    return;
+  }
+
+  if (fresh && measure()){
+    if (ready && now - sendT > 28){ sendT = now; node.port.postMessage({ tab: waveTab }); }
+    gl.activeTexture(gl.TEXTURE4); gl.bindTexture(gl.TEXTURE_2D, texHeat);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, EST.w, EST.h, 0, gl.RED, gl.UNSIGNED_BYTE, EST.heat8);
+  }
+  const E = drive(dt, now);
+
+  // the picture is driven by the sound that is actually coming out
+  let peak = 0;
+  if (ready){
+    ana.getByteTimeDomainData(waveBuf);
+    ana.getByteFrequencyData(specBuf);
+    for (let i = 0; i < 1024; i++){ const v = Math.abs(waveBuf[i] - 128); if (v > peak) peak = v; }
+    peak /= 128;
+    gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, texWave);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, 1024, 1, 0, gl.RED, gl.UNSIGNED_BYTE, waveBuf.subarray(0, 1024));
+    gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, texSpec);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, 256, 1, 0, gl.RED, gl.UNSIGNED_BYTE, specBuf);
+  }
+  FX.flash = Math.max(0, FX.flash - dt * 4.2);
+  FX.shake += ((.004 + .048 * peak * (.3 + .7 * E)) - FX.shake) * Math.min(1, dt * 22);
+  FX.scope += ((.10 + .30 * peak) - FX.scope) * Math.min(1, dt * 14);
+
+  const p = PALS[S.pal];
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, 0, W, H);
+  gl.useProgram(PM.p);
+  gl.uniform1i(PM.U.uVid, 1); gl.uniform1i(PM.U.uWave, 2); gl.uniform1i(PM.U.uSpec, 3); gl.uniform1i(PM.U.uHeat, 4);
+  gl.uniform2f(PM.U.uScale, ux, uy); gl.uniform2f(PM.U.uRes, W, H);
+  gl.uniform3fv(PM.U.uA, p.a); gl.uniform3fv(PM.U.uB, p.b); gl.uniform3fv(PM.U.uC, p.c);
+  gl.uniform3f(PM.U.uThr, EST.thr[0], EST.thr[1], EST.thr[2]);
+  gl.uniform1f(PM.U.uMirror, mirror ? 1 : 0);
+  gl.uniform1f(PM.U.uShake, FX.shake); gl.uniform1f(PM.U.uFlash, FX.flash * .55);
+  gl.uniform1f(PM.U.uEnergy, E); gl.uniform1f(PM.U.uPsy, p.psy);
+  gl.uniform1f(PM.U.uT, now/1000); gl.uniform1f(PM.U.uScope, FX.scope);
+  gl.uniform1f(PM.U.uRev, reveal);
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+  if (++hudT > 8){
+    hudT = 0;
+    $('hud').innerHTML = '<span class="big">' + String(Math.round(E * 100)).padStart(3,'0') + '</span>' +
+      '<span class="sub">BAKUON ' + p.name + ' ／ ' + Math.round(34 * Math.pow(2, EST.cy * 3.15)) + ' Hz ／ ' +
+      Math.round(72 + 132 * FX.hot) + ' BPM</span>';
+  }
+}
+
+/* ---------- test hook (used by the local verification harness) ---------- */
+window.__BAKUON = {
+  state: () => ({ e:+EST.e.toFixed(5), cy:EST.cy, cx:EST.cx, wide:EST.wide, thr:Array.from(EST.thr), raw:+FX.raw.toFixed(4), energy:+FX.energy.toFixed(4), hot:FX.hot,
+                  ready, on:MODE.on, reveal:MODE.reveal, pal:S.pal,
+                  params: ready ? ['freq','drive','fb','cut','res','spread','crush','level','bpm','beat']
+                    .reduce((o,k) => (o[k] = +P(k).value.toFixed(4), o), {}) : null }),
+  rms(){ if (!ready) return 0; ana.getByteTimeDomainData(waveBuf);
+    let s = 0; for (let i = 0; i < waveBuf.length; i++){ const v = (waveBuf[i]-128)/128; s += v*v; }
+    return Math.sqrt(s / waveBuf.length); },
+  spectrum(){ if (!ready) return null; ana.getByteFrequencyData(specBuf); return Array.from(specBuf); },
+  table: () => Array.from(waveTab),
+  mode(m){ setMode(!!m); }, palette(i){ setPal(i); }, punch,
+  set(k, v){ if (k in S){ S[k] = v; if (k === 'vol' && master) master.gain.value = S.vol * 0.9; } },
+  ctx: () => actx ? actx.state : 'none',
+};
+</script>
+</body>
+</html>
