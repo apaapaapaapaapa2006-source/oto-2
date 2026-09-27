@@ -1,0 +1,757 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="description" content="映った人が映画ポスターのような二重露光になる。体の中に霧の森と赤い太陽が写り込み、動いたところから体の輪郭が黒い鳥の群れになって飛び立つ。">
+<meta name="theme-color" content="#eceae5">
+<title>HABATAKI ─ 二重露光の体、ほどける鳥</title>
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  HABATAKI 羽搏き ─ 二重露光の体、ほどける鳥            ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  MOOD       映画ポスター／レコードジャケットの二重露光。白い紙の上で、映った人の
+             シルエットの中にだけ霧の山並みと針葉樹の森と沈む太陽が写り込み、
+             顔はその上に重なって残る。動いたところから輪郭がほどけて、墨色の
+             鳥の群れになって飛び立ち、遠くへ小さくなって消える。
+  PALETTE    FOG    紙 #eceae5・墨 #15171a・空 #aeb5ba→#dcdedd・太陽 #b3392b
+             DUSK   紙 #efe6da・墨 #1f1612・空 #b88e78→#e6cdb8・太陽 #6e1b16
+             NIGHT  紙 #0e1013・月明かりの空 #8d98a4→#39414b・森 #06070a・月 #e6d9b2・鳥 #dcd6c6
+  TYPE       DM Serif Display（題字・イタリック）＋ Sometype Mono（小さな字）。
+  MOTION     森は 60 秒で一周するほどゆっくり横へ流れ、体の位置に合わせて奥と手前が
+             ずれる（体の中の視差）。鳥は羽ばたきと滑空を繰り返しながら上へ遠くへ。
+             止まっていれば何も飛ばない。タップで輪郭全体から一斉に飛び立つ。
+  SIGNATURE  動いたぶんだけ、あなたの形が鳥になって空へほどけること。
+  SWITCH     はじめは素のカメラ。「▸ HABATAKI」で映像が白く飛び（露光過多）、
+             印画紙が現像されるように森と顔が浮かび、現れた瞬間に輪郭から群れが発つ。
+             「◂ CAMERA」で像が紙に溶け、元のカメラへ戻る。録画は両方で撮れる。
+  TECH       WebGL2。合成は全画面シェーダ一枚（映像・人物マスク・森のテクスチャ）。
+             森は起動時に一度だけ Canvas で三層（遠山・丘・松）を描いてテクスチャ化。
+             鳥は固定プール 900 羽を型付き配列で持ち、インスタンス描画する。
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Sometype+Mono:wght@400&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#eceae5;--fg:#15171a;--dim:rgba(21,23,26,.55);--line:rgba(21,23,26,.22);--acc:#b3392b}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none}
+html,body{margin:0;height:100%;background:var(--bg);overflow:hidden;color:var(--fg);
+  font-family:"Sometype Mono","Hiragino Sans","Noto Sans JP",monospace;transition:background .4s}
+#gl{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+#cam{position:fixed;left:0;top:0;width:2px;height:2px;opacity:.01;pointer-events:none}
+#est{display:none}
+.jp{font-family:"Hiragino Sans","Noto Sans JP",sans-serif;font-weight:300}
+
+#start{position:fixed;inset:0;z-index:30;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:24px;
+  padding:28px;text-align:center;background:var(--bg)}
+#start .t{font-size:10px;letter-spacing:.5em;margin-right:-.5em;color:var(--dim)}
+#start h1{margin:0;font:italic 400 min(17vw,104px)/1 "DM Serif Display",serif;letter-spacing:.02em}
+#start .sun{width:14px;height:14px;border-radius:50%;background:var(--acc)}
+#start p{margin:0;font-size:12px;line-height:2.1;color:var(--dim);letter-spacing:.08em}
+#go{appearance:none;border:1px solid var(--fg);background:transparent;color:var(--fg);font:400 10px "Sometype Mono",monospace;
+  letter-spacing:.5em;padding:15px 30px 15px 36px;cursor:pointer;transition:background .3s,color .3s}
+#go:hover{background:var(--fg);color:var(--bg)}
+#err{font-size:12px;line-height:1.8;max-width:340px;min-height:1em;white-space:pre-line;color:#a33a2c}
+
+.btn{position:fixed;z-index:12;appearance:none;border:0;background:transparent;color:var(--fg);font:400 10px "Sometype Mono",monospace;
+  letter-spacing:.3em;padding:10px 8px;display:none;cursor:pointer;opacity:.62;transition:opacity .3s}
+.btn.show{display:block}
+.btn:hover{opacity:1}
+#gear{right:10px;top:calc(env(safe-area-inset-top) + 6px);font-size:14px;letter-spacing:0}
+#flip{right:10px;top:calc(env(safe-area-inset-top) + 40px);letter-spacing:.1em}
+#bar{position:fixed;left:0;right:0;bottom:calc(env(safe-area-inset-bottom) + 10px);z-index:12;display:none;justify-content:center;align-items:center;gap:30px}
+#bar.show{display:flex}
+#bar .btn{position:static;display:block}
+#bar #shoot{width:40px;height:40px;border-radius:50%;border:1px solid var(--fg);padding:0;opacity:.8;position:relative}
+#shoot::after{content:"";position:absolute;inset:11px;border-radius:50%;background:var(--acc)}
+#rec.on{opacity:1;color:var(--acc)}
+#credit{position:fixed;left:0;right:0;top:calc(env(safe-area-inset-top) + 16px);z-index:11;text-align:center;pointer-events:none;display:none;
+  font:italic 400 13px "DM Serif Display",serif;letter-spacing:.34em;color:var(--fg);opacity:.8}
+#credit.show{display:block}
+#credit small{display:block;margin-top:6px;font:400 8px "Sometype Mono",monospace;letter-spacing:.42em;color:var(--dim);font-style:normal}
+#status{position:fixed;left:14px;bottom:calc(env(safe-area-inset-bottom) + 118px);z-index:11;font-size:11px;letter-spacing:.04em;
+  color:var(--dim);pointer-events:none;max-width:72vw;line-height:1.7;white-space:pre-line}
+
+#panel{position:fixed;right:10px;top:calc(env(safe-area-inset-top) + 78px);z-index:12;width:min(270px,calc(100vw - 20px));
+  background:color-mix(in srgb,var(--bg) 88%,transparent);border:1px solid var(--line);padding:14px 16px;display:flex;flex-direction:column;gap:13px;
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);transition:opacity .25s}
+#panel.hide{opacity:0;pointer-events:none}
+.chips{display:flex;border:1px solid var(--line)}
+.chips button{flex:1;appearance:none;border:0;background:transparent;color:var(--fg);padding:8px 2px;font:400 9px "Sometype Mono",monospace;
+  letter-spacing:.22em;cursor:pointer;opacity:.55}
+.chips button.on{opacity:1;background:color-mix(in srgb,var(--fg) 12%,transparent)}
+#panel label{display:flex;align-items:center;gap:10px;font-size:11px;letter-spacing:.04em}
+#panel label span{width:74px;flex:none;color:var(--dim)}
+#panel input[type=range]{flex:1;accent-color:var(--acc)}
+#panel .note{font-size:10px;color:var(--dim);line-height:1.7}
+#mode{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom) + 70px);z-index:13;display:none;
+  appearance:none;border:1px solid var(--fg);background:color-mix(in srgb,var(--bg) 60%,transparent);color:var(--fg);
+  font:400 10px "Sometype Mono",monospace;letter-spacing:.42em;padding:13px 22px 13px 28px;cursor:pointer;
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);transition:background .3s}
+#mode.show{display:block}
+body.cam #mode{border-color:rgba(255,255,255,.7);color:#fff;background:rgba(0,0,0,.3)}
+body.cam .btn{color:#fff}
+body.cam #bar #shoot{border-color:#fff}
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<canvas id="est"></canvas>
+<video id="cam" playsinline muted autoplay></video>
+<div id="credit">HABATAKI<small>DOUBLE EXPOSURE</small></div>
+<div id="status" class="jp"></div>
+<button id="gear" class="btn" aria-label="調整">⚙</button>
+<button id="flip" class="btn jp">⟲ カメラ</button>
+<button id="mode">▸ HABATAKI</button>
+<div id="bar">
+  <button id="rec" class="btn">● REC</button>
+  <button id="shoot" class="btn" aria-label="撮る"></button>
+  <button id="fly" class="btn">FLY</button>
+</div>
+
+<div id="panel" class="hide jp">
+  <div class="chips" id="pals">
+    <button data-p="0" class="on">FOG</button>
+    <button data-p="1">DUSK</button>
+    <button data-p="2">NIGHT</button>
+  </div>
+  <label><span>鳥の数</span><input type="range" id="sBirds" min="0" max="1" step="0.01" value="0.55"></label>
+  <label><span>顔の濃さ</span><input type="range" id="sFace" min="0" max="1" step="0.01" value="0.55"></label>
+  <label><span>森の高さ</span><input type="range" id="sForest" min="0" max="1" step="0.01" value="0.5"></label>
+  <label><span>霧</span><input type="range" id="sMist" min="0" max="1" step="0.01" value="0.5"></label>
+  <div class="note">動いたところから鳥が発つ。タップで一斉に。</div>
+</div>
+
+<div id="start">
+  <div class="t">DOUBLE EXPOSURE</div>
+  <h1>Habataki</h1>
+  <div class="sun"></div>
+  <p class="jp">まずは、いつものカメラ。<br>ボタンを押すと、あなたの中に森が写る。<br>動けば、あなたは鳥になってほどける。</p>
+  <button id="go">START</button>
+  <div id="err" class="jp"></div>
+</div>
+
+<script>
+'use strict';
+/* =====================================================================
+   HABATAKI — a film double exposure of the person (silhouette filled with
+   a three-layer misty forest + sun, face on top) whose outline peels away
+   into a flock of ink birds wherever the silhouette moves.
+   ===================================================================== */
+const VISION_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs';
+const WASM_URL   = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm';
+const SEG_MODEL  = 'https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite';
+
+const $ = id => document.getElementById(id);
+const canvas = $('gl'), video = $('cam'), est = $('est');
+const ectx = est.getContext('2d', { willReadFrequently:true });
+
+const hex = h => [1,3,5].map(i => parseInt(h.substr(i, 2), 16) / 255);
+const PALS = [
+  { name:'FOG',   paper:'#eceae5', ink:'#15171a', bird:'#15171a', mist:'#15171a', skyT:'#aeb5ba', skyB:'#dcdedd', sun:'#b3392b', dim:'rgba(21,23,26,.55)',   line:'rgba(21,23,26,.22)' },
+  { name:'DUSK',  paper:'#efe6da', ink:'#1f1612', bird:'#1f1612', mist:'#1f1612', skyT:'#b88e78', skyB:'#e6cdb8', sun:'#6e1b16', dim:'rgba(31,22,18,.55)',   line:'rgba(31,22,18,.22)' },
+  { name:'NIGHT', paper:'#0e1013', ink:'#06070a', bird:'#dcd6c6', mist:'#5a6573', skyT:'#8d98a4', skyB:'#39414b', sun:'#e6d9b2', dim:'rgba(220,214,198,.55)', line:'rgba(220,214,198,.22)', fg:'#dcd6c6' },
+];
+PALS.forEach(p => { p.v = { paper:hex(p.paper), ink:hex(p.ink), bird:hex(p.bird), mist:hex(p.mist), skyT:hex(p.skyT), skyB:hex(p.skyB), sun:hex(p.sun) }; });
+const S = { pal:0, birds:.55, face:.55, forest:.5, mist:.5 };
+
+/* ---------- GL ---------- */
+const gl = canvas.getContext('webgl2', { antialias:true, alpha:false, preserveDrawingBuffer:true, powerPreference:'high-performance' });
+const VS_Q = `#version 300 es
+in vec2 p; void main(){ gl_Position = vec4(p, 0., 1.); }`;
+const FS_COMP = `#version 300 es
+precision highp float;
+uniform sampler2D uVid, uMask, uLand;
+uniform vec2 uRes, uScale;              // canvas px; cover-crop scale for the video
+uniform float uMirror, uHasMask, uT, uCam, uDev, uFace, uForest, uMist, uLumMid;
+uniform vec4 uBox;                      // head: centre x, crown y, crown-to-shoulder height, width (short-edge units)
+uniform vec3 uPaper, uInk, uMistC, uSkyT, uSkyB, uSun;
+uniform vec3 uDrift;                    // horizontal offsets of far / mid / near layers
+out vec4 o;
+float h21(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233))) * 43758.5453); }
+void main(){
+  vec2 s = gl_FragCoord.xy / uRes; s.y = 1. - s.y;
+  float S = min(uRes.x, uRes.y);
+  vec2 q = vec2(s.x * uRes.x, s.y * uRes.y) / S;           // short-edge units, y down
+  vec2 v = (s - .5) * uScale + .5; if (uMirror > .5) v.x = 1. - v.x;
+  vec3 vid = texture(uVid, v).rgb;
+  float l = dot(vid, vec3(.2126,.7152,.0722));
+  float m = uHasMask > .5 ? smoothstep(.36, .64, texture(uMask, s).r) : 1.;
+
+  // landscape anchored to the person: horizon a little below the chin line
+  float hs = max(uBox.z, .08), top = uBox.y, Hb = hs * 2.1;   // head height (crown to shoulders)
+  float hor = top + 1.32 * hs;
+  float sc = 1. / (Hb * 1.15);
+  float lv = .5 + (q.y - hor) * sc;
+  float lift = (uForest - .5) * .16;
+  float lu = (q.x - uBox.x) * sc;
+  float far  = texture(uLand, vec2(lu * .8 + uDrift.x, lv * .9 + .05)).r;
+  float mid  = texture(uLand, vec2(lu + uDrift.y, lv + lift * .5)).g;
+  float near = texture(uLand, vec2(lu * 1.15 + uDrift.z, lv + lift)).b;
+  float mist = .35 + .65 * uMist;
+  float li = max(max(far * (.46 - .22 * mist), mid * (.78 - .2 * mist)), near);
+
+  // sun (moon at night) sitting on the horizon behind the forest
+  vec2 sp = vec2(uBox.x, hor - .12 * hs);
+  float sr = clamp(hs * .46, .045, .26);
+  float sun = 1. - smoothstep(sr - .004, sr + .004, length(q - sp));
+
+  // portrait: auto-levelled around the person's own mid-grey, strongest on the head
+  float pc = smoothstep(uLumMid - .30, uLumMid + .28, l);
+  float faceW = mix(1., .12, smoothstep(top + .85 * hs, top + 1.3 * hs, q.y));
+  float pi = (1. - pc) * faceW * (.45 + .75 * uFace);
+
+  // develop unevenly, like a print in the tray
+  float n = h21(floor(q * 40.));
+  float dv = smoothstep(n * .35, n * .35 + .65, uDev);
+  float dvL = smoothstep(0., .7, uDev);
+
+  float sky = clamp((q.y - top) / (hs * 1.4), 0., 1.);
+  vec3 fill = mix(uSkyT, uSkyB, sky);
+  fill = mix(fill, uSun, sun * (1. - near) * .92);
+  float ink = 1. - (1. - pi * dv) * (1. - li * dvL);
+  vec3 inside = mix(fill, uInk, clamp(ink, 0., 1.));
+  // the forest leaks out a little into the paper, as mist around the figure
+  float leak = (far * .10 + mid * .06) * mist * dvL;
+  vec3 outside = mix(uPaper, uMistC, leak);
+  vec3 eff = mix(outside, mix(uPaper, inside, dvL), m);
+  // paper grain + a soft vignette
+  float g = h21(floor(gl_FragCoord.xy / 1.5) + fract(uT * 7.31) * 113.) - .5;
+  float vig = smoothstep(.45, 1.25, length(s - .5) * 1.6);
+  eff = mix(eff, uInk, vig * .10 * step(.3, dot(uPaper, vec3(.33))));
+  eff += g * .045;
+
+  // plain camera; on the way in it burns out to paper (over-exposure)
+  float burn = smoothstep(.25, 1., 1. - uCam);
+  vec3 cam = mix(vid, uPaper, burn);
+  o = vec4(mix(eff, cam, smoothstep(0., .6, uCam)), 1.);
+}`;
+const VS_BIRD = `#version 300 es
+in vec3 aT;                 // template x, y, kind (0 root, 1 elbow, 2 tip)
+in vec4 aP;                 // centre x, y (short-edge units), size, bank
+in vec3 aW;                 // elbow lift, tip lift, alpha
+uniform vec2 uAsp;          // canvas size in short-edge units
+out float vA;
+void main(){
+  vec2 p = aT.xy;
+  if (aT.z > .5 && aT.z < 1.5) p.y += aW.x;
+  else if (aT.z > 1.5) p.y += aW.y;
+  float c = cos(aP.w), s = sin(aP.w);
+  p = vec2(c * p.x - s * p.y, s * p.x + c * p.y) * aP.z;
+  vec2 w = aP.xy + vec2(p.x, -p.y);
+  gl_Position = vec4(w.x / uAsp.x * 2. - 1., 1. - w.y / uAsp.y * 2., 0., 1.);
+  vA = aW.z;
+}`;
+const FS_BIRD = `#version 300 es
+precision mediump float;
+uniform vec3 uInk; in float vA; out vec4 o;
+void main(){ o = vec4(uInk * vA, vA); }`;
+function sh(type, src){ const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s; }
+function prog(vs, fs, attrs){ const p = gl.createProgram(); gl.attachShader(p, sh(gl.VERTEX_SHADER, vs)); gl.attachShader(p, sh(gl.FRAGMENT_SHADER, fs));
+  attrs.forEach((a, i) => gl.bindAttribLocation(p, i, a)); gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+  const U = {}, n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+  for (let i = 0; i < n; i++){ const u = gl.getActiveUniform(p, i); U[u.name] = gl.getUniformLocation(p, u.name); }
+  return { p, U }; }
+function tex(wrapS){ const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, wrapS || gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE); return t; }
+
+// bird: two bent wings + a small tail, drawn as 21 vertices
+const BIRD_T = (() => {
+  const L = [[-.02,.06,0],[-.02,-.07,0],[-.42,.05,1], [-.02,-.07,0],[-.40,-.04,1],[-.42,.05,1], [-.42,.05,1],[-.40,-.04,1],[-1,0,2]];
+  const R = L.map(([x,y,k]) => [-x,y,k]);
+  const T = [[-.05,-.02,0],[.05,-.02,0],[0,-.2,0]];
+  return new Float32Array([...L, ...R, ...T].flat());
+})();
+const BMAX = 900;
+const BI = new Float32Array(BMAX * 7);
+let PC, PB, vaoQuad, vaoBird, bufInst, texVid, texMask, texLand;
+function initGL(){
+  PC = prog(VS_Q, FS_COMP, ['p']); PB = prog(VS_BIRD, FS_BIRD, ['aT', 'aP', 'aW']);
+  vaoQuad = gl.createVertexArray(); gl.bindVertexArray(vaoQuad);
+  let b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+  vaoBird = gl.createVertexArray(); gl.bindVertexArray(vaoBird);
+  b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b); gl.bufferData(gl.ARRAY_BUFFER, BIRD_T, gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0);
+  bufInst = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, bufInst); gl.bufferData(gl.ARRAY_BUFFER, BI.byteLength, gl.DYNAMIC_DRAW);
+  gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 4, gl.FLOAT, false, 28, 0); gl.vertexAttribDivisor(1, 1);
+  gl.enableVertexAttribArray(2); gl.vertexAttribPointer(2, 3, gl.FLOAT, false, 28, 16); gl.vertexAttribDivisor(2, 1);
+  gl.bindVertexArray(null);
+  texVid = tex(); texMask = tex(); texLand = tex(gl.REPEAT);
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+  buildLand();
+}
+
+/* ---------- the landscape: far ridge (R), wooded hills (G), tall pines (B); seamless in x ---------- */
+function buildLand(){
+  const N = 1024, TAU = Math.PI * 2, c = document.createElement('canvas'); c.width = N; c.height = N;
+  const x2 = c.getContext('2d'), img = x2.createImageData(N, N), d = img.data;
+  const rnd = (() => { let s = 20260928; return () => (s = (s * 1664525 + 1013904223) >>> 0) / 4294967296; })();
+  const ridge = (u, base, amps) => { let y = base; amps.forEach(([k, a, ph]) => { y += a * Math.sin(TAU * k * u + ph); }); return y; };
+  const fA = [[1,.035,rnd()*6],[2,.028,rnd()*6],[5,.014,rnd()*6],[11,.006,rnd()*6],[23,.003,rnd()*6]];
+  const mA = [[1,.02,rnd()*6],[3,.018,rnd()*6],[7,.008,rnd()*6]];
+  const trees = (count, hMin, hMax, wk) => { const a = []; for (let i = 0; i < count; i++){ const h = hMin + (hMax - hMin) * Math.pow(rnd(), 1.6); a.push([rnd(), h, h * wk * (.8 + .4 * rnd())]); } return a; };
+  const midT = trees(150, .025, .07, .22), nearT = trees(26, .14, .30, .20);
+  const pine = (u, list, base) => {           // top edge of a row of tiered pines at u (wraps)
+    let top = base;
+    for (const [x, h, w] of list){
+      let dx = Math.abs(u - x); if (dx > .5) dx = 1 - dx; if (dx >= w) continue;
+      const f = 1 - dx / w;                    // 0 at the edge of the crown, 1 on the trunk line
+      const tier = .18 * (1 - ((f * 6) % 1));  // branch tiers notch the outline
+      const y = base - h * Math.max(0, f - tier * (1 - f));
+      if (y < top) top = y;
+    }
+    return top;
+  };
+  for (let x = 0; x < N; x++){
+    const u = x / N;
+    const fy = ridge(u, .47, fA);
+    const my = pine(u, midT, ridge(u, .545, mA));
+    const ny = pine(u, nearT, .66);
+    for (let y = 0; y < N; y++){
+      const v = y / N, j = (y * N + x) * 4;
+      const a = v - fy, b = v - my, cc = v - ny;
+      d[j]   = a > 0 ? 255 * Math.max(0, 1 - a / .16) : 0;                        // far ridge melts into mist
+      d[j+1] = b > 0 ? 255 * Math.max(.1, 1 - b / .22) : 0;
+      d[j+2] = cc > 0 ? 255 * (v > .69 ? Math.max(.16, 1 - (v - .69) / .26) : 1) : 0;   // the forest floor sinks into fog
+      if (a > -.0015 && a <= 0) d[j] = 255 * (1 + a / .0015);                       // anti-alias the edges
+      if (b > -.0015 && b <= 0) d[j+1] = 255 * (1 + b / .0015);
+      if (cc > -.0015 && cc <= 0) d[j+2] = 255 * (1 + cc / .0015);
+      d[j+3] = 255;
+    }
+  }
+  gl.bindTexture(gl.TEXTURE_2D, texLand);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, N, N, 0, gl.RGBA, gl.UNSIGNED_BYTE, d);
+  gl.generateMipmap(gl.TEXTURE_2D);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+}
+
+/* ---------- field: the person mask in screen space (all buffers reused) ---------- */
+const FSHORT = 120;
+const F = { w:0, h:0, sm:null, prev:null, u8:null, lum:null, lumP:null, have:false, idx:null, idxKey:'', seq:-1,
+  box:{ x:.5, y:.1, h:.9, w:.5 }, boxOK:false, lumMid:.5, cover:0, vacated:0 };
+function ensureField(W, H){
+  let w, h; if (W >= H){ h = FSHORT; w = Math.round(FSHORT * W / H); } else { w = FSHORT; h = Math.round(FSHORT * H / W); }
+  if (w === F.w && h === F.h) return;
+  F.w = w; F.h = h; est.width = w; est.height = h; const n = w * h;
+  F.sm = new Float32Array(n); F.prev = new Float32Array(n); F.u8 = new Uint8Array(n);
+  F.lum = new Uint8Array(n); F.lumP = new Uint8Array(n); F.have = false; F.idxKey = ''; F.seq = -1;
+}
+function grab(){
+  const w = F.w, h = F.h, vw = video.videoWidth, vh = video.videoHeight;
+  if (!(vw > 0 && vh > 0)) return false;
+  const sa = w / h, va = vw / vh;
+  let cw = vw, ch = vh; if (va > sa) cw = vh * sa; else ch = vw / sa;
+  ectx.setTransform(mirror ? -1 : 1, 0, 0, 1, mirror ? w : 0, 0);
+  try { ectx.drawImage(video, (vw - cw)/2, (vh - ch)/2, cw, ch, 0, 0, w, h); } catch(e){ return false; }
+  const d = ectx.getImageData(0, 0, w, h).data;
+  const t = F.lumP; F.lumP = F.lum; F.lum = t;
+  for (let i = 0, j = 0, n = w*h; i < n; i++, j += 4) F.lum[i] = (d[j]*77 + d[j+1]*150 + d[j+2]*29) >> 8;
+  const ok = F.have; F.have = true; return ok;
+}
+function ensureIdx(){
+  const key = F.w + 'x' + F.h + ':' + M.w + 'x' + M.h + ':' + (mirror ? 1 : 0) + ':' + vidW + 'x' + vidH;
+  if (key === F.idxKey) return; F.idxKey = key;
+  if (!F.idx || F.idx.length !== F.w * F.h) F.idx = new Int32Array(F.w * F.h);
+  const sa = F.w / F.h, va = vidW / vidH, sx = sa < va ? sa / va : 1, sy = sa < va ? 1 : va / sa;
+  for (let y = 0; y < F.h; y++) for (let x = 0; x < F.w; x++){
+    let u = ((x + .5) / F.w - .5) * sx + .5, v = ((y + .5) / F.h - .5) * sy + .5;
+    if (mirror) u = 1 - u;
+    const mx = Math.min(M.w - 1, Math.max(0, u * M.w | 0)), my = Math.min(M.h - 1, Math.max(0, v * M.h | 0));
+    F.idx[y * F.w + x] = my * M.w + mx;
+  }
+}
+function updateField(dt, grabbed, spawnOK){
+  // once a person mask has been seen, a stale mask freezes the last silhouette and frees no birds
+  const w = F.w, h = F.h, n = w * h, useMask = M.has;
+  if (!M.live) spawnOK = false;
+  const Sh = Math.min(w, h), rate = .15 + 1.1 * S.birds;
+  let spawned = 0, cap = Math.round(10 + 50 * S.birds);
+  if (useMask){
+    ensureIdx();
+    const newMask = M.seq !== F.seq; F.seq = M.seq;
+    if (newMask && M.resumed){ M.resumed = false; spawnOK = false; }
+    if (newMask){ const t = F.prev; F.prev = F.sm; F.sm = t; }
+    let on = 0, x0 = w, x1 = -1, y0 = h, y1 = -1, lsum = 0, vac = 0;
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++){
+      const i = y * w + x;
+      if (newMask) F.sm[i] = F.prev[i] * .35 + M.f[F.idx[i]] * .65;
+      const s = F.sm[i];
+      F.u8[i] = s * 255;
+      if (s > .5){ on++; lsum += F.lum[i]; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+      // the outline left this cell since the last mask: that piece of you takes off
+      if (newMask && spawnOK && F.prev[i] > .6 && s < .3){
+        vac++;
+        if (spawned < cap && Math.random() < .5 * rate){ spawnAt(x, y, 1); spawned++; }
+      } else if (grabbed && spawnOK && s > .5 && spawned < cap){
+        // motion inside the silhouette (a hand across the chest) also frees a few birds
+        const dv = F.lum[i] - F.lumP[i];
+        if ((dv > 40 || dv < -40) && Math.random() < .05 * rate){ spawnAt(x, y, .7); spawned++; }
+      }
+    }
+    F.cover = on / n; F.vacated = vac;
+    if (on > n * .004){
+      F.lumMid += (Math.min(.75, Math.max(.25, lsum / on / 255)) - F.lumMid) * .08;
+      // head: follow the run of mask under the top-most point down until it widens into shoulders
+      let hx = (x0 + x1) >> 1;
+      for (let x = x0; x <= x1; x++) if (F.sm[y0 * w + x] > .5){ let e = x; while (e + 1 < w && F.sm[y0 * w + e + 1] > .5) e++; hx = (x + e) >> 1; break; }
+      let headW = 0, sy = y1 + 1, cxs = 0, cn = 0, neck = false;
+      for (let y = y0; y <= y1; y++){
+        const o = y * w; if (!(F.sm[o + hx] > .5)) continue;
+        let a = hx, b = hx; while (a > 0 && F.sm[o + a - 1] > .5) a--; while (b < w - 1 && F.sm[o + b + 1] > .5) b++;
+        const rw = b - a + 1;
+        if (neck ? rw > headW * 1.4 : (y - y0 > 2 && headW > 0 && rw > headW * 1.7)){ sy = y; break; }
+        if (!neck){ if (rw > headW) headW = rw; else if (rw < headW * .8) neck = true; }
+        cxs += (a + b) / 2; cn++; hx = Math.round((a + b) / 2);
+      }
+      const Sc = Math.min(canvas.width, canvas.height), kx = canvas.width / Sc / w, ky = canvas.height / Sc / h;
+      const hs = Math.max(4, Math.min(sy - y0, headW * 1.6));
+      const bx = (cn ? cxs / cn + .5 : (x0 + x1 + 1) / 2) * kx, by = y0 * ky, bh = hs * ky, bw = headW * kx;
+      const a = F.boxOK ? Math.min(1, dt * 5) : 1, Bx = F.box;
+      Bx.x += (bx - Bx.x) * a; Bx.y += (by - Bx.y) * a; Bx.h += (bh - Bx.h) * a; Bx.w += (bw - Bx.w) * a;
+      F.boxOK = true;
+    }
+  } else {
+    // no person model: the whole frame is the exposure; movement anywhere frees birds
+    const S = Math.min(canvas.width, canvas.height);
+    F.box.x = canvas.width / S / 2; F.box.y = canvas.height / S * .12; F.box.h = canvas.height / S * .3; F.box.w = canvas.height / S * .22;
+    F.cover = 1; F.vacated = 0; let lsum = 0;
+    for (let i = 0; i < n; i++){
+      F.u8[i] = 255; lsum += F.lum[i];
+      if (grabbed && spawnOK && spawned < cap){
+        const dv = F.lum[i] - F.lumP[i];
+        if ((dv > 46 || dv < -46) && Math.random() < .06 * rate){ spawnAt(i % w, i / w | 0, .8); spawned++; }
+      }
+    }
+    F.lumMid += (Math.min(.75, Math.max(.25, lsum / n / 255)) - F.lumMid) * .08;
+  }
+  gl.bindTexture(gl.TEXTURE_2D, texMask);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, w, h, 0, gl.RED, gl.UNSIGNED_BYTE, F.u8);
+  return spawned;
+}
+
+/* ---------- birds: fixed pool, typed arrays ---------- */
+const B = { x:new Float32Array(BMAX), y:new Float32Array(BMAX), vx:new Float32Array(BMAX), vy:new Float32Array(BMAX),
+  z:new Float32Array(BMAX), ph:new Float32Array(BMAX), fr:new Float32Array(BMAX), age:new Float32Array(BMAX),
+  life:new Float32Array(BMAX), sz:new Float32Array(BMAX), glide:new Float32Array(BMAX), alive:new Uint8Array(BMAX), cur:0, n:0 };
+function spawnAt(fx, fy, k){
+  const S = Math.min(canvas.width, canvas.height), kx = canvas.width / S / F.w, ky = canvas.height / S / F.h;
+  const x = (fx + .5 + Math.random() - .5) * kx, y = (fy + .5 + Math.random() - .5) * ky;
+  let i = -1;
+  for (let t = 0; t < BMAX; t++){ const j = (B.cur + t) % BMAX; if (!B.alive[j]){ i = j; break; } }
+  if (i < 0) i = B.cur;                                   // pool full: recycle the oldest slot
+  B.cur = (i + 1) % BMAX;
+  // away from the body's centre, and up
+  let dx = x - F.box.x, dy = y - (F.box.y + F.box.h * 1.1); const dl = Math.hypot(dx, dy) || 1; dx /= dl; dy /= dl;
+  const sp = (.25 + .35 * Math.random()) * k;
+  B.x[i] = x; B.y[i] = y;
+  B.vx[i] = dx * sp + (Math.random() - .5) * .15; B.vy[i] = dy * sp * .6 - (.28 + .25 * Math.random());
+  B.z[i] = Math.random() * .25; B.ph[i] = Math.random() * 6.28; B.fr[i] = 7 + 5 * Math.random();
+  B.age[i] = 0; B.life[i] = 4 + 4 * Math.random(); B.sz[i] = .02 + .02 * Math.random(); B.glide[i] = 0;
+  B.alive[i] = 1;
+}
+function burst(k){
+  const w = F.w, h = F.h; if (!F.sm || !w) return 0;
+  const useMask = M.has; let c = 0;
+  for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++){
+    const i = y * w + x;
+    const edge = useMask ? (F.sm[i] > .5 && (F.sm[i-1] < .5 || F.sm[i+1] < .5 || F.sm[i-w] < .5 || F.sm[i+w] < .5)) : (y === 2 && x % 3 === 0);
+    if (edge && Math.random() < k * .45){ spawnAt(x, y, 1.1); c++; }
+  }
+  flutter(Math.min(1, c / 120));
+  return c;
+}
+function stepBirds(dt, t, leave){
+  const S = Math.min(canvas.width, canvas.height), AW = canvas.width / S, AH = canvas.height / S;
+  let n = 0;
+  for (let i = 0; i < BMAX; i++){
+    if (!B.alive[i]) continue;
+    B.age[i] += dt;
+    const a = B.age[i];
+    // wander + a shared wind, drifting up and slowly into the distance
+    const wn = Math.sin(t * .7 + i * 1.37) * .35 + Math.sin(t * .23 + i * .51) * .25;
+    B.vx[i] += (wn * .35 + .06) * dt; B.vy[i] += (-.12 + Math.cos(t * .9 + i) * .08) * dt;
+    const drag = Math.exp(-dt * .55); B.vx[i] *= drag; B.vy[i] *= drag;
+    const cr = .09 + .14 * (1 - B.z[i]);                  // cruising speed, slower as it recedes
+    const sp = Math.hypot(B.vx[i], B.vy[i]);
+    if (sp < cr){ const k = cr / (sp || 1e-3); B.vx[i] *= k; B.vy[i] *= k; }
+    if (leave){ B.vy[i] -= dt * .8; }
+    B.x[i] += B.vx[i] * dt * (1 - .55 * B.z[i]); B.y[i] += B.vy[i] * dt * (1 - .55 * B.z[i]);
+    B.z[i] = Math.min(1, B.z[i] + dt * .09);
+    // flap in bursts, glide in between
+    const gl8 = Math.sin(t * 1.3 + i * 2.1) > .55 && a > .8 ? 1 : 0;
+    B.glide[i] += (gl8 - B.glide[i]) * Math.min(1, dt * 4);
+    B.ph[i] += dt * B.fr[i] * (1 - .85 * B.glide[i]) * 2;
+    const m = .1;
+    if (a > B.life[i] || B.x[i] < -m || B.x[i] > AW + m || B.y[i] < -m || B.y[i] > AH + m){ B.alive[i] = 0; continue; }
+    const fade = Math.min(1, a / .12) * Math.min(1, (B.life[i] - a) / 1.2);
+    const amp = 1 - .8 * B.glide[i];
+    const k = n * 7;
+    BI[k] = B.x[i]; BI[k+1] = B.y[i]; BI[k+2] = B.sz[i] * (1 - .62 * B.z[i]) * (1 + .5 * birdScale);
+    BI[k+3] = Math.max(-.45, Math.min(.45, B.vx[i] * .9));
+    BI[k+4] = .30 * amp * Math.sin(B.ph[i]) + .05; BI[k+5] = .55 * amp * Math.sin(B.ph[i] - .7) + .08 * B.glide[i];
+    BI[k+6] = fade * (1 - .5 * B.z[i]);
+    n++;
+  }
+  B.n = n;
+  return n;
+}
+let birdScale = 0;
+
+/* ---------- mask ---------- */
+const M = { w:0, h:0, f:null, has:false, live:false, resumed:false, external:false, lastT:0, seq:0 };
+function ingestMask(data, w, h){
+  if (!data || !(w > 0) || !(h > 0) || !(w * h <= 4e6) || !(data.length >= w * h)) return false;
+  if (M.w !== w || M.h !== h){ M.w = w; M.h = h; M.f = new Float32Array(w * h); }
+  for (let i = 0, n = w * h; i < n; i++){ let m = data[i]; if (!(m >= 0)) m = 0; else if (m > 1) m = 1; M.f[i] = m; }
+  if (!M.live) M.resumed = true;                         // first mask after a gap: re-seat, don't treat the jump as motion
+  M.has = true; M.live = true; M.lastT = performance.now(); M.seq++;
+  return true;
+}
+let segmenter = null, lastTs = 0, lastSegVT = -1;
+async function initModel(){
+  try{
+    const vision = await import(VISION_URL);
+    const fs = await vision.FilesetResolver.forVisionTasks(WASM_URL);
+    const opts = d => ({ baseOptions:{ modelAssetPath:SEG_MODEL, delegate:d }, runningMode:'VIDEO', outputConfidenceMasks:true, outputCategoryMask:false });
+    try { segmenter = await vision.ImageSegmenter.createFromOptions(fs, opts('GPU')); }
+    catch(e){ segmenter = await vision.ImageSegmenter.createFromOptions(fs, opts('CPU')); }
+    setStatus('');
+  }catch(e){
+    if (M.external) return;
+    setStatus('人物検出モデルを読み込めませんでした（ネット接続を確認）。\n画面全体を二重露光にして続けます。');
+  }
+}
+function segment(now){
+  if (!segmenter || video.readyState < 2) return;
+  const vt = video.currentTime; if (vt === lastSegVT) return; lastSegVT = vt;
+  try{
+    const ts = Math.max(lastTs + 1, Math.round(now)); lastTs = ts;
+    segmenter.segmentForVideo(video, ts, res => {
+      const ms = res && res.confidenceMasks;
+      if (!ms || !ms.length) return;
+      const mk = ms[ms.length - 1];
+      ingestMask(mk.getAsFloat32Array(), mk.width, mk.height);
+    });
+  }catch(e){}
+}
+
+/* ---------- camera ---------- */
+let stream = null, facing = 'user', mirror = true, started = false, vidW = 1280, vidH = 720, lastVT = -1, camT0 = 0;
+function setStatus(t){ $('status').textContent = t || ''; }
+function camError(e){
+  const msg = (e && (e.message || e.name)) ? (e.message || e.name) : String(e || 'unknown');
+  const text = 'カメラを起動できませんでした：' + msg + '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+  $('err').textContent = text;
+  if (started) setStatus(text);
+}
+async function startCam(){
+  const md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) throw new Error('getUserMedia is unavailable');
+  const s = await md.getUserMedia({ video:{ facingMode:{ ideal:facing }, width:{ ideal:1280 }, height:{ ideal:720 } }, audio:false });
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = s; mirror = facing === 'user';
+  video.srcObject = s;
+  await new Promise(r => { if (video.readyState >= 1) r(); else video.onloadedmetadata = () => r(); });
+  await video.play().catch(()=>{});
+  vidW = video.videoWidth || 1280; vidH = video.videoHeight || 720;
+  F.have = false; F.idxKey = ''; F.boxOK = false; camT0 = performance.now();
+}
+
+/* ---------- audio: a low wind bed and wing flutter that follows the flock ---------- */
+let actx = null, bus = null, recDest = null, wing = null, wind = null, noiseBuf = null;
+function ensureAudio(){
+  if (actx){ if (actx.state === 'suspended') actx.resume().catch(()=>{}); return; }
+  const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+  actx = new AC(); bus = actx.createGain(); bus.gain.value = .6; bus.connect(actx.destination);
+  recDest = actx.createMediaStreamDestination(); bus.connect(recDest);
+  const sr = actx.sampleRate, n = sr * 2; noiseBuf = actx.createBuffer(1, n, sr); const d = noiseBuf.getChannelData(0);
+  for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+  const src = actx.createBufferSource(); src.buffer = noiseBuf; src.loop = true;
+  const lp = actx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 420;
+  wind = actx.createGain(); wind.gain.value = 0; src.connect(lp); lp.connect(wind); wind.connect(bus);
+  // flutter: band-passed noise chopped by a fast LFO
+  const bp = actx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 1300; bp.Q.value = .8;
+  const chop = actx.createGain(); chop.gain.value = 0;
+  const lfo = actx.createOscillator(); lfo.type = 'square'; lfo.frequency.value = 14;
+  const lfoG = actx.createGain(); lfoG.gain.value = .5; lfo.connect(lfoG); lfoG.connect(chop.gain);
+  const base = actx.createConstantSource ? actx.createConstantSource() : null;
+  if (base){ base.offset.value = .5; base.connect(chop.gain); base.start(); }
+  wing = actx.createGain(); wing.gain.value = 0;
+  src.connect(bp); bp.connect(chop); chop.connect(wing); wing.connect(bus);
+  src.start(); lfo.start();
+  actx.resume().catch(()=>{});
+}
+let flutterLvl = 0;
+function flutter(k){ flutterLvl = Math.min(1, flutterLvl + k); }
+function shutter(){
+  if (!actx || actx.state !== 'running' || !noiseBuf) return;
+  const t = actx.currentTime;
+  [0, .07].forEach((o, j) => {
+    const s = actx.createBufferSource(); s.buffer = noiseBuf;
+    const f = actx.createBiquadFilter(); f.type = 'highpass'; f.frequency.value = j ? 2500 : 1600;
+    const g = actx.createGain(); g.gain.setValueAtTime(.0001, t + o); g.gain.exponentialRampToValueAtTime(.4, t + o + .004); g.gain.exponentialRampToValueAtTime(.0001, t + o + .05);
+    s.connect(f); f.connect(g); g.connect(bus); s.start(t + o, Math.random()); s.stop(t + o + .08);
+  });
+}
+
+// the switch between the plain camera (X = 0) and the double exposure (X = 1.8)
+const MODE = { on:false, X:0, burst:false };
+function setMode(on){
+  if (on === MODE.on) return;
+  MODE.on = on; MODE.burst = false;
+  $('mode').textContent = on ? '◂ CAMERA' : '▸ HABATAKI';
+  document.body.classList.toggle('cam', !on);
+  $('fly').style.visibility = on ? 'visible' : 'hidden';
+  $('credit').classList.toggle('show', on);
+  shutter();
+}
+$('mode').onclick = () => setMode(!MODE.on);
+addEventListener('keydown', e => { if (started && (e.key === ' ' || e.key === 'Enter') && document.activeElement.tagName !== 'INPUT'){ e.preventDefault(); setMode(!MODE.on); } });
+$('go').onclick = async () => {
+  $('err').textContent = '';
+  ensureAudio();
+  try{
+    if (!gl) throw new Error('WebGL2 に未対応のブラウザです');
+    if (!PC) initGL();
+    await startCam();
+  }catch(e){ camError(e); return; }
+  $('start').style.display = 'none';
+  ['gear','flip','bar','rec','shoot','fly','mode'].forEach(id => $(id).classList.add('show'));
+  MODE.on = true; setMode(false);
+  if (!started){ started = true; initModel(); requestAnimationFrame(loop); }
+};
+$('flip').onclick = async () => {
+  const prev = facing; facing = facing === 'user' ? 'environment' : 'user';
+  try { await startCam(); } catch(e){ facing = prev; camError(e); }
+};
+$('gear').onclick = () => $('panel').classList.toggle('hide');
+$('fly').onclick = () => { if (MODE.on) burst(1); };
+canvas.addEventListener('pointerup', () => { if (started && MODE.on && MODE.X > 1.2) burst(1); });
+function setPal(i){
+  S.pal = i; const p = PALS[i];
+  [...$('pals').children].forEach(x => x.classList.toggle('on', +x.dataset.p === i));
+  const r = document.documentElement.style;
+  r.setProperty('--bg', p.paper); r.setProperty('--fg', p.fg || p.ink); r.setProperty('--acc', p.sun);
+  r.setProperty('--dim', p.dim); r.setProperty('--line', p.line);
+}
+$('pals').onclick = e => { const b = e.target.closest('button'); if (b) setPal(+b.dataset.p); };
+[['sBirds','birds'],['sFace','face'],['sForest','forest'],['sMist','mist']].forEach(([id,k]) => { $(id).oninput = e => { S[k] = +e.target.value; }; });
+
+$('shoot').onclick = () => {
+  try{
+    canvas.toBlob(b => { if (!b) return; const a = document.createElement('a'); a.href = URL.createObjectURL(b);
+      a.download = 'habataki-' + Date.now() + '.png'; a.click(); }, 'image/png');
+    shutter();
+  }catch(e){ setStatus('保存できませんでした。'); }
+};
+let rec = null, chunks = [];
+$('rec').onclick = () => {
+  if (rec && rec.state === 'recording'){ rec.stop(); return; }
+  try{
+    ensureAudio();
+    const tracks = [...canvas.captureStream(30).getVideoTracks()];
+    if (recDest) tracks.push(...recDest.stream.getAudioTracks());
+    const mime = ['video/mp4;codecs=avc1','video/webm;codecs=vp9,opus','video/webm'].find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || '';
+    rec = new MediaRecorder(new MediaStream(tracks), mime ? { mimeType:mime } : {});
+    chunks = [];
+    rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+    rec.onstop = () => {
+      $('rec').classList.remove('on'); $('rec').textContent = '● REC';
+      const ext = (rec.mimeType || '').includes('mp4') ? 'mp4' : 'webm';
+      const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(chunks, { type:rec.mimeType || 'video/webm' }));
+      a.download = 'habataki.' + ext; a.click();
+    };
+    rec.start(); $('rec').classList.add('on'); $('rec').textContent = '■ STOP';
+  }catch(e){ setStatus('録画を開始できませんでした。'); }
+};
+
+/* ---------- render ---------- */
+let lastT = 0, drift = [0, 0, 0];
+const STATE = { cam:1, dev:0, birds:0, spawned:0, total:0 };
+function loop(now){
+  requestAnimationFrame(loop);
+  const dt = lastT ? Math.min(.1, (now - lastT)/1000) : 1/60; lastT = now;
+  const t = now / 1000;
+  if (video.videoWidth && (video.videoWidth !== vidW || video.videoHeight !== vidH)){ vidW = video.videoWidth; vidH = video.videoHeight; F.have = false; F.idxKey = ''; }
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  let W = Math.round(innerWidth*dpr), H = Math.round(innerHeight*dpr);
+  const k = Math.min(1, 1800 / Math.max(W, H)); W = Math.round(W*k); H = Math.round(H*k);
+  if (canvas.width !== W || canvas.height !== H){ canvas.width = W; canvas.height = H; F.boxOK = false; }
+  ensureField(W, H);
+  if (!M.external) segment(now);
+  if (M.live && now - M.lastT > 1500) M.live = false;
+  if (video.readyState < 2) return;
+
+  const vt = video.currentTime, fresh = vt !== lastVT; lastVT = vt;
+  const grabbed = fresh && grab();
+  if (fresh){ gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, texVid);
+    try { gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video); } catch(e){ return; } }
+
+  MODE.X = MODE.on ? Math.min(1.8, MODE.X + dt) : Math.max(0, MODE.X - dt * 2.4);
+  const cam = 1 - Math.min(1, MODE.X / .45);
+  const dev = Math.max(0, Math.min(1, (MODE.X - .4) / 1.1));
+  const live = MODE.on && MODE.X > 1.1 && performance.now() - camT0 > 900;
+  const spawned = updateField(dt, grabbed, live);
+  STATE.spawned = spawned; STATE.total += spawned;
+  if (spawned) flutter(Math.min(.4, spawned / 60));
+  if (MODE.on && !MODE.burst && MODE.X > 1.05){ MODE.burst = true; burst(.8); }
+
+  drift[0] += dt * .004; drift[1] += dt * .009; drift[2] += dt * .016;
+  const px = F.box.x;
+  const p = PALS[S.pal].v;
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, 0, W, H);
+  gl.disable(gl.BLEND);
+  gl.useProgram(PC.p); gl.bindVertexArray(vaoQuad);
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, texVid);
+  gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, texMask);
+  gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, texLand);
+  gl.uniform1i(PC.U.uVid, 0); gl.uniform1i(PC.U.uMask, 1); gl.uniform1i(PC.U.uLand, 2);
+  const sa = W/H, va = vidW/vidH;
+  gl.uniform2f(PC.U.uRes, W, H); gl.uniform2f(PC.U.uScale, sa < va ? sa/va : 1, sa < va ? 1 : va/sa);
+  gl.uniform1f(PC.U.uMirror, mirror ? 1 : 0); gl.uniform1f(PC.U.uHasMask, M.has ? 1 : 0);
+  gl.uniform1f(PC.U.uT, t); gl.uniform1f(PC.U.uCam, cam); gl.uniform1f(PC.U.uDev, dev);
+  gl.uniform1f(PC.U.uFace, S.face); gl.uniform1f(PC.U.uForest, S.forest); gl.uniform1f(PC.U.uMist, S.mist); gl.uniform1f(PC.U.uLumMid, F.lumMid);
+  gl.uniform4f(PC.U.uBox, F.box.x, F.box.y, F.box.h, F.box.w);
+  gl.uniform3fv(PC.U.uPaper, p.paper); gl.uniform3fv(PC.U.uInk, p.ink); gl.uniform3fv(PC.U.uMistC, p.mist); gl.uniform3fv(PC.U.uSkyT, p.skyT); gl.uniform3fv(PC.U.uSkyB, p.skyB); gl.uniform3fv(PC.U.uSun, p.sun);
+  gl.uniform3f(PC.U.uDrift, drift[0] - px * .05, drift[1] - px * .14, drift[2] - px * .3);
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+  const nb = stepBirds(dt, t, !MODE.on);
+  STATE.cam = cam; STATE.dev = dev; STATE.birds = nb;
+  if (nb && MODE.X > .2){
+    gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+    gl.useProgram(PB.p); gl.bindVertexArray(vaoBird);
+    gl.bindBuffer(gl.ARRAY_BUFFER, bufInst); gl.bufferSubData(gl.ARRAY_BUFFER, 0, BI, 0, nb * 7);
+    const Sh = Math.min(W, H); gl.uniform2f(PB.U.uAsp, W / Sh, H / Sh);
+    gl.uniform3fv(PB.U.uInk, p.bird);
+    gl.drawArraysInstanced(gl.TRIANGLES, 0, 21, nb);
+    gl.disable(gl.BLEND);
+  }
+  gl.bindVertexArray(null);
+
+  if (actx && wing){
+    flutterLvl *= Math.exp(-dt * 1.6);
+    wing.gain.setTargetAtTime(Math.min(.5, flutterLvl * .6 + nb / BMAX * .15) * (MODE.X > .5 ? 1 : 0), actx.currentTime, .08);
+    wind.gain.setTargetAtTime(MODE.on ? .1 : 0, actx.currentTime, .6);
+  }
+}
+
+/* ---------- test hook (used by the local verification harness) ---------- */
+window.__HABATAKI = {
+  ingestMask(d, w, h){ if (!M.external) setStatus(''); M.external = true; return ingestMask(d, w, h); },
+  state: () => ({ hasMask:M.has, live:M.live, cover:F.cover, vacated:F.vacated, birds:B.n, spawned:STATE.spawned, total:STATE.total,
+    box:{ ...F.box }, cam:STATE.cam, dev:STATE.dev, on:MODE.on, X:MODE.X }),
+  birdsNear(x, y, r){ let c = 0; for (let i = 0; i < BMAX; i++) if (B.alive[i] && Math.hypot(B.x[i] - x, B.y[i] - y) < r) c++; return c; },
+  palette(i){ setPal(i); },
+  mode(c){ setMode(!!c); },
+  burst(k){ return burst(k == null ? 1 : k); },
+};
+</script>
+</body>
+</html>
