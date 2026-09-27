@@ -22,6 +22,10 @@
              走査の光が 7 秒に一度、上から下へ体をなぞる（タップで今すぐ）。
              粉は約 2.5 秒で流れて消え、崩れた場所は同じ時間で埋まり直す。
   SIGNATURE  動いたぶんだけ体が空間へ散って、止まれば戻ること。
+  SWITCH     （2026-09-27 オーナーの指示）はじめは素のカメラ。「▸ TENGUN」で映像が
+             0.3 秒で暗転し、走査の光が上から降りながら点群の顔と体が現れる。
+             「◂ CAMERA」で点群が下から消えて暗転し、元のカメラへ戻る。
+             録画は両方の状態で撮れるので、切り替えの瞬間ごと保存できる。
   TECH       WebGL2 の gl.POINTS。数万点の頂点シェーダがカメラ映像・人物
              マスク・「崩れてからの時間」を読んで、奥行き（マスクをぼかした
              膨らみ＋明るさ）と飛散の位置を毎フレーム決める。CPU はマスクを
@@ -81,6 +85,16 @@ html,body{margin:0;height:100%;background:var(--bg);overflow:hidden;color:var(--
 #panel label{display:flex;align-items:center;gap:10px;font-size:11px;letter-spacing:.04em;font-family:"Hiragino Sans","Noto Sans JP",sans-serif;font-weight:300}
 #panel label span{width:74px;flex:none;color:var(--dim)}
 #panel input[type=range]{flex:1;accent-color:var(--acc)}
+#mode{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom) + 70px);z-index:13;display:none;
+  appearance:none;border:1px solid var(--line);background:color-mix(in srgb,var(--bg) 55%,transparent);color:var(--fg);
+  font:400 10px Geist,sans-serif;letter-spacing:.42em;padding:13px 22px 13px 28px;cursor:pointer;opacity:.9;
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);transition:border-color .3s,opacity .3s}
+#mode.show{display:block}
+#mode:hover{border-color:var(--fg);opacity:1}
+body.cam #mode{border-color:rgba(255,255,255,.55);color:#fff;background:rgba(0,0,0,.35)}
+body.cam .btn{color:#fff}
+body.cam #bar #shoot{border-color:#fff}
+body.cam #shoot::after{background:radial-gradient(circle,#fff 1px,transparent 1.4px) 0 0/4px 4px}
 #panel .note{font-size:10px;color:var(--dim);line-height:1.7;font-family:"Hiragino Sans","Noto Sans JP",sans-serif}
 </style>
 </head>
@@ -92,6 +106,7 @@ html,body{margin:0;height:100%;background:var(--bg);overflow:hidden;color:var(--
 <div id="status"></div>
 <button id="gear" class="btn" aria-label="調整">⚙</button>
 <button id="flip" class="btn">⟲ カメラ</button>
+<button id="mode">▸ TENGUN</button>
 <div id="bar">
   <button id="rec" class="btn">● REC</button>
   <button id="shoot" class="btn" aria-label="撮る"></button>
@@ -116,8 +131,8 @@ html,body{margin:0;height:100%;background:var(--bg);overflow:hidden;color:var(--
   <div class="t">POINT CLOUD</div>
   <h1>TENGUN</h1>
   <div class="dots"></div>
-  <p>あなたは数万の点になる。<br>動いたところから、粉になって流れる。</p>
-  <button id="go">START SCAN</button>
+  <p>まずは、いつものカメラ。<br>ボタンを押すと、あなたは数万の点になる。</p>
+  <button id="go">START</button>
   <div id="err"></div>
 </div>
 
@@ -152,7 +167,7 @@ precision highp float;
 in vec2 aUV; in float aSeed;
 uniform sampler2D uVid, uField;
 uniform vec2 uScale, uSpan;
-uniform float uMirror, uHasMask, uLayer, uYaw, uPitch, uDepth, uDrift, uT, uPx, uScan, uNeg;
+uniform float uMirror, uHasMask, uLayer, uYaw, uPitch, uDepth, uDrift, uT, uPx, uScan, uNeg, uReveal;
 out vec3 vCol; out float vA;
 uniform vec3 uPt, uDust;
 float h(float n){ return fract(sin(n) * 43758.5453); }
@@ -185,6 +200,9 @@ void main(){
     p += vec3(sin(uT * 1.3 + aSeed * 40.), cos(uT * 1.1 + aSeed * 23.), sin(uT * .9 + aSeed * 11.)) * .03 * e;
     col = mix(uPt * (.3 + l), uDust, .75) * (1.1 - .4 * age);
   }
+  // the switch: each point appears once the reveal front (top → bottom) has passed it
+  float pr = (1. - aUV.y) * .78 + h(aSeed * 2.9) * .22;
+  a *= smoothstep(pr, pr + .06, uReveal);
   // orbit
   float cy = cos(uYaw), sy = sin(uYaw), cp = cos(uPitch), sp = sin(uPitch);
   p = vec3(cy * p.x + sy * p.z, p.y, -sy * p.x + cy * p.z);
@@ -217,6 +235,14 @@ void main(){
   c += (h21(floor(gl_FragCoord.xy / 1.5) + fract(uT * 7.13) * 91.7) - .5) * .025;
   o = vec4(c, 1.);
 }`;
+const FS_CAM = `#version 300 es
+precision mediump float;
+uniform sampler2D uVid; uniform vec2 uRes, uScale; uniform float uMirror, uA; out vec4 o;
+void main(){
+  vec2 s = gl_FragCoord.xy / uRes; s.y = 1. - s.y;
+  vec2 v = (s - .5) * uScale + .5; if (uMirror > .5) v.x = 1. - v.x;
+  o = vec4(texture(uVid, v).rgb * uA, 1.);
+}`;
 function sh(type, src){ const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
   if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s; }
 function prog(vs, fs, attrs){ const p = gl.createProgram(); gl.attachShader(p, sh(gl.VERTEX_SHADER, vs)); gl.attachShader(p, sh(gl.FRAGMENT_SHADER, fs));
@@ -228,9 +254,9 @@ function prog(vs, fs, attrs){ const p = gl.createProgram(); gl.attachShader(p, s
 function tex(){ const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE); return t; }
-let PP, PB, vaoPts, vaoQuad, bufPts, nPts = 0, gridKey = '', texVid, texField;
+let PC, PP, PB, vaoPts, vaoQuad, bufPts, nPts = 0, gridKey = '', texVid, texField;
 function initGL(){
-  PP = prog(VS, FS, ['aUV', 'aSeed']); PB = prog(VS_Q, FS_BG, ['p']);
+  PP = prog(VS, FS, ['aUV', 'aSeed']); PB = prog(VS_Q, FS_BG, ['p']); PC = prog(VS_Q, FS_CAM, ['p']);
   vaoQuad = gl.createVertexArray(); gl.bindVertexArray(vaoQuad);
   const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b);
   gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
@@ -307,7 +333,7 @@ function updateField(dt, fresh){
   const thr = 44 - 30 * S.sens, da = dt / LIFE;
   let hits = 0, on = 0, cxs = 0, cys = 0, cn = 0, crum = 0;
   // a cut, not a gesture: camera warm-up, exposure jumps and camera flips change most of the frame at once
-  let armed = fresh && F.have && performance.now() - camT0 > 900;
+  let armed = fresh && F.have && performance.now() - camT0 > 900 && MODE.cloud && MODE.X > 1.2;
   if (armed){ let ch = 0; for (let i = 0; i < n; i += 7){ const dv = F.cur[i] - F.prev[i]; if (dv > thr || -dv > thr) ch++; } if (ch * 7 > n * .35) armed = false; }
   for (let i = 0; i < n; i++){
     const mk = useMask ? M.f[F.idx[i]] : 1;
@@ -409,6 +435,29 @@ function ensureAudio(){
 }
 
 let scanT = 0, scanFast = 0;
+// the switch between the plain camera (X = 0) and the point cloud (X = 1.6)
+const MODE = { cloud:false, X:0 };
+function setMode(cloud){
+  if (cloud === MODE.cloud) return;
+  MODE.cloud = cloud;
+  $('mode').textContent = cloud ? '◂ CAMERA' : '▸ TENGUN';
+  document.body.classList.toggle('cam', !cloud);
+  $('scan').style.visibility = cloud ? 'visible' : 'hidden';
+  if (cloud){ F.age && F.age.fill(1); scanT = 99; }         // the whole body arrives, nothing is mid-crumble
+  whoosh(cloud);
+}
+$('mode').onclick = () => setMode(!MODE.cloud);
+addEventListener('keydown', e => { if (started && (e.key === ' ' || e.key === 'Enter') && document.activeElement.tagName !== 'INPUT'){ e.preventDefault(); setMode(!MODE.cloud); } });
+function whoosh(up){
+  if (!actx || actx.state !== 'running') return;
+  const t = actx.currentTime, n = actx.sampleRate * 1.2 | 0, b = actx.createBuffer(1, n, actx.sampleRate), d = b.getChannelData(0);
+  for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+  const src = actx.createBufferSource(); src.buffer = b;
+  const f = actx.createBiquadFilter(); f.type = 'bandpass'; f.Q.value = 1.4;
+  f.frequency.setValueAtTime(up ? 300 : 3200, t); f.frequency.exponentialRampToValueAtTime(up ? 3200 : 300, t + (up ? 1.4 : .6));
+  const g = actx.createGain(); g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime(.35, t + .08); g.gain.exponentialRampToValueAtTime(.0001, t + (up ? 1.5 : .7));
+  src.connect(f); f.connect(g); g.connect(bus); src.start(t); src.stop(t + 1.6);
+}
 $('go').onclick = async () => {
   $('err').textContent = '';
   ensureAudio();
@@ -418,7 +467,8 @@ $('go').onclick = async () => {
     await startCam();
   }catch(e){ camError(e); return; }
   $('start').style.display = 'none';
-  ['gear','flip','bar','rec','shoot','scan','hud'].forEach(id => $(id).classList.add('show'));
+  ['gear','flip','bar','rec','shoot','scan','hud','mode'].forEach(id => $(id).classList.add('show'));
+  MODE.cloud = true; setMode(false);                       // start as a plain camera
   if (!started){ started = true; initModel(); requestAnimationFrame(loop); }
 };
 $('flip').onclick = async () => {
@@ -446,7 +496,7 @@ canvas.addEventListener('pointermove', e => {
   const s = Math.min(innerWidth, innerHeight);
   yawUser = Math.max(-1.1, Math.min(1.1, drag.y0 + dx / s * 2.2)); pitchUser = Math.max(-.5, Math.min(.5, drag.p0 + dy / s * 1.2));
 });
-const endDrag = () => { if (drag && !drag.moved){ scanFast = 1; scanT = 0; } drag = null; };
+const endDrag = () => { if (drag && !drag.moved && MODE.cloud){ scanFast = 1; scanT = 0; } drag = null; };
 canvas.addEventListener('pointerup', endDrag); canvas.addEventListener('pointercancel', () => { drag = null; });
 
 $('shoot').onclick = () => {
@@ -478,6 +528,7 @@ $('rec').onclick = () => {
 
 /* ---------- render ---------- */
 let lastT = 0, hudT = 0, yaw = 0, pitch = 0;
+const STATE = { camA:1, reveal:0 };
 function loop(now){
   requestAnimationFrame(loop);
   const dt = lastT ? Math.min(.1, (now - lastT)/1000) : 1/60; lastT = now;
@@ -498,6 +549,10 @@ function loop(now){
   if (fresh){ gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, texVid);
     try { gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video); } catch(e){ return; } }
 
+  // the switch: forward 1 s/s (black-out, then the reveal), back 2.6 s/s (the cloud drops out, then the camera fades up)
+  MODE.X = MODE.cloud ? Math.min(1.6, MODE.X + dt) : Math.max(0, MODE.X - dt * 2.6);
+  const camA = 1 - Math.min(1, MODE.X / .28);
+  const reveal = Math.max(0, Math.min(1, (MODE.X - .3) / 1.3));
   // camera: slow sway + user drag (which eases back)
   if (!drag){ yawUser *= Math.exp(-dt / 3); pitchUser *= Math.exp(-dt / 3); }
   const amp = .55 * S.orbit;
@@ -508,14 +563,28 @@ function loop(now){
   if (scanT > 7){ scanT = 0; scanFast = 0; }
   const sweep = scanT / 2.2;
   const span = W >= H ? [W / H, 1] : [1, H / W];
-  const scanY = sweep < 1 ? (.5 - sweep * 1.1) * span[1] : 99;
+  let scanY = sweep < 1 ? (.5 - sweep * 1.1) * span[1] : 99;
+  if (reveal > 0 && reveal < 1) scanY = (.5 - reveal * 1.1) * span[1];   // during the switch the scan light leads the reveal
 
   const p = PALS[S.pal];
   gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, 0, W, H);
   gl.disable(gl.BLEND);
-  gl.useProgram(PB.p); gl.bindVertexArray(vaoQuad);
+  gl.clearColor(0, 0, 0, 1); gl.clear(gl.COLOR_BUFFER_BIT);
+  gl.bindVertexArray(vaoQuad);
+  const sa0 = W/H, va0 = vidW/vidH;
+  if (camA > 0){
+    gl.useProgram(PC.p);
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, texVid); gl.uniform1i(PC.U.uVid, 0);
+    gl.uniform2f(PC.U.uRes, W, H); gl.uniform2f(PC.U.uScale, sa0 < va0 ? sa0/va0 : 1, sa0 < va0 ? 1 : va0/sa0);
+    gl.uniform1f(PC.U.uMirror, mirror ? 1 : 0); gl.uniform1f(PC.U.uA, camA * camA);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  }
+  if (reveal <= 0){ gl.bindVertexArray(null); STATE.camA = camA; STATE.reveal = reveal; hudT = 1; return; }
+  gl.enable(gl.BLEND); gl.blendFunc(gl.CONSTANT_ALPHA, gl.ONE_MINUS_CONSTANT_ALPHA); gl.blendColor(0, 0, 0, Math.min(1, reveal * 3));
+  gl.useProgram(PB.p);
   gl.uniform3fv(PB.U.uBg, p.bg); gl.uniform2f(PB.U.uRes, W, H); gl.uniform1f(PB.U.uT, t);
   gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  gl.disable(gl.BLEND);
 
   gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE);
   gl.blendEquation(p.neg ? gl.FUNC_REVERSE_SUBTRACT : gl.FUNC_ADD);
@@ -529,7 +598,8 @@ function loop(now){
   gl.uniform1f(PP.U.uMirror, mirror ? 1 : 0); gl.uniform1f(PP.U.uHasMask, M.has && M.live ? 1 : 0);
   gl.uniform1f(PP.U.uYaw, yaw); gl.uniform1f(PP.U.uPitch, pitch);
   gl.uniform1f(PP.U.uDepth, .3 + 1.2 * S.depth); gl.uniform1f(PP.U.uDrift, S.drift);
-  gl.uniform1f(PP.U.uT, t); gl.uniform1f(PP.U.uScan, scanY);
+  gl.uniform1f(PP.U.uT, t); gl.uniform1f(PP.U.uScan, scanY); gl.uniform1f(PP.U.uReveal, reveal);
+  STATE.camA = camA; STATE.reveal = reveal;
   const gh = W >= H ? Math.round(110 + 150 * S.dense) : Math.round((110 + 150 * S.dense) * H / W);
   gl.uniform1f(PP.U.uPx, Math.max(1.6, H / gh * .78));
   gl.uniform3fv(PP.U.uPt, p.pt); gl.uniform3fv(PP.U.uDust, p.dust); gl.uniform1f(PP.U.uNeg, p.neg);
@@ -540,6 +610,7 @@ function loop(now){
 
   if (hiss && actx){ const g = Math.min(.5, F.crumbling * 3); hiss.gain.setTargetAtTime(g * .5, actx.currentTime, .15); }
 
+  $('hud').style.visibility = MODE.X > 1 ? 'visible' : 'hidden';
   hudT += dt;
   if (hudT > .3){ hudT = 0;
     $('hud').textContent = 'TENGUN  ' + p.name + '\nPOINTS ' + nPts.toLocaleString('en-US') +
@@ -553,6 +624,8 @@ window.__TENGUN = {
   state: () => ({ hasMask:M.has, live:M.live, cover:F.cover, crumbling:F.crumbling, hits:F.hits, cx:F.cx, cy:F.cy, nPts }),
   ageAt(x, y){ const fx = Math.min(F.w - 1, Math.max(0, x * F.w | 0)), fy = Math.min(F.h - 1, Math.max(0, y * F.h | 0)); return F.age ? F.age[fy * F.w + fx] : 1; },
   palette(i){ setPal(i); },
+  mode(c){ setMode(!!c); },
+  view: () => ({ cloud:MODE.cloud, X:MODE.X, camA:STATE.camA, reveal:STATE.reveal }),
 };
 </script>
 </body>
