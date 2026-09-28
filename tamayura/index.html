@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
-<meta name="description" content="動くと、その場に真っ赤な残像が置いていかれる。残像は少しのあいだ留まり、点の格子に崩れて、大小の軽い球になってふわりと昇り、ぱちんと弾けて消える。タップで色が変わる。">
+<meta name="description" content="動くと、その場に真っ赤な残像が置いていかれる。残像は少しのあいだ留まり、点の格子に崩れて、赤い球になって落ちて消える。タップで色が変わる。">
 <meta name="theme-color" content="#000000">
 <title>TAMAYURA ─ 赤い残像が球になる</title>
 <!--
@@ -13,8 +13,7 @@
   MOOD       暗い舞台。いまの自分だけが白く照らされ、動いたぶんだけ、
              ついさっきの自分が真紅の影としてその場に置いていかれる。
              影は少しのあいだ留まり、網点の格子に崩れ、点がふくらんで
-             大小の軽い球になり、風船のようにふわりと昇って、ぱちんと
-             弾けて消える。玉響（たまゆら）は
+             球になり、こぼれて床に転がり、消える。玉響（たまゆら）は
              玉が触れあうほどのかすかな間 ── 残像が残っている時間のこと。
   PALETTE    闇 #000 ／ 舞台の床 ほぼ黒の灰 ／ いまの自分 漆喰の白 #ecebe6
              残像 深紅 #4a0006 → 真紅 #ff1a12 → 桃 #ff6f7c → 灰 #b8b0b0
@@ -22,8 +21,7 @@
              （赤→橙→金→翠→青→紫→桃→白→赤）。いつも白と黒と一色だけ。
   TYPE       Cormorant Garamond（題字・数字）と Zen Kaku Gothic New。
   MOTION     残像は置かれた場所から一歩も動かない。動くのは崩れて
-             球になってから。球は小さいものと大きいものが混ざり、浮力で
-             ゆらゆら昇り、寿命の終わりに一瞬ふくらんで弾け、細かい粒が散る。
+             球になってから。球は一部が落ちて床で跳ね、一部は宙に漂う。
              フラッシュも揺れも使わない。
   SIGNATURE  自分の輪郭をした赤い影が、網点を経て、球の群れにほどけること。
   TECH       人物マスクは MediaPipe ImageSegmenter（読めなければ背景差分）。
@@ -125,14 +123,14 @@ body.cam #hud, body.cam #burst{visibility:hidden}
   <label><span>残像の多さ</span><input type="range" id="sRate" min="0" max="1" step="0.01" value="0.55"></label>
   <label><span>球の量</span><input type="range" id="sBalls" min="0" max="1" step="0.01" value="0.42"></label>
   <label><span>球の大きさ</span><input type="range" id="sSize" min="0" max="1" step="0.01" value="0.5"></label>
-  <label><span>浮かぶ</span><input type="range" id="sFall" min="0" max="1" step="0.01" value="0.6"></label>
+  <label><span>落ちる</span><input type="range" id="sFall" min="0" max="1" step="0.01" value="0.6"></label>
   <div class="note">動いたぶんだけ残像が置かれ、止まっていれば増えない。<br>画面をタップ：色が替わる。<br>散らす：いまある残像を一度に球にする。</div>
 </div>
 
 <div id="start">
   <div class="t">AFTERIMAGE / RED SPHERES</div>
   <h1>TAMA<i>Y</i>URA</h1>
-  <p>まずは、いつものカメラ。<br>ボタンを押すと舞台が暗くなり、あなただけが白く残ります。<br>動くと、その場に赤い残像が置いていかれ、<br>少し留まってから、軽い球になって昇り、弾けて消えます。<br>画面をタップすると色が替わります。</p>
+  <p>まずは、いつものカメラ。<br>ボタンを押すと舞台が暗くなり、あなただけが白く残ります。<br>動くと、その場に赤い残像が置いていかれ、<br>少し留まってから、球になって消えていきます。<br>画面をタップすると色が替わります。</p>
   <button id="go">START</button>
   <div id="err"></div>
 </div>
@@ -385,9 +383,7 @@ function maybeGhost(now){
 /* ---------- spheres ---------- */
 const B = { n:0, x:new Float32Array(MAXB), y:new Float32Array(MAXB), vx:new Float32Array(MAXB), vy:new Float32Array(MAXB),
   r:new Float32Array(MAXB), t:new Float32Array(MAXB), life:new Float32Array(MAXB), gk:new Float32Array(MAXB),
-  tone:new Float32Array(MAXB), ph:new Float32Array(MAXB), fr:new Uint8Array(MAXB), out:new Float32Array(MAXB * 5) };
-const POPQ = new Float32Array(4 * 600);     // spheres that popped this frame: x, y, r, tone
-let popN = 0, popsTotal = 0;
+  tone:new Float32Array(MAXB), out:new Float32Array(MAXB * 5) };
 let CW = 1, CH = 1, scaleX = 1, scaleY = 1, spawnedTotal = 0;
 // mask pixel (video space) -> canvas pixel (y up); the inverse of toVid()
 function vidToCanvas(mx, my){
@@ -414,15 +410,12 @@ function burstGhost(g){
       const k = B.n++;
       const rr = Math.random();
       B.x[k] = px; B.y[k] = py;
-      B.vx[k] = (Math.random() - .5) * up * .08;
-      B.vy[k] = (Math.random() - .3) * up * .05;
-      // small and large mixed: mostly beads, some medium, a few big ones
-      const sz = rr < .68 ? .4 + rr * .9 : rr < .92 ? 1.2 + (rr - .68) * 4.2 : 2.8 + (rr - .92) * 22;
-      B.r[k] = Math.min(pointMax * .5 - 1, base * sz);
-      B.t[k] = 0; B.life[k] = 1.8 + Math.random() * 2.6 + S.life * 1.4;
-      // buoyancy: every sphere is light; the big ones lift a little harder, the small ones dawdle
-      B.gk[k] = .55 + .45 * Math.min(1, sz / 2.5) + (Math.random() - .5) * .3;
-      B.ph[k] = Math.random() * 6.283; B.fr[k] = 0;
+      B.vx[k] = (Math.random() - .5) * up * .10;
+      B.vy[k] = (Math.random() * .7 - .15) * up * .09;
+      B.r[k] = Math.min(pointMax * .5 - 1, base * (.45 + rr * rr * 1.8));
+      B.t[k] = 0; B.life[k] = 1.7 + Math.random() * 1.8 + S.life * 1.2;
+      // most fall; some hang in the air the way they do in the reference
+      B.gk[k] = Math.random() < .38 ? .05 + Math.random() * .1 : 1;
       B.tone[k] = Math.min(1, .55 + .45 * (g.lum[i] / 255) + (Math.random() - .5) * .3);
       made++;
     }
@@ -431,54 +424,27 @@ function burstGhost(g){
   if (made) pop(made);
 }
 function stepBalls(dt){
-  const S0 = Math.min(CW, CH), lift = S0 * (.05 + .16 * S.fall), drag = Math.exp(-dt * 1.7), fdrag = Math.exp(-dt * 5.5);
-  let w = 0; popN = 0;
+  const g = Math.min(CW, CH) * (.55 + 1.35 * S.fall), floor = CH * .035, drag = Math.exp(-dt * .9);
+  let w = 0;
   for (let k = 0; k < B.n; k++){
-    const t = B.t[k] + dt, frag = B.fr[k];
-    if (t >= B.life[k]){
-      // a sphere that reaches the end of its life pops; its fragments just fade
-      if (!frag && popN < 600){ const q = popN++ * 4; POPQ[q] = B.x[k]; POPQ[q+1] = B.y[k]; POPQ[q+2] = B.r[k] * 1.15; POPQ[q+3] = B.tone[k]; }
-      continue;
-    }
-    let x = B.x[k], y = B.y[k], vx, vy;
-    const r = B.r[k], u = t / B.life[k];
-    let rad, a;
-    if (frag){
-      vx = B.vx[k] * fdrag; vy = B.vy[k] * fdrag - S0 * .08 * dt;
-      rad = r * (1 - u * .6); a = 1 - u * u;
-    } else {
-      // light as a balloon: a gentle lift, a slow sway, air holding it back
-      vx = B.vx[k] * drag + Math.sin(t * (1.1 + B.gk[k]) + B.ph[k]) * S0 * .05 * dt;
-      vy = B.vy[k] * drag + lift * B.gk[k] * dt;
-      const grow = 1 - Math.pow(1 - Math.min(1, t / .28), 3);
-      const swell = u > .9 ? 1 + (u - .9) * 1.5 : 1;          // it tightens just before it goes
-      rad = r * grow * swell; a = 1;
-    }
+    let t = B.t[k] + dt;
+    if (t >= B.life[k]) continue;                 // dropped: compacted below
+    let x = B.x[k], y = B.y[k], vx = B.vx[k] * drag, vy = B.vy[k] * drag - g * B.gk[k] * dt;
     x += vx * dt; y += vy * dt;
-    if (!frag && y - r > CH + 10){ continue; }                   // floated off the top: gone quietly
+    const r = B.r[k];
+    if (y - r < floor){ y = floor + r; if (vy < 0){ vy = -vy * .32; vx *= .72; } }
+    const u = t / B.life[k];
+    // inflate out of the lattice dot, hold, then shrink away
+    const grow = 1 - Math.pow(1 - Math.min(1, t / .22), 3);
+    const shrink = u > .72 ? 1 - (u - .72) / .28 : 1;
     const o = w * 5;
-    B.out[o] = x; B.out[o+1] = y; B.out[o+2] = Math.max(.5, rad);
-    B.out[o+3] = a; B.out[o+4] = B.tone[k];
+    B.out[o] = x; B.out[o+1] = y; B.out[o+2] = Math.max(.5, r * grow * (.35 + .65 * shrink));
+    B.out[o+3] = Math.min(1, shrink * 1.4); B.out[o+4] = B.tone[k];
     B.x[w] = x; B.y[w] = y; B.vx[w] = vx; B.vy[w] = vy; B.r[w] = r; B.t[w] = t;
-    B.life[w] = B.life[k]; B.gk[w] = B.gk[k]; B.tone[w] = B.tone[k]; B.ph[w] = B.ph[k]; B.fr[w] = frag;
+    B.life[w] = B.life[k]; B.gk[w] = B.gk[k]; B.tone[w] = B.tone[k];
     w++;
   }
   B.n = w;
-  // the pops: a ring of droplets flung out from the skin
-  for (let p = 0; p < popN; p++){
-    const q = p * 4, px = POPQ[q], py = POPQ[q+1], pr = POPQ[q+2], tone = POPQ[q+3];
-    const m = Math.min(14, 5 + (pr / Math.max(1, S0 * .01)) * 2 | 0), a0 = Math.random() * 6.283;
-    for (let j = 0; j < m && B.n < MAXB; j++){
-      const k = B.n++, ang = a0 + j / m * 6.283 + (Math.random() - .5) * .5, sp = (3 + Math.random() * 4) * pr + S0 * .03;
-      B.x[k] = px + Math.cos(ang) * pr * .8; B.y[k] = py + Math.sin(ang) * pr * .8;
-      B.vx[k] = Math.cos(ang) * sp; B.vy[k] = Math.sin(ang) * sp;
-      B.r[k] = Math.max(.8, pr * (.1 + Math.random() * .12)); B.t[k] = 0; B.life[k] = .22 + Math.random() * .22;
-      B.gk[k] = 0; B.ph[k] = 0; B.tone[k] = tone; B.fr[k] = 1;
-      const o = (k) * 5; B.out[o] = B.x[k]; B.out[o+1] = B.y[k]; B.out[o+2] = B.r[k]; B.out[o+3] = 1; B.out[o+4] = tone;
-    }
-  }
-  popsTotal += popN;
-  if (popN) popTick(popN, POPQ[2]);
 }
 
 /* ---------- segmentation (with a background-difference fallback) ---------- */
@@ -578,18 +544,6 @@ function ensureAudio(){
   actx = new AC(); bus = actx.createGain(); bus.gain.value = .28; bus.connect(actx.destination);
   recDest = actx.createMediaStreamDestination(); bus.connect(recDest);
   actx.resume().catch(()=>{});
-}
-// the little pops of the spheres themselves: a bright tick, lower for bigger spheres
-let lastTick = 0;
-function popTick(count, r){
-  if (!actx || actx.state !== 'running') return;
-  const t0 = actx.currentTime; if (t0 - lastTick < .035) return; lastTick = t0;
-  const o = actx.createOscillator(), g = actx.createGain();
-  const f = Math.max(500, Math.min(2600, 2600 - r * 45)) * (.9 + Math.random() * .2);
-  o.type = 'sine'; o.frequency.setValueAtTime(f, t0); o.frequency.exponentialRampToValueAtTime(f * .45, t0 + .05);
-  g.gain.setValueAtTime(.0001, t0); g.gain.exponentialRampToValueAtTime(Math.min(.5, .16 + count * .03), t0 + .003);
-  g.gain.exponentialRampToValueAtTime(.0001, t0 + .07);
-  o.connect(g); g.connect(bus); o.start(t0); o.stop(t0 + .09);
 }
 function pop(count){
   if (!actx || actx.state !== 'running') return;
@@ -819,7 +773,7 @@ function loop(now){
 window.__TAMAYURA = {
   state: () => ({ mw:MW, mh:MH, ghosts:G.filter(g => g.on).length, laid:ghostCount, balls:B.n, spawned:spawnedTotal,
                   area:STAT.area, change:STAT.change, mode:STAT.mode, reveal:MODE.reveal, on:MODE.on, pointMax }),
-  mode(m){ setMode(!!m); }, burst: burstAll, colour(i){ setColour(i); }, colourIndex: () => colI, pops: () => popsTotal,
+  mode(m){ setMode(!!m); }, burst: burstAll, colour(i){ setColour(i); }, colourIndex: () => colI,
   set(k, v){ if (k in S) S[k] = v; },
   ballsY: () => Array.from(B.y.subarray(0, B.n)),
 };
