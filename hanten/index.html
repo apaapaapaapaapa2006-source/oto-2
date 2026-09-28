@@ -1,0 +1,637 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="description" content="映った人が、何千枚もの小さな円盤を裏返して描くフリップディスクの鏡になる。動いたところは円盤がカチカチと裏返りつづけ、タップすると白黒の反転が波になって盤を渡る。">
+<meta name="theme-color" content="#09090a">
+<title>HANTEN ─ フリップディスクの鏡</title>
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  HANTEN 反転 ─ フリップディスクの鏡                     ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  MOOD       デザインギャラリーの壁に掛かった、機械じかけの鏡。片面が黒、片面が
+             白く塗られた数千枚の円盤が、磁石で一枚ずつ裏返ってあなたの姿を描く。
+             立っていれば静かな一枚の版画、動けば通ったあとの円盤がカチカチと
+             裏返りつづけて、体の動きが音と光の波になる。
+  PALETTE    BONE    盤 #09090a・黒面 #18181a・白面 #ece6d6・縁 #e0452e（朱）
+             SODIUM  盤 #0a0806・黒面 #1b1611・白面 #ffb53a・縁 #fff1d0
+             FLUO    盤 #060807・黒面 #141814・白面 #cdf24a・縁 #ffffff
+             モノクロ＋一色。差し色は裏返る途中の円盤の「縁」にだけ出る。
+  TYPE       Doto（ドットマトリクスの題字）＋ Fragment Mono（小さな字）。
+  MOTION     裏返り 1 枚 0.09 秒。静止中は時おり一枚が瞬くだけ。動いたところは
+             しばらく円盤が勝手に裏返りつづけ（航跡）、ゆっくり元の絵に戻る。
+             タップした点から反転の輪が広がり、盤ぜんぶがネガになる／戻る。
+  SIGNATURE  体が一枚一枚の円盤の裏返りで描き直されること、その音。
+  SWITCH     はじめは素のカメラ。「▸ HANTEN」で画面が黒い盤に変わり、斜めの波が
+             円盤を裏返してあなたを描き出す。「◂ CAMERA」で波が全部を黒に戻す。
+  TECH       WebGL2。CPU は円盤ごとの状態（面・裏返りの進み・航跡）を毎フレーム
+             一枚のテクスチャにするだけで、円盤の形と陰影はシェーダが描く。
+             人物は selfie segmentation、濃淡は 4×4 の組織的ディザ＋ヒステリシス。
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Doto:wght@500;800&family=Fragment+Mono&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#09090a;--fg:#ece6d6;--dim:rgba(236,230,214,.5);--line:rgba(236,230,214,.2);--acc:#e0452e}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none}
+html,body{margin:0;height:100%;background:var(--bg);overflow:hidden;color:var(--fg);
+  font-family:"Fragment Mono","Hiragino Sans","Noto Sans JP",monospace;transition:background .4s}
+#gl{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+#cam{position:fixed;left:0;top:0;width:2px;height:2px;opacity:.01;pointer-events:none}
+#est{display:none}
+.jp{font-family:"Hiragino Sans","Noto Sans JP",sans-serif;font-weight:300}
+
+#start{position:fixed;inset:0;z-index:30;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:24px;
+  padding:28px;text-align:center;background:var(--bg)}
+#start .t{font-size:10px;letter-spacing:.5em;margin-right:-.5em;color:var(--dim)}
+#start h1{margin:0;font:800 min(15vw,96px)/1 "Doto",monospace;letter-spacing:.08em;margin-right:-.08em}
+#start .discs{display:grid;grid-template-columns:repeat(7,10px);gap:3px}
+#start .discs i{width:10px;height:10px;border-radius:50%;background:#1d1d20}
+#start .discs i.on{background:var(--fg)}
+#start .discs i.mid{background:var(--acc);transform:scaleX(.18)}
+#start p{margin:0;font-size:12px;line-height:2.1;color:var(--dim);letter-spacing:.08em}
+#go{appearance:none;border:1px solid var(--line);background:transparent;color:var(--fg);font:400 10px "Fragment Mono",monospace;
+  letter-spacing:.5em;padding:15px 30px 15px 36px;cursor:pointer;transition:border-color .3s}
+#go:hover{border-color:var(--fg)}
+#err{font-size:12px;line-height:1.8;max-width:340px;min-height:1em;white-space:pre-line;color:#e0a3a3}
+
+.btn{text-shadow:0 0 3px var(--bg),0 0 10px var(--bg);position:fixed;z-index:12;appearance:none;border:0;background:transparent;color:var(--fg);font:400 10px "Fragment Mono",monospace;
+  letter-spacing:.3em;padding:10px 8px;display:none;cursor:pointer;opacity:.6;transition:opacity .3s}
+.btn.show{display:block}
+.btn:hover{opacity:1}
+#gear{right:10px;top:calc(env(safe-area-inset-top) + 6px);font-size:14px;letter-spacing:0}
+#flip{right:10px;top:calc(env(safe-area-inset-top) + 40px);letter-spacing:.1em}
+#bar{position:fixed;left:0;right:0;bottom:calc(env(safe-area-inset-bottom) + 10px);z-index:12;display:none;justify-content:center;align-items:center;gap:30px}
+#bar.show{display:flex}
+#bar .btn{position:static;display:block}
+#bar #shoot{width:40px;height:40px;border-radius:50%;border:1px solid var(--fg);padding:0;opacity:.75;position:relative}
+#shoot::after{content:"";position:absolute;inset:10px;border-radius:50%;background:linear-gradient(90deg,var(--fg) 50%,#1d1d20 50%)}
+#rec.on{opacity:1;color:var(--acc)}
+#hud{text-shadow:0 0 3px var(--bg),0 0 10px var(--bg);position:fixed;left:14px;top:calc(env(safe-area-inset-top) + 14px);z-index:11;font-size:9px;letter-spacing:.24em;color:var(--dim);
+  pointer-events:none;display:none;line-height:2.1;white-space:pre}
+#hud.show{display:block}
+#hud b{font:800 17px "Doto",monospace;letter-spacing:.14em;color:var(--fg);display:block;margin-bottom:2px}
+#status{position:fixed;left:14px;bottom:calc(env(safe-area-inset-bottom) + 118px);z-index:11;font-size:11px;letter-spacing:.04em;
+  color:var(--dim);pointer-events:none;max-width:72vw;line-height:1.7;white-space:pre-line}
+
+#panel{position:fixed;right:10px;top:calc(env(safe-area-inset-top) + 78px);z-index:12;width:min(270px,calc(100vw - 20px));
+  background:color-mix(in srgb,var(--bg) 86%,transparent);border:1px solid var(--line);padding:14px 16px;display:flex;flex-direction:column;gap:13px;
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);transition:opacity .25s}
+#panel.hide{opacity:0;pointer-events:none}
+.chips{display:flex;border:1px solid var(--line)}
+.chips button{flex:1;appearance:none;border:0;background:transparent;color:var(--fg);padding:8px 2px;font:400 9px "Fragment Mono",monospace;
+  letter-spacing:.14em;cursor:pointer;opacity:.55}
+.chips button.on{opacity:1;background:color-mix(in srgb,var(--fg) 12%,transparent)}
+#panel label{display:flex;align-items:center;gap:10px;font-size:11px;letter-spacing:.04em}
+#panel label span{width:74px;flex:none;color:var(--dim)}
+#panel input[type=range]{flex:1;accent-color:var(--acc)}
+#panel .note{font-size:10px;color:var(--dim);line-height:1.7}
+#mode{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom) + 70px);z-index:13;display:none;
+  appearance:none;border:1px solid var(--line);background:color-mix(in srgb,var(--bg) 55%,transparent);color:var(--fg);
+  font:400 10px "Fragment Mono",monospace;letter-spacing:.42em;padding:13px 22px 13px 28px;cursor:pointer;
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);transition:border-color .3s}
+#mode.show{display:block}
+#mode:hover{border-color:var(--fg)}
+body.cam #mode{border-color:rgba(255,255,255,.55);color:#fff;background:rgba(0,0,0,.35)}
+body.cam .btn{color:#fff}
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<canvas id="est"></canvas>
+<video id="cam" playsinline muted autoplay></video>
+<div id="hud"></div>
+<div id="status" class="jp"></div>
+<button id="gear" class="btn" aria-label="調整">⚙</button>
+<button id="flip" class="btn jp">⟲ カメラ</button>
+<button id="mode">▸ HANTEN</button>
+<div id="bar">
+  <button id="rec" class="btn">● REC</button>
+  <button id="shoot" class="btn" aria-label="撮る"></button>
+  <button id="inv" class="btn jp">反転</button>
+</div>
+
+<div id="panel" class="hide jp">
+  <div class="chips" id="pals">
+    <button data-p="0" class="on">BONE</button>
+    <button data-p="1">SODIUM</button>
+    <button data-p="2">FLUO</button>
+  </div>
+  <label><span>円盤の数</span><input type="range" id="sRes" min="0" max="1" step="0.01" value="0.45"></label>
+  <label><span>明るさ</span><input type="range" id="sTone" min="0" max="1" step="0.01" value="0.5"></label>
+  <label><span>航跡</span><input type="range" id="sWake" min="0" max="1" step="0.01" value="0.6"></label>
+  <label><span>輪郭</span><input type="range" id="sRim" min="0" max="1" step="0.01" value="0.7"></label>
+  <label><span>音</span><input type="range" id="sVol" min="0" max="1" step="0.01" value="0.7"></label>
+  <div class="note">動いたところが鳴る。タップで反転の波。</div>
+</div>
+
+<div id="start">
+  <div class="t">FLIP-DISC MIRROR</div>
+  <h1>HANTEN</h1>
+  <div class="discs" aria-hidden="true">
+    <i></i><i></i><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i>
+    <i></i><i class="on"></i><i class="on"></i><i class="mid"></i><i class="on"></i><i class="on"></i><i></i>
+    <i></i><i class="on"></i><i></i><i class="on"></i><i></i><i class="on"></i><i></i>
+    <i></i><i class="mid"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i></i>
+    <i></i><i></i><i class="on"></i><i></i><i class="on"></i><i></i><i></i>
+  </div>
+  <p class="jp">まずは、いつものカメラ。<br>ボタンを押すと画面が円盤の盤になり、<br>あなたを一枚ずつ裏返して描く。</p>
+  <button id="go">START</button>
+  <div id="err" class="jp"></div>
+</div>
+
+<script>
+'use strict';
+/* =====================================================================
+   HANTEN — a flip-disc mirror. The screen is a board of two-sided discs;
+   each disc inside the person shows its light face where the (dithered)
+   image is bright. Discs flip one by one with a click. Where you moved,
+   discs keep flipping for a while (the wake). A tap sends an inversion
+   ring across the board.
+   ===================================================================== */
+const VISION_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs';
+const WASM_URL   = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm';
+const SEG_MODEL  = 'https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite';
+const $ = id => document.getElementById(id);
+const canvas = $('gl'), video = $('cam'), est = $('est');
+const ectx = est.getContext('2d', { willReadFrequently:true });
+
+const PALS = [
+  { name:'BONE',   bg:[.035,.035,.039], dark:[.094,.094,.102], lit:[.925,.902,.839], edge:[.878,.271,.180], css:['#09090a','#ece6d6','#e0452e'] },
+  { name:'SODIUM', bg:[.039,.031,.024], dark:[.106,.086,.067], lit:[1.0,.710,.227],  edge:[1.0,.945,.816],  css:['#0a0806','#ffd9a0','#ffb53a'] },
+  { name:'FLUO',   bg:[.024,.031,.027], dark:[.078,.094,.078], lit:[.804,.949,.290], edge:[1.0,1.0,1.0],    css:['#060807','#e4f5b8','#cdf24a'] },
+];
+const S = { pal:0, res:.45, tone:.5, wake:.6, rim:.7, vol:.7 };
+const FLIP_T = .09;                                      // seconds per flip
+
+/* ---------- GL ---------- */
+const gl = canvas.getContext('webgl2', { antialias:false, alpha:false, preserveDrawingBuffer:true, powerPreference:'high-performance' });
+const VS = `#version 300 es
+in vec2 p; void main(){ gl_Position = vec4(p, 0., 1.); }`;
+const FS = `#version 300 es
+precision highp float;
+uniform sampler2D uVid, uState;
+uniform vec2 uRes, uScale, uOff; uniform ivec2 uGrid;
+uniform float uMirror, uTile, uBoard, uT;
+uniform vec3 uBg, uDark, uLit, uEdge;
+out vec4 o;
+float h21(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233))) * 43758.5453); }
+void main(){
+  vec2 fc = vec2(gl_FragCoord.x, uRes.y - gl_FragCoord.y);
+  vec2 s = fc / uRes;
+  vec2 v = (s - .5) * uScale + .5; if (uMirror > .5) v.x = 1. - v.x;
+  vec3 cam = texture(uVid, v).rgb;
+  if (uBoard <= 0.){ o = vec4(cam, 1.); return; }
+
+  vec2 g = (fc - uOff) / uTile;
+  ivec2 c = ivec2(floor(g));
+  vec3 col = uBg * (.8 + .2 * h21(floor(fc / 2.)));
+  if (c.x >= 0 && c.y >= 0 && c.x < uGrid.x && c.y < uGrid.y){
+    vec4 st = texelFetch(uState, c, 0);
+    float side = step(.5, st.r), ph = st.g, rnd = st.a;
+    vec2 u = (fract(g) - .5) * 2.;                          // -1..1 in the cell
+    float px = 2. / uTile;                                  // one pixel in cell units
+    // the socket the disc sits in
+    float rs = length(u);
+    col *= 1. - .45 * smoothstep(.98, .80, rs);
+    // the disc turns about its vertical axle
+    float a = ph * 3.14159265, ca = cos(a), sc = max(abs(ca), .1);
+    vec2 q = vec2(u.x / sc, u.y);
+    float R = .82, d = length(q) - R;
+    // shadow under the disc
+    float dsh = length(vec2((u.x - .09) / max(sc, .35), u.y + .12)) - R;
+    col *= 1. - .5 * (1. - smoothstep(-.05, .25, dsh));
+    float inside = 1. - smoothstep(-px / sc, px / sc, d);
+    float face = ph < .5 ? side : 1. - side;
+    vec3 f = mix(uDark, uLit * (.92 + .08 * rnd), face);
+    // a shallow dome, lit from the upper left, and the paint's sheen
+    float dome = 1. + .16 * (-q.x * .5 - q.y * .8) / R;
+    f *= dome;
+    f += face * .06 * pow(max(0., 1. - length(q - vec2(-.28, -.34)) / .5), 2.);
+    f *= .45 + .55 * abs(ca);                                // turned away from the light while flipping
+    float e = 1. - smoothstep(.12, .5, abs(ca));             // the painted rim shows when the disc is edge-on
+    f = mix(f, uEdge * (.7 + .3 * abs(u.y)), e * step(.001, ph) * .9);
+    col = mix(col, f, inside);
+  }
+  vec2 q2 = s - .5; q2.x *= uRes.x / uRes.y;
+  col *= 1. - .35 * smoothstep(.35, 1.05, length(q2));      // a soft vignette
+  col += (h21(fc + fract(uT * 7.1) * 91.) - .5) * .012;
+  o = vec4(mix(cam, col, uBoard), 1.);
+}`;
+function sh(type, src){ const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s; }
+function prog(vs, fs){ const p = gl.createProgram(); gl.attachShader(p, sh(gl.VERTEX_SHADER, vs)); gl.attachShader(p, sh(gl.FRAGMENT_SHADER, fs));
+  gl.bindAttribLocation(p, 0, 'p'); gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+  const U = {}, n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+  for (let i = 0; i < n; i++){ const u = gl.getActiveUniform(p, i); U[u.name] = gl.getUniformLocation(p, u.name); }
+  return { p, U }; }
+function tex(filter){ const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, filter); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, filter);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE); return t; }
+let P = null, vao = null, texVid = null, texState = null, texKey = '';
+function initGL(){
+  P = prog(VS, FS);
+  vao = gl.createVertexArray(); gl.bindVertexArray(vao);
+  const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+  gl.bindVertexArray(null);
+  texVid = tex(gl.LINEAR);
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+}
+
+/* ---------- the board: one cell per disc (all buffers reused) ---------- */
+const BAYER = [0,8,2,10, 12,4,14,6, 3,11,1,9, 15,7,13,5];
+const B = { gw:0, gh:0, tile:0, ox:0, oy:0, n:0, lum:null, lumP:null, v:null, mk:null, mkP:null, side:null, ph:null, wait:null,
+  agit:null, thr:null, rnd:null, key:null, px:null, idx:null, idxKey:'', have:false, hist:new Uint32Array(256), lo:40, hi:200,
+  flips:0, rate:0, cover:0, energy:0, cutFrac:0 };
+function ensureBoard(W, H){
+  const Sh = Math.min(W, H), across = Math.round(36 + 72 * S.res);
+  const tile = Sh / across, gw = Math.floor(W / tile), gh = Math.floor(H / tile);
+  if (gw === B.gw && gh === B.gh && Math.abs(tile - B.tile) < 1e-6) return;
+  B.gw = gw; B.gh = gh; B.tile = tile; B.ox = (W - gw * tile) / 2; B.oy = (H - gh * tile) / 2;
+  const n = B.n = gw * gh; est.width = gw; est.height = gh;
+  B.lum = new Uint8Array(n); B.lumP = new Uint8Array(n); B.v = new Float32Array(n);
+  B.mk = new Float32Array(n); B.mkP = new Float32Array(n);
+  B.side = new Uint8Array(n); B.ph = new Float32Array(n); B.wait = new Float32Array(n).fill(-1);
+  B.agit = new Float32Array(n); B.thr = new Float32Array(n); B.rnd = new Float32Array(n); B.key = new Float32Array(n);
+  B.px = new Uint8Array(n * 4);
+  for (let y = 0, i = 0; y < gh; y++) for (let x = 0; x < gw; x++, i++){
+    B.thr[i] = (BAYER[(y & 3) * 4 + (x & 3)] + .5) / 16;
+    B.rnd[i] = Math.random();
+    B.key[i] = (x / gw) * .62 + (y / gh) * .38 + B.rnd[i] * .06;   // order of the diagonal switch-on wave
+  }
+  B.idxKey = ''; B.have = false;
+}
+// the disc grid covers [ox, W-ox] x [oy, H-oy]; it's centred, so the mirror maps it onto itself
+function grab(W, H){
+  const vw = video.videoWidth, vh = video.videoHeight;
+  if (!(vw > 0 && vh > 0)) return false;
+  const sa = W / H, va = vw / vh;
+  const sx = sa < va ? sa / va : 1, sy = sa < va ? 1 : va / sa;
+  const u0 = (B.ox / W - .5) * sx + .5, v0 = (B.oy / H - .5) * sy + .5;
+  const uw = (B.gw * B.tile / W) * sx, vh2 = (B.gh * B.tile / H) * sy;
+  ectx.setTransform(mirror ? -1 : 1, 0, 0, 1, mirror ? B.gw : 0, 0);
+  try { ectx.drawImage(video, u0 * vw, v0 * vh, uw * vw, vh2 * vh, 0, 0, B.gw, B.gh); } catch(e){ return false; }
+  const d = ectx.getImageData(0, 0, B.gw, B.gh).data;
+  const t = B.lumP; B.lumP = B.lum; B.lum = t;
+  for (let i = 0, j = 0, n = B.n; i < n; i++, j += 4) B.lum[i] = (d[j]*77 + d[j+1]*150 + d[j+2]*29) >> 8;
+  const ok = B.have; B.have = true; return ok;
+}
+function ensureIdx(W, H){
+  const key = B.gw + 'x' + B.gh + ':' + B.tile + ':' + M.w + 'x' + M.h + ':' + (mirror ? 1 : 0) + ':' + vidW + 'x' + vidH + ':' + W + 'x' + H;
+  if (key === B.idxKey) return; B.idxKey = key;
+  if (!B.idx || B.idx.length !== B.n) B.idx = new Int32Array(B.n);
+  const sa = W / H, va = vidW / vidH, sx = sa < va ? sa / va : 1, sy = sa < va ? 1 : va / sa;
+  for (let y = 0; y < B.gh; y++) for (let x = 0; x < B.gw; x++){
+    let u = ((B.ox + (x + .5) * B.tile) / W - .5) * sx + .5, v = ((B.oy + (y + .5) * B.tile) / H - .5) * sy + .5;
+    if (mirror) u = 1 - u;
+    const mx = Math.min(M.w - 1, Math.max(0, u * M.w | 0)), my = Math.min(M.h - 1, Math.max(0, v * M.h | 0));
+    B.idx[y * B.gw + x] = (u < 0 || u > 1 || v < 0 || v > 1) ? -1 : my * M.w + mx;
+  }
+}
+
+/* the inversion ring: the board's polarity, and a ring growing out of a tap that carries the new one */
+const INV = { pol:0, on:false, x:0, y:0, r:0, to:1, rMax:0 };
+function startWave(cx, cy){                               // in cell units
+  if (INV.on) INV.pol = INV.to;                           // a new tap finishes the old wave
+  INV.on = true; INV.x = cx; INV.y = cy; INV.r = 0; INV.to = 1 - INV.pol;
+  const dx = Math.max(cx, B.gw - cx), dy = Math.max(cy, B.gh - cy);
+  INV.rMax = Math.hypot(dx, dy) + 2;
+  thunk(.6);
+}
+
+function updateBoard(dt, grabbed, W, H, armed, reveal){
+  const w = B.gw, h = B.gh, n = B.n, useMask = M.has;
+  if (useMask) ensureIdx(W, H);
+  armed = armed && grabbed && (!M.has || M.live);          // a stale mask never stirs the board
+  // a camera cut (flip, exposure jump) changes most of the frame; a dance move doesn't
+  if (armed){ let cut = 0; for (let i = 0; i < n; i += 5){ const dv = B.lum[i] - B.lumP[i]; if (dv > 34 || dv < -34) cut++; }
+    B.cutFrac = cut * 5 / n; if (cut * 5 > n * .5) armed = false; }
+  // tone: stretch the person's own brightness range so the face always reads
+  const hist = B.hist; hist.fill(0); let cnt = 0;
+  for (let i = 0; i < n; i++){
+    const j = useMask ? B.idx[i] : 0;
+    const m = useMask ? (j >= 0 ? M.f[j] : 0) : 1;
+    B.mkP[i] = B.mk[i]; B.mk[i] = B.mk[i] * .35 + m * .65;
+    if (B.mk[i] > .5){ hist[B.lum[i]]++; cnt++; }
+  }
+  if (cnt > 20){
+    let acc = 0, lo = 0, hi = 255; const a = cnt * .04, b = cnt * .97;
+    for (let k = 0; k < 256; k++){ acc += hist[k]; if (acc < a) lo = k; if (acc < b) hi = k; }
+    B.lo += (lo - B.lo) * .15; B.hi += (Math.max(lo + 30, hi) - B.hi) * .15;
+  }
+  const inv = 1 / Math.max(20, B.hi - B.lo), gam = Math.pow(2, (.5 - S.tone) * 1.6);
+  const dk = Math.exp(-dt / (.12 + .7 * S.wake)), rate = 6.5 * dt;
+  let on = 0, diff = 0, starts = 0;
+  const ringR = INV.r, ringW = 1.2, rimP = S.rim;
+  for (let y = 0, i = 0; y < h; y++) for (let x = 0; x < w; x++, i++){
+    const inP = B.mk[i] > .5;
+    // the image this disc should show
+    let t = (B.lum[i] - B.lo) * inv; t = t < 0 ? 0 : t > 1 ? 1 : t;
+    B.v[i] = B.v[i] * .45 + Math.pow(t, gam) * .55;
+    let tgt = 0;
+    if (inP){
+      on++;
+      const hy = B.side[i] ? -.045 : .045;
+      tgt = B.v[i] > B.thr[i] + hy ? 1 : 0;
+      if (rimP > 0 && B.rnd[i] < rimP){                     // the outline: a person cell next to the room
+        const l = x > 0 ? B.mk[i-1] : 0, r = x < w-1 ? B.mk[i+1] : 0, u = y > 0 ? B.mk[i-w] : 0, dn = y < h-1 ? B.mk[i+w] : 0;
+        if (l < .5 || r < .5 || u < .5 || dn < .5) tgt = 1;
+      }
+    }
+    // polarity, with the ring carrying the new one outwards
+    let pol = INV.pol;
+    if (INV.on){ const d = Math.hypot(x + .5 - INV.x, y + .5 - INV.y); if (d < ringR + ringW) pol = INV.to; }
+    if (pol) tgt ^= 1;
+    if (B.key[i] > reveal) tgt = 0;                        // not yet reached by the switch-on wave
+    // the wake: where you moved, discs go on flipping by themselves for a while
+    let ag = B.agit[i] * dk;
+    if (armed){
+      const dv = B.lum[i] - B.lumP[i], adv = dv < 0 ? -dv : dv, dm = B.mk[i] - B.mkP[i];
+      if ((inP || B.mkP[i] > .5) && adv > 26){ const m = Math.min(1, (adv - 16) / 90); diff += m; if (m > ag) ag = m; }
+      if (dm > .35 || dm < -.35){ diff += .5; if (ag < .9) ag = .9; }
+    }
+    B.agit[i] = ag;
+    // flip mechanics
+    let ph = B.ph[i];
+    if (ph > 0){
+      ph += dt / FLIP_T;
+      if (ph >= 1){ ph = 0; B.side[i] ^= 1; B.wait[i] = -1; }
+    } else {
+      if (ag > .04 && Math.random() < ag * S.wake * rate){ ph = 1e-4; starts++; B.wait[i] = -1; }   // a stirred disc turns over on its own
+      else if (tgt === B.side[i]) B.wait[i] = -1;
+      else if (B.wait[i] < 0) B.wait[i] = B.rnd[i] * .045;
+      else { B.wait[i] -= dt; if (B.wait[i] <= 0){ ph = 1e-4; starts++; } }
+    }
+    B.ph[i] = ph;
+  }
+  // a disc now and then winks on its own, so a still board is still a machine
+  if (reveal > 1 && Math.random() < dt * 5){ const k = Math.random() * n | 0; if (B.agit[k] < .3) B.agit[k] = .3; }
+  if (INV.on){ INV.r += dt * Math.min(w, h) / .85; if (INV.r > INV.rMax){ INV.on = false; INV.pol = INV.to; } }
+  // texture: side, flip progress, wake, paint variance
+  const px = B.px;
+  for (let i = 0, j = 0; i < n; i++, j += 4){ px[j] = B.side[i] * 255; px[j+1] = B.ph[i] * 255; px[j+2] = Math.min(255, B.agit[i] * 255); px[j+3] = B.rnd[i] * 255; }
+  gl.activeTexture(gl.TEXTURE1);
+  if (texKey !== w + 'x' + h){ texKey = w + 'x' + h; if (texState) gl.deleteTexture(texState); texState = tex(gl.NEAREST); gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA8, w, h); }
+  gl.bindTexture(gl.TEXTURE_2D, texState);
+  gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px);
+  B.cover = on / n; B.energy = armed && on > 20 ? diff / on : 0;
+  B.flips += starts; B.rate = B.rate * .9 + (dt > 0 ? starts / dt : 0) * .1;
+  return starts;
+}
+
+/* ---------- mask ---------- */
+const M = { w:0, h:0, f:null, has:false, live:false, external:false, lastT:0 };
+function ingestMask(data, w, h){
+  if (!data || !(w > 0) || !(h > 0) || !(w * h <= 4e6) || !(data.length >= w * h)) return false;
+  if (M.w !== w || M.h !== h){ M.w = w; M.h = h; M.f = new Float32Array(w * h); B.idxKey = ''; }
+  for (let i = 0, n = w * h; i < n; i++){ let m = data[i]; if (!(m >= 0)) m = 0; else if (m > 1) m = 1; M.f[i] = m; }
+  if (!M.live && B.mk) B.mkP.set(B.mk);                    // re-seat after a gap: no false wake
+  M.has = true; M.live = true; M.lastT = performance.now();
+  return true;
+}
+let segmenter = null, lastTs = 0, lastSegVT = -1;
+async function initModel(){
+  try{
+    const vision = await import(VISION_URL);
+    const fs = await vision.FilesetResolver.forVisionTasks(WASM_URL);
+    const opts = d => ({ baseOptions:{ modelAssetPath:SEG_MODEL, delegate:d }, runningMode:'VIDEO', outputConfidenceMasks:true, outputCategoryMask:false });
+    try { segmenter = await vision.ImageSegmenter.createFromOptions(fs, opts('GPU')); }
+    catch(e){ segmenter = await vision.ImageSegmenter.createFromOptions(fs, opts('CPU')); }
+    setStatus('');
+  }catch(e){
+    if (M.external) return;
+    setStatus('人物検出モデルを読み込めませんでした（ネット接続を確認）。\n画面全体を円盤で描いて続けます。');
+  }
+}
+function segment(now){
+  if (!segmenter || video.readyState < 2) return;
+  const vt = video.currentTime; if (vt === lastSegVT) return; lastSegVT = vt;
+  try{
+    const ts = Math.max(lastTs + 1, Math.round(now)); lastTs = ts;
+    segmenter.segmentForVideo(video, ts, res => {
+      const ms = res && res.confidenceMasks;
+      if (!ms || !ms.length) return;
+      const mk = ms[ms.length - 1];
+      ingestMask(mk.getAsFloat32Array(), mk.width, mk.height);
+    });
+  }catch(e){}
+}
+
+/* ---------- camera ---------- */
+let stream = null, facing = 'user', mirror = true, started = false, vidW = 1280, vidH = 720, lastVT = -1, camT0 = 0;
+function setStatus(t){ $('status').textContent = t || ''; }
+function camError(e){
+  const msg = (e && (e.message || e.name)) ? (e.message || e.name) : String(e || 'unknown');
+  const text = 'カメラを起動できませんでした：' + msg + '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+  $('err').textContent = text;
+  if (started) setStatus(text);
+}
+async function startCam(){
+  const md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) throw new Error('getUserMedia is unavailable');
+  const s = await md.getUserMedia({ video:{ facingMode:{ ideal:facing }, width:{ ideal:1280 }, height:{ ideal:720 } }, audio:false });
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = s; mirror = facing === 'user';
+  video.srcObject = s;
+  await new Promise(r => { if (video.readyState >= 1) r(); else video.onloadedmetadata = () => r(); });
+  await video.play().catch(()=>{});
+  vidW = video.videoWidth || 1280; vidH = video.videoHeight || 720;
+  B.have = false; B.idxKey = ''; camT0 = performance.now();
+}
+
+/* ---------- audio: every flip is a click; many flips are a clatter ---------- */
+let actx = null, bus = null, recDest = null, clicks = [], clatter = null, clatterG = null;
+function ensureAudio(){
+  if (actx){ if (actx.state === 'suspended') actx.resume().catch(()=>{}); return; }
+  const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+  actx = new AC(); bus = actx.createGain(); bus.gain.value = S.vol; bus.connect(actx.destination);
+  recDest = actx.createMediaStreamDestination(); bus.connect(recDest);
+  const sr = actx.sampleRate;
+  // a handful of clicks: a tick of noise plus the small metallic ring of the disc hitting its stop
+  for (let v = 0; v < 6; v++){
+    const len = Math.round(sr * .03), b = actx.createBuffer(1, len, sr), d = b.getChannelData(0);
+    const f1 = 2300 + 1900 * Math.random(), f2 = f1 * (1.47 + .2 * Math.random());
+    for (let i = 0; i < len; i++){ const t = i / sr;
+      d[i] = (Math.random() * 2 - 1) * Math.exp(-t / .0012) * .9 + (Math.sin(6.2832 * f1 * t) * .35 + Math.sin(6.2832 * f2 * t) * .2) * Math.exp(-t / .005); }
+    clicks.push(b);
+  }
+  // the clatter: two seconds of a dense board flipping
+  const len = sr * 2, cb = actx.createBuffer(1, len, sr), cd = cb.getChannelData(0);
+  for (let k = 0; k < 900; k++){
+    const src = clicks[k % clicks.length].getChannelData(0), at = Math.random() * (len - src.length) | 0, a = .15 + .6 * Math.random();
+    for (let i = 0; i < src.length; i++) cd[at + i] += src[i] * a;
+  }
+  clatter = actx.createBufferSource(); clatter.buffer = cb; clatter.loop = true;
+  const hp = actx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 400;
+  clatterG = actx.createGain(); clatterG.gain.value = 0;
+  clatter.connect(hp); hp.connect(clatterG); clatterG.connect(bus); clatter.start();
+  actx.resume().catch(()=>{});
+}
+function tick(k, span){
+  if (!actx || actx.state !== 'running' || !clicks.length) return;
+  const t = actx.currentTime;
+  for (let i = 0; i < k; i++){
+    const s = actx.createBufferSource(); s.buffer = clicks[Math.random() * clicks.length | 0];
+    s.playbackRate.value = .85 + .3 * Math.random();
+    const g = actx.createGain(); g.gain.value = .22 + .2 * Math.random();
+    s.connect(g); g.connect(bus); s.start(t + .01 + Math.random() * span);
+  }
+}
+// the relay of the whole board: a low knock
+function thunk(amt){
+  if (!actx || actx.state !== 'running') return;
+  const t = actx.currentTime;
+  const o = actx.createOscillator(); o.type = 'sine'; o.frequency.setValueAtTime(110, t); o.frequency.exponentialRampToValueAtTime(48, t + .12);
+  const g = actx.createGain(); g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime(.5 * amt, t + .006); g.gain.exponentialRampToValueAtTime(.0001, t + .35);
+  o.connect(g); g.connect(bus); o.start(t); o.stop(t + .4);
+  tick(3, .02);
+}
+
+// the switch between the plain camera (X = 0) and the board (X = 1.7)
+const MODE = { on:false, X:0 };
+function setMode(on){
+  if (on === MODE.on) return;
+  MODE.on = on;
+  $('mode').textContent = on ? '◂ CAMERA' : '▸ HANTEN';
+  document.body.classList.toggle('cam', !on);
+  $('inv').style.visibility = on ? 'visible' : 'hidden';
+  thunk(on ? 1 : .6);
+}
+$('mode').onclick = () => setMode(!MODE.on);
+addEventListener('keydown', e => { if (started && (e.key === ' ' || e.key === 'Enter') && document.activeElement.tagName !== 'INPUT'){ e.preventDefault(); setMode(!MODE.on); } });
+$('go').onclick = async () => {
+  $('err').textContent = '';
+  ensureAudio();
+  try{
+    if (!gl) throw new Error('WebGL2 に未対応のブラウザです');
+    if (!P) initGL();
+    await startCam();
+  }catch(e){ camError(e); return; }
+  $('start').style.display = 'none';
+  ['gear','flip','bar','rec','shoot','inv','hud','mode'].forEach(id => $(id).classList.add('show'));
+  MODE.on = true; setMode(false);
+  if (!started){ started = true; initModel(); requestAnimationFrame(loop); }
+};
+$('flip').onclick = async () => {
+  const prev = facing; facing = facing === 'user' ? 'environment' : 'user';
+  try { await startCam(); } catch(e){ facing = prev; camError(e); }
+};
+$('gear').onclick = () => $('panel').classList.toggle('hide');
+// a tap sends the inversion ring out from that point; the button sends it from the centre
+function tapAt(clientX, clientY){
+  if (!MODE.on || MODE.X < 1.2 || !B.tile) return;
+  const k = canvas.width / Math.max(1, canvas.clientWidth);
+  startWave((clientX * k - B.ox) / B.tile, (clientY * k - B.oy) / B.tile);
+}
+canvas.addEventListener('pointerup', e => { if (started) tapAt(e.clientX, e.clientY); });
+$('inv').onclick = () => { if (MODE.on && MODE.X >= 1.2) startWave(B.gw / 2, B.gh / 2); };
+function setPal(i){
+  S.pal = i; const p = PALS[i];
+  [...$('pals').children].forEach(x => x.classList.toggle('on', +x.dataset.p === i));
+  const r = document.documentElement.style;
+  r.setProperty('--bg', p.css[0]); r.setProperty('--fg', p.css[1]); r.setProperty('--acc', p.css[2]);
+}
+$('pals').onclick = e => { const b = e.target.closest('button'); if (b) setPal(+b.dataset.p); };
+[['sRes','res'],['sTone','tone'],['sWake','wake'],['sRim','rim'],['sVol','vol']].forEach(([id,k]) => { $(id).oninput = e => { S[k] = +e.target.value; if (k === 'vol' && bus) bus.gain.value = S.vol; }; });
+
+$('shoot').onclick = () => {
+  try{
+    canvas.toBlob(b => { if (!b) return; const a = document.createElement('a'); a.href = URL.createObjectURL(b);
+      a.download = 'hanten-' + Date.now() + '.png'; a.click(); }, 'image/png');
+  }catch(e){ setStatus('保存できませんでした。'); }
+};
+let rec = null, chunks = [];
+$('rec').onclick = () => {
+  if (rec && rec.state === 'recording'){ rec.stop(); return; }
+  try{
+    ensureAudio();
+    const tracks = [...canvas.captureStream(30).getVideoTracks()];
+    if (recDest) tracks.push(...recDest.stream.getAudioTracks());
+    const mime = ['video/mp4;codecs=avc1','video/webm;codecs=vp9,opus','video/webm'].find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || '';
+    rec = new MediaRecorder(new MediaStream(tracks), mime ? { mimeType:mime } : {});
+    chunks = [];
+    rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+    rec.onstop = () => {
+      $('rec').classList.remove('on'); $('rec').textContent = '● REC';
+      const ext = (rec.mimeType || '').includes('mp4') ? 'mp4' : 'webm';
+      const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(chunks, { type:rec.mimeType || 'video/webm' }));
+      a.download = 'hanten.' + ext; a.click();
+    };
+    rec.start(); $('rec').classList.add('on'); $('rec').textContent = '■ STOP';
+  }catch(e){ setStatus('録画を開始できませんでした。'); }
+};
+
+/* ---------- render ---------- */
+let lastT = 0, hudT = 0, hudVis = '';
+const STATE = { board:0, reveal:0, starts:0, eTot:0 };
+function loop(now){
+  requestAnimationFrame(loop);
+  const dt = lastT ? Math.min(.1, (now - lastT)/1000) : 1/60; lastT = now;
+  if (video.videoWidth && (video.videoWidth !== vidW || video.videoHeight !== vidH)){ vidW = video.videoWidth; vidH = video.videoHeight; B.have = false; B.idxKey = ''; }
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  let W = Math.round(innerWidth*dpr), H = Math.round(innerHeight*dpr);
+  const k = Math.min(1, 1800 / Math.max(W, H)); W = Math.round(W*k); H = Math.round(H*k);
+  if (canvas.width !== W || canvas.height !== H){ canvas.width = W; canvas.height = H; }
+  ensureBoard(W, H);
+  if (!M.external) segment(now);
+  if (M.live && now - M.lastT > 1500) M.live = false;
+  if (video.readyState < 2) return;
+
+  const vt = video.currentTime, fresh = vt !== lastVT; lastVT = vt;
+  const grabbed = fresh && grab(W, H);
+  // entering: the board fades in dark, then a diagonal wave flips you into view; leaving runs it backwards
+  MODE.X = MODE.on ? Math.min(1.7, MODE.X + dt) : Math.max(0, MODE.X - dt * 1.3);
+  const board = Math.min(1, MODE.X / .3);
+  const reveal = (MODE.X - .4) / .9 * 1.12;
+  const armed = MODE.on && MODE.X > 1.3 && performance.now() - camT0 > 900;
+  const starts = updateBoard(dt, grabbed, W, H, armed, reveal);
+  STATE.board = board; STATE.reveal = reveal; STATE.starts = starts; STATE.eTot += B.energy;
+  if (board > 0){
+    tick(Math.min(starts, 5), dt);
+    if (clatterG) clatterG.gain.setTargetAtTime(Math.min(.9, Math.max(0, (B.rate - 60) / 1400)), actx.currentTime, .05);
+  } else if (clatterG) clatterG.gain.setTargetAtTime(0, actx.currentTime, .05);
+  if (fresh){ gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, texVid);
+    try { gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video); } catch(e){ return; } }
+
+  const p = PALS[S.pal];
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, 0, W, H);
+  gl.bindVertexArray(vao); gl.useProgram(P.p);
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, texVid); gl.uniform1i(P.U.uVid, 0);
+  gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, texState); gl.uniform1i(P.U.uState, 1);
+  const sa = W/H, va = vidW/vidH;
+  gl.uniform2f(P.U.uRes, W, H); gl.uniform2f(P.U.uScale, sa < va ? sa/va : 1, sa < va ? 1 : va/sa);
+  gl.uniform2f(P.U.uOff, B.ox, B.oy); gl.uniform2i(P.U.uGrid, B.gw, B.gh); gl.uniform1f(P.U.uTile, B.tile);
+  gl.uniform1f(P.U.uMirror, mirror ? 1 : 0); gl.uniform1f(P.U.uBoard, board * board * (3 - 2 * board)); gl.uniform1f(P.U.uT, now / 1000);
+  gl.uniform3fv(P.U.uBg, p.bg); gl.uniform3fv(P.U.uDark, p.dark); gl.uniform3fv(P.U.uLit, p.lit); gl.uniform3fv(P.U.uEdge, p.edge);
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  gl.bindVertexArray(null);
+
+  const hv = MODE.X > 1.3 ? 'visible' : 'hidden';
+  if (hudVis !== hv){ hudVis = hv; $('hud').style.visibility = hv; }
+  hudT += dt;
+  if (hudT > .25){ hudT = 0;
+    $('hud').innerHTML = '<b>HANTEN</b>' + p.name + (INV.pol ? ' / NEG' : '') + '\nDISCS ' + B.n.toLocaleString('en-US') +
+      '\nFLIPS ' + String(Math.round(B.rate)).padStart(4, '0') + '/s'; }
+}
+
+/* ---------- test hook (used by the local verification harness) ---------- */
+window.__HANTEN = {
+  ingestMask(d, w, h){ if (!M.external) setStatus(''); M.external = true; return ingestMask(d, w, h); },
+  state: () => ({ hasMask:M.has, live:M.live, cover:B.cover, energy:B.energy, total:STATE.eTot, cutFrac:B.cutFrac, rate:B.rate, flips:B.flips,
+    board:STATE.board, on:MODE.on, X:MODE.X, grid:[B.gw, B.gh], pol:INV.pol, wave:INV.on,
+    lit:(() => { let s = 0; for (let i = 0; i < B.n; i++) s += B.side[i]; return s / Math.max(1, B.n); })(),
+    agit:(() => { let s = 0; for (let i = 0; i < B.n; i++) s += B.agit[i] > .1 ? 1 : 0; return s / Math.max(1, B.n); })(),
+    // share of lit discs in the left / right half — where the person is drawn
+    litLR:(() => { let l = 0, r = 0; for (let y = 0; y < B.gh; y++) for (let x = 0; x < B.gw; x++){ const s = B.side[y * B.gw + x]; if (x < B.gw / 2) l += s; else r += s; } return [l, r]; })() }),
+  palette(i){ setPal(i); },
+  mode(c){ setMode(!!c); },
+  tap(x, y){ tapAt(x, y); },
+};
+</script>
+</body>
+</html>
