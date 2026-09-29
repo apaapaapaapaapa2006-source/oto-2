@@ -1,0 +1,636 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="description" content="カメラの画面が何十枚もの写真を壁に貼り合わせたコラージュになる。一枚ずつ撮った時刻が違うので、止まっていれば一枚の絵に揃い、動くとあなたの体がばらばらの瞬間に割れて写真が揺れる。">
+<meta name="theme-color" content="#ebe7df">
+<title>KIRIBARI ─ 貼り合わせた写真の、ばらばらのあなた</title>
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  KIRIBARI 切り貼り ─ 貼り合わせた写真の、ばらばらのあなた   ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  MOOD       美術館の白い壁に、プリントを何十枚も少しずつ傾けて貼り合わせた
+             フォト・コラージュ（ホックニーの「ジョイナー」）。昼の光、褪せた
+             カラーネガの色。写真は一枚ずつ別々の時刻に撮り直されるので、
+             止まっていれば一枚の絵に揃い、動くと腕や顔がいくつもの瞬間に
+             割れてキュビスムの肖像になる。体のまわりには小さな写真が集まる。
+  PALETTE    DAYLIGHT 壁 #ebe7df・縁 #fbfaf6・写真は暖色に振った褪色ネガ・日付 #f08a2c
+             NIGHT    壁 #141518（夜の展示室）・縁 #f3f0e9・写真は硬めのフラッシュ撮影
+             SILVER   壁 #d8d5ce・縁 #f7f6f2・写真は銀塩のモノクロ
+  TYPE       Instrument Sans 400/500（UI）＋ Courier Prime（日付と枚数、写真の焼き込み日付）。
+  MOTION     写真は 0.5〜2.4 秒ごとに一枚ずつ撮り直され、新しいプリントが上に重なる。
+             動いたところの写真はその勢いで少し回ってずれ、ばねでゆっくり戻る。
+             体の上には小さな写真が置かれ、体が去ると剥がれて消える。
+             タップすると、その点から波のように全部の写真を撮り直す（連写の音）。
+  SIGNATURE  止まれば一枚、動けばばらばら ── 時間の違う写真で自分が組み直されること。
+  SWITCH     はじめは素のカメラ。「▸ KIRIBARI」でシャッターが一度だけ白く光り、
+             映像がそのまま写真の束に割れて、一枚ずつ傾いて壁に落ち着く。
+             「◂ CAMERA」で写真がまっすぐに揃い直して、ライブの映像に戻る。
+  TECH       Canvas 2D。写真一枚 = 小さなオフスクリーン canvas 一枚（撮る時に一度
+             drawImage するだけ）。色は乗算とスクリーンの塗りで焼く。動きは縮小した
+             輝度の差分、体の位置はセルフィー分割のマスクから升目ごとに読む。
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500&family=Courier+Prime&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#ebe7df;--fg:#1c1b19;--dim:rgba(28,27,25,.55);--line:rgba(28,27,25,.22);--acc:#e0762a}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none}
+html,body{margin:0;height:100%;background:var(--bg);overflow:hidden;color:var(--fg);
+  font-family:"Instrument Sans","Hiragino Sans","Noto Sans JP",sans-serif;transition:background .4s,color .4s}
+#cv{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+#cam{position:fixed;left:0;top:0;width:2px;height:2px;opacity:.01;pointer-events:none}
+#est{display:none}
+
+#start{position:fixed;inset:0;z-index:30;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;
+  padding:28px;text-align:center;background:var(--bg)}
+#start .t{font:400 11px "Courier Prime",monospace;letter-spacing:.3em;margin-right:-.3em;color:var(--dim)}
+#start h1{margin:0;font:500 min(13vw,80px)/1 "Instrument Sans",sans-serif;letter-spacing:.06em;margin-right:-.06em}
+#start .prints{position:relative;width:170px;height:92px}
+#start .prints i{position:absolute;width:74px;height:56px;background:#c9c2b4;border:4px solid #fbfaf6;box-shadow:0 2px 6px rgba(0,0,0,.18)}
+#start .prints i:nth-child(1){left:8px;top:14px;transform:rotate(-5deg);background:#b9ab96}
+#start .prints i:nth-child(2){left:52px;top:4px;transform:rotate(3deg);background:#a8a295}
+#start .prints i:nth-child(3){left:90px;top:22px;transform:rotate(-2deg);background:#c7b39a}
+#start .prints i:nth-child(4){left:44px;top:36px;transform:rotate(6deg);background:#9d968a}
+#start p{margin:0;font-size:12px;line-height:2.1;color:var(--dim);letter-spacing:.08em;font-family:"Hiragino Sans","Noto Sans JP",sans-serif}
+#go{appearance:none;border:1px solid var(--fg);background:transparent;color:var(--fg);font:500 11px "Instrument Sans",sans-serif;
+  letter-spacing:.4em;padding:14px 30px 14px 35px;cursor:pointer;transition:background .3s,color .3s}
+#go:hover{background:var(--fg);color:var(--bg)}
+#err{font-size:12px;line-height:1.8;max-width:340px;min-height:1em;white-space:pre-line;color:#b23a2a;font-family:"Hiragino Sans","Noto Sans JP",sans-serif}
+
+.btn{position:fixed;z-index:12;appearance:none;border:0;background:transparent;color:var(--fg);font:500 10px "Instrument Sans","Hiragino Sans",sans-serif;
+  letter-spacing:.28em;padding:10px 8px;display:none;cursor:pointer;opacity:.65;transition:opacity .3s}
+.btn.show{display:block}
+.btn:hover{opacity:1}
+#gear{right:10px;top:calc(env(safe-area-inset-top) + 6px);font-size:14px;letter-spacing:0}
+#flip{right:10px;top:calc(env(safe-area-inset-top) + 40px);letter-spacing:.1em;font-family:"Hiragino Sans","Noto Sans JP",sans-serif}
+#bar{position:fixed;left:0;right:0;bottom:calc(env(safe-area-inset-bottom) + 10px);z-index:12;display:none;justify-content:center;align-items:center;gap:30px}
+#bar.show{display:flex}
+#bar .btn{position:static;display:block}
+#bar #shoot{width:42px;height:42px;border-radius:50%;border:1.5px solid var(--fg);padding:0;opacity:.8;position:relative}
+#shoot::after{content:"";position:absolute;inset:7px;border-radius:50%;background:var(--fg)}
+#rec.on{opacity:1;color:var(--acc)}
+#hud{position:fixed;left:14px;top:calc(env(safe-area-inset-top) + 12px);z-index:11;font:400 10px "Courier Prime",monospace;letter-spacing:.14em;color:var(--dim);
+  pointer-events:none;display:none;line-height:1.9;white-space:pre}
+#hud.show{display:block}
+#status{position:fixed;left:14px;bottom:calc(env(safe-area-inset-bottom) + 70px);z-index:11;font-size:11px;letter-spacing:.04em;
+  color:var(--dim);pointer-events:none;max-width:72vw;line-height:1.7;white-space:pre-line;font-family:"Hiragino Sans","Noto Sans JP",sans-serif}
+
+#panel{position:fixed;right:10px;top:calc(env(safe-area-inset-top) + 78px);z-index:12;width:min(270px,calc(100vw - 20px));
+  background:color-mix(in srgb,var(--bg) 90%,transparent);border:1px solid var(--line);padding:14px 16px;display:flex;flex-direction:column;gap:13px;
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);transition:opacity .25s}
+#panel.hide{opacity:0;pointer-events:none}
+.chips{display:flex;border:1px solid var(--line)}
+.chips button{flex:1;appearance:none;border:0;background:transparent;color:var(--fg);padding:8px 2px;font:500 9px "Instrument Sans",sans-serif;
+  letter-spacing:.18em;cursor:pointer;opacity:.55}
+.chips button.on{opacity:1;background:color-mix(in srgb,var(--fg) 10%,transparent)}
+#panel label{display:flex;align-items:center;gap:10px;font-size:11px;letter-spacing:.04em;font-family:"Hiragino Sans","Noto Sans JP",sans-serif}
+#panel label span{width:84px;flex:none;color:var(--dim)}
+#panel input[type=range]{flex:1;accent-color:var(--acc)}
+#panel .note{font-size:10px;color:var(--dim);line-height:1.7;font-family:"Hiragino Sans","Noto Sans JP",sans-serif}
+#mode{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom) + 72px);z-index:13;display:none;
+  appearance:none;border:1px solid var(--fg);background:color-mix(in srgb,var(--bg) 70%,transparent);color:var(--fg);
+  font:500 10px "Instrument Sans",sans-serif;letter-spacing:.38em;padding:13px 22px 13px 27px;cursor:pointer;
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);transition:background .3s}
+#mode.show{display:block}
+body.cam #mode{border-color:rgba(255,255,255,.7);color:#fff;background:rgba(0,0,0,.3)}
+body.cam .btn,body.cam #hud{color:#fff}
+body.cam #bar #shoot{border-color:#fff}
+body.cam #shoot::after{background:#fff}
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<canvas id="est"></canvas>
+<video id="cam" playsinline muted autoplay></video>
+<div id="hud"></div>
+<div id="status"></div>
+<button id="gear" class="btn" aria-label="調整">⚙</button>
+<button id="flip" class="btn">⟲ カメラ</button>
+<button id="mode">▸ KIRIBARI</button>
+<div id="bar">
+  <button id="rec" class="btn">● REC</button>
+  <button id="shoot" class="btn" aria-label="撮る"></button>
+  <button id="burst" class="btn">BURST</button>
+</div>
+
+<div id="panel" class="hide">
+  <div class="chips" id="pals">
+    <button data-p="0" class="on">DAYLIGHT</button>
+    <button data-p="1">NIGHT</button>
+    <button data-p="2">SILVER</button>
+  </div>
+  <label><span>写真の大きさ</span><input type="range" id="sSize" min="0" max="1" step="0.01" value="0.5"></label>
+  <label><span>ずれ</span><input type="range" id="sSkew" min="0" max="1" step="0.01" value="0.5"></label>
+  <label><span>撮り直す速さ</span><input type="range" id="sRate" min="0" max="1" step="0.01" value="0.5"></label>
+  <label><span>揺れやすさ</span><input type="range" id="sKnock" min="0" max="1" step="0.01" value="0.55"></label>
+  <div class="note">止まれば一枚に揃い、動けば割れる。<br>画面をタップすると、そこから全部を撮り直す。</div>
+</div>
+
+<div id="start">
+  <div class="t">PHOTO · COLLAGE</div>
+  <div class="prints"><i></i><i></i><i></i><i></i></div>
+  <h1>KIRIBARI</h1>
+  <p>まずは、いつものカメラ。<br>ボタンを押すと、あなたは何十枚もの写真に割れる。</p>
+  <button id="go">START</button>
+  <div id="err"></div>
+</div>
+
+<script>
+'use strict';
+/* =====================================================================
+   KIRIBARI — a Hockney-style joiner. The screen is tiled by overlapping,
+   slightly rotated prints; each print holds its own snapshot and re-shoots
+   on its own clock, so stillness reads as one picture and movement splits
+   you across moments. A finer layer of small prints gathers on the body
+   (selfie mask); motion knocks prints askew and they spring back.
+   ===================================================================== */
+const VISION_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs';
+const WASM_URL   = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm';
+const SEG_MODEL  = 'https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite';
+
+const $ = id => document.getElementById(id);
+const canvas = $('cv'), ctx = canvas.getContext('2d'), video = $('cam'), est = $('est');
+const ectx = est.getContext('2d', { willReadFrequently:true });
+
+const PALS = [
+  { name:'DAYLIGHT', wall:'#ebe7df', border:'#fbfaf6', mul:'rgb(255,245,230)', lift:'rgb(20,16,12)', mono:false, shadow:.26, stamp:'#f08a2c',
+    css:['#ebe7df','#1c1b19','#e0762a'], dark:false },
+  { name:'NIGHT',    wall:'#141518', border:'#f3f0e9', mul:'rgb(236,240,255)', lift:'rgb(10,10,14)', mono:false, shadow:.6, stamp:'#ff9a3c',
+    css:['#141518','#eeebe4','#ff9a3c'], dark:true },
+  { name:'SILVER',   wall:'#d8d5ce', border:'#f7f6f2', mul:'rgb(246,242,236)', lift:'rgb(26,26,26)', mono:true, shadow:.3, stamp:'#6f6a62',
+    css:['#d8d5ce','#1a1a1a','#1a1a1a'], dark:false },
+];
+const S = { pal:0, size:.5, skew:.5, rate:.5, knock:.55 };
+
+/* ---------- geometry helpers ---------- */
+let W = 2, H = 2, SH = 2, dpr = 1;
+let vidW = 1280, vidH = 720;
+function cover(){ const s = Math.max(W / vidW, H / vidH); return { s, ox:(W - vidW * s) / 2, oy:(H - vidH * s) / 2 }; }
+function rnd(a, b){ return a + Math.random() * (b - a); }
+
+/* ---------- prints ---------- */
+// layer 0 covers the whole wall; layer 1 are small prints that only live on the body
+const TILES = [];
+let layoutKey = '';
+function makeTile(layer, cx, cy, cell){
+  const aspect = Math.random() < .5 ? 1.33 : (Math.random() < .5 ? 1 : .8);
+  const area = cell * cell * rnd(1.25, 1.6);
+  const w = Math.sqrt(area * aspect), h = area / w;
+  const T = { layer, cx, cy, w, h,
+    r0:rnd(-1, 1), dx0:rnd(-1, 1), dy0:rnd(-1, 1), z0:rnd(-1, 1),       // unit jitter, scaled by the ずれ slider
+    r:0, dx:0, dy:0, vr:0, vx:0, vy:0,                                       // knock springs
+    cv:null, c2:null, S:0, shotT:0, next:0, flash:0, stamp:Math.random() < .12 && layer === 0,
+    on:layer === 0, a:layer === 0 ? 1 : 0, cover:0, motion:0, heat:0, kickT:0, shown:false };
+  return T;
+}
+function layout(){
+  const key = W + 'x' + H + ':' + S.size.toFixed(2);
+  if (key === layoutKey) return; layoutKey = key;
+  TILES.length = 0;
+  const cell0 = SH / (2.6 + 2.4 * (1 - S.size)), cell1 = cell0 * .5;
+  for (const [layer, cell] of [[0, cell0], [1, cell1]]){
+    const nx = Math.ceil(W / cell) + 1, ny = Math.ceil(H / cell) + 1;
+    const x0 = (W - (nx - 1) * cell) / 2, y0 = (H - (ny - 1) * cell) / 2;
+    for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++){
+      const cx = x0 + i * cell + rnd(-.18, .18) * cell + (j % 2 ? cell * .25 : 0), cy = y0 + j * cell + rnd(-.18, .18) * cell;
+      // the collage is an island on the wall: a rounded, ragged edge leaves the corners bare
+      const qx = Math.abs(cx - W / 2) / (W / 2), qy = Math.abs(cy - H / 2) / (H / 2);
+      if (layer === 0 && Math.pow(Math.pow(qx, 3) + Math.pow(qy, 3), 1 / 3) > rnd(.9, 1.08)) continue;
+      TILES.push(makeTile(layer, cx, cy, cell));
+    }
+  }
+  for (const T of TILES){
+    T.S = Math.hypot(T.w, T.h) * 1.12;
+    const px = Math.max(24, Math.min(320, Math.round(T.S * .9)));
+    T.cv = document.createElement('canvas'); T.cv.width = T.cv.height = px; T.c2 = T.cv.getContext('2d');
+    T.shown = false;
+  }
+  if (started && MODE.X > 0) shootAll(performance.now(), null);
+  sorted.length = 0; for (const T of TILES) sorted.push(T);
+}
+// the print's pose at switch amount e (0 = perfectly aligned live frame, 1 = collage)
+function pose(T, e){
+  const sk = .35 + 1.1 * S.skew;
+  return { r:(T.r0 * .055 * sk) * e + T.r * e, dx:(T.dx0 * .028 * SH * sk) * e + T.dx * e, dy:(T.dy0 * .028 * SH * sk) * e + T.dy * e,
+    z:1 + T.z0 * .035 * sk * e, k:.72 };
+}
+// draw the camera region under a print into its own little canvas (one drawImage per shot)
+function shoot(T, now){
+  if (!(video.readyState >= 2) || !T.cv) return;
+  const pal = PALS[S.pal], c = T.c2, n = T.cv.width, cv = cover();
+  const p = pose(T, 1);
+  const zs = T.S / p.z;                               // screen size of the region the lens sees
+  const sx0 = T.cx + p.dx - zs / 2, sy0 = T.cy + p.dy - zs / 2;
+  let vx0 = mirror ? W - (sx0 + zs) : sx0;
+  vx0 = (vx0 - cv.ox) / cv.s; const vy0 = (sy0 - cv.oy) / cv.s, vs = zs / cv.s;
+  c.setTransform(1, 0, 0, 1, 0, 0); c.globalCompositeOperation = 'source-over';
+  c.fillStyle = '#2a2723'; c.fillRect(0, 0, n, n);
+  // clamp the source rect to the frame (Safari draws nothing for out-of-bounds sources)
+  const ax = Math.max(0, vx0), ay = Math.max(0, vy0), bx = Math.min(vidW, vx0 + vs), by = Math.min(vidH, vy0 + vs);
+  if (bx > ax && by > ay){
+    const k = n / vs; let dx = (ax - vx0) * k; const dy = (ay - vy0) * k, dw = (bx - ax) * k, dh = (by - ay) * k;
+    if (mirror){ c.setTransform(-1, 0, 0, 1, n, 0); }
+    try { c.drawImage(video, ax, ay, bx - ax, by - ay, dx, dy, dw, dh); } catch(e){}
+    c.setTransform(1, 0, 0, 1, 0, 0);
+  }
+  // print the colour: fade toward the film's paper, lift the blacks
+  if (pal.mono){ c.globalCompositeOperation = 'saturation'; c.fillStyle = '#808080'; c.fillRect(0, 0, n, n); }
+  c.globalCompositeOperation = 'multiply'; c.fillStyle = pal.mul; c.fillRect(0, 0, n, n);
+  c.globalCompositeOperation = 'screen'; c.fillStyle = pal.lift; c.fillRect(0, 0, n, n);
+  c.globalCompositeOperation = 'source-over';
+  T.shotT = now; T.flash = 1; T.shown = true;
+  T.next = now + interval() * rnd(.35, 1.65);
+  STATS.shots++;
+}
+function interval(){ return 1000 * (2.6 - 2.1 * S.rate); }
+function shootAll(now, from){
+  for (const T of TILES){
+    if (!from){ shoot(T, now); continue; }
+    const d = Math.hypot(T.cx - from.x, T.cy - from.y) / SH;
+    T.next = now + d * 420 + rnd(0, 40);
+  }
+}
+
+/* ---------- motion (low-res luminance difference) + mask ---------- */
+const FSHORT = 72;
+const F = { w:0, h:0, cur:null, prev:null, have:false, diff:null };
+function ensureField(){
+  let w, h; if (W >= H){ h = FSHORT; w = Math.round(FSHORT * W / H); } else { w = FSHORT; h = Math.round(FSHORT * H / W); }
+  if (w === F.w && h === F.h) return;
+  F.w = w; F.h = h; est.width = w; est.height = h;
+  F.cur = new Uint8Array(w * h); F.prev = new Uint8Array(w * h); F.diff = new Float32Array(w * h); F.have = false;
+}
+function grab(){
+  const w = F.w, h = F.h, vw = video.videoWidth, vh = video.videoHeight;
+  if (!(vw > 0 && vh > 0)) return false;
+  const sa = w / h, va = vw / vh;
+  let cw = vw, ch = vh; if (va > sa) cw = vh * sa; else ch = vw / sa;
+  ectx.setTransform(mirror ? -1 : 1, 0, 0, 1, mirror ? w : 0, 0);
+  try { ectx.drawImage(video, (vw - cw)/2, (vh - ch)/2, cw, ch, 0, 0, w, h); } catch(e){ return false; }
+  const d = ectx.getImageData(0, 0, w, h).data;
+  const t = F.prev; F.prev = F.cur; F.cur = t;
+  for (let i = 0, j = 0, n = w*h; i < n; i++, j += 4) F.cur[i] = (d[j]*77 + d[j+1]*150 + d[j+2]*29) >> 8;
+  if (F.have){
+    // a cut (camera flip, exposure jump) changes most of the frame at once: ignore it
+    let ch = 0; const n = w * h;
+    for (let i = 0; i < n; i += 5) if (Math.abs(F.cur[i] - F.prev[i]) > 40) ch++;
+    const cut = ch * 5 > n * .45;
+    for (let i = 0; i < n; i++){ const dv = cut ? 0 : Math.abs(F.cur[i] - F.prev[i]); F.diff[i] = dv > 14 ? Math.min(1, (dv - 14) / 50) : 0; }
+  }
+  const ok = F.have; F.have = true; return ok;
+}
+const M = { w:0, h:0, f:null, has:false, live:false, external:false, lastT:0 };
+function ingestMask(data, w, h){
+  if (!data || !(w > 0) || !(h > 0) || !(w * h <= 4e6) || data.length < w * h) return false;
+  if (M.w !== w || M.h !== h){ M.w = w; M.h = h; M.f = new Float32Array(w * h); }
+  for (let i = 0, n = w * h; i < n; i++){ let m = data[i]; if (!(m >= 0)) m = 0; else if (m > 1) m = 1; M.f[i] = m; }
+  M.has = true; M.live = true; M.lastT = performance.now();
+  return true;
+}
+// mask value at a screen point (cover crop + mirror)
+function maskAt(x, y){
+  if (!M.has || !M.live) return 0;
+  const cv = cover();
+  let u = ((mirror ? W - x : x) - cv.ox) / cv.s / vidW, v = (y - cv.oy) / cv.s / vidH;
+  if (!(u >= 0 && u < 1 && v >= 0 && v < 1)) return 0;
+  return M.f[(v * M.h | 0) * M.w + (u * M.w | 0)];
+}
+// the head: the top of the mask, found on a coarse scan of screen rows
+const HEAD = { x:0, y:0, ok:false };
+function findHead(){
+  HEAD.ok = false; if (!M.has || !M.live) return;
+  const rows = 60, cols = 40;
+  for (let j = 0; j < rows; j++){
+    const y = (j + .5) / rows * H; let sx = 0, n = 0;
+    for (let i = 0; i < cols; i++){ const x = (i + .5) / cols * W; if (maskAt(x, y) > .5){ sx += x; n++; } }
+    if (n >= 2){
+      // average the next band of rows for the head's centre
+      let ax = 0, an = 0; const y1 = y + SH * .16;
+      for (let yy = y; yy < Math.min(H, y1); yy += H / rows) for (let i = 0; i < cols; i++){ const x = (i + .5) / cols * W; if (maskAt(x, yy) > .5){ ax += x; an++; } }
+      HEAD.x = an ? ax / an : sx / n; HEAD.y = Math.min(H, y + SH * .1); HEAD.ok = true; return;
+    }
+  }
+}
+function motionAt(T){
+  if (!F.have) return 0;
+  let s = 0; const hw = T.w * .4, hh = T.h * .4;
+  for (let j = -1; j <= 1; j++) for (let i = -1; i <= 1; i++){
+    const x = (T.cx + i * hw) / W * F.w, y = (T.cy + j * hh) / H * F.h;
+    const fx = Math.min(F.w - 1, Math.max(0, x | 0)), fy = Math.min(F.h - 1, Math.max(0, y | 0));
+    s += F.diff[fy * F.w + fx];
+  }
+  return s / 9;
+}
+
+/* ---------- model ---------- */
+let segmenter = null, lastTs = 0, lastSegVT = -1;
+async function initModel(){
+  try{
+    const vision = await import(VISION_URL);
+    const fs = await vision.FilesetResolver.forVisionTasks(WASM_URL);
+    const opts = d => ({ baseOptions:{ modelAssetPath:SEG_MODEL, delegate:d }, runningMode:'VIDEO', outputConfidenceMasks:true, outputCategoryMask:false });
+    try { segmenter = await vision.ImageSegmenter.createFromOptions(fs, opts('GPU')); }
+    catch(e){ segmenter = await vision.ImageSegmenter.createFromOptions(fs, opts('CPU')); }
+    setStatus('');
+  }catch(e){
+    if (M.external) return;
+    setStatus('人物検出モデルを読み込めませんでした（ネット接続を確認）。\n体に集まる小さな写真は出ませんが、コラージュは続けます。');
+  }
+}
+function segment(now){
+  if (!segmenter || M.external || video.readyState < 2) return;
+  const vt = video.currentTime; if (vt === lastSegVT) return; lastSegVT = vt;
+  try{
+    const ts = Math.max(lastTs + 1, Math.round(now)); lastTs = ts;
+    segmenter.segmentForVideo(video, ts, res => {
+      const ms = res && res.confidenceMasks; if (!ms || !ms.length) return;
+      const mk = ms[ms.length - 1]; ingestMask(mk.getAsFloat32Array(), mk.width, mk.height);
+    });
+  }catch(e){}
+}
+
+/* ---------- camera ---------- */
+let stream = null, facing = 'user', mirror = true, started = false, lastVT = -1;
+function setStatus(t){ $('status').textContent = t || ''; }
+function camError(e){
+  const msg = (e && (e.message || e.name)) ? (e.message || e.name) : String(e || 'unknown');
+  const text = 'カメラを起動できませんでした：' + msg + '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+  $('err').textContent = text;
+  if (started) setStatus(text);
+}
+async function startCam(){
+  const md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) throw new Error('getUserMedia is unavailable');
+  const s = await md.getUserMedia({ video:{ facingMode:{ ideal:facing }, width:{ ideal:1280 }, height:{ ideal:720 } }, audio:false });
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = s; mirror = facing === 'user';
+  video.srcObject = s;
+  await new Promise(r => { if (video.readyState >= 1) r(); else video.onloadedmetadata = () => r(); });
+  await video.play().catch(()=>{});
+  vidW = video.videoWidth || 1280; vidH = video.videoHeight || 720;
+  F.have = false;
+  if (MODE.X > 0) setTimeout(() => shootAll(performance.now(), null), 120);
+}
+
+/* ---------- audio: shutter clicks ---------- */
+let actx = null, bus = null, recDest = null, clickBuf = null, lastClick = 0;
+function ensureAudio(){
+  if (actx){ if (actx.state === 'suspended') actx.resume().catch(()=>{}); return; }
+  const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+  actx = new AC(); bus = actx.createGain(); bus.gain.value = .7; bus.connect(actx.destination);
+  recDest = actx.createMediaStreamDestination(); bus.connect(recDest);
+  // a leaf-shutter click: two short filtered ticks
+  const sr = actx.sampleRate, n = sr * .09 | 0; clickBuf = actx.createBuffer(1, n, sr); const d = clickBuf.getChannelData(0);
+  for (let i = 0; i < n; i++){ const t = i / sr;
+    d[i] = (Math.random() * 2 - 1) * (Math.exp(-t * 900) + .55 * Math.exp(-Math.max(0, t - .045) * 700) * (t > .045 ? 1 : 0)) * .8; }
+  actx.resume().catch(()=>{});
+}
+function click(vol, when){
+  if (!actx || actx.state !== 'running' || !clickBuf) return;
+  const t = actx.currentTime + (when || 0);
+  const s = actx.createBufferSource(); s.buffer = clickBuf; s.playbackRate.value = rnd(.85, 1.15);
+  const f = actx.createBiquadFilter(); f.type = 'highpass'; f.frequency.value = 1400;
+  const g = actx.createGain(); g.gain.value = vol;
+  s.connect(f); f.connect(g); g.connect(bus); s.start(t);
+}
+function motorDrive(n){ for (let i = 0; i < n; i++) click(.35, i * .075); }
+
+// the switch: plain camera (X = 0) ⇄ collage (X = 1)
+const MODE = { on:false, X:0, flash:0 };
+function setMode(on){
+  if (on === MODE.on) return;
+  MODE.on = on;
+  $('mode').textContent = on ? '◂ CAMERA' : '▸ KIRIBARI';
+  document.body.classList.toggle('cam', !on);
+  $('burst').style.visibility = on ? 'visible' : 'hidden';
+  const now = performance.now();
+  if (on){ layout(); shootAll(now, null); for (const T of TILES){ T.r = T.dx = T.dy = T.vr = T.vx = T.vy = 0; T.next = now + 900 + rnd(0, interval()); } MODE.flash = 1; click(.9); }
+  else { shootAll(now, null); for (const T of TILES) T.flash = 0; click(.5); }
+}
+$('mode').onclick = () => setMode(!MODE.on);
+addEventListener('keydown', e => { if (started && (e.key === ' ' || e.key === 'Enter') && document.activeElement.tagName !== 'INPUT'){ e.preventDefault(); setMode(!MODE.on); } });
+$('go').onclick = async () => {
+  $('err').textContent = '';
+  ensureAudio();
+  try{ await startCam(); }catch(e){ camError(e); return; }
+  $('start').style.display = 'none';
+  ['gear','flip','bar','rec','shoot','burst','hud','mode'].forEach(id => $(id).classList.add('show'));
+  MODE.on = true; setMode(false);
+  if (!started){ started = true; initModel(); requestAnimationFrame(loop); }
+};
+$('flip').onclick = async () => {
+  const prev = facing; facing = facing === 'user' ? 'environment' : 'user';
+  try { await startCam(); } catch(e){ facing = prev; camError(e); }
+};
+$('gear').onclick = () => $('panel').classList.toggle('hide');
+function burst(x, y){ if (!MODE.on) return; shootAll(performance.now(), { x, y }); motorDrive(8); }
+$('burst').onclick = () => burst(W / 2, H / 2);
+canvas.addEventListener('pointerdown', e => {
+  if (!started) return; const r = canvas.getBoundingClientRect();
+  burst((e.clientX - r.left) / r.width * W, (e.clientY - r.top) / r.height * H);
+});
+function setPal(i){
+  S.pal = i; const p = PALS[i];
+  [...$('pals').children].forEach(x => x.classList.toggle('on', +x.dataset.p === i));
+  const r = document.documentElement.style;
+  r.setProperty('--bg', p.css[0]); r.setProperty('--fg', p.css[1]); r.setProperty('--acc', p.css[2]);
+  r.setProperty('--dim', p.dark ? 'rgba(238,235,228,.55)' : 'rgba(28,27,25,.55)'); r.setProperty('--line', p.dark ? 'rgba(238,235,228,.22)' : 'rgba(28,27,25,.22)');
+  if (MODE.X > 0) shootAll(performance.now(), null);
+}
+$('pals').onclick = e => { const b = e.target.closest('button'); if (b) setPal(+b.dataset.p); };
+[['sSize','size'],['sSkew','skew'],['sRate','rate'],['sKnock','knock']].forEach(([id,k]) => { $(id).oninput = e => { S[k] = +e.target.value; }; });
+
+$('shoot').onclick = () => {
+  try{
+    canvas.toBlob(b => { if (!b) return; const a = document.createElement('a'); a.href = URL.createObjectURL(b);
+      a.download = 'kiribari-' + Date.now() + '.png'; a.click(); }, 'image/png');
+    click(.8);
+  }catch(e){ setStatus('保存できませんでした。'); }
+};
+let rec = null, chunks = [];
+$('rec').onclick = () => {
+  if (rec && rec.state === 'recording'){ rec.stop(); return; }
+  try{
+    ensureAudio();
+    const tracks = [...canvas.captureStream(30).getVideoTracks()];
+    if (recDest) tracks.push(...recDest.stream.getAudioTracks());
+    const mime = ['video/mp4;codecs=avc1','video/webm;codecs=vp9,opus','video/webm'].find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || '';
+    rec = new MediaRecorder(new MediaStream(tracks), mime ? { mimeType:mime } : {});
+    chunks = [];
+    rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+    rec.onstop = () => {
+      $('rec').classList.remove('on'); $('rec').textContent = '● REC';
+      const ext = (rec.mimeType || '').includes('mp4') ? 'mp4' : 'webm';
+      const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(chunks, { type:rec.mimeType || 'video/webm' }));
+      a.download = 'kiribari.' + ext; a.click();
+    };
+    rec.start(); $('rec').classList.add('on'); $('rec').textContent = '■ STOP';
+  }catch(e){ setStatus('録画を開始できませんでした。'); }
+};
+
+/* ---------- shadow sprite (drawn once, scaled under every print) ---------- */
+const shadow = document.createElement('canvas');
+(function(){
+  shadow.width = shadow.height = 128; const c = shadow.getContext('2d');
+  c.filter = 'blur(10px)';
+  c.fillStyle = 'rgba(0,0,0,1)'; c.fillRect(24, 24, 80, 80);
+  c.filter = 'none';
+  // fallback when ctx.filter is unsupported: a soft radial falloff
+  const d = c.getImageData(64, 64, 1, 1).data;
+  if (d[3] === 255 && c.getImageData(20, 64, 1, 1).data[3] === 0){
+    c.clearRect(0, 0, 128, 128);
+    for (let i = 0; i < 12; i++){ c.fillStyle = 'rgba(0,0,0,' + (.1 + i * .02) + ')'; const m = 14 + i * 1.6; c.fillRect(m, m, 128 - 2 * m, 128 - 2 * m); }
+  }
+})();
+
+/* ---------- render ---------- */
+let lastT = 0, hudT = 0;
+const STATS = { shots:0, fine:0, knock:0 };
+const sorted = [];
+const DATE = (() => { const d = new Date(); return "'" + String(d.getFullYear() % 100).padStart(2, '0') + ' ' + (d.getMonth() + 1) + ' ' + d.getDate(); })();
+function drawPrint(T, e, pal, now){
+  const p = pose(T, e);
+  const a = T.a; if (a <= .01) return;
+  const pop = T.layer ? 1 + (1 - a) * .25 : 1;
+  const bw = e * Math.min(T.w, T.h) * .045;             // white border grows in with the switch
+  ctx.save();
+  ctx.translate(T.cx + p.dx, T.cy + p.dy); ctx.rotate(p.r); ctx.scale(pop, pop);
+  ctx.globalAlpha = a;
+  const hw = T.w / 2, hh = T.h / 2;
+  if (e > .02){
+    ctx.globalAlpha = a * e * pal.shadow;
+    const kx = T.w / 80, ky = T.h / 80;               // the sprite's rect is 80px inside 128px
+    ctx.drawImage(shadow, -hw - 24 * kx + T.w * .015, -hh - 24 * ky + T.h * .03, 128 * kx, 128 * ky);
+    ctx.globalAlpha = a;
+    ctx.fillStyle = pal.border; ctx.fillRect(-hw, -hh, T.w, T.h);
+  }
+  ctx.beginPath(); ctx.rect(-hw + bw, -hh + bw, T.w - 2 * bw, T.h - 2 * bw); ctx.clip();
+  // the photo content is almost screen-aligned: the print is rotated more than what it shows
+  ctx.rotate(-p.r * p.k);
+  const s = T.S;
+  if (T.shown) ctx.drawImage(T.cv, -s / 2, -s / 2, s, s);
+  else { ctx.fillStyle = '#2a2723'; ctx.fillRect(-s / 2, -s / 2, s, s); }
+  ctx.rotate(p.r * p.k);
+  if (T.stamp && e > .5){
+    ctx.font = (Math.max(9, T.h * .06) | 0) + 'px "Courier Prime",monospace'; ctx.textAlign = 'right'; ctx.textBaseline = 'alphabetic';
+    ctx.globalAlpha = a * .85 * e; ctx.fillStyle = pal.stamp; ctx.fillText(DATE, hw - bw - T.w * .05, hh - bw - T.h * .06);
+  }
+  if (T.flash > 0 && e > .5){ ctx.globalAlpha = a * T.flash * .35; ctx.fillStyle = '#fffdf8'; ctx.fillRect(-hw, -hh, T.w, T.h); }
+  ctx.restore();
+}
+function drawLive(alpha){
+  const cv = cover();
+  ctx.save(); ctx.globalAlpha = alpha;
+  if (mirror){ ctx.translate(W, 0); ctx.scale(-1, 1); }
+  try { ctx.drawImage(video, cv.ox, cv.oy, vidW * cv.s, vidH * cv.s); } catch(e){}
+  ctx.restore();
+}
+function loop(now){
+  requestAnimationFrame(loop);
+  const dt = lastT ? Math.min(.1, (now - lastT)/1000) : 1/60; lastT = now;
+  if (video.videoWidth && (video.videoWidth !== vidW || video.videoHeight !== vidH)){ vidW = video.videoWidth; vidH = video.videoHeight; }
+  dpr = Math.min(window.devicePixelRatio || 1, 2);
+  let w = Math.round(innerWidth*dpr), h = Math.round(innerHeight*dpr);
+  const k = Math.min(1, 1500 / Math.max(w, h)); w = Math.round(w*k); h = Math.round(h*k);
+  if (canvas.width !== w || canvas.height !== h){ canvas.width = w; canvas.height = h; }
+  W = w; H = h; SH = Math.min(W, H);
+  ensureField(); layout();
+  segment(now);
+  if (M.live && now - M.lastT > 1200) M.live = false;
+  if (video.readyState < 2) return;
+  const vt = video.currentTime, fresh = vt !== lastVT; lastVT = vt;
+  if (fresh) grab();
+
+  MODE.X = MODE.on ? Math.min(1, MODE.X + dt / 1.1) : Math.max(0, MODE.X - dt / .6);
+  const e = MODE.X * MODE.X * (3 - 2 * MODE.X);
+  const pal = PALS[S.pal];
+
+  if (MODE.X <= 0){ drawLive(1); MODE.flash = 0; hudOut(dt, 0); return; }
+
+  // prints: body cover, motion knocks, springs, re-shoots
+  const stiff = 26, damp = 7.5, kn = .4 + 1.6 * S.knock;
+  findHead();
+  let fine = 0, knock = 0;
+  for (const T of TILES){
+    if (T.layer === 1){
+      const m = Math.max(maskAt(T.cx, T.cy), .8 * Math.max(maskAt(T.cx - T.w * .3, T.cy), maskAt(T.cx + T.w * .3, T.cy), maskAt(T.cx, T.cy - T.h * .3), maskAt(T.cx, T.cy + T.h * .3)));
+      T.cover = T.cover * .7 + m * .3;
+      // small prints gather on the face, and wherever the body moves (they linger, then peel away)
+      T.heat = Math.max(0, T.heat - dt / 1.6);
+      const mv = MODE.X >= 1 ? motionAt(T) : 0; if (mv > .1) T.heat = Math.min(1, T.heat + mv * dt * 14);
+      const nearHead = HEAD.ok && Math.hypot(T.cx - HEAD.x, (T.cy - HEAD.y) * 1.1) < SH * .17;
+      const was = T.on;
+      T.on = MODE.on && T.cover > .45 && (nearHead || T.heat > .25 || (was && T.heat > .08));
+      if (T.on && !was){ shoot(T, now); T.vr += rnd(-.12, .12); }
+      T.a = T.on ? Math.min(1, T.a + dt / .12) : Math.max(0, T.a - dt / .2);
+      if (T.on) fine++;
+    }
+    if (T.layer === 0 || T.a > 0){
+      const m = MODE.X >= 1 ? motionAt(T) : 0;
+      T.motion = m;
+      if (m > .08){
+        // the moving part of the picture shoves its print: a turn and a slide, then it springs back
+        const f = Math.min(1, (m - .08) * kn * 3);
+        if (now - T.kickT > 260){
+          T.kickT = now;
+          T.vr += (Math.random() < .5 ? -1 : 1) * rnd(.5, 1) * Math.min(1, f) * 2.4;
+          T.vx += rnd(-1, 1) * Math.min(1, f) * SH * .6; T.vy += rnd(-1, 1) * Math.min(1, f) * SH * .6;
+        }
+        if (now - T.shotT > 160 && Math.random() < f * dt * 6) T.next = Math.min(T.next, now + rnd(0, 120));
+        knock++;
+      }
+      T.vr += (-stiff * T.r - damp * T.vr) * dt; T.r += T.vr * dt;
+      T.vx += (-stiff * T.dx - damp * T.vx) * dt; T.dx += T.vx * dt;
+      T.vy += (-stiff * T.dy - damp * T.vy) * dt; T.dy += T.vy * dt;
+      T.r = Math.max(-.5, Math.min(.5, T.r)); T.dx = Math.max(-SH * .15, Math.min(SH * .15, T.dx)); T.dy = Math.max(-SH * .15, Math.min(SH * .15, T.dy));
+      if (MODE.on && now >= T.next && (T.layer === 0 || T.on)){
+        shoot(T, now);
+        if (MODE.X >= 1 && now - lastClick > 140){ lastClick = now; click(.08 + Math.min(.25, T.motion)); }
+      }
+    }
+    T.flash = Math.max(0, T.flash - dt / .18);
+  }
+  STATS.fine = fine; STATS.knock = knock;
+
+  // newest print on top, body prints above the wall
+  sorted.sort((a, b) => (a.layer - b.layer) || (a.shotT - b.shotT));
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1;
+  ctx.fillStyle = pal.wall; ctx.fillRect(0, 0, W, H);
+  if (e < 1) drawLive(1 - e);
+  for (const T of sorted) drawPrint(T, e, pal, now);
+  if (MODE.flash > 0){
+    ctx.globalAlpha = MODE.flash; ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1;
+    MODE.flash = Math.max(0, MODE.flash - dt / .35);
+  }
+  hudOut(dt, e);
+}
+function hudOut(dt, e){
+  $('hud').style.visibility = e > .8 ? 'visible' : 'hidden';
+  hudT += dt;
+  if (hudT > .4){ hudT = 0;
+    const n = TILES.filter(T => T.layer === 0).length + STATS.fine;
+    $('hud').textContent = 'KIRIBARI  ' + PALS[S.pal].name + '\n' + String(n).padStart(3, '0') + ' PRINTS\nNO. ' + String(STATS.shots % 100000).padStart(5, '0'); }
+}
+
+/* ---------- test hook (used by the local verification harness) ---------- */
+window.__KIRIBARI = {
+  ingestMask(d, w, h){ if (!M.external) setStatus(''); M.external = true; return ingestMask(d, w, h); },
+  state: () => {
+    const on = TILES.filter(T => T.layer === 1 && T.on);
+    const cx = on.length ? on.reduce((s, T) => s + T.cx, 0) / on.length / W : null;
+    const base = TILES.filter(T => T.layer === 0);
+    const spread = base.length ? Math.max(...base.map(T => T.shotT)) - Math.min(...base.map(T => T.shotT)) : 0;
+    const tilt = base.reduce((s, T) => s + Math.abs(T.r) + Math.abs(T.dx) / SH + Math.abs(T.dy) / SH, 0) / Math.max(1, base.length);
+    return { W, H, base:base.length, fine:on.length, fineCx:cx, shots:STATS.shots, knock:STATS.knock, spread, tilt, maskLive:M.live };
+  },
+  palette(i){ setPal(i); },
+  mode(c){ setMode(!!c); },
+  tap(x, y){ burst(x * W, y * H); },
+  view: () => ({ on:MODE.on, X:MODE.X }),
+};
+</script>
+</body>
+</html>
