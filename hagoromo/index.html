@@ -1,0 +1,764 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="description" content="映った人が黒い空間に立つ銀色のモノクロになり、両手から深紅の絹が流れ出す。一枚は背中を回って弧を描き、二枚は手首からたなびく。速く動くほど布は長く伸びて大きく翻る。">
+<meta name="theme-color" content="#060607">
+<title>HAGOROMO ─ 手から流れる、深紅の絹</title>
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  HAGOROMO 羽衣 ─ 手から流れる、深紅の絹             ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  MOOD       香水の広告か、ファッションフィルムのワンカット。真っ黒な空間に
+             映った人だけが銀のモノクロで立ち、輪郭を細い逆光がなぞる。
+             色は絹だけ。天女の披帛のように一枚が背中を回って頭の後ろへ
+             弧を描き、二枚が手首から風にたなびく。腕を振れば布が大きく
+             翻り、速く動くほど長く伸び、止まればゆっくり縮んで漂う。
+  PALETTE    緋 HI    地 #060607・人 銀 #eceae6・絹 #b3122e／裏 #4a0612・艶 #ffd8cf
+             金 KIN   地 #080705・人 セピア #efe4cf・絹 #c9a24a／裏 #4d3a12・艶 #fff3cf
+             墨 SUMI  地 #e4e1db（白い撮影スタジオ）・人 #141416・絹 漆黒・艶 #ffffff
+  TYPE       Gilda Display（細いディドーン、題字）＋ DM Mono 300（数字と小さな UI）。
+  MOTION     布は Verlet 鎖。重さはほとんど無く、ゆっくり向きを変える風に漂う。
+             背中の布だけは浮力があり、両手のあいだで頭の後ろへ弧を描く。
+             手の速さで布の長さが最大 2.2 倍まで伸び、止まると数秒かけて戻る。
+             布の奥側は体に隠れるので、背中を回って前へ出てくる立体に見える。
+  SIGNATURE  腕の一振りが、深紅の大きな弧になって空間に残ること。
+  SWITCH     はじめは素のカメラ。「▸ HAGOROMO」で色が抜けて周りから暗転し、
+             布が両手からほどけるように現れる。「◂ CAMERA」で布が手に戻り、色が戻る。
+  TECH       WebGL2。背景 → 奥側の布 → 人物（セルフィー分割のマスクで切り抜き、
+             銀の階調とマスクの縁の逆光）→ 手前側の布、の順に描く。布は頂点ごとに
+             ねじれ角を持ち、表裏と艶をその角度から決める。手首は PoseLandmarker。
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Gilda+Display&family=DM+Mono:wght@300;400&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#060607;--fg:#eceae6;--dim:rgba(236,234,230,.5);--line:rgba(236,234,230,.2);--acc:#c8203a}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none}
+html,body{margin:0;height:100%;background:var(--bg);overflow:hidden;color:var(--fg);
+  font-family:"Hiragino Mincho ProN","Yu Mincho",serif;transition:background .4s}
+#gl{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+#cam{position:fixed;left:0;top:0;width:2px;height:2px;opacity:.01;pointer-events:none}
+
+#start{position:fixed;inset:0;z-index:30;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:24px;
+  padding:28px;text-align:center;background:var(--bg)}
+#start .t{font:300 10px "DM Mono",monospace;letter-spacing:.5em;margin-right:-.5em;color:var(--dim)}
+#start h1{margin:0;font:400 min(14vw,92px)/1 "Gilda Display",serif;letter-spacing:.2em;margin-right:-.2em}
+#start .silk{width:min(58vw,260px);height:18px}
+#start p{margin:0;font-size:12px;line-height:2.1;color:var(--dim);letter-spacing:.1em}
+#go{appearance:none;border:1px solid var(--line);background:transparent;color:var(--fg);font:400 10px "DM Mono",monospace;
+  letter-spacing:.5em;padding:15px 30px 15px 36px;cursor:pointer;transition:border-color .3s}
+#go:hover{border-color:var(--fg)}
+#err{font-size:12px;line-height:1.8;max-width:340px;min-height:1em;white-space:pre-line;color:#e39a9a;font-family:"Hiragino Sans","Noto Sans JP",sans-serif}
+
+.btn{position:fixed;z-index:12;appearance:none;border:0;background:transparent;color:var(--fg);font:400 10px "DM Mono","Hiragino Sans",monospace;
+  letter-spacing:.3em;padding:10px 8px;display:none;cursor:pointer;opacity:.6;transition:opacity .3s}
+.btn.show{display:block}
+.btn:hover{opacity:1}
+#gear{right:10px;top:calc(env(safe-area-inset-top) + 6px);font-size:14px;letter-spacing:0}
+#flip{right:10px;top:calc(env(safe-area-inset-top) + 40px);letter-spacing:.1em;font-family:"Hiragino Sans","Noto Sans JP",sans-serif}
+#bar{position:fixed;left:0;right:0;bottom:calc(env(safe-area-inset-bottom) + 10px);z-index:12;display:none;justify-content:center;align-items:center;gap:30px}
+#bar.show{display:flex}
+#bar .btn{position:static;display:block}
+#bar #shoot{width:42px;height:42px;border-radius:50%;border:1px solid var(--fg);padding:0;opacity:.75;position:relative}
+#shoot::after{content:"";position:absolute;inset:9px;border-radius:50%;background:var(--acc)}
+#rec.on{opacity:1;color:var(--acc)}
+#hud{position:fixed;left:14px;top:calc(env(safe-area-inset-top) + 14px);z-index:11;font:300 9px "DM Mono",monospace;letter-spacing:.26em;color:var(--dim);
+  pointer-events:none;display:none;line-height:2.1;white-space:pre}
+#hud.show{display:block}
+#status{position:fixed;left:14px;bottom:calc(env(safe-area-inset-bottom) + 70px);z-index:11;font-size:11px;letter-spacing:.04em;
+  color:var(--dim);pointer-events:none;max-width:72vw;line-height:1.7;white-space:pre-line;font-family:"Hiragino Sans","Noto Sans JP",sans-serif}
+
+#panel{position:fixed;right:10px;top:calc(env(safe-area-inset-top) + 78px);z-index:12;width:min(270px,calc(100vw - 20px));
+  background:color-mix(in srgb,var(--bg) 86%,transparent);border:1px solid var(--line);padding:14px 16px;display:flex;flex-direction:column;gap:13px;
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);transition:opacity .25s}
+#panel.hide{opacity:0;pointer-events:none}
+.chips{display:flex;border:1px solid var(--line)}
+.chips button{flex:1;appearance:none;border:0;background:transparent;color:var(--fg);padding:8px 2px;font:400 10px "DM Mono","Hiragino Mincho ProN",monospace;
+  letter-spacing:.2em;cursor:pointer;opacity:.55}
+.chips button.on{opacity:1;background:color-mix(in srgb,var(--fg) 12%,transparent)}
+#panel label{display:flex;align-items:center;gap:10px;font-size:11px;letter-spacing:.04em;font-family:"Hiragino Sans","Noto Sans JP",sans-serif;font-weight:300}
+#panel label span{width:70px;flex:none;color:var(--dim)}
+#panel input[type=range]{flex:1;accent-color:var(--acc)}
+#panel .note{font-size:10px;color:var(--dim);line-height:1.7;font-family:"Hiragino Sans","Noto Sans JP",sans-serif}
+#mode{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom) + 72px);z-index:13;display:none;
+  appearance:none;border:1px solid var(--line);background:color-mix(in srgb,var(--bg) 55%,transparent);color:var(--fg);
+  font:400 10px "DM Mono",monospace;letter-spacing:.42em;padding:13px 22px 13px 28px;cursor:pointer;opacity:.9;
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);transition:border-color .3s,opacity .3s}
+#mode.show{display:block}
+#mode:hover{border-color:var(--fg);opacity:1}
+body.cam #mode{border-color:rgba(255,255,255,.55);color:#fff;background:rgba(0,0,0,.35)}
+body.cam .btn{color:#fff}
+body.cam #bar #shoot{border-color:#fff}
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<video id="cam" playsinline muted autoplay></video>
+<div id="hud"></div>
+<div id="status"></div>
+<button id="gear" class="btn" aria-label="調整">⚙</button>
+<button id="flip" class="btn">⟲ カメラ</button>
+<button id="mode">▸ HAGOROMO</button>
+<div id="bar">
+  <button id="rec" class="btn">● REC</button>
+  <button id="shoot" class="btn" aria-label="撮る"></button>
+  <button id="calm" class="btn">WIND</button>
+</div>
+
+<div id="panel" class="hide">
+  <div class="chips" id="pals">
+    <button data-p="0" class="on">緋 HI</button>
+    <button data-p="1">金 KIN</button>
+    <button data-p="2">墨 SUMI</button>
+  </div>
+  <label><span>布の長さ</span><input type="range" id="sLen" min="0" max="1" step="0.01" value="0.5"></label>
+  <label><span>布の幅</span><input type="range" id="sWid" min="0" max="1" step="0.01" value="0.5"></label>
+  <label><span>風</span><input type="range" id="sWind" min="0" max="1" step="0.01" value="0.5"></label>
+  <label><span>伸びやすさ</span><input type="range" id="sGrow" min="0" max="1" step="0.01" value="0.55"></label>
+  <label><span>逆光</span><input type="range" id="sRim" min="0" max="1" step="0.01" value="0.5"></label>
+  <div class="note">腕を振ると布が翻る。速いほど長く伸びる。<br>WIND で風向きが変わる。</div>
+</div>
+
+<div id="start">
+  <div class="t">SILK · MONOCHROME</div>
+  <h1>HAGOROMO</h1>
+  <svg class="silk" viewBox="0 0 260 18" aria-hidden="true"><path d="M2 12 C 60 -4, 110 22, 160 8 S 240 2, 258 10" fill="none" stroke="#b3122e" stroke-width="2.4" stroke-linecap="round"/></svg>
+  <p>まずは、いつものカメラ。<br>ボタンを押すと、両手から深紅の絹が流れ出す。</p>
+  <button id="go">START</button>
+  <div id="err"></div>
+</div>
+
+<script>
+'use strict';
+/* =====================================================================
+   HAGOROMO — silver monochrome figure, crimson silk from the wrists.
+   Draw order: background → far side of the silk → the person (cut out by
+   the selfie mask) → near side of the silk. Silk is three Verlet chains
+   per person: a buoyant shawl pinned at both wrists that arcs behind the
+   head, and a free tail from each wrist.
+   ===================================================================== */
+const VISION_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs';
+const WASM_URL   = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm';
+const SEG_MODEL  = 'https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite';
+const POSE_MODEL = 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task';
+
+const $ = id => document.getElementById(id);
+const canvas = $('gl'), video = $('cam');
+
+const PALS = [
+  { name:'緋 HI',   bg:[.024,.024,.028], ink:[.012,.012,.014], paper:[.93,.925,.91], rim:[1,.93,.9],
+    front:[.62,.035,.10], back:[.36,.02,.055], spec:[1,.85,.8], glow:1, css:['#060607','#eceae6','#c8203a'], light:0 },
+  { name:'金 KIN',  bg:[.031,.027,.02], ink:[.02,.014,.008], paper:[.94,.89,.80], rim:[1,.9,.7],
+    front:[.80,.62,.27], back:[.40,.29,.09], spec:[1,.96,.82], glow:.8, css:['#080705','#efe4cf','#c9a24a'], light:0 },
+  { name:'墨 SUMI', bg:[.894,.882,.859], ink:[.07,.07,.075], paper:[.97,.965,.955], rim:[1,1,1],
+    front:[.035,.035,.04], back:[.10,.10,.11], spec:[.92,.92,.95], glow:0, css:['#e4e1db','#141416','#141416'], light:1 },
+];
+const S = { pal:0, len:.5, wid:.5, wind:.5, grow:.55, rim:.5 };
+
+/* ---------- GL ---------- */
+const gl = canvas.getContext('webgl2', { antialias:true, alpha:false, preserveDrawingBuffer:true, premultipliedAlpha:false });
+const VS_Q = `#version 300 es
+in vec2 p; void main(){ gl_Position = vec4(p, 0., 1.); }`;
+// uPass 0: background (camera → dark stage); 1: the person, alpha = mask
+const FS_Q = `#version 300 es
+precision highp float;
+uniform sampler2D uVid, uMask;
+uniform vec2 uRes, uScale, uMT;
+uniform float uMirror, uPass, uE, uHasMask, uT, uRimK, uLight;
+uniform vec3 uBg, uInk, uPaper, uRim;
+out vec4 o;
+float h21(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233))) * 43758.5453); }
+void main(){
+  vec2 s = gl_FragCoord.xy / uRes; s.y = 1. - s.y;
+  vec2 v = (s - .5) * uScale + .5; if (uMirror > .5) v.x = 1. - v.x;
+  vec3 cam = texture(uVid, v).rgb;
+  vec2 q = (gl_FragCoord.xy / uRes - .5); q.x *= uRes.x / uRes.y;
+  float d = length(q) / (.5 * length(vec2(uRes.x / uRes.y, 1.)));
+  // the switch darkens from the edges inward
+  float E = clamp(uE * 1.7 - (1. - d) * .7, 0., 1.);
+  float grain = (h21(floor(gl_FragCoord.xy / 1.5) + fract(uT * 7.31) * 97.3) - .5);
+  if (uPass < .5){
+    vec3 bg = uBg * (uLight > .5 ? (1.04 - .16 * d * d) : (1. + .9 * (1. - smoothstep(0., .9, d))));
+    bg += grain * (uLight > .5 ? .025 : .018);
+    o = vec4(mix(cam, bg, E), 1.);
+  } else {
+    float m = uHasMask > .5 ? texture(uMask, v).r : 1.;
+    float a = smoothstep(.3, .7, m);
+    // rim light: where the mask falls off toward the outside
+    float r = 0.; vec2 st = uMT;
+    for (int i = 0; i < 8; i++){ float an = float(i) * .785398; r += texture(uMask, v + vec2(cos(an), sin(an)) * st).r; }
+    float rim = uHasMask > .5 ? clamp((m - r / 8.) * 3.2, 0., 1.) : 0.;
+    float l = dot(cam, vec3(.299,.587,.114));
+    float g = smoothstep(.05, .88, l); g = g * g * (3. - 2. * g);
+    g = mix(g, pow(g, .8), .5);
+    vec3 mono = mix(uInk, uPaper, g) + grain * .035;
+    mono += uRim * rim * uRimK * (uLight > .5 ? -.6 : 1.1);
+    if (uHasMask < .5) mono *= .8;
+    o = vec4(mix(cam, mono, E), a * step(.001, uE));
+  }
+}`;
+const VS_R = `#version 300 es
+in vec2 aP; in float aZ; in vec4 aC; in float aE;
+uniform vec2 uRes; uniform float uGlow;
+out float vZ; out vec4 vC; out float vE;
+void main(){
+  vec2 p = aP / uRes * 2. - 1.; p.y = -p.y;
+  gl_Position = vec4(p, 0., 1.);
+  vZ = aZ; vC = aC; vE = aE;
+}`;
+const FS_BLUR = `#version 300 es
+precision mediump float;
+uniform sampler2D uTex; uniform vec2 uDir, uRes; uniform float uK;
+out vec4 o;
+void main(){
+  vec2 uv = gl_FragCoord.xy / uRes;
+  vec4 c = texture(uTex, uv) * .227;
+  c += (texture(uTex, uv + uDir * 1.385) + texture(uTex, uv - uDir * 1.385)) * .316;
+  c += (texture(uTex, uv + uDir * 3.231) + texture(uTex, uv - uDir * 3.231)) * .070;
+  o = c * uK;
+}`;
+const FS_R = `#version 300 es
+precision mediump float;
+in float vZ; in vec4 vC; in float vE;
+uniform float uSide, uGlow;
+out vec4 o;
+void main(){
+  if (vZ * uSide < 0.) discard;   // side 0 (the haze) keeps both
+  float e = abs(vE);
+  if (uGlow > 0.){ o = vec4(vC.rgb * vC.a * uGlow, 0.); return; }
+  float a = vC.a * smoothstep(1., .82, e);
+  // fine lengthwise threads catch the light
+  float th = .97 + .03 * sin(vE * 26.);
+  o = vec4(vC.rgb * th * a, a);
+}`;
+function sh(type, src){ const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s; }
+function prog(vs, fs, attrs){ const p = gl.createProgram(); gl.attachShader(p, sh(gl.VERTEX_SHADER, vs)); gl.attachShader(p, sh(gl.FRAGMENT_SHADER, fs));
+  attrs.forEach((a, i) => gl.bindAttribLocation(p, i, a)); gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+  const U = {}, n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+  for (let i = 0; i < n; i++){ const u = gl.getActiveUniform(p, i); U[u.name] = gl.getUniformLocation(p, u.name); }
+  return { p, U }; }
+function tex(){ const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE); return t; }
+
+const FPV = 9;                                         // x, y, z, r, g, b, a, e, (pad)
+const MAXV = 2 * 3 * 200 * 2 + 64;                     // 2 people × 3 ribbons × ≤200 samples × 2 sides
+const VB = new Float32Array(MAXV * FPV);
+let PQ, PR, PBL, vaoQ, vaoR, bufR, texVid, texMask;
+const BL = { w:0, h:0, t:[null, null], f:[null, null] };
+function initGL(){
+  PQ = prog(VS_Q, FS_Q, ['p']); PR = prog(VS_R, FS_R, ['aP','aZ','aC','aE']); PBL = prog(VS_Q, FS_BLUR, ['p']);
+  vaoQ = gl.createVertexArray(); gl.bindVertexArray(vaoQ);
+  const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+  vaoR = gl.createVertexArray(); gl.bindVertexArray(vaoR);
+  bufR = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, bufR); gl.bufferData(gl.ARRAY_BUFFER, VB.byteLength, gl.DYNAMIC_DRAW);
+  const st = FPV * 4;
+  gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, st, 0);
+  gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 1, gl.FLOAT, false, st, 8);
+  gl.enableVertexAttribArray(2); gl.vertexAttribPointer(2, 4, gl.FLOAT, false, st, 12);
+  gl.enableVertexAttribArray(3); gl.vertexAttribPointer(3, 1, gl.FLOAT, false, st, 28);
+  gl.bindVertexArray(null);
+  texVid = tex(); texMask = tex();
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+}
+
+// quarter-resolution targets for the crimson haze around the silk
+function ensureBloom(){
+  const w = Math.max(8, W >> 2), h = Math.max(8, H >> 2);
+  if (w === BL.w && h === BL.h) return; BL.w = w; BL.h = h;
+  for (let i = 0; i < 2; i++){
+    if (!BL.t[i]){ BL.t[i] = tex(); BL.f[i] = gl.createFramebuffer(); }
+    gl.bindTexture(gl.TEXTURE_2D, BL.t[i]);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, BL.f[i]);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, BL.t[i], 0);
+  }
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+}
+function bloom(pal){
+  ensureBloom();
+  gl.bindFramebuffer(gl.FRAMEBUFFER, BL.f[0]); gl.viewport(0, 0, BL.w, BL.h);
+  gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
+  gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE);
+  drawRibbons(0, pal, true);
+  gl.disable(gl.BLEND);
+  gl.useProgram(PBL.p); gl.bindVertexArray(vaoQ); gl.activeTexture(gl.TEXTURE2);
+  gl.uniform1i(PBL.U.uTex, 2); gl.uniform2f(PBL.U.uRes, BL.w, BL.h);
+  for (let k = 0; k < 2; k++){
+    gl.bindFramebuffer(gl.FRAMEBUFFER, BL.f[1]); gl.bindTexture(gl.TEXTURE_2D, BL.t[0]);
+    gl.uniform2f(PBL.U.uDir, (1 + k * 1.5) / BL.w, 0); gl.uniform1f(PBL.U.uK, 1); gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, BL.f[0]); gl.bindTexture(gl.TEXTURE_2D, BL.t[1]);
+    gl.uniform2f(PBL.U.uDir, 0, (1 + k * 1.5) / BL.h); gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  }
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, 0, W, H);
+  gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE);
+  gl.bindTexture(gl.TEXTURE_2D, BL.t[0]);
+  gl.uniform2f(PBL.U.uDir, 0, 0); gl.uniform2f(PBL.U.uRes, W, H); gl.uniform1f(PBL.U.uK, .42 * pal.glow);
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  gl.disable(gl.BLEND);
+}
+
+/* ---------- mask ---------- */
+const M = { w:0, h:0, b:null, has:false, live:false, external:false, lastT:0, dirty:false };
+function ingestMask(data, w, h){
+  if (!data || !(w > 0) || !(h > 0) || !(w * h <= 4e6) || data.length < w * h) return false;
+  if (M.w !== w || M.h !== h){ M.w = w; M.h = h; M.b = new Uint8Array(w * h); }
+  for (let i = 0, n = w * h; i < n; i++){ let m = data[i]; if (!(m >= 0)) m = 0; else if (m > 1) m = 1; M.b[i] = m * 255; }
+  M.has = true; M.live = true; M.lastT = performance.now(); M.dirty = true;
+  return true;
+}
+
+/* ---------- people: wrists → anchors, ribbons ---------- */
+const NS = 56, NT = 40, SUB = 3;                      // nodes: shawl, tail; render subdivision
+function chain(n){ return { n, P:new Float32Array(n * 2), Q:new Float32Array(n * 2), sp:new Float32Array(n) }; }
+function person(k){
+  return { k, alive:false, vis:0, seen:0, lostT:0, cx:0, cy:0,
+    A:[{ x:0, y:0, tx:0, ty:0, ox:0, oy:0, ot:0 }, { x:0, y:0, tx:0, ty:0, ox:0, oy:0, ot:0 }],
+    speed:0, grow:1, unfurl:0,
+    rib:[ Object.assign(chain(NS), { kind:0, ph:Math.random() * 6 }), Object.assign(chain(NT), { kind:1, ph:Math.random() * 6 }), Object.assign(chain(NT), { kind:2, ph:Math.random() * 6 }) ] };
+}
+const PEOPLE = [person(0), person(1)];
+let W = 2, H = 2, SH = 2;                               // canvas size and its short edge
+// video-normalised → canvas px (cover crop + mirror)
+function toPx(u, v, out){
+  const s = Math.max(W / vidW, H / vidH), dw = vidW * s, dh = vidH * s;
+  let x = (W - dw) / 2 + u * dw; const y = (H - dh) / 2 + v * dh;
+  if (mirror) x = W - x;
+  out.x = x; out.y = y; return out;
+}
+const okLm = p => p && Number.isFinite(p.x) && Number.isFinite(p.y) && Math.abs(p.x) < 4 && Math.abs(p.y) < 4;
+const TMP = { x:0, y:0 }, TMP2 = { x:0, y:0 };
+function wristOf(lm, wi, ei, si){
+  const w = lm[wi], e = lm[ei], s = lm[si];
+  const vis = p => !(p && typeof p.visibility === 'number' && p.visibility < .25);
+  if (okLm(w) && vis(w)) return w;
+  if (okLm(e) && vis(e)) return e;
+  if (okLm(s)) return { x:s.x, y:s.y + .18 };
+  return null;
+}
+function resetChains(P){
+  for (const r of P.rib){
+    const a = r.kind === 2 ? P.A[1] : P.A[0], b = P.A[1];
+    for (let i = 0; i < r.n; i++){
+      const f = i / (r.n - 1);
+      let x, y;
+      if (r.kind === 0){ x = a.x + (b.x - a.x) * f; y = a.y + (b.y - a.y) * f - Math.sin(Math.PI * f) * SH * .25; }
+      else { x = a.x + (r.kind === 1 ? -1 : 1) * f * SH * .05; y = a.y + f * SH * .3; }
+      r.P[i*2] = r.Q[i*2] = x; r.P[i*2+1] = r.Q[i*2+1] = y;
+    }
+  }
+}
+// one pose observation (normalised landmarks in video space); called by the model and by the test hook
+let poseObsT = 0;
+function onPoses(list, now){
+  now = now == null ? performance.now() : now;
+  if (W < 8 || H < 8) return;                           // the canvas has not been sized yet
+  const obs = [];
+  if (Array.isArray(list)) for (const lm of list){
+    if (!Array.isArray(lm) || lm.length < 17) continue;
+    const ls = lm[11], rs = lm[12];
+    if (!okLm(ls) || !okLm(rs)) continue;
+    const wl = wristOf(lm, 15, 13, 11), wr = wristOf(lm, 16, 14, 12);
+    if (!wl || !wr) continue;
+    obs.push({ cx:(ls.x + rs.x) / 2, cy:(ls.y + rs.y) / 2, wl, wr });
+    if (obs.length >= 2) break;
+  }
+  const used = [false, false];
+  for (const o of obs){
+    toPx(o.cx, o.cy, TMP);
+    let best = -1, bd = 1e9;
+    for (const P of PEOPLE){ if (used[P.k] || !P.alive) continue; const d = Math.hypot(P.cx - TMP.x, P.cy - TMP.y); if (d < bd){ bd = d; best = P.k; } }
+    if (best < 0 || bd > SH * .6){ best = -1; for (const P of PEOPLE) if (!used[P.k] && !P.alive){ best = P.k; break; } }
+    if (best < 0) for (const P of PEOPLE) if (!used[P.k]){ best = P.k; break; }
+    if (best < 0) continue;
+    used[best] = true;
+    const P = PEOPLE[best];
+    P.cx = TMP.x; P.cy = TMP.y;
+    // left/right on screen, so the shawl never crosses itself when mirrored
+    toPx(o.wl.x, o.wl.y, TMP); toPx(o.wr.x, o.wr.y, TMP2);
+    const L = TMP.x <= TMP2.x ? TMP : TMP2, R = L === TMP ? TMP2 : TMP;
+    const fresh = !P.alive;
+    P.alive = true; P.seen = now;
+    [L, R].forEach((q, j) => {
+      const a = P.A[j];
+      if (fresh){ a.x = a.tx = a.ox = q.x; a.y = a.ty = a.oy = q.y; a.ot = now; return; }
+      const dt = (now - a.ot) / 1000;
+      const jump = Math.hypot(q.x - a.tx, q.y - a.ty);
+      if (jump > SH * .5){                                  // tracking glitch: carry the silk along instead of whipping it
+        for (const r of P.rib) if (r.kind === 0 || r.kind === j + 1) for (let i = 0; i < r.n; i++){
+          r.P[i*2] += q.x - a.tx; r.P[i*2+1] += q.y - a.ty; r.Q[i*2] += q.x - a.tx; r.Q[i*2+1] += q.y - a.ty; }
+        a.x = q.x; a.y = q.y;
+      } else if (dt > 0 && dt < .5){
+        const v = jump / dt / SH;                             // short edges per second, measured in observation time
+        P.speed = Math.max(P.speed * .6, v);
+      }
+      a.tx = q.x; a.ty = q.y; a.ot = now;
+    });
+    if (fresh){ P.unfurl = 0; P.speed = 0; P.vis = 1; resetChains(P); }
+  }
+  poseObsT = now;
+}
+function losePeople(now){
+  for (const P of PEOPLE) if (P.alive && now - P.seen > 450){ P.alive = false; P.lostT = now; P.speed = 0; }
+}
+
+/* ---------- physics ---------- */
+let windDir = 1, windFlip = 0;
+function stepChains(P, dt, t){
+  const g = SH * (.18 + .2 * (1 - S.wind)), wind = SH * (.25 + .9 * S.wind);
+  const grow = P.grow, damp = P.alive ? .965 : .985;
+  const d2 = dt * dt;
+  for (const r of P.rib){
+    const n = r.n, Pp = r.P, Qq = r.Q;
+    const total = SH * (r.kind === 0 ? 1.55 : 1.0) * (.6 + .8 * S.len) * grow;
+    const L = total / (n - 1);
+    const buoy = r.kind === 0 ? -1.6 : .45;              // the shawl floats up behind the head
+    for (let i = 0; i < n; i++){
+      const x = Pp[i*2], y = Pp[i*2+1];
+      const f = i / (n - 1);
+      const wx = windDir * wind * (.2 + .5 * Math.sin(t * .37 + y / SH * 2.1 + r.ph)) + wind * .3 * Math.sin(t * .9 + f * 3 + r.ph * 2);
+      const wy = wind * .45 * Math.sin(t * .63 + x / SH * 2.7 + f * 4 + r.ph);
+      const vx = (x - Qq[i*2]) * damp, vy = (y - Qq[i*2+1]) * damp;
+      Qq[i*2] = x; Qq[i*2+1] = y;
+      Pp[i*2] = x + vx + wx * f * d2; Pp[i*2+1] = y + vy + (g * buoy + wy * f) * d2;
+    }
+    const a0 = r.kind === 2 ? P.A[1] : P.A[0], a1 = P.A[1];
+    for (let it = 0; it < 10; it++){
+      if (P.alive){ Pp[0] = a0.x; Pp[1] = a0.y; if (r.kind === 0){ Pp[(n-1)*2] = a1.x; Pp[(n-1)*2+1] = a1.y; } }
+      for (let i = 0; i < n - 1; i++){
+        const ax = Pp[i*2], ay = Pp[i*2+1], bx = Pp[i*2+2], by = Pp[i*2+3];
+        const dx = bx - ax, dy = by - ay, dist = Math.hypot(dx, dy) || 1e-6;
+        const df = (dist - L) / dist;
+        const pinA = P.alive && i === 0, pinB = P.alive && r.kind === 0 && i + 1 === n - 1;
+        const wa = pinA ? 0 : pinB ? 1 : .5, wb = pinB ? 0 : pinA ? 1 : .5;
+        Pp[i*2] += dx * df * wa; Pp[i*2+1] += dy * df * wa;
+        Pp[i*2+2] -= dx * df * wb; Pp[i*2+3] -= dy * df * wb;
+      }
+    }
+    // a little bending stiffness: silk folds in long arcs, not kinks
+    for (let i = 1; i < n - 1; i++){
+      Pp[i*2] += ((Pp[i*2-2] + Pp[i*2+2]) * .5 - Pp[i*2]) * .14;
+      Pp[i*2+1] += ((Pp[i*2-1] + Pp[i*2+3]) * .5 - Pp[i*2+1]) * .14;
+    }
+    for (let i = 0; i < n; i++){ r.sp[i] = Math.hypot(Pp[i*2] - Qq[i*2], Pp[i*2+1] - Qq[i*2+1]) / dt / SH; }
+  }
+}
+
+/* ---------- ribbon mesh ---------- */
+let nV = 0;
+const DRAWS = [];                                       // [start, count] per ribbon strip
+function cr(p0, p1, p2, p3, t){ const t2 = t * t, t3 = t2 * t;
+  return .5 * (2 * p1 + (-p0 + p2) * t + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2 + (-p0 + 3 * p1 - 3 * p2 + p3) * t3); }
+const SX = new Float32Array(260), SY = new Float32Array(260), SSP = new Float32Array(260);
+function buildRibbon(P, r, t, reveal, pal){
+  const n = r.n, m = (n - 1) * SUB + 1;
+  for (let j = 0; j < m; j++){
+    const u = j / SUB, i = Math.min(n - 2, u | 0), f = u - i;
+    const i0 = Math.max(0, i - 1), i2 = Math.min(n - 1, i + 1), i3 = Math.min(n - 1, i + 2);
+    SX[j] = cr(r.P[i0*2], r.P[i*2], r.P[i2*2], r.P[i3*2], f);
+    SY[j] = cr(r.P[i0*2+1], r.P[i*2+1], r.P[i2*2+1], r.P[i3*2+1], f);
+    SSP[j] = r.sp[i] * (1 - f) + r.sp[i2] * f;
+  }
+  const start = nV, base = SH * (.024 + .06 * S.wid) * (r.kind === 0 ? 1.25 : 1) * (.85 + .15 * Math.min(2, P.grow));
+  const vis = P.vis * (P.alive ? 1 : 1);
+  for (let j = 0; j < m; j++){
+    if (nV + 2 > MAXV) break;
+    const s = j / (m - 1);
+    const jp = Math.max(0, j - 1), jn = Math.min(m - 1, j + 1);
+    let tx = SX[jn] - SX[jp], ty = SY[jn] - SY[jp]; const tl = Math.hypot(tx, ty) || 1; tx /= tl; ty /= tl;
+    const nx = -ty, ny = tx;
+    // twist: slow travelling twist + a kick from how fast this part of the cloth moves
+    const th = r.ph + s * 4.6 + t * .75 + SSP[j] * .8;
+    const c = Math.cos(th);
+    let taper;
+    if (r.kind === 0){ const e = Math.min(s, 1 - s); taper = (.18 + .82 * Math.min(1, e / .14)) * (.62 + .38 * Math.sin(Math.PI * s)); }
+    else taper = (.18 + .82 * Math.min(1, s / .16)) * Math.pow(1 - s, .55) * .95 + .05 * (1 - s);
+    const hw = base * taper * (.2 + .8 * Math.abs(c));
+    // depth: the shawl runs behind the body except where it wraps the forearms; tails weave in and out
+    let z;
+    if (r.kind === 0){ const e = Math.min(s, 1 - s); z = e < .06 ? 1 : -1; }
+    else z = s < .12 ? 1 : Math.sin(6.2832 * s * .85 + r.ph + t * .3);
+    // reveal during the switch: from the hands outward
+    const sr = r.kind === 0 ? Math.min(s, 1 - s) * 2 : s;
+    const a = vis * Math.min(1, Math.max(0, (reveal * 1.15 - sr) / .12));
+    const face = c >= 0 ? pal.front : pal.back;
+    const lum = .38 + .62 * Math.pow(Math.abs(c), .7);
+    const spec = Math.pow(Math.max(0, Math.sin(th * 2 + .6)), 18) * (.55 + .45 * Math.min(1, SSP[j])) * (pal.light ? .5 : .9);
+    for (let side = -1; side <= 1; side += 2){
+      const o = nV * FPV;
+      VB[o] = SX[j] + nx * hw * side; VB[o+1] = SY[j] + ny * hw * side; VB[o+2] = z;
+      VB[o+3] = face[0] * lum + pal.spec[0] * spec; VB[o+4] = face[1] * lum + pal.spec[1] * spec; VB[o+5] = face[2] * lum + pal.spec[2] * spec;
+      VB[o+6] = a; VB[o+7] = side; nV++;
+    }
+  }
+  DRAWS.push(start, nV - start);
+}
+
+/* ---------- models ---------- */
+let segmenter = null, poser = null, lastTs = 0, lastSegVT = -1, poseExternal = false;
+async function initModel(){
+  try{
+    const vision = await import(VISION_URL);
+    const fs = await vision.FilesetResolver.forVisionTasks(WASM_URL);
+    const segOpts = d => ({ baseOptions:{ modelAssetPath:SEG_MODEL, delegate:d }, runningMode:'VIDEO', outputConfidenceMasks:true, outputCategoryMask:false });
+    const poseOpts = d => ({ baseOptions:{ modelAssetPath:POSE_MODEL, delegate:d }, runningMode:'VIDEO', numPoses:2,
+      minPoseDetectionConfidence:.5, minPosePresenceConfidence:.5, minTrackingConfidence:.5 });
+    try { segmenter = await vision.ImageSegmenter.createFromOptions(fs, segOpts('GPU')); }
+    catch(e){ segmenter = await vision.ImageSegmenter.createFromOptions(fs, segOpts('CPU')); }
+    try { poser = await vision.PoseLandmarker.createFromOptions(fs, poseOpts('GPU')); }
+    catch(e){ poser = await vision.PoseLandmarker.createFromOptions(fs, poseOpts('CPU')); }
+    setStatus('');
+  }catch(e){
+    if (M.external) return;
+    setStatus('人物検出モデルを読み込めませんでした（ネット接続を確認）。\n布は出せませんが、白黒の映像は続けます。');
+  }
+}
+function detect(now){
+  if (video.readyState < 2) return;
+  const vt = video.currentTime; if (vt === lastSegVT) return; lastSegVT = vt;
+  const ts = Math.max(lastTs + 1, Math.round(now)); lastTs = ts;
+  if (segmenter && !M.external){
+    try{
+      segmenter.segmentForVideo(video, ts, res => {
+        const ms = res && res.confidenceMasks; if (!ms || !ms.length) return;
+        const mk = ms[ms.length - 1]; ingestMask(mk.getAsFloat32Array(), mk.width, mk.height);
+      });
+    }catch(e){}
+  }
+  if (poser && !poseExternal){
+    try{ const res = poser.detectForVideo(video, ts); onPoses(res && res.landmarks, now); }catch(e){}
+  }
+}
+
+/* ---------- camera ---------- */
+let stream = null, facing = 'user', mirror = true, started = false, vidW = 1280, vidH = 720, lastVT = -1;
+function setStatus(t){ $('status').textContent = t || ''; }
+function camError(e){
+  const msg = (e && (e.message || e.name)) ? (e.message || e.name) : String(e || 'unknown');
+  const text = 'カメラを起動できませんでした：' + msg + '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+  $('err').textContent = text;
+  if (started) setStatus(text);
+}
+async function startCam(){
+  const md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) throw new Error('getUserMedia is unavailable');
+  const s = await md.getUserMedia({ video:{ facingMode:{ ideal:facing }, width:{ ideal:1280 }, height:{ ideal:720 } }, audio:false });
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = s; mirror = facing === 'user';
+  video.srcObject = s;
+  await new Promise(r => { if (video.readyState >= 1) r(); else video.onloadedmetadata = () => r(); });
+  await video.play().catch(()=>{});
+  vidW = video.videoWidth || 1280; vidH = video.videoHeight || 720;
+  for (const P of PEOPLE){ P.alive = false; P.vis = 0; }
+}
+
+/* ---------- audio: the swish of silk, following how fast the cloth moves ---------- */
+let actx = null, bus = null, recDest = null, swish = null, swishF = null;
+function ensureAudio(){
+  if (actx){ if (actx.state === 'suspended') actx.resume().catch(()=>{}); return; }
+  const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+  actx = new AC(); bus = actx.createGain(); bus.gain.value = .6; bus.connect(actx.destination);
+  recDest = actx.createMediaStreamDestination(); bus.connect(recDest);
+  const sr = actx.sampleRate, n = sr * 2, b = actx.createBuffer(1, n, sr), d = b.getChannelData(0);
+  let lp = 0; for (let i = 0; i < n; i++){ lp = lp * .6 + (Math.random() * 2 - 1) * .4; d[i] = lp * 1.6; }
+  const src = actx.createBufferSource(); src.buffer = b; src.loop = true;
+  swishF = actx.createBiquadFilter(); swishF.type = 'bandpass'; swishF.frequency.value = 900; swishF.Q.value = .9;
+  swish = actx.createGain(); swish.gain.value = 0;
+  src.connect(swishF); swishF.connect(swish); swish.connect(bus); src.start();
+  actx.resume().catch(()=>{});
+}
+function whoosh(up){
+  if (!actx || actx.state !== 'running') return;
+  const t = actx.currentTime, n = actx.sampleRate * 1.6 | 0, b = actx.createBuffer(1, n, actx.sampleRate), d = b.getChannelData(0);
+  for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+  const src = actx.createBufferSource(); src.buffer = b;
+  const f = actx.createBiquadFilter(); f.type = 'bandpass'; f.Q.value = 1.2;
+  f.frequency.setValueAtTime(up ? 250 : 2400, t); f.frequency.exponentialRampToValueAtTime(up ? 2400 : 250, t + (up ? 1.4 : .6));
+  const g = actx.createGain(); g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime(.3, t + .15); g.gain.exponentialRampToValueAtTime(.0001, t + (up ? 1.5 : .7));
+  src.connect(f); f.connect(g); g.connect(bus); src.start(t); src.stop(t + 1.6);
+}
+
+// the switch between the plain camera (X = 0) and the silk (X = 2)
+const MODE = { on:false, X:0 };
+function setMode(on){
+  if (on === MODE.on) return;
+  MODE.on = on;
+  $('mode').textContent = on ? '◂ CAMERA' : '▸ HAGOROMO';
+  document.body.classList.toggle('cam', !on);
+  $('calm').style.visibility = on ? 'visible' : 'hidden';
+  whoosh(on);
+}
+$('mode').onclick = () => setMode(!MODE.on);
+addEventListener('keydown', e => { if (started && (e.key === ' ' || e.key === 'Enter') && document.activeElement.tagName !== 'INPUT'){ e.preventDefault(); setMode(!MODE.on); } });
+$('go').onclick = async () => {
+  $('err').textContent = '';
+  ensureAudio();
+  try{
+    if (!gl) throw new Error('WebGL2 に未対応のブラウザです');
+    if (!PQ) initGL();
+    await startCam();
+  }catch(e){ camError(e); return; }
+  $('start').style.display = 'none';
+  ['gear','flip','bar','rec','shoot','calm','hud','mode'].forEach(id => $(id).classList.add('show'));
+  MODE.on = true; setMode(false);
+  if (!started){ started = true; initModel(); requestAnimationFrame(loop); }
+};
+$('flip').onclick = async () => {
+  const prev = facing; facing = facing === 'user' ? 'environment' : 'user';
+  try { await startCam(); } catch(e){ facing = prev; camError(e); }
+};
+$('gear').onclick = () => $('panel').classList.toggle('hide');
+$('calm').onclick = () => { windDir = -windDir; windFlip = 1; };
+function setPal(i){
+  S.pal = i; const p = PALS[i];
+  [...$('pals').children].forEach(x => x.classList.toggle('on', +x.dataset.p === i));
+  const r = document.documentElement.style;
+  r.setProperty('--bg', p.css[0]); r.setProperty('--fg', p.css[1]); r.setProperty('--acc', p.css[2]);
+  r.setProperty('--dim', p.light ? 'rgba(20,20,22,.55)' : 'rgba(236,234,230,.5)'); r.setProperty('--line', p.light ? 'rgba(20,20,22,.22)' : 'rgba(236,234,230,.2)');
+}
+$('pals').onclick = e => { const b = e.target.closest('button'); if (b) setPal(+b.dataset.p); };
+[['sLen','len'],['sWid','wid'],['sWind','wind'],['sGrow','grow'],['sRim','rim']].forEach(([id,k]) => { $(id).oninput = e => { S[k] = +e.target.value; }; });
+
+$('shoot').onclick = () => {
+  try{
+    canvas.toBlob(b => { if (!b) return; const a = document.createElement('a'); a.href = URL.createObjectURL(b);
+      a.download = 'hagoromo-' + Date.now() + '.png'; a.click(); }, 'image/png');
+  }catch(e){ setStatus('保存できませんでした。'); }
+};
+let rec = null, chunks = [];
+$('rec').onclick = () => {
+  if (rec && rec.state === 'recording'){ rec.stop(); return; }
+  try{
+    ensureAudio();
+    const tracks = [...canvas.captureStream(30).getVideoTracks()];
+    if (recDest) tracks.push(...recDest.stream.getAudioTracks());
+    const mime = ['video/mp4;codecs=avc1','video/webm;codecs=vp9,opus','video/webm'].find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || '';
+    rec = new MediaRecorder(new MediaStream(tracks), mime ? { mimeType:mime } : {});
+    chunks = [];
+    rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+    rec.onstop = () => {
+      $('rec').classList.remove('on'); $('rec').textContent = '● REC';
+      const ext = (rec.mimeType || '').includes('mp4') ? 'mp4' : 'webm';
+      const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(chunks, { type:rec.mimeType || 'video/webm' }));
+      a.download = 'hagoromo.' + ext; a.click();
+    };
+    rec.start(); $('rec').classList.add('on'); $('rec').textContent = '■ STOP';
+  }catch(e){ setStatus('録画を開始できませんでした。'); }
+};
+
+/* ---------- render ---------- */
+let lastT = 0, hudT = 0, acc = 0;
+function drawRibbons(side, pal, glow){
+  gl.useProgram(PR.p); gl.bindVertexArray(vaoR);
+  gl.uniform2f(PR.U.uRes, W, H); gl.uniform1f(PR.U.uSide, side);
+  gl.uniform1f(PR.U.uGlow, glow ? 1 : 0);
+  if (!glow) gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+  for (let i = 0; i < DRAWS.length; i += 2) if (DRAWS[i+1] > 3) gl.drawArrays(gl.TRIANGLE_STRIP, DRAWS[i], DRAWS[i+1]);
+}
+function loop(now){
+  requestAnimationFrame(loop);
+  const dt = lastT ? Math.min(.1, (now - lastT)/1000) : 1/60; lastT = now;
+  const t = now / 1000;
+  if (video.videoWidth && (video.videoWidth !== vidW || video.videoHeight !== vidH)){ vidW = video.videoWidth; vidH = video.videoHeight; }
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  let w = Math.round(innerWidth*dpr), h = Math.round(innerHeight*dpr);
+  const k = Math.min(1, 1800 / Math.max(w, h)); w = Math.round(w*k); h = Math.round(h*k);
+  if (canvas.width !== w || canvas.height !== h){ canvas.width = w; canvas.height = h; }
+  W = w; H = h; SH = Math.min(W, H);
+  detect(now);
+  if (M.live && now - M.lastT > 1500) M.live = false;
+  losePeople(now);
+  if (video.readyState < 2) return;
+  const vt = video.currentTime, fresh = vt !== lastVT; lastVT = vt;
+  if (fresh){ gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, texVid);
+    try { gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video); } catch(e){ return; } }
+  if (M.dirty){ M.dirty = false; gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, texMask);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, M.w, M.h, 0, gl.RED, gl.UNSIGNED_BYTE, M.b); }
+
+  MODE.X = MODE.on ? Math.min(2, MODE.X + dt) : Math.max(0, MODE.X - dt * 2.4);
+  const E = Math.min(1, MODE.X / .7);                      // colour drains, the room goes dark
+  const reveal = Math.max(0, Math.min(1, (MODE.X - .45) / 1.3));   // then the silk unfurls from the hands
+
+  // people: smooth anchors, grow with speed, step the cloth at a fixed rate
+  if (windFlip > 0) windFlip = Math.max(0, windFlip - dt);
+  for (const P of PEOPLE) if (!P.alive) P.vis = Math.max(0, P.vis - dt / 1.4);
+  acc = Math.min(acc + dt, .1);
+  while (acc >= 1/60){
+    acc -= 1/60;
+    for (const P of PEOPLE){
+      if (!P.alive && P.vis <= 0) continue;
+      const a = 1 - Math.exp(-(1/60) / .045);
+      for (const A of P.A){ A.x += (A.tx - A.x) * a; A.y += (A.ty - A.y) * a; }
+      P.speed *= Math.exp(-(1/60) / .25);
+      const target = 1 + Math.min(1.2, P.speed * (.3 + 1.1 * S.grow));
+      P.grow += (target - P.grow) * (1 - Math.exp(-(1/60) / (target > P.grow ? .18 : 2.6)));
+      stepChains(P, 1/60, t);
+    }
+  }
+  nV = 0; DRAWS.length = 0;
+  const pal = PALS[S.pal];
+  if (reveal > 0) for (const P of PEOPLE){ if (P.vis <= 0) continue; for (const r of P.rib) buildRibbon(P, r, t, reveal, pal); }
+
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, 0, W, H);
+  gl.disable(gl.BLEND);
+  gl.bindVertexArray(vaoQ); gl.useProgram(PQ.p);
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, texVid);
+  gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, texMask);
+  gl.uniform1i(PQ.U.uVid, 0); gl.uniform1i(PQ.U.uMask, 1);
+  const sa = W/H, va = vidW/vidH;
+  gl.uniform2f(PQ.U.uRes, W, H); gl.uniform2f(PQ.U.uScale, sa < va ? sa/va : 1, sa < va ? 1 : va/sa);
+  const hasMask = M.has && M.live;
+  // rim width ~ 0.6% of the short edge, expressed in mask uv
+  const rimPx = SH * .006, sc = Math.max(W / vidW, H / vidH);
+  gl.uniform2f(PQ.U.uMT, rimPx / (vidW * sc), rimPx / (vidH * sc));
+  gl.uniform1f(PQ.U.uMirror, mirror ? 1 : 0); gl.uniform1f(PQ.U.uE, E); gl.uniform1f(PQ.U.uHasMask, hasMask ? 1 : 0);
+  gl.uniform1f(PQ.U.uT, t); gl.uniform1f(PQ.U.uRimK, .2 + 1.2 * S.rim); gl.uniform1f(PQ.U.uLight, pal.light);
+  gl.uniform3fv(PQ.U.uBg, pal.bg); gl.uniform3fv(PQ.U.uInk, pal.ink); gl.uniform3fv(PQ.U.uPaper, pal.paper); gl.uniform3fv(PQ.U.uRim, pal.rim);
+  gl.uniform1f(PQ.U.uPass, 0); gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+  if (nV){ gl.bindBuffer(gl.ARRAY_BUFFER, bufR); gl.bufferSubData(gl.ARRAY_BUFFER, 0, VB, 0, nV * FPV); }
+  gl.enable(gl.BLEND);
+  if (nV) drawRibbons(-1, pal);
+  gl.bindVertexArray(vaoQ); gl.useProgram(PQ.p);
+  gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+  gl.uniform1f(PQ.U.uPass, 1); gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  if (nV) drawRibbons(1, pal);
+  gl.disable(gl.BLEND);
+  if (nV && pal.glow > 0) bloom(pal);
+  gl.bindVertexArray(null);
+
+  // silk swish follows the fastest part of the cloth
+  let top = 0; for (const P of PEOPLE) if (P.vis > 0) for (const r of P.rib) for (let i = 0; i < r.n; i += 4) if (r.sp[i] > top) top = r.sp[i];
+  STATE.top = top;
+  if (swish && actx){ const g = MODE.on ? Math.min(.45, Math.max(0, top - .25) * .22) : 0;
+    swish.gain.setTargetAtTime(g, actx.currentTime, .08); swishF.frequency.setTargetAtTime(500 + Math.min(3, top) * 700, actx.currentTime, .1); }
+
+  $('hud').style.visibility = MODE.X > 1.2 ? 'visible' : 'hidden';
+  hudT += dt;
+  if (hudT > .3){ hudT = 0;
+    const P0 = PEOPLE.filter(P => P.alive);
+    const g = P0.length ? Math.max(...P0.map(P => P.grow)) : 1;
+    $('hud').textContent = 'HAGOROMO  ' + pal.name.split(' ')[1] + '\nSILK ×' + g.toFixed(2) + '\nWIND ' + (windDir > 0 ? '→' : '←'); }
+}
+const STATE = { top:0 };
+
+/* ---------- test hook (used by the local verification harness) ---------- */
+window.__HAGOROMO = {
+  ingestMask(d, w, h){ if (!M.external) setStatus(''); M.external = true; return ingestMask(d, w, h); },
+  poses(list){ if (!poseExternal) setStatus(''); poseExternal = true; onPoses(list); },
+  state: () => ({ people:PEOPLE.map(P => ({ alive:P.alive, vis:P.vis, grow:P.grow, speed:P.speed,
+    A:P.A.map(a => [a.x, a.y]), tail0:[P.rib[1].P[0], P.rib[1].P[1]], shawlMid:[P.rib[0].P[NS], P.rib[0].P[NS+1]] })), W, H, nV, top:STATE.top }),
+  palette(i){ setPal(i); },
+  mode(c){ setMode(!!c); },
+  view: () => ({ on:MODE.on, X:MODE.X }),
+};
+</script>
+</body>
+</html>
