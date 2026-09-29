@@ -1,0 +1,533 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="description" content="映った人がバウハウスのポスターのような図形の肖像になる。四分円・半円・正方形の墨と朱で組まれ、動いたところの図形はくるりと回って朱に弾け、止まればまた顔に組み直る。">
+<meta name="theme-color" content="#eee8da">
+<title>ZUKEI ─ 図形で組む、ポスターの肖像</title>
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  ZUKEI 図形 ─ 図形で組む、ポスターの肖像            ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  MOOD       バウハウスとスイス・スタイルのポスター、ジャズのレコードジャケット。
+             生成りの紙に、映った人だけが升目ごとの図形 ── 正方形・四分円・
+             半円・点 ── で組まれる。暗いところほど面が大きく、四分円の向きは
+             明暗の傾きを向くので、図形の並びがそのまま顔の立体になる。
+             動いたところの図形は 90° ずつくるりと回って朱に弾け、止まると
+             一枚ずつ元の向きへ戻って、また肖像に組み上がる。
+  PALETTE    BAUHAUS  紙 #eee8da・墨 #161616・朱 #e0431c
+             NOTE     紙 #1d3a8f（コバルト）・墨 #0d0d10・白 #f2efe6
+             MONO     紙 #f4f3ef・墨 #111111・灰 #9a9a96
+  TYPE       League Spartan 300/700（幾何学的なサンセリフ）＋ IBM Plex Mono（数字）。
+  MOTION     図形の回転は 0.18 秒のイーズアウトで、きっちり 90° ずつ。
+             動きの無い升目は 1.2 秒後に元の向きへ戻る。朱は 0.9 秒で退く。
+             朱の版は墨から 0.6px ずらして刷る（シルクスクリーンの見当ずれ）。
+  SIGNATURE  止まれば肖像、動けば図形がほどけて回る幾何学の波。
+  SWITCH     はじめは素のカメラ。「▸ ZUKEI」で紙の升目が斜めに映像を覆い、
+             覆ったところから図形が刷られていく。「◂ CAMERA」で逆向きに剥がれる。
+  TECH       Canvas 2D。図形は升目ごとの回転角から座標を直接計算し、色ごとに
+             一本のパスへ積んで一回で塗る（毎フレームの塗りは三回だけ）。
+             明るさ・傾き・動きは升目解像度の縮小映像から、体はセルフィー分割から。
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=League+Spartan:wght@300;700&family=IBM+Plex+Mono:wght@400&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#eee8da;--fg:#161616;--dim:rgba(22,22,22,.55);--line:rgba(22,22,22,.25);--acc:#e0431c}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none}
+html,body{margin:0;height:100%;background:var(--bg);overflow:hidden;color:var(--fg);
+  font-family:"League Spartan","Hiragino Sans","Noto Sans JP",sans-serif;transition:background .4s,color .4s}
+#cv{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+#cam{position:fixed;left:0;top:0;width:2px;height:2px;opacity:.01;pointer-events:none}
+#est{display:none}
+
+#start{position:fixed;inset:0;z-index:30;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;
+  padding:28px;text-align:center;background:var(--bg)}
+#start .t{font:400 10px "IBM Plex Mono",monospace;letter-spacing:.34em;margin-right:-.34em;color:var(--dim)}
+#start h1{margin:0;font:700 min(17vw,104px)/.9 "League Spartan",sans-serif;letter-spacing:.02em}
+#start .shapes{display:flex;gap:6px}
+#start .shapes i{width:34px;height:34px;background:var(--fg)}
+#start .shapes i:nth-child(1){border-radius:34px 0 0 0}
+#start .shapes i:nth-child(2){border-radius:0 0 34px 34px;height:17px;margin-top:17px;background:var(--acc)}
+#start .shapes i:nth-child(3){border-radius:50%;transform:scale(.6)}
+#start .shapes i:nth-child(4){border-radius:0 0 34px 0}
+#start p{margin:0;font-size:12px;line-height:2.1;color:var(--dim);letter-spacing:.08em;font-family:"Hiragino Sans","Noto Sans JP",sans-serif}
+#go{appearance:none;border:0;background:var(--fg);color:var(--bg);font:700 12px "League Spartan",sans-serif;
+  letter-spacing:.34em;padding:15px 32px 13px 37px;cursor:pointer}
+#go:hover{background:var(--acc)}
+#err{font-size:12px;line-height:1.8;max-width:340px;min-height:1em;white-space:pre-line;color:#b02a12;font-family:"Hiragino Sans","Noto Sans JP",sans-serif}
+
+.btn{position:fixed;z-index:12;appearance:none;border:0;background:transparent;color:var(--fg);font:700 10px "League Spartan","Hiragino Sans",sans-serif;
+  letter-spacing:.26em;padding:10px 8px;display:none;cursor:pointer;opacity:.7;transition:opacity .3s}
+.btn.show{display:block}
+.btn:hover{opacity:1}
+#gear{right:10px;top:calc(env(safe-area-inset-top) + 6px);font-size:14px;letter-spacing:0}
+#flip{right:10px;top:calc(env(safe-area-inset-top) + 40px);letter-spacing:.1em;font-family:"Hiragino Sans","Noto Sans JP",sans-serif;font-weight:400}
+#bar{position:fixed;left:0;right:0;bottom:calc(env(safe-area-inset-bottom) + 10px);z-index:12;display:none;justify-content:center;align-items:center;gap:30px}
+#bar.show{display:flex}
+#bar .btn{position:static;display:block}
+#bar #shoot{width:42px;height:42px;border-radius:42px 0 0 0;background:var(--fg);padding:0;opacity:.9}
+#rec.on{opacity:1;color:var(--acc)}
+#hud{position:fixed;left:14px;top:calc(env(safe-area-inset-top) + 12px);z-index:11;font:400 9px "IBM Plex Mono",monospace;letter-spacing:.18em;color:var(--dim);
+  pointer-events:none;display:none;line-height:2;white-space:pre}
+#hud.show{display:block}
+#status{position:fixed;left:14px;bottom:calc(env(safe-area-inset-bottom) + 70px);z-index:11;font-size:11px;letter-spacing:.04em;
+  color:var(--dim);pointer-events:none;max-width:72vw;line-height:1.7;white-space:pre-line;font-family:"Hiragino Sans","Noto Sans JP",sans-serif}
+
+#panel{position:fixed;right:10px;top:calc(env(safe-area-inset-top) + 78px);z-index:12;width:min(270px,calc(100vw - 20px));
+  background:var(--bg);border:1.5px solid var(--fg);padding:14px 16px;display:flex;flex-direction:column;gap:13px;transition:opacity .25s}
+#panel.hide{opacity:0;pointer-events:none}
+.chips{display:flex;border:1.5px solid var(--fg)}
+.chips button{flex:1;appearance:none;border:0;background:transparent;color:var(--fg);padding:8px 2px 6px;font:700 10px "League Spartan",sans-serif;
+  letter-spacing:.16em;cursor:pointer}
+.chips button.on{background:var(--fg);color:var(--bg)}
+#panel label{display:flex;align-items:center;gap:10px;font-size:11px;letter-spacing:.04em;font-family:"Hiragino Sans","Noto Sans JP",sans-serif}
+#panel label span{width:78px;flex:none;color:var(--dim)}
+#panel input[type=range]{flex:1;accent-color:var(--acc)}
+#panel .note{font-size:10px;color:var(--dim);line-height:1.7;font-family:"Hiragino Sans","Noto Sans JP",sans-serif}
+#mode{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom) + 72px);z-index:13;display:none;
+  appearance:none;border:0;background:var(--fg);color:var(--bg);
+  font:700 11px "League Spartan",sans-serif;letter-spacing:.34em;padding:14px 22px 12px 27px;cursor:pointer}
+#mode.show{display:block}
+#mode:hover{background:var(--acc)}
+body.cam #mode{background:#fff;color:#111}
+body.cam .btn,body.cam #hud{color:#fff}
+body.cam #bar #shoot{background:#fff}
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<canvas id="est"></canvas>
+<video id="cam" playsinline muted autoplay></video>
+<div id="hud"></div>
+<div id="status"></div>
+<button id="gear" class="btn" aria-label="調整">⚙</button>
+<button id="flip" class="btn">⟲ カメラ</button>
+<button id="mode">▸ ZUKEI</button>
+<div id="bar">
+  <button id="rec" class="btn">● REC</button>
+  <button id="shoot" class="btn" aria-label="撮る"></button>
+  <button id="spin" class="btn">SPIN</button>
+</div>
+
+<div id="panel" class="hide">
+  <div class="chips" id="pals">
+    <button data-p="0" class="on">BAUHAUS</button>
+    <button data-p="1">NOTE</button>
+    <button data-p="2">MONO</button>
+  </div>
+  <label><span>升目の細かさ</span><input type="range" id="sGrid" min="0" max="1" step="0.01" value="0.45"></label>
+  <label><span>コントラスト</span><input type="range" id="sCon" min="0" max="1" step="0.01" value="0.5"></label>
+  <label><span>回りやすさ</span><input type="range" id="sSens" min="0" max="1" step="0.01" value="0.55"></label>
+  <label><span>差し色</span><input type="range" id="sAcc" min="0" max="1" step="0.01" value="0.45"></label>
+  <div class="note">動いたところの図形が回る。止まれば肖像に戻る。<br>SPIN か画面タップで、その点から波が走る。</div>
+</div>
+
+<div id="start">
+  <div class="t">GEOMETRIC · PORTRAIT</div>
+  <div class="shapes"><i></i><i></i><i></i><i></i></div>
+  <h1>ZUKEI</h1>
+  <p>まずは、いつものカメラ。<br>ボタンを押すと、あなたは図形で組まれたポスターになる。</p>
+  <button id="go">START</button>
+  <div id="err"></div>
+</div>
+
+<script>
+'use strict';
+/* =====================================================================
+   ZUKEI — a Bauhaus poster portrait. One primitive per grid cell:
+   darkness picks the shape (square → quarter circle → half circle → dot
+   → nothing), the brightness gradient picks which way it faces, and
+   motion kicks it round by 90° and flushes it vermilion. Every shape's
+   geometry is computed from its current angle, so all cells of one colour
+   go into a single path: three fills per frame.
+   ===================================================================== */
+const VISION_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs';
+const WASM_URL   = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm';
+const SEG_MODEL  = 'https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite';
+
+const $ = id => document.getElementById(id);
+const canvas = $('cv'), ctx = canvas.getContext('2d'), video = $('cam'), est = $('est');
+const ectx = est.getContext('2d', { willReadFrequently:true });
+
+const PALS = [
+  { name:'BAUHAUS', paper:'#eee8da', ink:'#161616', acc:'#e0431c', grain:.05, css:['#eee8da','#161616','#e0431c'], dark:false },
+  { name:'NOTE',    paper:'#1d3a8f', ink:'#0d0d10', acc:'#f2efe6', grain:.06, css:['#1d3a8f','#f2efe6','#f2efe6'], dark:true },
+  { name:'MONO',    paper:'#f4f3ef', ink:'#111111', acc:'#9a9a96', grain:.04, css:['#f4f3ef','#111111','#6a6a66'], dark:false },
+];
+const S = { pal:0, grid:.45, con:.5, sens:.55, acc:.45 };
+const TAU = Math.PI * 2, Q = Math.PI / 2;
+
+/* ---------- grid ---------- */
+let W = 2, H = 2, SH = 2;
+let vidW = 1280, vidH = 720;
+const G = { cols:0, rows:0, s:0, ox:0, oy:0, n:0, key:'',
+  L:null, Lp:null, cur:null, prev:null, have:false, mask:null, lvl:null, k:null,
+  rot:null, kick:null, quiet:null, pop:null, hot:null, hash:null, rev:null };
+function layout(){
+  const per = Math.round(18 + 30 * S.grid);                 // cells across the short edge
+  const s = SH / per;
+  const cols = Math.ceil(W / s), rows = Math.ceil(H / s);
+  const key = cols + 'x' + rows + ':' + W + 'x' + H;
+  if (key === G.key) return; G.key = key;
+  G.cols = cols; G.rows = rows; G.s = s; G.ox = (W - cols * s) / 2; G.oy = (H - rows * s) / 2;
+  const n = G.n = cols * rows;
+  est.width = cols; est.height = rows;
+  G.L = new Float32Array(n); G.Lp = new Float32Array(n); G.cur = new Uint8Array(n); G.prev = new Uint8Array(n); G.have = false;
+  G.mask = new Float32Array(n); G.lvl = new Uint8Array(n).fill(4); G.k = new Uint8Array(n);
+  G.rot = new Float32Array(n); G.kick = new Uint8Array(n); G.quiet = new Float32Array(n); G.pop = new Float32Array(n); G.hot = new Float32Array(n);
+  G.hash = new Float32Array(n); for (let i = 0; i < n; i++) G.hash[i] = Math.random();
+  G.rev = new Float32Array(n);
+  for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++){ const i = y * cols + x; G.rev[i] = (x / cols) * .55 + (y / rows) * .35 + G.hash[i] * .1; }
+}
+// camera → one pixel per cell (cover crop + mirror)
+function grab(){
+  const w = G.cols, h = G.rows, vw = video.videoWidth, vh = video.videoHeight;
+  if (!(vw > 0 && vh > 0) || !w) return false;
+  const sa = w / h, va = vw / vh;
+  let cw = vw, ch = vh; if (va > sa) cw = vh * sa; else ch = vw / sa;
+  ectx.setTransform(mirror ? -1 : 1, 0, 0, 1, mirror ? w : 0, 0);
+  try { ectx.drawImage(video, (vw - cw)/2, (vh - ch)/2, cw, ch, 0, 0, w, h); } catch(e){ return false; }
+  const d = ectx.getImageData(0, 0, w, h).data;
+  const t = G.prev; G.prev = G.cur; G.cur = t;
+  for (let i = 0, j = 0, n = w*h; i < n; i++, j += 4) G.cur[i] = (d[j]*77 + d[j+1]*150 + d[j+2]*29) >> 8;
+  const ok = G.have; G.have = true; return ok;
+}
+
+/* ---------- mask ---------- */
+const M = { w:0, h:0, f:null, has:false, live:false, external:false, lastT:0 };
+function ingestMask(data, w, h){
+  if (!data || !(w > 0) || !(h > 0) || !(w * h <= 4e6) || data.length < w * h) return false;
+  if (M.w !== w || M.h !== h){ M.w = w; M.h = h; M.f = new Float32Array(w * h); }
+  for (let i = 0, n = w * h; i < n; i++){ let m = data[i]; if (!(m >= 0)) m = 0; else if (m > 1) m = 1; M.f[i] = m; }
+  M.has = true; M.live = true; M.lastT = performance.now();
+  return true;
+}
+function sampleMask(){
+  const useMask = M.has && M.live;
+  if (!useMask){ G.mask.fill(M.has ? 0 : 1); return; }       // no model at all → the whole frame is the poster
+  const s = Math.max(W / vidW, H / vidH), ox = (W - vidW * s) / 2, oy = (H - vidH * s) / 2;
+  for (let y = 0; y < G.rows; y++){
+    const sy = G.oy + (y + .5) * G.s, v = (sy - oy) / s / vidH;
+    for (let x = 0; x < G.cols; x++){
+      const sx = G.ox + (x + .5) * G.s;
+      const u = ((mirror ? W - sx : sx) - ox) / s / vidW;
+      let m = 0;
+      if (u >= 0 && u < 1 && v >= 0 && v < 1) m = M.f[(v * M.h | 0) * M.w + (u * M.w | 0)];
+      const i = y * G.cols + x;
+      G.mask[i] = G.mask[i] * .4 + m * .6;
+    }
+  }
+}
+
+/* ---------- model ---------- */
+let segmenter = null, lastTs = 0, lastSegVT = -1;
+async function initModel(){
+  try{
+    const vision = await import(VISION_URL);
+    const fs = await vision.FilesetResolver.forVisionTasks(WASM_URL);
+    const opts = d => ({ baseOptions:{ modelAssetPath:SEG_MODEL, delegate:d }, runningMode:'VIDEO', outputConfidenceMasks:true, outputCategoryMask:false });
+    try { segmenter = await vision.ImageSegmenter.createFromOptions(fs, opts('GPU')); }
+    catch(e){ segmenter = await vision.ImageSegmenter.createFromOptions(fs, opts('CPU')); }
+    setStatus('');
+  }catch(e){
+    if (M.external) return;
+    setStatus('人物検出モデルを読み込めませんでした（ネット接続を確認）。\n画面全体を図形で組んで続けます。');
+  }
+}
+function segment(now){
+  if (!segmenter || M.external || video.readyState < 2) return;
+  const vt = video.currentTime; if (vt === lastSegVT) return; lastSegVT = vt;
+  try{
+    const ts = Math.max(lastTs + 1, Math.round(now)); lastTs = ts;
+    segmenter.segmentForVideo(video, ts, res => {
+      const ms = res && res.confidenceMasks; if (!ms || !ms.length) return;
+      const mk = ms[ms.length - 1]; ingestMask(mk.getAsFloat32Array(), mk.width, mk.height);
+    });
+  }catch(e){}
+}
+
+/* ---------- camera ---------- */
+let stream = null, facing = 'user', mirror = true, started = false, lastVT = -1, camT0 = 0;
+function setStatus(t){ $('status').textContent = t || ''; }
+function camError(e){
+  const msg = (e && (e.message || e.name)) ? (e.message || e.name) : String(e || 'unknown');
+  const text = 'カメラを起動できませんでした：' + msg + '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+  $('err').textContent = text;
+  if (started) setStatus(text);
+}
+async function startCam(){
+  const md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) throw new Error('getUserMedia is unavailable');
+  const s = await md.getUserMedia({ video:{ facingMode:{ ideal:facing }, width:{ ideal:1280 }, height:{ ideal:720 } }, audio:false });
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = s; mirror = facing === 'user';
+  video.srcObject = s;
+  await new Promise(r => { if (video.readyState >= 1) r(); else video.onloadedmetadata = () => r(); });
+  await video.play().catch(()=>{});
+  vidW = video.videoWidth || 1280; vidH = video.videoHeight || 720;
+  G.have = false; camT0 = performance.now();
+}
+
+/* ---------- audio: small wooden clicks, like a kinetic sculpture turning ---------- */
+let actx = null, bus = null, recDest = null, tick = null, lastTick = 0;
+function ensureAudio(){
+  if (actx){ if (actx.state === 'suspended') actx.resume().catch(()=>{}); return; }
+  const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+  actx = new AC(); bus = actx.createGain(); bus.gain.value = .6; bus.connect(actx.destination);
+  recDest = actx.createMediaStreamDestination(); bus.connect(recDest);
+  const sr = actx.sampleRate, n = sr * .05 | 0; tick = actx.createBuffer(1, n, sr); const d = tick.getChannelData(0);
+  for (let i = 0; i < n; i++){ const t = i / sr; d[i] = (Math.sin(t * 2 * Math.PI * 1850) * .6 + (Math.random() * 2 - 1) * .4) * Math.exp(-t * 160); }
+  actx.resume().catch(()=>{});
+}
+function click(vol, rate, when){
+  if (!actx || actx.state !== 'running' || !tick) return;
+  const s = actx.createBufferSource(); s.buffer = tick; s.playbackRate.value = rate || 1;
+  const g = actx.createGain(); g.gain.value = vol;
+  s.connect(g); g.connect(bus); s.start(actx.currentTime + (when || 0));
+}
+
+// the switch: plain camera (X = 0) ⇄ poster (X = 1)
+const MODE = { on:false, X:0 };
+function setMode(on){
+  if (on === MODE.on) return;
+  MODE.on = on;
+  $('mode').textContent = on ? '◂ CAMERA' : '▸ ZUKEI';
+  document.body.classList.toggle('cam', !on);
+  $('spin').style.visibility = on ? 'visible' : 'hidden';
+  for (let i = 0; i < 6; i++) click(.25, .8 + i * .08, i * .06);
+}
+$('mode').onclick = () => setMode(!MODE.on);
+addEventListener('keydown', e => { if (started && (e.key === ' ' || e.key === 'Enter') && document.activeElement.tagName !== 'INPUT'){ e.preventDefault(); setMode(!MODE.on); } });
+$('go').onclick = async () => {
+  $('err').textContent = '';
+  ensureAudio();
+  try{ await startCam(); }catch(e){ camError(e); return; }
+  $('start').style.display = 'none';
+  ['gear','flip','bar','rec','shoot','spin','hud','mode'].forEach(id => $(id).classList.add('show'));
+  MODE.on = true; setMode(false);
+  if (!started){ started = true; initModel(); requestAnimationFrame(loop); }
+};
+$('flip').onclick = async () => {
+  const prev = facing; facing = facing === 'user' ? 'environment' : 'user';
+  try { await startCam(); } catch(e){ facing = prev; camError(e); }
+};
+$('gear').onclick = () => $('panel').classList.toggle('hide');
+// a wave of quarter turns running out from a point
+const WAVE = { on:false, x:0, y:0, t0:0 };
+function wave(x, y){ if (!MODE.on) return; WAVE.on = true; WAVE.x = x; WAVE.y = y; WAVE.t0 = performance.now(); }
+$('spin').onclick = () => wave(W / 2, H / 2);
+canvas.addEventListener('pointerdown', e => {
+  if (!started) return; const r = canvas.getBoundingClientRect();
+  wave((e.clientX - r.left) / r.width * W, (e.clientY - r.top) / r.height * H);
+});
+function setPal(i){
+  S.pal = i; const p = PALS[i];
+  [...$('pals').children].forEach(x => x.classList.toggle('on', +x.dataset.p === i));
+  const r = document.documentElement.style;
+  r.setProperty('--bg', p.css[0]); r.setProperty('--fg', p.css[1]); r.setProperty('--acc', p.css[2]);
+  r.setProperty('--dim', p.dark ? 'rgba(242,239,230,.6)' : 'rgba(22,22,22,.55)'); r.setProperty('--line', p.dark ? 'rgba(242,239,230,.3)' : 'rgba(22,22,22,.25)');
+  grainKey = '';
+}
+$('pals').onclick = e => { const b = e.target.closest('button'); if (b) setPal(+b.dataset.p); };
+[['sGrid','grid'],['sCon','con'],['sSens','sens'],['sAcc','acc']].forEach(([id,k]) => { $(id).oninput = e => { S[k] = +e.target.value; }; });
+
+$('shoot').onclick = () => {
+  try{
+    canvas.toBlob(b => { if (!b) return; const a = document.createElement('a'); a.href = URL.createObjectURL(b);
+      a.download = 'zukei-' + Date.now() + '.png'; a.click(); }, 'image/png');
+    click(.5, 1.3);
+  }catch(e){ setStatus('保存できませんでした。'); }
+};
+let rec = null, chunks = [];
+$('rec').onclick = () => {
+  if (rec && rec.state === 'recording'){ rec.stop(); return; }
+  try{
+    ensureAudio();
+    const tracks = [...canvas.captureStream(30).getVideoTracks()];
+    if (recDest) tracks.push(...recDest.stream.getAudioTracks());
+    const mime = ['video/mp4;codecs=avc1','video/webm;codecs=vp9,opus','video/webm'].find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || '';
+    rec = new MediaRecorder(new MediaStream(tracks), mime ? { mimeType:mime } : {});
+    chunks = [];
+    rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+    rec.onstop = () => {
+      $('rec').classList.remove('on'); $('rec').textContent = '● REC';
+      const ext = (rec.mimeType || '').includes('mp4') ? 'mp4' : 'webm';
+      const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(chunks, { type:rec.mimeType || 'video/webm' }));
+      a.download = 'zukei.' + ext; a.click();
+    };
+    rec.start(); $('rec').classList.add('on'); $('rec').textContent = '■ STOP';
+  }catch(e){ setStatus('録画を開始できませんでした。'); }
+};
+
+/* ---------- paper grain (made once per palette/size) ---------- */
+const grainCv = document.createElement('canvas'); let grainKey = '';
+function ensureGrain(p){
+  const key = W + 'x' + H + ':' + S.pal; if (key === grainKey) return; grainKey = key;
+  grainCv.width = 256; grainCv.height = 256; const g = grainCv.getContext('2d');
+  const im = g.createImageData(256, 256), d = im.data;
+  for (let i = 0; i < d.length; i += 4){ const v = Math.random() < .5 ? 0 : 255; d[i] = d[i+1] = d[i+2] = v; d[i+3] = Math.random() * 255 * p.grain; }
+  g.putImageData(im, 0, 0);
+  grainPat = ctx.createPattern(grainCv, 'repeat');
+}
+let grainPat = null;
+
+/* ---------- shapes: geometry straight from the cell's angle ---------- */
+// level 0 square · 1 quarter circle (corner toward the dark side) · 2 half circle · 3 dot · 4 nothing
+function addShape(path, lvl, cx, cy, s, a){
+  const h = s / 2;
+  if (lvl === 0){
+    const c = Math.cos(a) * h, d = Math.sin(a) * h;
+    path.moveTo(cx - c + d, cy - d - c); path.lineTo(cx + c + d, cy + d - c); path.lineTo(cx + c - d, cy + d + c); path.lineTo(cx - c - d, cy - d + c); path.closePath();
+  } else if (lvl === 1){
+    const ca = a - 3 * Math.PI / 4, r = h * Math.SQRT2;       // the corner, rotated with the cell
+    const px = cx + Math.cos(ca) * r, py = cy + Math.sin(ca) * r;
+    path.moveTo(px, py); path.arc(px, py, s, ca + Math.PI - Math.PI / 4, ca + Math.PI + Math.PI / 4); path.closePath();
+  } else if (lvl === 2){
+    const sa = a - Math.PI / 2;                              // the side, rotated with the cell
+    const px = cx + Math.cos(sa) * h, py = cy + Math.sin(sa) * h;
+    path.moveTo(px + Math.cos(sa + Q) * h, py + Math.sin(sa + Q) * h); path.arc(px, py, h, sa + Q, sa + 3 * Q); path.closePath();
+  } else if (lvl === 3){
+    path.moveTo(cx + s * .3, cy); path.arc(cx, cy, s * .3, 0, TAU); path.closePath();
+  }
+}
+
+/* ---------- render ---------- */
+let lastT = 0, hudT = 0;
+const LO = { lo:60, hi:190 };
+const HIST = new Uint32Array(64);
+const STATS = { drawn:0, acc:0, turning:0, cx:.5, cy:.5, kicks:0 };
+function loop(now){
+  requestAnimationFrame(loop);
+  const dt = lastT ? Math.min(.1, (now - lastT)/1000) : 1/60; lastT = now;
+  if (video.videoWidth && (video.videoWidth !== vidW || video.videoHeight !== vidH)){ vidW = video.videoWidth; vidH = video.videoHeight; }
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  let w = Math.round(innerWidth*dpr), h = Math.round(innerHeight*dpr);
+  const k = Math.min(1, 1600 / Math.max(w, h)); w = Math.round(w*k); h = Math.round(h*k);
+  if (canvas.width !== w || canvas.height !== h){ canvas.width = w; canvas.height = h; }
+  W = w; H = h; SH = Math.min(W, H);
+  layout();
+  segment(now);
+  if (M.live && now - M.lastT > 1200) M.live = false;
+  if (video.readyState < 2) return;
+  const vt = video.currentTime, fresh = vt !== lastVT; lastVT = vt;
+  const moved = fresh && grab();
+  sampleMask();
+
+  MODE.X = MODE.on ? Math.min(1, MODE.X + dt / 1.1) : Math.max(0, MODE.X - dt / .7);
+  const pal = PALS[S.pal];
+  const n = G.n, cols = G.cols, rows = G.rows;
+
+  // brightness per cell (smoothed), and a person-only histogram for the levels
+  HIST.fill(0); let hn = 0;
+  for (let i = 0; i < n; i++){
+    G.L[i] = G.L[i] * .45 + G.cur[i] * .55;
+    if (G.mask[i] > .5){ HIST[G.L[i] >> 2]++; hn++; }
+  }
+  if (hn > 8){
+    const pc = (q) => { let acc = 0, t = hn * q; for (let b = 0; b < 64; b++){ acc += HIST[b]; if (acc >= t) return b * 4 + 2; } return 255; };
+    const lo = pc(.06), hi = Math.max(lo + 30, pc(.94));
+    LO.lo += (lo - LO.lo) * .1; LO.hi += (hi - LO.hi) * .1;
+  }
+  const gamma = .6 + .9 * S.con;
+  // motion: a cut (flip, exposure jump) changes most of the frame — ignore it
+  let armed = moved && now - camT0 > 700 && MODE.X >= 1;
+  if (armed){ let ch = 0; for (let i = 0; i < n; i += 3) if (Math.abs(G.cur[i] - G.prev[i]) > 36) ch++; if (ch * 3 > n * .45) armed = false; }
+  const thr = 40 - 26 * S.sens;
+  const wv = WAVE.on ? (now - WAVE.t0) / 1000 * SH * 1.3 : -1;
+  if (WAVE.on && wv > Math.hypot(W, H)) WAVE.on = false;
+
+  const inkP = new Path2D(), accP = new Path2D(), paperP = new Path2D();
+  let drawn = 0, acc = 0, turning = 0, sx = 0, sy = 0, kicks = 0;
+  const E = MODE.X, s = G.s;
+  for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++){
+    const i = y * cols + x;
+    // level with hysteresis (a band must be crossed by a margin before it changes)
+    let t = (G.L[i] - LO.lo) / (LO.hi - LO.lo); t = t < 0 ? 0 : t > 1 ? 1 : t; t = Math.pow(t, gamma);
+    const want = Math.min(4, t * 5 | 0), cur = G.lvl[i];
+    if (want !== cur){ const edge = want > cur ? want / 5 : (want + 1) / 5; if (Math.abs(t - edge) > .035) G.lvl[i] = want; }
+    // facing: the corner/side toward the darker neighbour
+    const xl = x > 0 ? i - 1 : i, xr = x < cols - 1 ? i + 1 : i, yu = y > 0 ? i - cols : i, yd = y < rows - 1 ? i + cols : i;
+    const gx = G.L[xr] - G.L[xl], gy = G.L[yd] - G.L[yu];
+    // the silhouette's own edge: curves face inward, so the outline is drawn, not stair-stepped
+    const mg = G.mask[i] > .5 ? Math.min(G.mask[xl], G.mask[xr], G.mask[yu], G.mask[yd]) : 1;
+    const rim = mg < .5;
+    let edge = false;
+    if (rim){
+      const mx = G.mask[xr] - G.mask[xl], my = G.mask[yd] - G.mask[yu];
+      const ang = Math.atan2(my, mx);                         // toward the inside of the body
+      G.k[i] = ((Math.round((ang + 3 * Math.PI / 4) / Q) % 4) + 4) % 4; edge = true;
+    } else if (gx * gx + gy * gy > 36){
+      const ang = Math.atan2(-gy, -gx);                       // toward the dark
+      G.k[i] = ((Math.round((ang + 3 * Math.PI / 4) / Q) % 4) + 4) % 4;
+      edge = gx * gx + gy * gy > 900;
+    }
+    // motion kicks a quarter turn and a flush of the accent
+    if (G.quiet[i] > 0) G.quiet[i] -= dt;
+    if (armed && G.mask[i] > .3 && G.quiet[i] <= 0 && Math.abs(G.cur[i] - G.prev[i]) > thr){ G.kick[i] = (G.kick[i] + 1) & 3; G.quiet[i] = .22; G.pop[i] = 1; G.hot[i] = 1; kicks++; }
+    if (wv > 0){ const d = Math.hypot(G.ox + (x + .5) * s - WAVE.x, G.oy + (y + .5) * s - WAVE.y); if (d < wv && d > wv - s * 1.5 && G.quiet[i] <= 0){ G.kick[i] = (G.kick[i] + 1) & 3; G.quiet[i] = .3; G.pop[i] = 1; G.hot[i] = 1; } }
+    G.pop[i] = Math.max(0, G.pop[i] - dt / .45); G.hot[i] = Math.max(0, G.hot[i] - dt / .9);
+    // still for a while → turn back home
+    if (G.kick[i] && G.quiet[i] < -1.2){ G.kick[i] = 0; G.quiet[i] = 0; }
+    const target = (G.k[i] + G.kick[i]) * Q;
+    let dA = target - G.rot[i]; dA = ((dA + Math.PI) % TAU + TAU) % TAU - Math.PI;
+    G.rot[i] += dA * (1 - Math.exp(-dt / .06));
+    if (Math.abs(dA) > .05) turning++;
+
+    const cx = G.ox + (x + .5) * s, cy = G.oy + (y + .5) * s;
+    const rev = E * 1.25 - G.rev[i];
+    if (rev <= 0) continue;                                   // not yet papered over: the camera shows through
+    if (E < 1) paperP.rect(cx - s / 2, cy - s / 2, s + .6, s + .6);
+    let lvl = G.lvl[i];
+    if (G.mask[i] < .5) continue;
+    if (edge && (rim || lvl < 4)) lvl = rim && lvl >= 3 ? 2 : 1;   // edges become curves
+    if (lvl >= 4) continue;
+    const grow = Math.min(1, rev / .12);
+    const sz = s * (1 + .28 * G.pop[i]) * grow;
+    const isAcc = G.hot[i] > .35 || (lvl === 2 && G.hash[i] < .1 + .35 * S.acc) || (lvl === 3 && G.hash[i] < .25 * S.acc);
+    // light areas alternate a dot with a small quarter circle, so flat cloth is not a dot screen
+    if (lvl === 3 && G.hash[i] > .55) addShape(isAcc ? accP : inkP, 1, cx, cy, sz * .62, G.rot[i]);
+    else addShape(isAcc ? accP : inkP, lvl, cx, cy, sz, G.rot[i]);
+    drawn++; if (isAcc) acc++; sx += cx; sy += cy;
+  }
+  STATS.drawn = drawn; STATS.acc = acc; STATS.turning = turning; STATS.kicks = kicks;
+  if (drawn){ STATS.cx = sx / drawn / W; STATS.cy = sy / drawn / H; }
+
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1;
+  if (E < 1){
+    // live camera underneath, papered over cell by cell
+    const cs = Math.max(W / vidW, H / vidH);
+    ctx.save(); if (mirror){ ctx.translate(W, 0); ctx.scale(-1, 1); }
+    try { ctx.drawImage(video, (W - vidW * cs) / 2, (H - vidH * cs) / 2, vidW * cs, vidH * cs); } catch(e){}
+    ctx.restore();
+    ctx.fillStyle = pal.paper; ctx.fill(paperP);
+  } else { ctx.fillStyle = pal.paper; ctx.fillRect(0, 0, W, H); }
+  if (E > 0){
+    ensureGrain(pal);
+    ctx.fillStyle = pal.ink; ctx.fill(inkP);
+    ctx.save(); ctx.translate(.6, -.4); ctx.fillStyle = pal.acc; ctx.fill(accP); ctx.restore();   // off-register screen print
+    if (grainPat){ ctx.globalAlpha = E; ctx.fillStyle = grainPat; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1; }
+  }
+  if (kicks && now - lastTick > 70){ lastTick = now; click(Math.min(.35, .05 + kicks * .01), .8 + Math.random() * .5); }
+
+  $('hud').style.visibility = E > .9 ? 'visible' : 'hidden';
+  hudT += dt;
+  if (hudT > .35){ hudT = 0;
+    $('hud').textContent = 'ZUKEI  ' + pal.name + '\n' + cols + '×' + rows + '  ' + String(drawn).padStart(4, '0') + ' SHAPES\nTURNING ' + String(turning).padStart(4, '0'); }
+}
+
+/* ---------- test hook (used by the local verification harness) ---------- */
+window.__ZUKEI = {
+  ingestMask(d, w, h){ if (!M.external) setStatus(''); M.external = true; return ingestMask(d, w, h); },
+  state: () => ({ W, H, cols:G.cols, rows:G.rows, drawn:STATS.drawn, acc:STATS.acc, turning:STATS.turning, kicks:STATS.kicks,
+    cx:STATS.cx, cy:STATS.cy, maskLive:M.live, lo:LO.lo, hi:LO.hi }),
+  palette(i){ setPal(i); },
+  mode(c){ setMode(!!c); },
+  tap(x, y){ wave(x * W, y * H); },
+  view: () => ({ on:MODE.on, X:MODE.X }),
+};
+</script>
+</body>
+</html>
