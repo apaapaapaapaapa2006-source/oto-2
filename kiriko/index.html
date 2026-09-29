@@ -1,0 +1,710 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="description" content="映った人が、切子ガラスのような多面体の彫像になる。面ごとに光を受けてきらめき、動いたところの面は破片になって手前へ砕け散る。AUTO にすると動くほど色と面の細かさと稜線の太さが自動で変わる。">
+<meta name="theme-color" content="#04060d">
+<title>KIRIKO ─ 切子の体</title>
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  KIRIKO 切子 ─ 切子の体                                ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  MOOD       江戸切子の被せガラスと、ローポリの彫像。映った人が何百もの平らな
+             面に削り出されて、暗い空間に浮かぶ。面の一枚一枚が別の向きを
+             向いているので、首を振るカメラの光を受けて順にきらめく。
+             動いたところの面は、切子が割れたように破片になって手前へ跳ぶ。
+  PALETTE    固定しない。AUTO が四つの型から毎回つくる。
+             瑠璃  群青の被せと透明　　紅  赤の被せ　　氷  明るい地に淡い硝子
+             光    真っ黒に蛍光の一色
+             背景・面の暗い側・面の明るい側・稜線と破片の差し色 の四色まで。
+  TYPE       Cormorant 300/600（題字）と Zen Kaku Gothic New。
+  MOTION     カメラは 22 秒周期で首を振る。ドラッグで回せる。破片は速く
+             跳んで、ゆっくり元の面へ戻る。大きく動くと切り直し（面の割り方
+             ごと変わり、上から削り出し直される）。
+  SIGNATURE  平らな面ごとに違う明るさ ── 一枚ずつ光を返す多面体であること。
+  TECH       WebGL2。高さ場（人物マスクのぼかし＋体の中の明るさ）の格子を、
+             頂点を乱数でずらしてから三角形に割る。法線は面ごとに
+             dFdx/dFdy で出すので必ず平らに塗られる。稜線は重心座標と
+             fwidth で画素幅どおりに引く。破片は三角形ごとの重心に熱を
+             引いて、その三角形だけを手前へ押し出して縮める。
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant:wght@300;600&family=Zen+Kaku+Gothic+New:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#04060d;--fg:#eceef4;--dim:rgba(236,238,244,.55);--line:rgba(236,238,244,.22);--acc:#7fb8ff}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none}
+html,body{margin:0;height:100%;background:var(--bg);overflow:hidden;color:var(--fg);
+  font-family:"Zen Kaku Gothic New",ui-sans-serif,sans-serif;font-weight:400;transition:background .6s,color .6s}
+#gl{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:grab}
+#cam{position:fixed;left:0;top:0;width:2px;height:2px;opacity:.01;pointer-events:none}
+#est{display:none}
+
+#start{position:fixed;inset:0;z-index:30;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:24px;
+  padding:28px;text-align:center;background:#04060d;color:#eceef4}
+#start .t{font-size:10px;letter-spacing:.5em;margin-right:-.5em;opacity:.55}
+#start h1{margin:0;font-family:Cormorant,serif;font-weight:300;font-size:min(16vw,104px);line-height:1;letter-spacing:.22em;margin-right:-.22em}
+#start .cut{width:min(60vw,260px);height:36px;opacity:.85;
+  background:conic-gradient(from 45deg at 25% 50%,#1b3a8a,#b9d4ff,#1b3a8a,#6f9ae8,#1b3a8a) 0 0/36px 36px;
+  clip-path:polygon(0 50%,8% 0,20% 60%,33% 5%,45% 55%,58% 0,70% 65%,83% 8%,100% 50%,83% 100%,70% 40%,58% 100%,45% 45%,33% 95%,20% 40%,8% 100%)}
+#start p{margin:0;font-size:12px;line-height:2.1;opacity:.6;letter-spacing:.05em}
+#go{appearance:none;border:1px solid rgba(236,238,244,.3);background:transparent;color:#eceef4;font:600 11px Cormorant,serif;
+  letter-spacing:.5em;padding:15px 30px 15px 36px;cursor:pointer;transition:border-color .3s}
+#go:hover{border-color:#eceef4}
+#err{font-size:12px;line-height:1.8;max-width:340px;min-height:1em;white-space:pre-line;color:#f0a896}
+
+.btn{position:fixed;z-index:12;appearance:none;border:0;background:transparent;color:var(--fg);font:500 10px "Zen Kaku Gothic New",sans-serif;
+  letter-spacing:.24em;padding:10px 8px;display:none;cursor:pointer;opacity:.62;transition:opacity .3s,color .6s}
+.btn.show{display:block}
+.btn:hover{opacity:1}
+#gear{right:10px;top:calc(env(safe-area-inset-top) + 6px);font-size:14px;letter-spacing:0}
+#flip{right:10px;top:calc(env(safe-area-inset-top) + 40px);letter-spacing:.1em}
+#bar{position:fixed;left:0;right:0;bottom:calc(env(safe-area-inset-bottom) + 10px);z-index:12;display:none;justify-content:center;align-items:center;gap:26px}
+#bar.show{display:flex}
+#bar .btn{position:static;display:block}
+#bar #shoot{position:relative;width:42px;height:42px;border:1px solid var(--fg);padding:0;opacity:.7;transform:rotate(45deg) scale(.8)}
+#shoot::after{content:"";position:absolute;inset:8px;background:var(--fg);opacity:.85}
+#rec.on{opacity:1;color:var(--acc)}
+#auto{border:1px solid var(--line);padding:9px 12px}
+#auto.on{opacity:1;border-color:var(--acc);color:var(--acc)}
+#hud{position:fixed;left:14px;top:calc(env(safe-area-inset-top) + 14px);z-index:11;font-size:9px;letter-spacing:.28em;color:var(--dim);
+  pointer-events:none;display:none;line-height:2.1;white-space:pre;transition:color .6s}
+#hud.show{display:block}
+#hud b{font-weight:500;color:var(--acc)}
+#status{position:fixed;left:14px;bottom:calc(env(safe-area-inset-bottom) + 118px);z-index:11;font-size:11px;
+  color:var(--dim);pointer-events:none;max-width:78vw;line-height:1.7;white-space:pre-line}
+
+#panel{position:fixed;right:10px;top:calc(env(safe-area-inset-top) + 78px);z-index:12;width:min(272px,calc(100vw - 20px));
+  background:rgba(6,8,14,.86);color:#eceef4;border:1px solid rgba(236,238,244,.2);padding:14px 16px;display:flex;flex-direction:column;gap:13px;
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);transition:opacity .25s}
+#panel.hide{opacity:0;pointer-events:none}
+.chips{display:flex;border:1px solid rgba(236,238,244,.2)}
+.chips button{flex:1;appearance:none;border:0;background:transparent;color:#eceef4;padding:8px 2px;font:500 11px "Zen Kaku Gothic New",sans-serif;
+  letter-spacing:.2em;cursor:pointer;opacity:.5}
+.chips button.on{opacity:1;background:rgba(236,238,244,.14)}
+#panel label{display:flex;align-items:center;gap:10px;font-size:11px}
+#panel label span{width:56px;flex:none;opacity:.6}
+#panel input[type=range]{flex:1;accent-color:#d8dbe4}
+#panel .note{font-size:10px;opacity:.6;line-height:1.8}
+#mode{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom) + 70px);z-index:13;display:none;
+  appearance:none;border:1px solid var(--line);background:transparent;color:var(--fg);
+  font:600 11px Cormorant,serif;letter-spacing:.42em;padding:12px 22px 12px 28px;cursor:pointer;
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);transition:border-color .3s,color .6s}
+#mode.show{display:block}
+#mode:hover{border-color:var(--fg)}
+body.cam #mode{border-color:rgba(255,255,255,.6);color:#fff;background:rgba(0,0,0,.3)}
+body.cam .btn{color:#fff;text-shadow:0 0 8px rgba(0,0,0,.6)}
+body.cam #bar #shoot{border-color:#fff}
+body.cam #shoot::after{background:#fff}
+body.cam #hud, body.cam #auto{visibility:hidden}
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<canvas id="est"></canvas>
+<video id="cam" playsinline muted autoplay></video>
+<div id="hud"></div>
+<div id="status"></div>
+<button id="gear" class="btn" aria-label="調整">⚙</button>
+<button id="flip" class="btn">⟲ カメラ</button>
+<button id="mode">▸ KIRIKO</button>
+<div id="bar">
+  <button id="rec" class="btn">● REC</button>
+  <button id="shoot" class="btn" aria-label="撮る"></button>
+  <button id="auto" class="btn on">AUTO</button>
+</div>
+
+<div id="panel" class="hide">
+  <div class="chips" id="kinds">
+    <button data-k="0">瑠璃</button>
+    <button data-k="1">紅</button>
+    <button data-k="2">氷</button>
+    <button data-k="3">光</button>
+  </div>
+  <label><span>稜線</span><input type="range" id="sThick" min="0" max="1" step="0.01" value="0.4"></label>
+  <label><span>面の数</span><input type="range" id="sRows" min="0" max="1" step="0.01" value="0.5"></label>
+  <label><span>奥行き</span><input type="range" id="sDepth" min="0" max="1" step="0.01" value="0.5"></label>
+  <label><span>砕け</span><input type="range" id="sWob" min="0" max="1" step="0.01" value="0.5"></label>
+  <label><span>首振り</span><input type="range" id="sOrbit" min="0" max="1" step="0.01" value="0.55"></label>
+  <div class="note">AUTO：動くほど色・面の細かさ・稜線・奥行きが自動で変わる。大きく動くと切り直される。<br>色や数値に触ると AUTO は止まる。<br>ドラッグで回す／タップで見た目をひとつ引き直す。</div>
+</div>
+
+<div id="start">
+  <div class="t">CUT-GLASS BODY</div>
+  <h1>KIRIKO</h1>
+  <div class="cut"></div>
+  <p>まずは、いつものカメラ。<br>ボタンを押すと、あなたが切子ガラスの多面体になります。<br>動いたところは砕けて、AUTO のあいだは色と面が変わっていきます。</p>
+  <button id="go">START</button>
+  <div id="err"></div>
+</div>
+
+<script>
+'use strict';
+/* =====================================================================
+   KIRIKO — the height field (blurred person mask + the light inside it)
+   on a jittered grid, cut into flat triangles. Normals come from screen
+   derivatives in the fragment shader, so every facet is lit as one flat
+   plane; edges are barycentric lines of an exact pixel width. Where you
+   move, each triangle reads the heat at its own centroid and is pushed
+   forward and shrunk about that centroid — the glass comes apart facet
+   by facet and settles back as the heat decays.
+   ===================================================================== */
+const VISION_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs';
+const WASM_URL   = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm';
+const SEG_MODEL  = 'https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite';
+const $ = id => document.getElementById(id);
+const canvas = $('gl'), video = $('cam'), est = $('est');
+const ectx = est.getContext('2d', { willReadFrequently:true });
+
+/* ---------- looks ---------- */
+function hsl(h, s, l){
+  h = ((h % 360) + 360) % 360 / 360;
+  const f = n => { const k = (n + h * 12) % 12, a = s * Math.min(l, 1 - l); return l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1)); };
+  return [f(0), f(8), f(4)];
+}
+const KINDS = ['瑠璃', '紅', '氷', '光'];
+function makeLook(kind){
+  if (kind == null) kind = Math.random() * 4 | 0;
+  let h, L;
+  // a = the facet turned away from the light, b = the facet facing it
+  if (kind === 0){ h = 205 + Math.random() * 40; L = { bg:hsl(h, .55, .035), a:hsl(h, .85, .16), b:hsl(h - 10, .55, .86), acc:hsl(h + 15, .9, .72) }; }
+  else if (kind === 1){ h = (340 + Math.random() * 40) % 360; L = { bg:hsl(h, .4, .03), a:hsl(h, .9, .18), b:hsl(h + 10, .85, .78), acc:hsl(h + 30, .95, .66) }; }
+  else if (kind === 2){ h = Math.random() * 360; L = { bg:hsl(h, .18, .88), a:hsl(h, .35, .52), b:hsl(h, .25, .97), acc:hsl(h + 180, .7, .45) }; }
+  else { h = Math.random() * 360; L = { bg:[0, 0, 0], a:hsl(h, 1, .14), b:hsl(h + 40, 1, .66), acc:hsl(h + 180, 1, .62) }; }
+  Object.assign(L, { kind, hue:h | 0, thick:Math.random(), rows:.05 + Math.random() * .9,
+                     depth:.25 + Math.random() * .75, wob:.2 + Math.random() * .8, seed:Math.random() * 100, light:kind === 2 ? 1 : 0 });
+  return L;
+}
+const LOOK = makeLook(0), TGT = Object.assign({}, LOOK);
+LOOK.thick = TGT.thick = .4; LOOK.rows = TGT.rows = .5; LOOK.depth = TGT.depth = .5; LOOK.wob = TGT.wob = .5;
+const S = { auto:true, orbit:.55 };
+const AUTO = { acc:0, lastJump:0, lastSoft:0, rate:1.2, Eslow:0, Eprev:0, changes:0, jumps:0 };
+let recut = 1;
+function lerp3(a, b, k){ for (let i = 0; i < 3; i++) a[i] += (b[i] - a[i]) * k; }
+function setTarget(L, fast){
+  Object.assign(TGT, L);
+  AUTO.rate = fast ? 5.5 : 1.1;
+  AUTO.changes++;
+  if (fast){ AUTO.jumps++; recut = 0; LOOK.seed = TGT.seed; }     // a new way of cutting, carved again from the top
+  syncUI();
+}
+function easeLook(dt){
+  const k = 1 - Math.exp(-dt * AUTO.rate);
+  lerp3(LOOK.bg, TGT.bg, k); lerp3(LOOK.a, TGT.a, k); lerp3(LOOK.b, TGT.b, k); lerp3(LOOK.acc, TGT.acc, k);
+  for (const n of ['thick','depth','wob','light']) LOOK[n] += (TGT[n] - LOOK[n]) * k;
+  LOOK.rows = TGT.rows; LOOK.kind = TGT.kind; LOOK.hue = TGT.hue;
+}
+function driveAuto(dt, now){
+  if (!S.auto || !MODE.on || MODE.reveal < 1) return;
+  const E = F.E, jump = E - AUTO.Eprev; AUTO.Eprev = AUTO.Eprev * .8 + E * .2;
+  // 'sudden' is judged against your own recent level, near the camera or far from it
+  const base = AUTO.Eslow; AUTO.Eslow += (E - AUTO.Eslow) * Math.min(1, dt * .6);
+  if (E > .12 && E > base * 2.8 + .05 && jump > .07 && now - AUTO.lastJump > 1400){ AUTO.lastJump = now; AUTO.acc = 0; setTarget(makeLook(), true); chime(true); return; }
+  // square root: small movements still add up; big ones do not run away
+  AUTO.acc += Math.sqrt(Math.min(E, .3)) * dt * 2.2;
+  if (AUTO.acc > 1){ AUTO.acc = 0; AUTO.lastSoft = now; setTarget(makeLook(), false); chime(false); return; }
+  if (now - AUTO.lastSoft > 14000 && now - AUTO.lastJump > 14000){ AUTO.lastSoft = now; setTarget(makeLook(), false); }
+}
+
+/* ---------- GL ---------- */
+const gl = canvas.getContext('webgl2', { antialias:true, alpha:false, depth:true, preserveDrawingBuffer:true, powerPreference:'high-performance' });
+const VS_GEM = `#version 300 es
+precision highp float;
+in vec2 aG; in vec3 aB; in vec3 aC;         // grid vertex, barycentric corner, triangle centroid (grid) + seed
+uniform sampler2D uField;
+uniform vec2 uSpan, uGrid;
+uniform float uYaw, uPitch, uDepth, uWob, uJit, uSeed, uT, uRecut, uReveal, uHasMask;
+out vec3 vW; out vec3 vB; out float vH; out float vHeat; out float vM; out float vSeed; out float vA;
+float h21(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7)) + uSeed) * 43758.5453); }
+vec2 jitter(vec2 g){
+  // interior vertices move; the border stays put so the frame has clean edges
+  vec2 j = vec2(h21(g), h21(g + 17.3)) - .5;
+  vec2 inside = step(vec2(.5), g) * step(g, uGrid - .5);
+  return g + j * .8 * uJit * inside.x * inside.y;
+}
+vec4 fieldAt(vec2 uv){ return texture(uField, vec2(uv.x, 1. - uv.y)); }
+float height(vec4 f){ return (f.g * .40 + smoothstep(.05, .95, f.a) * .15 * f.r) * uDepth * min(uSpan.x, uSpan.y); }
+void main(){
+  vec2 uv = jitter(aG) / uGrid, cuv = aC.xy / uGrid;
+  vec4 f = fieldAt(uv), fc = fieldAt(cuv);
+  vec3 p = vec3((uv - .5) * uSpan, height(f));
+  // the shard: this triangle alone lifts off toward you, turns a little and shrinks about its middle
+  float ht = fc.b * uWob;
+  vec3 c = vec3((cuv - .5) * uSpan, height(fc));
+  float k = 1. - .45 * ht;
+  p = c + (p - c) * k;
+  float sd = aC.z;
+  p.z += ht * (.10 + .22 * fract(sd * 3.7)) * min(uSpan.x, uSpan.y);
+  p.xy += ht * (vec2(fract(sd * 7.1), fract(sd * 5.3)) - .5) * .06 * min(uSpan.x, uSpan.y);
+  // carved from the top when it switches on, and again on a re-cut
+  float pr = (1. - cuv.y) * .85;
+  float grow = smoothstep(pr, pr + .12, uReveal) * smoothstep(pr, pr + .12, uRecut);
+  p.z *= grow;
+  float cy = cos(uYaw), sy = sin(uYaw), cp = cos(uPitch), sp = sin(uPitch);
+  vec3 q = vec3(cy * p.x + sy * p.z, p.y, -sy * p.x + cy * p.z);
+  q = vec3(q.x, cp * q.y - sp * q.z, sp * q.y + cp * q.z);
+  float D = 2.2, zc = D - q.z;
+  gl_Position = vec4(q.xy * D * 2. / uSpan * .9, (zc - D) / 3. * zc, zc);
+  // a person floats as a carved statue: a facet is kept or dropped whole, so the outline stays cut, not frayed
+  if (uHasMask > .5 && fc.r < .4) gl_Position = vec4(2., 2., 2., 1.);
+  vW = q; vB = aB; vH = p.z / (.55 * min(uSpan.x, uSpan.y)); vHeat = fc.b; vM = fc.r; vSeed = sd; vA = grow;
+}`;
+const FS_GEM = `#version 300 es
+precision highp float;
+in vec3 vW; in vec3 vB; in float vH; in float vHeat; in float vM; in float vSeed; in float vA;
+uniform vec3 uA, uCb, uAcc, uL;
+uniform float uEdge, uHasMask, uLight;
+out vec4 o;
+void main(){
+  vec3 n = normalize(cross(dFdx(vW), dFdy(vW)));
+  if (n.z < 0.) n = -n;
+  float diff = max(dot(n, uL), 0.);
+  // every facet catches the light a little differently, the way cut glass does
+  float tint = fract(vSeed * 13.7);
+  // most facets stay the deep body colour; only the ones turned to the light go pale
+  float lit = pow(diff, 3.) + vH * .12 + (tint - .5) * .3;
+  vec3 base = mix(uA, uCb, clamp(lit, 0., 1.));
+  vec3 c = base * (.55 + .6 * diff);
+  float sp = pow(max(dot(reflect(-uL, n), vec3(0., 0., 1.)), 0.), 40.);
+  c += mix(vec3(1.), uAcc, .3) * sp * .9;
+  c = mix(c, uAcc, clamp(vHeat * 1.2, 0., 1.) * .6);
+  float d = min(min(vB.x, vB.y), vB.z), w = fwidth(d);
+  float edge = 1. - smoothstep(uEdge * .5 * w, (uEdge * .5 + 1.) * w, d);
+  vec3 ec = uLight > .5 ? uA * .5 : mix(uCb, uAcc, .5);
+  c = mix(c, ec, edge * step(.05, uEdge) * .85);
+  o = vec4(c, 1.);
+}`;
+const VS_Q = `#version 300 es
+in vec2 p; void main(){ gl_Position = vec4(p, 0., 1.); }`;
+const FS_BG = `#version 300 es
+precision mediump float;
+uniform vec3 uBg; uniform vec2 uRes; uniform float uT, uLight; out vec4 o;
+float h21(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233))) * 43758.5453); }
+void main(){
+  vec2 q = gl_FragCoord.xy / uRes - .5; q.x *= uRes.x / uRes.y;
+  float v = 1. - smoothstep(.3, 1.15, length(q));
+  vec3 c = uBg * (mix(.55, .92, uLight) + v * mix(.45, .08, uLight));
+  c += (h21(floor(gl_FragCoord.xy / 1.5) + fract(uT * 7.13) * 91.7) - .5) * .022;
+  o = vec4(c, 1.);
+}`;
+const FS_CAM = `#version 300 es
+precision mediump float;
+uniform sampler2D uVid; uniform vec2 uRes, uScale; uniform float uMirror, uA; out vec4 o;
+void main(){
+  vec2 s = gl_FragCoord.xy / uRes; s.y = 1. - s.y;
+  vec2 v = (s - .5) * uScale + .5; if (uMirror > .5) v.x = 1. - v.x;
+  o = vec4(texture(uVid, v).rgb * uA, 1.);
+}`;
+function sh(type, src){ const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s; }
+function prog(vs, fs, attrs){ const p = gl.createProgram(); gl.attachShader(p, sh(gl.VERTEX_SHADER, vs)); gl.attachShader(p, sh(gl.FRAGMENT_SHADER, fs));
+  attrs.forEach((a, i) => gl.bindAttribLocation(p, i, a)); gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+  const U = {}, n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+  for (let i = 0; i < n; i++){ const u = gl.getActiveUniform(p, i); U[u.name] = gl.getUniformLocation(p, u.name); }
+  return { p, U }; }
+function tex(){ const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE); return t; }
+let PG, PB, PC, vaoQ, vaoG, bufG, nG = 0, gemKey = '', gridW = 0, gridH = 0, texVid, texField;
+function initGL(){
+  PG = prog(VS_GEM, FS_GEM, ['aG', 'aB', 'aC']); PB = prog(VS_Q, FS_BG, ['p']); PC = prog(VS_Q, FS_CAM, ['p']);
+  vaoQ = gl.createVertexArray(); gl.bindVertexArray(vaoQ);
+  const q = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, q);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+  vaoG = gl.createVertexArray(); gl.bindVertexArray(vaoG);
+  bufG = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, bufG);
+  gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 32, 0);
+  gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 32, 8);
+  gl.enableVertexAttribArray(2); gl.vertexAttribPointer(2, 3, gl.FLOAT, false, 32, 20);
+  gl.bindVertexArray(null);
+  texVid = tex(); texField = tex();
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+}
+// the cut: a grid, each cell split into two triangles along a random diagonal
+function ensureGem(W, H){
+  const s = Math.round(12 + LOOK.rows * 38);
+  let gw, gh; if (W >= H){ gh = s; gw = Math.round(s * W / H); } else { gw = s; gh = Math.round(s * H / W); }
+  const key = gw + 'x' + gh + ':' + (LOOK.seed | 0);
+  if (key === gemKey) return; gemKey = key; gridW = gw; gridH = gh;
+  const d = new Float32Array(gw * gh * 6 * 8);
+  let o = 0, t = 0;
+  const rnd = (i) => { const x = Math.sin(i * 12.9898 + LOOK.seed * 78.233) * 43758.5453; return x - Math.floor(x); };
+  const tri = (a, b, c) => {
+    const cx = (a[0] + b[0] + c[0]) / 3, cy = (a[1] + b[1] + c[1]) / 3, sd = rnd(++t);
+    for (const [v, bc] of [[a, [1,0,0]], [b, [0,1,0]], [c, [0,0,1]]]){
+      d[o++] = v[0]; d[o++] = v[1]; d[o++] = bc[0]; d[o++] = bc[1]; d[o++] = bc[2]; d[o++] = cx; d[o++] = cy; d[o++] = sd;
+    }
+  };
+  for (let y = 0; y < gh; y++) for (let x = 0; x < gw; x++){
+    const p00 = [x, y], p10 = [x + 1, y], p01 = [x, y + 1], p11 = [x + 1, y + 1];
+    if (rnd(y * 977 + x) < .5){ tri(p00, p10, p11); tri(p00, p11, p01); }
+    else { tri(p00, p10, p01); tri(p10, p11, p01); }
+  }
+  gl.bindBuffer(gl.ARRAY_BUFFER, bufG); gl.bufferData(gl.ARRAY_BUFFER, d, gl.STATIC_DRAW);
+  nG = gw * gh * 6;
+}
+
+/* ---------- field: mask in screen space, its blur, motion heat, brightness ---------- */
+const FSHORT = 96;
+const F = { w:0, h:0, cur:null, prev:null, have:false, lum:null, sm:null, blur:null, tmp:null, heat:null, px:null, idx:null, idxKey:'', E:0 };
+function ensureField(W, H){
+  let w, h; if (W >= H){ h = FSHORT; w = Math.round(FSHORT * W / H); } else { w = FSHORT; h = Math.round(FSHORT * H / W); }
+  if (w === F.w && h === F.h) return;
+  F.w = w; F.h = h; est.width = w; est.height = h; const n = w * h;
+  F.cur = new Uint8Array(n); F.prev = new Uint8Array(n); F.have = false; F.lum = new Float32Array(n);
+  F.sm = new Float32Array(n); F.blur = new Float32Array(n); F.tmp = new Float32Array(n); F.heat = new Float32Array(n);
+  F.px = new Uint8Array(n * 4); F.idxKey = '';
+}
+function grab(){
+  const w = F.w, h = F.h, vw = video.videoWidth, vh = video.videoHeight;
+  if (!(vw > 0 && vh > 0)) return false;
+  const sa = w / h, va = vw / vh;
+  let cw = vw, ch = vh; if (va > sa) cw = vh * sa; else ch = vw / sa;
+  ectx.setTransform(mirror ? -1 : 1, 0, 0, 1, mirror ? w : 0, 0);
+  try { ectx.drawImage(video, (vw - cw)/2, (vh - ch)/2, cw, ch, 0, 0, w, h); } catch(e){ return false; }
+  const d = ectx.getImageData(0, 0, w, h).data;
+  const t = F.prev; F.prev = F.cur; F.cur = t;
+  for (let i = 0, j = 0, n = w*h; i < n; i++, j += 4){ const g = (d[j]*77 + d[j+1]*150 + d[j+2]*29) >> 8; F.cur[i] = g; F.lum[i] = g / 255; }
+  const ok = F.have; F.have = true; return ok;
+}
+function ensureIdx(){
+  const key = F.w + 'x' + F.h + ':' + M.w + 'x' + M.h + ':' + (mirror ? 1 : 0) + ':' + vidW + 'x' + vidH;
+  if (key === F.idxKey) return; F.idxKey = key;
+  if (!F.idx || F.idx.length !== F.w * F.h) F.idx = new Int32Array(F.w * F.h);
+  // screen cell -> mask pixel: the same cover crop and mirror as the picture
+  const sa = F.w / F.h, va = vidW / vidH, sx = sa < va ? sa / va : 1, sy = sa < va ? 1 : va / sa;
+  for (let y = 0; y < F.h; y++) for (let x = 0; x < F.w; x++){
+    let u = ((x + .5) / F.w - .5) * sx + .5, v = ((y + .5) / F.h - .5) * sy + .5;
+    if (mirror) u = 1 - u;
+    const mx = Math.min(M.w - 1, Math.max(0, u * M.w | 0)), my = Math.min(M.h - 1, Math.max(0, v * M.h | 0));
+    F.idx[y * F.w + x] = my * M.w + mx;
+  }
+}
+function boxBlur(src, dst, tmp, w, h, r){
+  const inv = 1 / (2 * r + 1);
+  for (let y = 0; y < h; y++){ const o = y * w; let s = 0;
+    for (let x = -r; x <= r; x++) s += src[o + Math.min(w - 1, Math.max(0, x))];
+    for (let x = 0; x < w; x++){ tmp[o + x] = s * inv; s += src[o + Math.min(w - 1, x + r + 1)] - src[o + Math.max(0, x - r)]; } }
+  for (let x = 0; x < w; x++){ let s = 0;
+    for (let y = -r; y <= r; y++) s += tmp[Math.min(h - 1, Math.max(0, y)) * w + x];
+    for (let y = 0; y < h; y++){ dst[y * w + x] = s * inv; s += tmp[Math.min(h - 1, y + r + 1) * w + x] - tmp[Math.max(0, y - r) * w + x]; } }
+}
+function updateField(dt, grabbed){
+  const n = F.w * F.h, useMask = M.has && M.live;
+  if (useMask) ensureIdx();
+  const decay = Math.exp(-dt / .55);
+  let e = 0, area = 0;
+  // camera warm-up and exposure jumps change most of the frame at once: that is not you moving
+  // Told apart by the SIGN of the change, not by how much changed. An
+  // exposure jump pushes nearly every pixel the same way; a body moving makes
+  // some pixels brighter and others darker. Counting changed pixels could not
+  // tell them apart: a person close to a phone sweeping sideways changes most
+  // of the frame too, and exactly that lunge was being thrown away.
+  let armed = grabbed && performance.now() - camT0 > 900;
+  if (armed){
+    let ch = 0, cnt = 0, sAbs = 0, sSig = 0;
+    for (let i = 0; i < n; i += 5){
+      const dv = F.cur[i] - F.prev[i]; cnt++;
+      if (dv > 30 || -dv > 30) ch++;
+      sAbs += dv < 0 ? -dv : dv; sSig += dv;
+    }
+    if (ch > cnt * .35 && Math.abs(sSig) > sAbs * .6) armed = false;
+  }
+  for (let i = 0; i < n; i++){
+    // with no mask, brightness alone makes the relief
+    const mk = useMask ? M.f[F.idx[i]] : Math.pow(F.lum[i], 1.4) * .85;
+    F.sm[i] = F.sm[i] * .45 + mk * .55;
+    area += useMask ? F.sm[i] : 1;
+    let hv = F.heat[i] * decay;
+    if (armed){
+      const dv = Math.abs(F.cur[i] - F.prev[i]);
+      if (dv > 14){ const m = Math.min(1, (dv - 14) / 45) * (useMask ? Math.min(1, F.sm[i] * 1.6 + .15) : 1); if (m > hv) hv = m; e += m; }
+    }
+    F.heat[i] = hv;
+  }
+  // Movement as a share of YOU, not of the frame: someone small in the
+  // picture should be able to drive the piece as hard as someone close up.
+  if (grabbed) F.E = F.E * .5 + (e / Math.max(area, n * .06)) * .5;
+  else F.E *= Math.exp(-dt / .4);
+  // three box passes ~ a gaussian: a body that fills the frame should still
+  // come out as a dome, not a flat plateau with a cliff round the edge
+  const r = Math.max(2, F.w / 15 | 0);
+  boxBlur(F.sm, F.blur, F.tmp, F.w, F.h, r);
+  boxBlur(F.blur, F.blur, F.tmp, F.w, F.h, r);
+  boxBlur(F.blur, F.blur, F.tmp, F.w, F.h, r);
+  const P = F.px;
+  for (let i = 0, j = 0; i < n; i++, j += 4){
+    P[j] = F.sm[i] * 255; P[j+1] = Math.min(1, F.blur[i] * 1.6) * 255; P[j+2] = F.heat[i] * 255; P[j+3] = F.lum[i] * 255;
+  }
+  gl.bindTexture(gl.TEXTURE_2D, texField);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, F.w, F.h, 0, gl.RGBA, gl.UNSIGNED_BYTE, P);
+}
+
+/* ---------- person mask ---------- */
+const M = { w:0, h:0, f:null, has:false, live:false, external:false, lastT:0 };
+function ingestMask(data, w, h){
+  if (!data || !(w > 0) || !(h > 0) || !(w * h <= 4e6) || data.length < w * h) return false;
+  if (M.w !== w || M.h !== h){ M.w = w; M.h = h; M.f = new Float32Array(w * h); F.idxKey = ''; }
+  for (let i = 0, n = w * h; i < n; i++){ let m = data[i]; if (!(m >= 0)) m = 0; else if (m > 1) m = 1; M.f[i] = m; }
+  M.has = true; M.live = true; M.lastT = performance.now();
+  return true;
+}
+let segmenter = null, lastTs = 0, lastSegVT = -1;
+async function initModel(){
+  try{
+    setStatus('人物の切り抜きを読み込み中…');
+    const vision = await import(VISION_URL);
+    const fs = await vision.FilesetResolver.forVisionTasks(WASM_URL);
+    const opts = d => ({ baseOptions:{ modelAssetPath:SEG_MODEL, delegate:d }, runningMode:'VIDEO', outputConfidenceMasks:true, outputCategoryMask:false });
+    try { segmenter = await vision.ImageSegmenter.createFromOptions(fs, opts('GPU')); }
+    catch(e){ segmenter = await vision.ImageSegmenter.createFromOptions(fs, opts('CPU')); }
+    setStatus('');
+  }catch(e){
+    if (M.external) return;
+    setStatus('人物の切り抜きを読み込めませんでした（ネット接続を確認）。\n明るさだけで立体にして続けます。');
+    setTimeout(() => setStatus(''), 9000);
+  }
+}
+function segment(now){
+  if (!segmenter || video.readyState < 2) return;
+  const vt = video.currentTime; if (vt === lastSegVT) return; lastSegVT = vt;
+  try{
+    const ts = Math.max(lastTs + 1, Math.round(now)); lastTs = ts;
+    segmenter.segmentForVideo(video, ts, res => {
+      const ms = res && res.confidenceMasks; if (!ms || !ms.length) return;
+      const mk = ms[ms.length - 1];
+      ingestMask(mk.getAsFloat32Array(), mk.width, mk.height);
+    });
+  }catch(e){}
+}
+
+/* ---------- camera ---------- */
+let stream = null, facing = 'user', mirror = true, started = false, vidW = 1280, vidH = 720, lastVT = -1, camT0 = 0;
+function setStatus(t){ $('status').textContent = t || ''; }
+function camError(e){
+  const msg = (e && (e.message || e.name)) ? (e.message || e.name) : String(e || 'unknown');
+  const text = 'カメラを起動できませんでした：' + msg + '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+  $('err').textContent = text;
+  if (started) setStatus(text);
+}
+async function startCam(){
+  const md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) throw new Error('getUserMedia is unavailable');
+  const s = await md.getUserMedia({ video:{ facingMode:{ ideal:facing }, width:{ ideal:1280 }, height:{ ideal:720 } }, audio:false });
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = s; mirror = facing === 'user';
+  video.srcObject = s;
+  await new Promise(r => { if (video.readyState >= 1) r(); else video.onloadedmetadata = () => r(); });
+  await video.play().catch(()=>{});
+  vidW = video.videoWidth || 1280; vidH = video.videoHeight || 720;
+  F.have = false; F.idxKey = ''; camT0 = performance.now();
+}
+/* ---------- audio: a glassy chime when the cut changes ---------- */
+let actx = null, bus = null, recDest = null, lastChime = 0;
+function ensureAudio(){
+  if (actx){ if (actx.state === 'suspended') actx.resume().catch(()=>{}); return; }
+  const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+  actx = new AC(); bus = actx.createGain(); bus.gain.value = .28; bus.connect(actx.destination);
+  recDest = actx.createMediaStreamDestination(); bus.connect(recDest);
+  actx.resume().catch(()=>{});
+}
+function chime(big){
+  if (!actx || actx.state !== 'running') return;
+  const t0 = actx.currentTime; if (t0 - lastChime < .25) return; lastChime = t0;
+  // struck glass: a few inharmonic partials, the upper ones dying first
+  const f0 = 900 + Math.random() * 700, parts = big ? [1, 2.76, 5.4, 8.93] : [1, 2.76, 5.4];
+  parts.forEach((r, i) => {
+    const o = actx.createOscillator(), g = actx.createGain(), dur = (big ? 2.2 : 1.4) / (1 + i * .8);
+    o.type = 'sine'; o.frequency.value = f0 * r;
+    g.gain.setValueAtTime(.0001, t0); g.gain.exponentialRampToValueAtTime((big ? .16 : .09) / (1 + i), t0 + .005);
+    g.gain.exponentialRampToValueAtTime(.0001, t0 + dur);
+    o.connect(g); g.connect(bus); o.start(t0); o.stop(t0 + dur + .05);
+  });
+}
+
+/* ---------- ui ---------- */
+const MODE = { on:false, X:0, reveal:0, camA:1 };
+function setMode(on){
+  if (on === MODE.on) return; MODE.on = on;
+  $('mode').textContent = on ? '◂ CAMERA' : '▸ KIRIKO';
+  document.body.classList.toggle('cam', !on);
+  if (on) chime(true);
+}
+$('mode').onclick = () => setMode(!MODE.on);
+addEventListener('keydown', e => { if (started && (e.key === ' ' || e.key === 'Enter') && document.activeElement.tagName !== 'INPUT'){ e.preventDefault(); setMode(!MODE.on); } });
+$('go').onclick = async () => {
+  $('err').textContent = '';
+  ensureAudio();
+  try{
+    if (!gl) throw new Error('WebGL2 に未対応のブラウザです');
+    if (!PG) initGL();
+    await startCam();
+  }catch(e){ camError(e); return; }
+  $('start').style.display = 'none';
+  ['gear','flip','bar','rec','shoot','auto','hud','mode'].forEach(id => $(id).classList.add('show'));
+  MODE.on = true; setMode(false);
+  if (!started){ started = true; initModel(); requestAnimationFrame(loop); }
+};
+$('flip').onclick = async () => {
+  const prev = facing; facing = facing === 'user' ? 'environment' : 'user';
+  try { await startCam(); } catch(e){ facing = prev; camError(e); }
+};
+$('gear').onclick = () => $('panel').classList.toggle('hide');
+function setAuto(on){ S.auto = on; $('auto').classList.toggle('on', on); $('auto').textContent = on ? 'AUTO' : 'AUTO OFF'; }
+$('auto').onclick = () => { setAuto(!S.auto); if (S.auto){ AUTO.acc = 0; setTarget(makeLook(), true); chime(true); } };
+$('kinds').onclick = e => { const b = e.target.closest('button'); if (!b) return; setAuto(false);
+  const L = makeLook(+b.dataset.k); for (const n of ['thick','rows','depth','wob','seed']) L[n] = TGT[n]; setTarget(L, false); chime(false); };
+const SL = [['sThick','thick'],['sRows','rows'],['sDepth','depth'],['sWob','wob']];
+SL.forEach(([id, k]) => { $(id).oninput = e => { setAuto(false); TGT[k] = +e.target.value; AUTO.rate = 6; }; });
+$('sOrbit').oninput = e => { S.orbit = +e.target.value; };
+function syncUI(){
+  SL.forEach(([id, k]) => { $(id).value = TGT[k]; });
+  [...$('kinds').children].forEach(x => x.classList.toggle('on', +x.dataset.k === TGT.kind));
+}
+function cssColor(c, a){ return 'rgba(' + (c[0]*255|0) + ',' + (c[1]*255|0) + ',' + (c[2]*255|0) + (a == null ? ',1)' : ',' + a + ')'); }
+function paintUI(){
+  const r = document.documentElement.style, light = LOOK.light > .5;
+  const fg = light ? [.08, .08, .1] : [.93, .93, .95];
+  r.setProperty('--bg', cssColor(LOOK.bg)); r.setProperty('--fg', cssColor(fg));
+  r.setProperty('--dim', cssColor(fg, .55)); r.setProperty('--line', cssColor(fg, .22)); r.setProperty('--acc', cssColor(LOOK.acc));
+}
+
+let drag = null, yawUser = 0, pitchUser = 0;
+canvas.addEventListener('pointerdown', e => { drag = { x:e.clientX, y:e.clientY, y0:yawUser, p0:pitchUser, moved:false }; canvas.setPointerCapture(e.pointerId); });
+canvas.addEventListener('pointermove', e => {
+  if (!drag) return; const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+  if (Math.abs(dx) + Math.abs(dy) > 6) drag.moved = true;
+  const s = Math.min(innerWidth, innerHeight);
+  yawUser = Math.max(-1.2, Math.min(1.2, drag.y0 + dx / s * 2.4)); pitchUser = Math.max(-.7, Math.min(.7, drag.p0 + dy / s * 1.3));
+});
+const endDrag = () => {
+  if (drag && !drag.moved && MODE.on && MODE.reveal >= 1){
+    const L = makeLook(S.auto ? null : TGT.kind);
+    if (!S.auto) for (const n of ['thick','rows','depth','wob']) L[n] = TGT[n];
+    setTarget(L, true); chime(true);
+  }
+  drag = null;
+};
+canvas.addEventListener('pointerup', endDrag); canvas.addEventListener('pointercancel', () => { drag = null; });
+
+$('shoot').onclick = () => {
+  try{
+    canvas.toBlob(b => { if (!b) return; const a = document.createElement('a'); a.href = URL.createObjectURL(b);
+      a.download = 'kiriko-' + Date.now() + '.png'; a.click(); }, 'image/png');
+  }catch(e){ setStatus('保存できませんでした。'); }
+};
+let rec = null, chunks = [];
+$('rec').onclick = () => {
+  if (rec && rec.state === 'recording'){ rec.stop(); return; }
+  try{
+    ensureAudio();
+    const tracks = [...canvas.captureStream(30).getVideoTracks()];
+    if (recDest) tracks.push(...recDest.stream.getAudioTracks());
+    const mime = ['video/mp4;codecs=avc1','video/webm;codecs=vp9,opus','video/webm'].find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || '';
+    rec = new MediaRecorder(new MediaStream(tracks), mime ? { mimeType:mime } : {});
+    chunks = [];
+    rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+    rec.onstop = () => {
+      $('rec').classList.remove('on'); $('rec').textContent = '● REC';
+      const ext = (rec.mimeType || '').includes('mp4') ? 'mp4' : 'webm';
+      const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(chunks, { type:rec.mimeType || 'video/webm' }));
+      a.download = 'kiriko.' + ext; a.click();
+    };
+    rec.start(); $('rec').classList.add('on'); $('rec').textContent = '■ STOP';
+  }catch(e){ setStatus('録画を開始できませんでした。'); }
+};
+/* ---------- render ---------- */
+let lastT = 0, hudT = 0, uiT = 0, yaw = 0, pitch = 0;
+function loop(now){
+  requestAnimationFrame(loop);
+  const dt = lastT ? Math.min(.1, (now - lastT)/1000) : 1/60; lastT = now;
+  const t = now / 1000;
+  if (video.videoWidth && (video.videoWidth !== vidW || video.videoHeight !== vidH)){ vidW = video.videoWidth; vidH = video.videoHeight; F.have = false; F.idxKey = ''; }
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  let W = Math.round(innerWidth*dpr), H = Math.round(innerHeight*dpr);
+  const k = Math.min(1, 1800 / Math.max(W, H)); W = Math.round(W*k); H = Math.round(H*k);
+  if (canvas.width !== W || canvas.height !== H){ canvas.width = W; canvas.height = H; }
+  ensureField(W, H);
+  if (!M.external) segment(now);
+  if (M.live && now - M.lastT > 1500) M.live = false;
+  if (video.readyState < 2) return;
+
+  const vt = video.currentTime, fresh = vt !== lastVT; lastVT = vt;
+  const grabbed = fresh && grab();
+  updateField(dt, grabbed);
+  if (fresh){ gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, texVid);
+    try { gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video); } catch(e){ return; } }
+
+  MODE.X = MODE.on ? Math.min(1.6, MODE.X + dt) : Math.max(0, MODE.X - dt * 2.6);
+  MODE.camA = 1 - Math.min(1, MODE.X / .28);
+  MODE.reveal = Math.max(0, Math.min(1, (MODE.X - .3) / 1.2));
+  driveAuto(dt, now);
+  easeLook(dt);
+  recut = Math.min(1, recut + dt * 1.8);
+  ensureGem(W, H);
+  const span = [W / H, 1];
+  if (!drag){ yawUser *= Math.exp(-dt / 3); pitchUser *= Math.exp(-dt / 3); }
+  const amp = .75 * S.orbit;
+  yaw += (Math.max(-1.05, Math.min(1.05, Math.sin(t * .285) * amp + yawUser)) - yaw) * (1 - Math.exp(-dt * 4));
+  pitch += ((Math.sin(t * .21) * .14 * S.orbit - .08 * S.orbit + pitchUser) - pitch) * (1 - Math.exp(-dt * 4));
+
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, 0, W, H);
+  gl.disable(gl.DEPTH_TEST);
+  if (MODE.reveal <= 0){
+    gl.clearColor(0, 0, 0, 1); gl.clear(gl.COLOR_BUFFER_BIT);
+    if (MODE.camA > 0){
+      const sa0 = W/H, va0 = vidW/vidH;
+      gl.useProgram(PC.p); gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, texVid); gl.uniform1i(PC.U.uVid, 0);
+      gl.uniform2f(PC.U.uRes, W, H); gl.uniform2f(PC.U.uScale, sa0 < va0 ? sa0/va0 : 1, sa0 < va0 ? 1 : va0/sa0);
+      gl.uniform1f(PC.U.uMirror, mirror ? 1 : 0); gl.uniform1f(PC.U.uA, MODE.camA * MODE.camA);
+      gl.bindVertexArray(vaoQ); gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    }
+    return;
+  }
+  gl.useProgram(PB.p);
+  gl.uniform3fv(PB.U.uBg, LOOK.bg); gl.uniform2f(PB.U.uRes, W, H); gl.uniform1f(PB.U.uT, t); gl.uniform1f(PB.U.uLight, LOOK.light);
+  gl.bindVertexArray(vaoQ); gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+  gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.LESS); gl.clearDepth(1); gl.clear(gl.DEPTH_BUFFER_BIT);
+  gl.useProgram(PG.p);
+  gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, texField); gl.uniform1i(PG.U.uField, 1);
+  gl.uniform2f(PG.U.uSpan, span[0], span[1]); gl.uniform2f(PG.U.uGrid, gridW, gridH);
+  gl.uniform1f(PG.U.uYaw, yaw); gl.uniform1f(PG.U.uPitch, pitch);
+  gl.uniform1f(PG.U.uDepth, (.35 + 1.5 * LOOK.depth) * Math.min(1, MODE.reveal * 1.4));
+  gl.uniform1f(PG.U.uWob, .4 + 1.6 * LOOK.wob); gl.uniform1f(PG.U.uJit, .55 + .45 * LOOK.wob);
+  gl.uniform1f(PG.U.uSeed, LOOK.seed); gl.uniform1f(PG.U.uT, t);
+  gl.uniform1f(PG.U.uReveal, MODE.reveal); gl.uniform1f(PG.U.uRecut, recut);
+  gl.uniform3fv(PG.U.uA, LOOK.a); gl.uniform3fv(PG.U.uCb, LOOK.b); gl.uniform3fv(PG.U.uAcc, LOOK.acc);
+  gl.uniform1f(PG.U.uEdge, LOOK.thick < .12 ? 0 : (.6 + 3.4 * LOOK.thick) * Math.min(W, H) / 900);
+  gl.uniform1f(PG.U.uHasMask, M.has && M.live ? 1 : 0); gl.uniform1f(PG.U.uLight, LOOK.light);
+  // the light swings a little on its own so still glass still glints
+  const la = t * .4, L = [-.45 + Math.sin(la) * .25, .55 + Math.cos(la * .7) * .15, .7], ln = Math.hypot(...L);
+  gl.uniform3f(PG.U.uL, L[0]/ln, L[1]/ln, L[2]/ln);
+  gl.bindVertexArray(vaoG); gl.drawArrays(gl.TRIANGLES, 0, nG);
+  gl.disable(gl.DEPTH_TEST);
+
+  if (++uiT > 6){ uiT = 0; paintUI(); }
+  if (++hudT > 10){
+    hudT = 0;
+    $('hud').innerHTML = 'KIRIKO  ' + (S.auto ? '<b>AUTO</b>' : 'MANUAL') + '  ' + KINDS[LOOK.kind] + ' ' + String(LOOK.hue).padStart(3, '0') + '°' +
+      '\nFACETS ' + String(nG / 3).padStart(4, '0') + '   EDGE ' + (LOOK.thick < .12 ? 'NONE' : (.6 + 3.4 * LOOK.thick).toFixed(1) + 'PX') +
+      '\nYAW ' + (yaw * 57.3 >= 0 ? '+' : '−') + Math.abs(yaw * 57.3).toFixed(0).padStart(2, '0') + '°';
+  }
+}
+
+/* ---------- test hook (used by the local verification harness) ---------- */
+window.__KIRIKO = {
+  state: () => ({ on:MODE.on, reveal:MODE.reveal, auto:S.auto, kind:LOOK.kind, hue:LOOK.hue, facets:nG / 3, gw:gridW, gh:gridH,
+                  thick:+LOOK.thick.toFixed(3), E:+F.E.toFixed(4), changes:AUTO.changes, jumps:AUTO.jumps, mask:M.live, fw:F.w, fh:F.h }),
+  mode(m){ setMode(!!m); },
+  auto(on){ setAuto(!!on); },
+  feedMask(data, w, h){ M.external = true; return ingestMask(data, w, h); },
+  look: () => JSON.parse(JSON.stringify(LOOK)),
+};
+</script>
+</body>
+</html>
