@@ -1,0 +1,671 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="description" content="映った人が、天井から吊られた何十本もの細い短冊に刷られた肖像になる。動いたところの短冊がねじれて翻り、裏の金箔がひらめく。止まれば一枚の肖像に戻る。">
+<meta name="theme-color" content="#0a0a0a">
+<title>TANZAKU ─ 短冊に刷られた肖像</title>
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  TANZAKU 短冊 ─ 短冊に刷られた肖像                    ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  MOOD       ギャラリーの暗い一室に吊られたキネティック・インスタレーション。
+             ハイブランドのウィンドウ、プリーツの服、ファッションフィルム。
+             あなたの肖像は銀塩のモノクロで細い短冊に刷られ、黒い地に下がる。
+             動いたところの短冊だけがねじれて翻り、裏に貼った金箔が光を返す。
+             止まれば短冊は戻って、また一枚の肖像に揃う。
+  PALETTE    GILT    地 #0a0a0a・刷り 銀のモノクロ・裏 金箔 #c9a24a
+             LACQUER 地 #0b0808・刷り 銀のモノクロ・裏 朱漆 #9e1f1a
+             BONE    地 #e9e5dc・刷り 墨のモノクロ・裏 黒漆 #16140f
+  TYPE       Bellefair（見出し・細いセリフ）＋ Overpass Mono 300（計器）。
+  MOTION     短冊は一本ごとに縦 40 の節を持つ紐。節は横の動きの向きへねじれ、
+             隣の節にねじれを渡しながら、ばねでゆっくり正面に戻る（約 1.5 秒）。
+             横揺れも少し。タップで、その点から突風の輪が広がる。
+  SIGNATURE  静止した肖像が、動いた場所からだけ金色にほどけること。
+  SWITCH     はじめは素のカメラ。「▸ TANZAKU」で左から順に短冊が一回転して
+             色が抜け、切れ目が入る。「◂ CAMERA」で逆向きに一回転して戻る。
+  TECH       WebGL2。短冊の節を毎フレーム CPU で解いて頂点に書き、
+             表は静止位置のカメラ映像（＝刷り）、裏は金属の面として陰影をつける。
+             動きは縮小映像のフレーム差と横勾配から、節ごとの横速度として推定。
+             人物マスクがあれば背景の刷りを沈める（無くても動く）。
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bellefair&family=Overpass+Mono:wght@300;400&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0a0a0a;--fg:#ebe6db;--dim:rgba(235,230,219,.5);--line:rgba(235,230,219,.2);--acc:#c9a24a}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none}
+html,body{margin:0;height:100%;background:var(--bg);overflow:hidden;color:var(--fg);
+  font-family:"Bellefair","Hiragino Mincho ProN","Noto Serif JP",serif;transition:background .4s,color .4s}
+#gl{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+#cam{position:fixed;left:0;top:0;width:2px;height:2px;opacity:.01;pointer-events:none}
+#est{display:none}
+
+#start{position:fixed;inset:0;z-index:30;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;
+  padding:28px;text-align:center;background:var(--bg)}
+#start .t{font:300 10px "Overpass Mono",monospace;letter-spacing:.5em;margin-right:-.5em;color:var(--dim)}
+#start h1{margin:0;font:400 min(15vw,96px)/1 "Bellefair",serif;letter-spacing:.3em;margin-right:-.3em}
+#start svg{width:120px;height:64px}
+#start p{margin:0;font-size:12px;line-height:2.1;color:var(--dim);letter-spacing:.1em;font-family:"Hiragino Sans","Noto Sans JP",sans-serif;font-weight:300}
+#go{appearance:none;border:1px solid var(--line);background:transparent;color:var(--fg);font:400 10px "Overpass Mono",monospace;
+  letter-spacing:.5em;padding:15px 30px 15px 36px;cursor:pointer;transition:border-color .3s}
+#go:hover{border-color:var(--acc)}
+#err{font-size:12px;line-height:1.8;max-width:340px;min-height:1em;white-space:pre-line;color:#e39a8a;font-family:"Hiragino Sans","Noto Sans JP",sans-serif}
+
+.btn{position:fixed;z-index:12;appearance:none;border:0;background:transparent;color:var(--fg);font:400 10px "Overpass Mono","Hiragino Sans",monospace;
+  letter-spacing:.3em;padding:10px 8px;display:none;cursor:pointer;opacity:.6;transition:opacity .3s}
+.btn.show{display:block}
+.btn:hover{opacity:1}
+#gear{right:10px;top:calc(env(safe-area-inset-top) + 6px);font-size:14px;letter-spacing:0}
+#flip{right:10px;top:calc(env(safe-area-inset-top) + 40px);letter-spacing:.1em;font-family:"Hiragino Sans","Noto Sans JP",sans-serif}
+#bar{position:fixed;left:0;right:0;bottom:calc(env(safe-area-inset-bottom) + 10px);z-index:12;display:none;justify-content:center;align-items:center;gap:30px}
+#bar.show{display:flex}
+#bar .btn{position:static;display:block}
+#bar #shoot{width:42px;height:42px;border-radius:50%;border:1px solid var(--fg);padding:0;opacity:.8;
+  background:radial-gradient(circle,var(--fg) 0 11px,transparent 11.5px)}
+#rec.on{opacity:1;color:var(--acc)}
+#hud{position:fixed;left:14px;top:calc(env(safe-area-inset-top) + 14px);z-index:11;font:300 9px "Overpass Mono",monospace;letter-spacing:.26em;color:var(--dim);
+  pointer-events:none;display:none;line-height:2.1;white-space:pre}
+#hud.show{display:block}
+#status{position:fixed;left:14px;bottom:calc(env(safe-area-inset-bottom) + 70px);z-index:11;font-size:11px;letter-spacing:.04em;
+  color:var(--dim);pointer-events:none;max-width:72vw;line-height:1.7;white-space:pre-line;font-family:"Hiragino Sans","Noto Sans JP",sans-serif}
+
+#panel{position:fixed;right:10px;top:calc(env(safe-area-inset-top) + 78px);z-index:12;width:min(270px,calc(100vw - 20px));
+  background:color-mix(in srgb,var(--bg) 86%,transparent);border:1px solid var(--line);padding:14px 16px;display:flex;flex-direction:column;gap:13px;
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);transition:opacity .25s}
+#panel.hide{opacity:0;pointer-events:none}
+.chips{display:flex;border:1px solid var(--line)}
+.chips button{flex:1;appearance:none;border:0;background:transparent;color:var(--fg);padding:8px 2px;font:400 9px "Overpass Mono",monospace;
+  letter-spacing:.2em;cursor:pointer;opacity:.55}
+.chips button.on{opacity:1;background:color-mix(in srgb,var(--fg) 12%,transparent)}
+#panel label{display:flex;align-items:center;gap:10px;font-size:11px;letter-spacing:.04em;font-family:"Hiragino Sans","Noto Sans JP",sans-serif;font-weight:300}
+#panel label span{width:74px;flex:none;color:var(--dim)}
+#panel input[type=range]{flex:1;accent-color:var(--acc)}
+#panel .note{font-size:10px;color:var(--dim);line-height:1.7;font-family:"Hiragino Sans","Noto Sans JP",sans-serif}
+#mode{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom) + 72px);z-index:13;display:none;
+  appearance:none;border:1px solid var(--line);background:color-mix(in srgb,var(--bg) 55%,transparent);color:var(--fg);
+  font:400 10px "Overpass Mono",monospace;letter-spacing:.42em;padding:13px 22px 13px 28px;cursor:pointer;
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);transition:border-color .3s}
+#mode.show{display:block}
+#mode:hover{border-color:var(--acc)}
+body.cam #mode{border-color:rgba(255,255,255,.55);color:#fff;background:rgba(0,0,0,.35)}
+body.cam .btn{color:#fff}
+body.cam #bar #shoot{border-color:#fff;background:radial-gradient(circle,#fff 0 11px,transparent 11.5px)}
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<canvas id="est"></canvas>
+<video id="cam" playsinline muted autoplay></video>
+<div id="hud"></div>
+<div id="status"></div>
+<button id="gear" class="btn" aria-label="調整">⚙</button>
+<button id="flip" class="btn">⟲ カメラ</button>
+<button id="mode">▸ TANZAKU</button>
+<div id="bar">
+  <button id="rec" class="btn">● REC</button>
+  <button id="shoot" class="btn" aria-label="撮る"></button>
+  <button id="gust" class="btn">GUST</button>
+</div>
+
+<div id="panel" class="hide">
+  <div class="chips" id="pals">
+    <button data-p="0" class="on">GILT</button>
+    <button data-p="1">LACQUER</button>
+    <button data-p="2">BONE</button>
+  </div>
+  <label><span>短冊の数</span><input type="range" id="sCount" min="0" max="1" step="0.01" value="0.45"></label>
+  <label><span>反応</span><input type="range" id="sSens" min="0" max="1" step="0.01" value="0.55"></label>
+  <label><span>戻る速さ</span><input type="range" id="sBack" min="0" max="1" step="0.01" value="0.45"></label>
+  <label><span>背景</span><input type="range" id="sBg" min="0" max="1" step="0.01" value="0.15"></label>
+  <div class="note">動いたところの短冊が翻って、裏の色がひらめく。<br>GUST か画面タップで、その点から風が吹く。</div>
+</div>
+
+<div id="start">
+  <div class="t">PORTRAIT · ON · RIBBONS</div>
+  <svg viewBox="0 0 120 64" aria-hidden="true">
+    <line x1="4" y1="3" x2="116" y2="3" stroke="#c9a24a" stroke-width=".8"/>
+    <g fill="currentColor" opacity=".85">
+      <rect x="12" y="6" width="6" height="56"/><rect x="22" y="6" width="6" height="56"/><rect x="32" y="6" width="6" height="56"/>
+      <rect x="43.5" y="6" width="3" height="56" fill="#c9a24a"/><rect x="53" y="6" width="1.5" height="56" fill="#c9a24a"/>
+      <rect x="62" y="6" width="4" height="56" opacity=".6"/><rect x="72" y="6" width="6" height="56"/><rect x="82" y="6" width="6" height="56"/>
+      <rect x="92" y="6" width="6" height="56"/><rect x="102" y="6" width="6" height="56"/>
+    </g>
+  </svg>
+  <h1>TANZAKU</h1>
+  <p>まずは、いつものカメラ。<br>ボタンを押すと、あなたは吊られた短冊の肖像になる。</p>
+  <button id="go">START</button>
+  <div id="err"></div>
+</div>
+
+<script>
+'use strict';
+/* =====================================================================
+   TANZAKU — the camera image printed on hanging ribbons. Each ribbon is a
+   chain of SEG nodes with a twist angle and a sideways sway, solved on the
+   CPU every frame; the vertices are rewritten and drawn in one call.
+   The front of a ribbon samples the camera at the ribbon's REST position
+   (it is a print), the back is a metal/lacquer face. Motion comes from a
+   small cover-cropped copy of the video: frame difference × horizontal
+   gradient gives a signed sideways velocity for each node.
+   ===================================================================== */
+const VISION_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs';
+const WASM_URL   = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm';
+const SEG_MODEL  = 'https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite';
+
+const $ = id => document.getElementById(id);
+const canvas = $('gl'), video = $('cam'), est = $('est');
+const ectx = est.getContext('2d', { willReadFrequently:true });
+
+const PALS = [
+  { name:'GILT',    bg:[.039,.039,.039], ink:[.02,.02,.022], paper:[.93,.915,.885], back:[.79,.62,.27], spec:[1,.9,.62],  metal:1,  neg:0, css:['#0a0a0a','#ebe6db','#c9a24a'] },
+  { name:'LACQUER', bg:[.043,.031,.031], ink:[.02,.018,.018],paper:[.92,.9,.87],    back:[.55,.09,.07], spec:[1,.72,.62], metal:.35,neg:0, css:['#0b0808','#ebe4dc','#b3322a'] },
+  { name:'BONE',    bg:[.915,.9,.865],   ink:[.07,.065,.06], paper:[.96,.95,.93],   back:[.06,.055,.05],spec:[.85,.83,.8], metal:.6, neg:1, css:['#e9e5dc','#16140f','#16140f'] },
+];
+const S = { pal:0, count:.45, sens:.55, back:.45, bg:.15 };
+const SEG = 40;                                          // nodes per ribbon (rows)
+
+/* ---------- GL ---------- */
+const gl = canvas.getContext('webgl2', { antialias:true, alpha:false, preserveDrawingBuffer:true });
+const VS = `#version 300 es
+layout(location=0) in vec2 aPos;     // screen px
+layout(location=1) in vec2 aRest;    // rest position (0..1 screen)
+layout(location=2) in vec2 aCS;      // cos, sin of the twist
+uniform vec2 uRes;
+out vec2 vRest; out vec2 vCS;
+void main(){
+  vRest = aRest; vCS = aCS;
+  vec2 c = aPos / uRes * 2. - 1.; c.y = -c.y;
+  gl_Position = vec4(c, 0., 1.);
+}`;
+const FS = `#version 300 es
+precision highp float;
+uniform sampler2D uVid, uMask;
+uniform vec2 uScale, uRes;
+uniform float uMirror, uE, uT, uHasMask, uBgK, uNeg, uMetal;
+uniform vec3 uInk, uPaper, uBack, uSpec;
+in vec2 vRest; in vec2 vCS;
+out vec4 o;
+float h2(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233))) * 43758.5453); }
+void main(){
+  vec2 v = (vRest - .5) * uScale + .5; if (uMirror > .5) v.x = 1. - v.x;
+  vec3 cam = texture(uVid, v).rgb;
+  float c = vCS.x, s = vCS.y;
+  float len = max(1e-4, length(vCS)); c /= len; s /= len;
+  // the face normal of the ribbon turns with the twist; key light from upper left front
+  vec3 n = vec3(s, 0., c);
+  vec3 L = normalize(vec3(-.45, .25, 1.));
+  vec3 Hh = normalize(L + vec3(0., 0., 1.));
+  float front = step(0., c);
+  vec3 nf = front > .5 ? n : -n;
+  float dif = max(0., dot(nf, L));
+  float spe = pow(max(0., dot(nf, Hh)), 28.);
+  // the print: silver gelatin monochrome, background sunk by the mask
+  float l = dot(cam, vec3(.299,.587,.114));
+  float g = smoothstep(.05, .92, l); g = g * g * (3. - 2. * g);
+  float m = uHasMask > .5 ? smoothstep(.3, .7, texture(uMask, v).r) : 1.;
+  float grain = (h2(gl_FragCoord.xy + fract(uT * 7.) * 91.) - .5) * .07;
+  vec3 pr = mix(uInk, uPaper, clamp(g + grain, 0., 1.));
+  vec3 bgc = uNeg > .5 ? mix(uPaper, pr, .25) : pr;
+  pr = mix(mix(uInk, bgc, uBgK), pr, m);
+  // the flat-on print is shown as is; turning away darkens it and a sheen runs across
+  float face = .35 + .65 * pow(abs(c), .7);
+  vec3 printLit = pr * face + uSpec * spe * .18;
+  vec3 backLit = uBack * (.18 + .9 * dif) + uSpec * spe * (0.25 + 1.1 * uMetal) + uBack * uMetal * .35 * pow(1. - abs(c), 3.);
+  vec3 col = front > .5 ? printLit : backLit;
+  o = vec4(mix(cam, col, uE), 1.);
+}`;
+// plain background pass (gaps between ribbons)
+const FS_BG = `#version 300 es
+precision highp float;
+uniform vec3 uBg; uniform vec2 uRes; uniform float uT;
+out vec4 o;
+float h2(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233))) * 43758.5453); }
+void main(){
+  vec2 s = gl_FragCoord.xy / uRes;
+  float vig = 1. - .35 * pow(length(s - vec2(.5, .62)) * 1.2, 2.);
+  o = vec4(uBg * mix(.8, 1.12, vig) + (h2(gl_FragCoord.xy + fract(uT) * 57.) - .5) * .012, 1.);
+}`;
+const VS_BG = `#version 300 es
+layout(location=0) in vec2 p; void main(){ gl_Position = vec4(p, 0., 1.); }`;
+function sh(type, src){ const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s; }
+function prog(vs, fs){ const p = gl.createProgram(); gl.attachShader(p, sh(gl.VERTEX_SHADER, vs)); gl.attachShader(p, sh(gl.FRAGMENT_SHADER, fs));
+  gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+  const U = {}, n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+  for (let i = 0; i < n; i++){ const u = gl.getActiveUniform(p, i); U[u.name.replace('[0]', '')] = gl.getUniformLocation(p, u.name); }
+  return { p, U }; }
+function params(){
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE); }
+let P = null, PB = null, vaoR, vaoQ, vbo, ibo, texVid, texMask;
+function initGL(){
+  P = prog(VS, FS); PB = prog(VS_BG, FS_BG);
+  vaoQ = gl.createVertexArray(); gl.bindVertexArray(vaoQ);
+  const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+  vaoR = gl.createVertexArray(); gl.bindVertexArray(vaoR);
+  vbo = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+  gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 24, 0);
+  gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 2, gl.FLOAT, false, 24, 8);
+  gl.enableVertexAttribArray(2); gl.vertexAttribPointer(2, 2, gl.FLOAT, false, 24, 16);
+  ibo = gl.createBuffer(); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo);
+  gl.bindVertexArray(null);
+  texVid = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, texVid); params();
+  texMask = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, texMask); params();
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, 1, 1, 0, gl.RED, gl.UNSIGNED_BYTE, new Uint8Array([255]));
+}
+
+/* ---------- ribbons ---------- */
+// R.n ribbons × (SEG+1) nodes. th/om: twist + angular velocity; px/pv: sway (in ribbon widths).
+const R = { n:0, sw:0, W:0, H:0, th:null, om:null, px:null, pv:null, verts:null, cnt:0, kick:null };
+function ensureRibbons(W, H){
+  const short = Math.min(W, H);
+  const per = Math.round(16 + 44 * S.count);             // ribbons across the short edge
+  const sw = short / per, n = Math.ceil(W / sw) + 1;
+  if (n === R.n && W === R.W && H === R.H) return;
+  const old = R.n === n;
+  R.n = n; R.sw = sw; R.W = W; R.H = H;
+  if (!old){
+    const N = n * (SEG + 1);
+    R.th = new Float32Array(N); R.om = new Float32Array(N); R.px = new Float32Array(N); R.pv = new Float32Array(N);
+    R.kick = new Float32Array(n * 2);                     // scheduled impulse: time (ms), strength
+    R.verts = new Float32Array(N * 2 * 6);
+    const idx = new Uint32Array(n * SEG * 6); let k = 0;
+    for (let i = 0; i < n; i++) for (let j = 0; j < SEG; j++){
+      const a = (i * (SEG + 1) + j) * 2, b = a + 2;       // left/right of node j, then node j+1
+      idx[k++] = a; idx[k++] = a + 1; idx[k++] = b; idx[k++] = a + 1; idx[k++] = b + 1; idx[k++] = b;
+    }
+    R.cnt = k;
+    gl.bindVertexArray(vaoR);
+    gl.bindBuffer(gl.ARRAY_BUFFER, vbo); gl.bufferData(gl.ARRAY_BUFFER, R.verts.byteLength, gl.DYNAMIC_DRAW);
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, idx, gl.STATIC_DRAW);
+    gl.bindVertexArray(null);
+    F.w = 0;                                              // motion grid follows the ribbon grid
+  }
+}
+
+/* ---------- motion field: signed sideways velocity per ribbon node ---------- */
+// est canvas = 3×3 pixels per node, cover-cropped and mirrored like the screen
+const F = { w:0, h:0, cur:null, prev:null, vx:null, mag:null, ok:false };
+const SUB = 3;
+function ensureField(){
+  const w = R.n * SUB, h = (SEG + 1) * SUB;
+  if (w === F.w && h === F.h) return;
+  F.w = w; F.h = h; est.width = w; est.height = h;
+  F.cur = new Float32Array(w * h); F.prev = new Float32Array(w * h);
+  F.vx = new Float32Array(R.n * (SEG + 1)); F.mag = new Float32Array(R.n * (SEG + 1)); F.ok = false;
+}
+let motionSum = 0;
+function readMotion(W, H){
+  const w = F.w, h = F.h;
+  // the est grid covers the same screen area as the ribbons: n·sw wide, H tall
+  const gw = R.n * R.sw, sc = Math.max(W / vidW, H / vidH), ox = (W - vidW * sc) / 2, oy = (H - vidH * sc) / 2;
+  const sx = -ox / sc, sy = -oy / sc, sW = gw / sc, sH = H / sc;
+  ectx.setTransform(1, 0, 0, 1, 0, 0);
+  if (mirror){ ectx.translate(w, 0); ectx.scale(-1, 1); }
+  // mirror maps screen x → vidW - x; draw the source rect that ends up on screen
+  const srcX = mirror ? vidW - (sx + sW) : sx;
+  try { ectx.drawImage(video, srcX, sy, sW, sH, 0, 0, w, h); } catch(e){ return; }
+  ectx.setTransform(1, 0, 0, 1, 0, 0);
+  let d; try { d = ectx.getImageData(0, 0, w, h).data; } catch(e){ return; }
+  const t = F.prev; F.prev = F.cur; F.cur = t;
+  const cur = F.cur, prev = F.prev;
+  for (let i = 0, p = 0, n = w * h; i < n; i++, p += 4) cur[i] = (d[p] * .299 + d[p + 1] * .587 + d[p + 2] * .114) / 255;
+  if (!F.ok){ F.ok = true; F.vx.fill(0); F.mag.fill(0); return; }
+  const nx = R.n, ny = SEG + 1;
+  let sum = 0;
+  for (let cy = 0; cy < ny; cy++){
+    for (let cx = 0; cx < nx; cx++){
+      let num = 0, den = 1e-3, mag = 0;
+      for (let yy = 0; yy < SUB; yy++){
+        const y = cy * SUB + yy, row = y * w;
+        for (let xx = 0; xx < SUB; xx++){
+          const x = cx * SUB + xx, i = row + x;
+          const xl = x > 0 ? i - 1 : i, xr = x < w - 1 ? i + 1 : i;
+          const Ix = ((cur[xr] + prev[xr]) - (cur[xl] + prev[xl])) * .25;
+          const It = cur[i] - prev[i];
+          num -= It * Ix; den += Ix * Ix; mag += It < 0 ? -It : It;
+        }
+      }
+      const k = cx * ny + cy;
+      mag /= SUB * SUB;
+      let v = num / den; if (!(v === v)) v = 0; v = v > 3 ? 3 : v < -3 ? -3 : v;
+      F.vx[k] = v; F.mag[k] = mag; sum += mag;
+    }
+  }
+  motionSum = sum / (nx * ny);
+  // soften the field along each ribbon so a ribbon turns as one piece, not as noise
+  const vx = F.vx, mg = F.mag;
+  for (let pass = 0; pass < 2; pass++)
+    for (let cx = 0; cx < nx; cx++){
+      let pv = vx[cx * ny], pm = mg[cx * ny];
+      for (let cy = 1; cy < ny - 1; cy++){
+        const k = cx * ny + cy, cv = vx[k], cm = mg[k];
+        vx[k] = (pv + 2 * cv + vx[k + 1]) * .25; mg[k] = (pm + 2 * cm + mg[k + 1]) * .25;
+        pv = cv; pm = cm;
+      }
+    }
+}
+
+/* ---------- physics ---------- */
+let motion = 0;
+function step(dt, now, E){
+  const n = R.n, ny = SEG + 1, th = R.th, om = R.om, px = R.px, pv = R.pv;
+  const kSpring = 5 + 22 * S.back, damp = 2.2 + 3 * S.back, couple = 240, sens = .6 + 2.2 * S.sens;
+  const kp = 14, dp = 4.5, cp = 180, ts = now / 1000;
+  const useMotion = F.ok && MODE.on && E > .5 && now - camT0 > 700 && motionSum < .25;  // a camera cut is not motion
+  for (let i = 0; i < n; i++){
+    // scheduled wave (switch / gust)
+    const kt = R.kick[i * 2], ks = R.kick[i * 2 + 1];
+    if (ks !== 0 && now >= kt){
+      for (let j = 0; j < ny; j++) om[i * ny + j] += ks * (.85 + .3 * Math.sin(j * .37 + i));
+      R.kick[i * 2 + 1] = 0;
+    }
+    for (let j = 0; j < ny; j++){
+      const k = i * ny + j;
+      const up = j > 0 ? th[k - 1] : th[k], dn = j < ny - 1 ? th[k + 1] : th[k];
+      let tq = -kSpring * th[k] - damp * om[k] + couple * (up + dn - 2 * th[k])
+             + E * 1.6 * Math.sin(ts * .9 - i * .21 + j * .045);          // a slow breath of air through the room
+      const upp = j > 0 ? px[k - 1] : px[k], dnp = j < ny - 1 ? px[k + 1] : px[k];
+      let fp = -kp * px[k] - dp * pv[k] + cp * (upp + dnp - 2 * px[k]);
+      if (useMotion){
+        const m = F.mag[k];
+        if (m > .012){
+          const v = F.vx[k];
+          const gate = Math.min(1, (m - .012) * 22);
+          const dir = Math.abs(v) > .05 ? Math.sign(v) : ((i & 1) ? 1 : -1);
+          tq += dir * gate * sens * (22 + 70 * Math.min(1, Math.abs(v)));
+          fp += v * gate * sens * 6;
+        }
+      }
+      om[k] += tq * dt; pv[k] += fp * dt;
+      if (om[k] > 40) om[k] = 40; else if (om[k] < -40) om[k] = -40;
+      if (pv[k] > 8) pv[k] = 8; else if (pv[k] < -8) pv[k] = -8;
+    }
+  }
+  let turned = 0;
+  for (let k = 0, N = n * ny; k < N; k++){
+    th[k] += om[k] * dt; px[k] += pv[k] * dt;
+    if (px[k] > 1.6) { px[k] = 1.6; pv[k] = 0; } else if (px[k] < -1.6){ px[k] = -1.6; pv[k] = 0; }
+    if (Math.cos(th[k]) < .3) turned++;
+  }
+  STATS.turned = turned / (n * ny);
+}
+function writeVerts(W, H, E){
+  const n = R.n, ny = SEG + 1, sw = R.sw, v = R.verts, th = R.th, px = R.px;
+  const gap = .5 - .035 * E;                               // seams open with the effect
+  const hw = sw * gap, f = Math.min(W, H) * 2.4, X0 = W / 2;
+  const top = -H * .02, span = H * 1.04;
+  let o = 0;
+  for (let i = 0; i < n; i++){
+    const cx0 = (i + .5) * sw;
+    for (let j = 0; j < ny; j++){
+      const k = i * ny + j, y = top + span * j / SEG;
+      const c = Math.cos(th[k]), s = Math.sin(th[k]);
+      const cx = cx0 + px[k] * sw * E;
+      for (let side = -1; side <= 1; side += 2){
+        const x = cx + side * hw * c, z = side * hw * s;
+        const p = f / (f - z);
+        v[o++] = X0 + (x - X0) * p; v[o++] = H * .5 + (y - H * .5) * p;
+        v[o++] = (cx0 + side * sw * .5) / W; v[o++] = Math.min(1, Math.max(0, y / H));
+        v[o++] = c; v[o++] = s;
+      }
+    }
+  }
+}
+// waves: left→right on the switch, a ring from a point on a gust
+function waveSwitch(now, dir){
+  const n = R.n;
+  for (let i = 0; i < n; i++){
+    const ii = dir > 0 ? i : n - 1 - i;
+    R.kick[i * 2] = now + 380 + ii / n * 900; R.kick[i * 2 + 1] = dir * (13 + 3 * Math.random());
+  }
+}
+function gust(fx, now){
+  if (!MODE.on || MODE.X < 1) return;
+  const n = R.n;
+  for (let i = 0; i < n; i++){
+    const d = Math.abs((i + .5) / n - fx);
+    R.kick[i * 2] = now + d * 700; R.kick[i * 2 + 1] = (i + .5) / n < fx ? -16 * (1 - d * .6) : 16 * (1 - d * .6);
+  }
+  if (actx) whoosh(.6);
+}
+
+/* ---------- person mask (optional: it sinks the background print) ---------- */
+const M = { w:0, h:0, b:null, has:false, live:false, external:false, lastT:0, dirty:false };
+function ingestMask(data, w, h){
+  if (!data || !(w > 0) || !(h > 0) || !(w * h <= 4e6) || data.length < w * h) return false;
+  if (M.w !== w || M.h !== h){ M.w = w; M.h = h; M.b = new Uint8Array(w * h); }
+  for (let i = 0, n = w * h; i < n; i++){ let m = data[i]; if (!(m >= 0)) m = 0; else if (m > 1) m = 1; M.b[i] = m * 255; }
+  M.has = true; M.live = true; M.lastT = performance.now(); M.dirty = true;
+  return true;
+}
+let segmenter = null, lastTs = 0, lastSegVT = -1;
+async function initModel(){
+  try{
+    const vision = await import(VISION_URL);
+    const fs = await vision.FilesetResolver.forVisionTasks(WASM_URL);
+    const opts = d => ({ baseOptions:{ modelAssetPath:SEG_MODEL, delegate:d }, runningMode:'VIDEO', outputConfidenceMasks:true, outputCategoryMask:false });
+    try { segmenter = await vision.ImageSegmenter.createFromOptions(fs, opts('GPU')); }
+    catch(e){ segmenter = await vision.ImageSegmenter.createFromOptions(fs, opts('CPU')); }
+  }catch(e){
+    if (M.external) return;
+    setStatus('人物検出モデルを読み込めませんでした。背景ごと短冊に刷ります。');
+    setTimeout(() => setStatus(''), 6000);
+  }
+}
+function segment(now){
+  if (!segmenter || M.external || video.readyState < 2) return;
+  const vt = video.currentTime; if (vt === lastSegVT) return; lastSegVT = vt;
+  try{
+    const ts = Math.max(lastTs + 1, Math.round(now)); lastTs = ts;
+    segmenter.segmentForVideo(video, ts, res => {
+      const ms = res && res.confidenceMasks; if (!ms || !ms.length) return;
+      const mk = ms[ms.length - 1]; ingestMask(mk.getAsFloat32Array(), mk.width, mk.height);
+    });
+  }catch(e){}
+}
+
+/* ---------- camera ---------- */
+let stream = null, facing = 'user', mirror = true, started = false, vidW = 1280, vidH = 720, lastVT = -1, camT0 = 0;
+function setStatus(t){ $('status').textContent = t || ''; }
+function camError(e){
+  const msg = (e && (e.message || e.name)) ? (e.message || e.name) : String(e || 'unknown');
+  const text = 'カメラを起動できませんでした：' + msg + '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+  $('err').textContent = text;
+  if (started) setStatus(text);
+}
+async function startCam(){
+  const md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) throw new Error('getUserMedia is unavailable');
+  const s = await md.getUserMedia({ video:{ facingMode:{ ideal:facing }, width:{ ideal:1280 }, height:{ ideal:720 } }, audio:false });
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = s; mirror = facing === 'user';
+  video.srcObject = s;
+  await new Promise(r => { if (video.readyState >= 1) r(); else video.onloadedmetadata = () => r(); });
+  await video.play().catch(()=>{});
+  vidW = video.videoWidth || 1280; vidH = video.videoHeight || 720;
+  camT0 = performance.now(); F.ok = false;
+}
+
+/* ---------- audio: paper rustle that follows how fast the ribbons turn ---------- */
+let actx = null, bus = null, recDest = null, rustle = null, rustleF = null;
+function ensureAudio(){
+  if (actx){ if (actx.state === 'suspended') actx.resume().catch(()=>{}); return; }
+  const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+  actx = new AC(); bus = actx.createGain(); bus.gain.value = .55; bus.connect(actx.destination);
+  recDest = actx.createMediaStreamDestination(); bus.connect(recDest);
+  const sr = actx.sampleRate, n = sr * 2 | 0, buf = actx.createBuffer(1, n, sr), d = buf.getChannelData(0);
+  let b = 0; for (let i = 0; i < n; i++){ const w = Math.random() * 2 - 1; b = b * .6 + w * .4; d[i] = (Math.random() < .02 ? w * 2.2 : b) * .6; }
+  const src = actx.createBufferSource(); src.buffer = buf; src.loop = true;
+  rustleF = actx.createBiquadFilter(); rustleF.type = 'bandpass'; rustleF.frequency.value = 2600; rustleF.Q.value = .7;
+  rustle = actx.createGain(); rustle.gain.value = 0;
+  src.connect(rustleF); rustleF.connect(rustle); rustle.connect(bus); src.start();
+  actx.resume().catch(()=>{});
+}
+function whoosh(v){
+  if (!actx || actx.state !== 'running') return;
+  const t = actx.currentTime;
+  rustle.gain.cancelScheduledValues(t); rustle.gain.setTargetAtTime(v * .5, t, .05); rustle.gain.setTargetAtTime(0, t + .5, .4);
+}
+
+// the switch: plain camera (X = 0) ⇄ ribbons (X = 1)
+const MODE = { on:false, X:0 };
+function setMode(on){
+  if (on === MODE.on) return;
+  MODE.on = on;
+  $('mode').textContent = on ? '◂ CAMERA' : '▸ TANZAKU';
+  document.body.classList.toggle('cam', !on);
+  $('gust').style.visibility = on ? 'visible' : 'hidden';
+  if (R.n) waveSwitch(performance.now() - (on ? 0 : 360), on ? 1 : -1);
+  if (actx) setTimeout(() => whoosh(.5), on ? 380 : 0);
+}
+$('mode').onclick = () => setMode(!MODE.on);
+addEventListener('keydown', e => { if (started && (e.key === ' ' || e.key === 'Enter') && document.activeElement.tagName !== 'INPUT'){ e.preventDefault(); setMode(!MODE.on); } });
+$('go').onclick = async () => {
+  $('err').textContent = '';
+  ensureAudio();
+  try{
+    if (!gl) throw new Error('WebGL2 に未対応のブラウザです');
+    if (!P) initGL();
+    await startCam();
+  }catch(e){ camError(e); return; }
+  $('start').style.display = 'none';
+  ['gear','flip','bar','rec','shoot','gust','hud','mode'].forEach(id => $(id).classList.add('show'));
+  MODE.on = true; setMode(false);
+  if (!started){ started = true; initModel(); requestAnimationFrame(loop); }
+};
+$('flip').onclick = async () => {
+  const prev = facing; facing = facing === 'user' ? 'environment' : 'user';
+  try { await startCam(); } catch(e){ facing = prev; camError(e); }
+};
+$('gear').onclick = () => $('panel').classList.toggle('hide');
+$('gust').onclick = () => gust(.5, performance.now());
+canvas.addEventListener('pointerdown', e => { if (started) gust(e.clientX / innerWidth, performance.now()); });
+function setPal(i){
+  S.pal = i; const p = PALS[i];
+  [...$('pals').children].forEach(x => x.classList.toggle('on', +x.dataset.p === i));
+  const r = document.documentElement.style;
+  r.setProperty('--bg', p.css[0]); r.setProperty('--fg', p.css[1]); r.setProperty('--acc', p.css[2]);
+  r.setProperty('--dim', p.neg ? 'rgba(22,20,15,.55)' : 'rgba(235,230,219,.5)'); r.setProperty('--line', p.neg ? 'rgba(22,20,15,.22)' : 'rgba(235,230,219,.2)');
+}
+$('pals').onclick = e => { const b = e.target.closest('button'); if (b) setPal(+b.dataset.p); };
+[['sCount','count'],['sSens','sens'],['sBack','back'],['sBg','bg']].forEach(([id,k]) => { $(id).oninput = e => { S[k] = +e.target.value; }; });
+
+$('shoot').onclick = () => {
+  try{
+    canvas.toBlob(b => { if (!b) return; const a = document.createElement('a'); a.href = URL.createObjectURL(b);
+      a.download = 'tanzaku-' + Date.now() + '.png'; a.click(); }, 'image/png');
+  }catch(e){ setStatus('保存できませんでした。'); }
+};
+let rec = null, chunks = [];
+$('rec').onclick = () => {
+  if (rec && rec.state === 'recording'){ rec.stop(); return; }
+  try{
+    ensureAudio();
+    const tracks = [...canvas.captureStream(30).getVideoTracks()];
+    if (recDest) tracks.push(...recDest.stream.getAudioTracks());
+    const mime = ['video/mp4;codecs=avc1','video/webm;codecs=vp9,opus','video/webm'].find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || '';
+    rec = new MediaRecorder(new MediaStream(tracks), mime ? { mimeType:mime } : {});
+    chunks = [];
+    rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+    rec.onstop = () => {
+      $('rec').classList.remove('on'); $('rec').textContent = '● REC';
+      const ext = (rec.mimeType || '').includes('mp4') ? 'mp4' : 'webm';
+      const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(chunks, { type:rec.mimeType || 'video/webm' }));
+      a.download = 'tanzaku.' + ext; a.click();
+    };
+    rec.start(); $('rec').classList.add('on'); $('rec').textContent = '■ STOP';
+  }catch(e){ setStatus('録画を開始できませんでした。'); }
+};
+
+/* ---------- render ---------- */
+let lastT = 0, hudT = 0, rustleLv = 0;
+const STATS = { turned:0, motion:0, frames:0 };
+function loop(now){
+  requestAnimationFrame(loop);
+  const dt = lastT ? Math.min(.05, (now - lastT)/1000) : 1/60; lastT = now;
+  const t = now / 1000;
+  if (video.videoWidth && (video.videoWidth !== vidW || video.videoHeight !== vidH)){ vidW = video.videoWidth; vidH = video.videoHeight; }
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  let W = Math.round(innerWidth*dpr), H = Math.round(innerHeight*dpr);
+  const kk = Math.min(1, 1800 / Math.max(W, H)); W = Math.round(W*kk); H = Math.round(H*kk);
+  if (canvas.width !== W || canvas.height !== H){ canvas.width = W; canvas.height = H; }
+  ensureRibbons(W, H); ensureField();
+  segment(now);
+  if (M.live && now - M.lastT > 1200) M.live = false;
+  if (video.readyState < 2) return;
+  const vt = video.currentTime, fresh = vt !== lastVT; lastVT = vt;
+  if (fresh){
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, texVid);
+    try { gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video); } catch(e){ return; }
+    readMotion(W, H);
+  }
+  if (M.dirty){ M.dirty = false; gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, texMask);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, M.w, M.h, 0, gl.RED, gl.UNSIGNED_BYTE, M.b); }
+
+  MODE.X = MODE.on ? Math.min(1, MODE.X + dt / 1.3) : Math.max(0, MODE.X - dt / 1.1);
+  const E = MODE.X * MODE.X * (3 - 2 * MODE.X);
+  // four sub-steps keep the stiff chain stable at low frame rates
+  for (let q = 0; q < 4; q++) step(dt / 4, now, E);
+  motion = motion * .9 + Math.min(1, motionSum * 20) * .1; STATS.motion = motion; STATS.frames++;
+  if (actx && actx.state === 'running'){
+    let sp = 0; for (let k = 0, N = R.om.length; k < N; k += 7) sp += Math.abs(R.om[k]);
+    sp = Math.min(1, sp / (R.om.length / 7) / 9);
+    rustleLv = rustleLv * .85 + sp * .15;
+    if (rustle.gain.value < .3) rustle.gain.setTargetAtTime(rustleLv * .45 * E, actx.currentTime, .06);
+  }
+  writeVerts(W, H, E);
+
+  const p = PALS[S.pal];
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, 0, W, H);
+  gl.useProgram(PB.p); gl.bindVertexArray(vaoQ);
+  gl.uniform3fv(PB.U.uBg, p.bg); gl.uniform2f(PB.U.uRes, W, H); gl.uniform1f(PB.U.uT, t);
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+  gl.useProgram(P.p); gl.bindVertexArray(vaoR);
+  gl.bindBuffer(gl.ARRAY_BUFFER, vbo); gl.bufferSubData(gl.ARRAY_BUFFER, 0, R.verts);
+  const U = P.U;
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, texVid);
+  gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, texMask);
+  gl.uniform1i(U.uVid, 0); gl.uniform1i(U.uMask, 1);
+  const sa = W/H, va = vidW/vidH;
+  gl.uniform2f(U.uRes, W, H); gl.uniform2f(U.uScale, sa < va ? sa/va : 1, sa < va ? 1 : va/sa);
+  gl.uniform1f(U.uMirror, mirror ? 1 : 0); gl.uniform1f(U.uE, E); gl.uniform1f(U.uT, t);
+  gl.uniform1f(U.uHasMask, M.has && M.live ? 1 : 0);
+  gl.uniform1f(U.uBgK, .08 + .6 * S.bg); gl.uniform1f(U.uNeg, p.neg); gl.uniform1f(U.uMetal, p.metal);
+  gl.uniform3fv(U.uInk, p.ink); gl.uniform3fv(U.uPaper, p.paper); gl.uniform3fv(U.uBack, p.back); gl.uniform3fv(U.uSpec, p.spec);
+  gl.drawElements(gl.TRIANGLES, R.cnt, gl.UNSIGNED_INT, 0);
+
+  $('hud').style.visibility = MODE.X >= 1 ? 'visible' : 'hidden';
+  hudT += dt;
+  if (hudT > .3){ hudT = 0;
+    $('hud').textContent = 'TANZAKU  ' + p.name + '\nRIBBONS ' + R.n + '\nTURNED  ' + String(Math.round(STATS.turned * 100)).padStart(2, '0') + ' %'; }
+}
+
+/* ---------- test hook (used by the local verification harness) ---------- */
+window.__TANZAKU = {
+  ingestMask(d, w, h){ M.external = true; return ingestMask(d, w, h); },
+  dropMask(){ M.live = false; M.lastT = -1e9; },
+  state: () => ({ turned:STATS.turned, motion:STATS.motion, motionSum, frames:STATS.frames, n:R.n, maskLive:M.live }),
+  // mean |sin θ| in a screen column band [x0, x1] (0..1), i.e. how turned the ribbons there are
+  turnedIn(x0, x1){
+    const ny = SEG + 1; let s = 0, c = 0;
+    for (let i = 0; i < R.n; i++){ const fx = (i + .5) * R.sw / R.W; if (fx < x0 || fx > x1) continue;
+      for (let j = 0; j < ny; j++){ s += Math.abs(Math.sin(R.th[i * ny + j])); c++; } }
+    return c ? s / c : 0;
+  },
+  palette(i){ setPal(i); },
+  mode(c){ setMode(!!c); },
+  gust(x){ gust(x, performance.now()); },
+  view: () => ({ on:MODE.on, X:MODE.X }),
+};
+</script>
+</body>
+</html>
