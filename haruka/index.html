@@ -1,0 +1,606 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="description" content="部屋が消えて、映った人だけが映画のポスターのような遠い景色の前に立つ。大きな月と山並み、夕暮れの砂丘、霧の森。頭を動かすと景色が奥行きのとおりにずれて、窓の向こうに本当に世界があるように見える。">
+<meta name="theme-color" content="#0b1426">
+<title>HARUKA ─ 遥かな景色の前に、あなたが立つ</title>
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  HARUKA 遥か ─ 遥かな景色の前に、あなたが立つ         ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  MOOD       ヴィルヌーヴや A24 の映画ポスター。部屋が消え、映った人だけが
+             巨大な月の昇る山並み／夕陽の沈む砂丘／白い霧の森の前に立つ。
+             人は景色の光で色を付け直され、月や陽のある側の輪郭だけが光る。
+             頭を左右に動かすと、遠い層ほどゆっくり、近い層ほど大きくずれ、
+             しゃがめば地平線が上がる ── 画面が窓になり、その向こうに世界がある。
+             速く動くと砂や雪が巻き上がる。
+  PALETTE    MOON  空 #0b1426→#24344f・月 #ece6d6・山 #1a2638/#121b29/#0a0f18・人 冷たい銀
+             DUNE  空 #2b1b30→#e0804f・陽 #ffdca6・砂丘 #8a4a2c/#5a2f1f/#2a160f・人 琥珀
+             FOG   霧 #d8d6d0・陽 #f4f1ea・木 #3a3c3e/#222426/#0e0f10・人 無彩
+  TYPE       Cormorant Infant 300 の大文字（題字）＋ Spline Sans Mono（計器）。
+  MOTION     景色の層は頭の位置へ 0.25 秒で追いつく（遠景 3%・近景 22% ずれる）。
+             霧の帯は 40 秒周期でゆっくり流れる。上下に 2.39:1 の黒帯（横長のとき）。
+  SIGNATURE  頭を動かすと、背景が奥行きどおりにずれて本物の景色になること。
+  SWITCH     はじめは素のカメラ。「▸ HARUKA」で部屋が暗く落ち、空から順に
+             景色の層が下からせり上がって組み上がる。「◂ CAMERA」で景色が沈んで戻る。
+             タップで景色（月・砂丘・霧）が替わる。
+  TECH       WebGL2。景色は起動時と場面替え・画面サイズ変更のときだけ Canvas 2D で
+             五枚の層に描き、シェーダが頭の位置に比例したずれで重ねる。人は
+             セルフィー分割のマスクで切り抜き、場面の光で色を付け、光源側の縁を灯す。
+             頭の位置と大きさはマスクの上端と面積から取る。
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Infant:wght@300;500&family=Spline+Sans+Mono:wght@300&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0b1426;--fg:#ece6d6;--dim:rgba(236,230,214,.55);--line:rgba(236,230,214,.22);--acc:#ece6d6}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none}
+html,body{margin:0;height:100%;background:var(--bg);overflow:hidden;color:var(--fg);
+  font-family:"Cormorant Infant","Hiragino Mincho ProN",serif;transition:background .4s}
+#gl{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+#cam{position:fixed;left:0;top:0;width:2px;height:2px;opacity:.01;pointer-events:none}
+
+#start{position:fixed;inset:0;z-index:30;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;
+  padding:28px;text-align:center;background:linear-gradient(#0b1426,#24344f 70%,#121b29)}
+#start .moon{width:74px;height:74px;border-radius:50%;background:radial-gradient(circle at 40% 40%,#f5f0e2,#d8d0bc);box-shadow:0 0 50px rgba(236,230,214,.35)}
+#start .t{font:300 10px "Spline Sans Mono",monospace;letter-spacing:.46em;margin-right:-.46em;color:var(--dim)}
+#start h1{margin:0;font:300 min(14vw,84px)/1 "Cormorant Infant",serif;letter-spacing:.42em;margin-right:-.42em}
+#start p{margin:0;font-size:12px;line-height:2.1;color:var(--dim);letter-spacing:.1em;font-family:"Hiragino Sans","Noto Sans JP",sans-serif;font-weight:300}
+#go{appearance:none;border:1px solid var(--line);background:transparent;color:var(--fg);font:300 10px "Spline Sans Mono",monospace;
+  letter-spacing:.5em;padding:15px 30px 15px 36px;cursor:pointer;transition:border-color .3s}
+#go:hover{border-color:var(--fg)}
+#err{font-size:12px;line-height:1.8;max-width:340px;min-height:1em;white-space:pre-line;color:#f0a8a0;font-family:"Hiragino Sans","Noto Sans JP",sans-serif}
+
+.btn{position:fixed;z-index:12;appearance:none;border:0;background:transparent;color:var(--fg);font:300 10px "Spline Sans Mono","Hiragino Sans",monospace;
+  letter-spacing:.3em;padding:10px 8px;display:none;cursor:pointer;opacity:.6;transition:opacity .3s}
+.btn.show{display:block}
+.btn:hover{opacity:1}
+#gear{right:10px;top:calc(env(safe-area-inset-top) + 6px);font-size:14px;letter-spacing:0}
+#flip{right:10px;top:calc(env(safe-area-inset-top) + 40px);letter-spacing:.1em;font-family:"Hiragino Sans","Noto Sans JP",sans-serif}
+#bar{position:fixed;left:0;right:0;bottom:calc(env(safe-area-inset-bottom) + 10px);z-index:12;display:none;justify-content:center;align-items:center;gap:30px}
+#bar.show{display:flex}
+#bar .btn{position:static;display:block}
+#bar #shoot{width:42px;height:42px;border-radius:50%;border:1px solid var(--fg);padding:0;opacity:.8}
+#shoot::after{content:"";display:block;margin:auto;width:16px;height:16px;border-radius:50%;background:var(--fg);opacity:.85}
+#rec.on{opacity:1;color:#ff8f7a}
+#hud{position:fixed;left:14px;top:calc(env(safe-area-inset-top) + 14px);z-index:11;font:300 9px "Spline Sans Mono",monospace;letter-spacing:.24em;color:var(--dim);
+  pointer-events:none;display:none;line-height:2.1;white-space:pre}
+#hud.show{display:block}
+#status{position:fixed;left:14px;bottom:calc(env(safe-area-inset-bottom) + 70px);z-index:11;font-size:11px;letter-spacing:.04em;
+  color:var(--dim);pointer-events:none;max-width:72vw;line-height:1.7;white-space:pre-line;font-family:"Hiragino Sans","Noto Sans JP",sans-serif}
+
+#panel{position:fixed;right:10px;top:calc(env(safe-area-inset-top) + 78px);z-index:12;width:min(270px,calc(100vw - 20px));
+  background:rgba(8,10,14,.8);border:1px solid var(--line);padding:14px 16px;display:flex;flex-direction:column;gap:13px;color:#ece6d6;
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);transition:opacity .25s}
+#panel.hide{opacity:0;pointer-events:none}
+.chips{display:flex;border:1px solid rgba(236,230,214,.22)}
+.chips button{flex:1;appearance:none;border:0;background:transparent;color:#ece6d6;padding:8px 2px;font:300 9px "Spline Sans Mono",monospace;
+  letter-spacing:.2em;cursor:pointer;opacity:.55}
+.chips button.on{opacity:1;background:rgba(236,230,214,.12)}
+#panel label{display:flex;align-items:center;gap:10px;font-size:11px;letter-spacing:.04em;font-family:"Hiragino Sans","Noto Sans JP",sans-serif;font-weight:300}
+#panel label span{width:74px;flex:none;color:rgba(236,230,214,.55)}
+#panel input[type=range]{flex:1;accent-color:#ece6d6}
+#panel .note{font-size:10px;color:rgba(236,230,214,.55);line-height:1.7;font-family:"Hiragino Sans","Noto Sans JP",sans-serif}
+#mode{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom) + 72px);z-index:13;display:none;
+  appearance:none;border:1px solid rgba(255,255,255,.4);background:rgba(0,0,0,.35);color:#fff;
+  font:300 10px "Spline Sans Mono",monospace;letter-spacing:.42em;padding:13px 22px 13px 28px;cursor:pointer;
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
+#mode.show{display:block}
+.btn{color:#fff}
+body.fog .btn,body.fog #hud{color:#1a1b1c}
+body.fog #bar #shoot{border-color:#1a1b1c}
+body.fog #shoot::after{background:#1a1b1c}
+body.fog #mode{color:#1a1b1c;border-color:rgba(20,20,20,.35);background:rgba(255,255,255,.35)}
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<video id="cam" playsinline muted autoplay></video>
+<div id="hud"></div>
+<div id="status"></div>
+<button id="gear" class="btn" aria-label="調整">⚙</button>
+<button id="flip" class="btn">⟲ カメラ</button>
+<button id="mode">▸ HARUKA</button>
+<div id="bar">
+  <button id="rec" class="btn">● REC</button>
+  <button id="shoot" class="btn" aria-label="撮る"></button>
+  <button id="next" class="btn">NEXT</button>
+</div>
+
+<div id="panel" class="hide">
+  <div class="chips" id="pals">
+    <button data-p="0" class="on">MOON</button>
+    <button data-p="1">DUNE</button>
+    <button data-p="2">FOG</button>
+  </div>
+  <label><span>奥行き</span><input type="range" id="sDepth" min="0" max="1" step="0.01" value="0.55"></label>
+  <label><span>景色の光</span><input type="range" id="sGrade" min="0" max="1" step="0.01" value="0.6"></label>
+  <label><span>縁の光</span><input type="range" id="sRim" min="0" max="1" step="0.01" value="0.55"></label>
+  <label><span>舞うもの</span><input type="range" id="sDust" min="0" max="1" step="0.01" value="0.5"></label>
+  <div class="note">頭を左右に動かしたり、しゃがんだりすると景色が奥行きどおりにずれる。<br>NEXT か画面タップで景色が替わる。</div>
+</div>
+
+<div id="start">
+  <div class="moon"></div>
+  <div class="t">A FAR PLACE</div>
+  <h1>HARUKA</h1>
+  <p>まずは、いつものカメラ。<br>ボタンを押すと、部屋が消えて遥かな景色の前に立つ。</p>
+  <button id="go">START</button>
+  <div id="err"></div>
+</div>
+
+<script>
+'use strict';
+/* =====================================================================
+   HARUKA — the person cut out and set in front of a far landscape. Five
+   painted layers (sky, the moon or sun, far ridge, mid ridge, near ground)
+   are drawn once into canvases and composited by a shader with offsets
+   proportional to the head's position, so the background moves with true
+   parallax. The person is re-lit in the scene's light with a rim on the
+   side facing the light.
+   ===================================================================== */
+const VISION_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs';
+const WASM_URL   = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm';
+const SEG_MODEL  = 'https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite';
+
+const $ = id => document.getElementById(id);
+const canvas = $('gl'), video = $('cam');
+
+// light: where the moon/sun is (screen uv), its colour, the person's shadow and highlight tints
+const SCENES = [
+  { name:'MOON', sky:['#0b1426','#1a2740','#2a3a55'], orb:{ x:.68, y:.36, r:.19, c:'#ece6d6', glow:'rgba(210,220,240,' },
+    ridges:[['#1f2c42', .58, .10], ['#141e2e', .66, .14], ['#0a0f18', .8, .12]], fog:[.55,.62,.72], fogA:.28,
+    shadow:[.05,.07,.11], light:[.78,.84,.95], rim:[.95,.96,1], dust:[.85,.9,1], dark:true, stars:true, trees:false },
+  { name:'DUNE', sky:['#2b1b30','#8a3f3e','#e0804f'], orb:{ x:.34, y:.6, r:.2, c:'#ffdca6', glow:'rgba(255,190,120,' },
+    ridges:[['#9a5433', .62, .05], ['#62321f', .7, .07], ['#2a160f', .84, .06]], fog:[.95,.62,.42], fogA:.22,
+    shadow:[.12,.06,.05], light:[1,.78,.58], rim:[1,.85,.6], dust:[1,.85,.65], dark:true, stars:false, trees:false },
+  { name:'FOG', sky:['#bdbcb8','#d2d0cb','#e4e2dd'], orb:{ x:.62, y:.28, r:.09, c:'#f7f4ec', glow:'rgba(255,252,240,' },
+    ridges:[['#8c8d8e', .62, .0], ['#56585a', .7, .0], ['#1b1c1d', .82, .0]], fog:[.88,.87,.85], fogA:.45,
+    shadow:[.10,.10,.10], light:[.88,.88,.87], rim:[1,1,1], dust:[1,1,1], dark:false, stars:false, trees:true },
+];
+const S = { scene:0, depth:.55, grade:.6, rim:.55, dust:.5 };
+const NL = 5, OVER = 1.32;                              // layers, and how much bigger than the screen they are painted
+
+/* ---------- painting the layers (only on scene / size change) ---------- */
+function rng(seed){ let s = seed >>> 0; return () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; }; }
+function ridgeLine(n, rough, rand){
+  // midpoint displacement, n = 2^k + 1 points in 0..1
+  const y = new Float32Array(n); y[0] = rand(); y[n - 1] = rand();
+  for (let step = n - 1, amp = 1; step > 1; step >>= 1, amp *= rough){
+    for (let i = step >> 1; i < n; i += step) y[i] = (y[i - (step >> 1)] + y[i + (step >> 1)]) / 2 + (rand() - .5) * amp;
+  }
+  let lo = 1e9, hi = -1e9; for (const v of y){ lo = Math.min(lo, v); hi = Math.max(hi, v); }
+  for (let i = 0; i < n; i++) y[i] = (y[i] - lo) / (hi - lo || 1);
+  return y;
+}
+const LAYERS = []; for (let i = 0; i < NL; i++){ const c = document.createElement('canvas'); LAYERS.push(c); }
+let paintedKey = '';
+function paint(W, H){
+  const key = W + 'x' + H + ':' + S.scene; if (key === paintedKey) return false; paintedKey = key;
+  const sc = SCENES[S.scene], LW = Math.round(W * OVER), LH = Math.round(H * OVER), SHL = Math.min(LW, LH);
+  const rand = rng(7 + S.scene * 101);
+  for (const c of LAYERS){ c.width = LW; c.height = LH; c.getContext('2d').clearRect(0, 0, LW, LH); }
+  // 0 sky
+  let g = LAYERS[0].getContext('2d');
+  const gr = g.createLinearGradient(0, 0, 0, LH); gr.addColorStop(0, sc.sky[0]); gr.addColorStop(.55, sc.sky[1]); gr.addColorStop(1, sc.sky[2]);
+  g.fillStyle = gr; g.fillRect(0, 0, LW, LH);
+  if (sc.stars){ for (let i = 0; i < 700; i++){ const x = rand() * LW, y = rand() * LH * .6, r = rand() < .06 ? 1.3 : .6; g.globalAlpha = .25 + rand() * .6; g.fillStyle = '#fff'; g.beginPath(); g.arc(x, y, r, 0, 7); g.fill(); } g.globalAlpha = 1; }
+  // 1 the moon / sun with its halo
+  g = LAYERS[1].getContext('2d');
+  const ox = sc.orb.x * LW, oy = sc.orb.y * LH, or = sc.orb.r * SHL;
+  const halo = g.createRadialGradient(ox, oy, or * .8, ox, oy, or * 3.2);
+  halo.addColorStop(0, sc.orb.glow + '.35)'); halo.addColorStop(1, sc.orb.glow + '0)');
+  g.fillStyle = halo; g.fillRect(0, 0, LW, LH);
+  g.fillStyle = sc.orb.c; g.beginPath(); g.arc(ox, oy, or, 0, 7); g.fill();
+  if (sc.stars){                                          // faint maria on the moon
+    g.save(); g.beginPath(); g.arc(ox, oy, or, 0, 7); g.clip();
+    g.filter = 'blur(' + Math.max(1, or * .05) + 'px)';
+    for (let i = 0; i < 40; i++){ g.fillStyle = 'rgba(140,138,150,' + (.03 + rand() * .06) + ')'; g.beginPath();
+      g.ellipse(ox + (rand() - .5) * or * 1.3, oy + (rand() - .5) * or * 1.3, or * (.05 + rand() * .18), or * (.04 + rand() * .14), rand() * 3, 0, 7); g.fill(); }
+    g.filter = 'none';
+    const limb = g.createRadialGradient(ox, oy, or * .6, ox, oy, or); limb.addColorStop(0, 'rgba(0,0,0,0)'); limb.addColorStop(1, 'rgba(60,60,80,.18)');
+    g.fillStyle = limb; g.fillRect(ox - or, oy - or, or * 2, or * 2);
+    g.restore();
+  }
+  // 2..4 ridges / dunes / tree lines, far to near
+  for (let k = 0; k < 3; k++){
+    const [col, base, amp] = sc.ridges[k];
+    g = LAYERS[k + 2].getContext('2d');
+    if (sc.trees){
+      g.fillStyle = col;
+      const top = base * LH;
+      g.fillRect(0, top, LW, LH - top);
+      const n = [90, 55, 26][k], hmax = [.16, .26, .5][k] * LH;
+      for (let i = 0; i < n; i++){
+        const x = rand() * LW, h = hmax * (.5 + rand() * .7), w = h * (.12 + rand() * .05);
+        g.beginPath(); g.moveTo(x, top - h); g.lineTo(x - w, top + 2); g.lineTo(x + w, top + 2); g.closePath(); g.fill();
+        g.fillRect(x - w * .08, top - h * .2, w * .16, h * .3);
+      }
+    } else {
+      const n = 257, y = ridgeLine(n, k === 0 ? .56 : .5, rand);
+      g.fillStyle = col; g.beginPath(); g.moveTo(0, LH);
+      for (let i = 0; i < n; i++){
+        const x = i / (n - 1) * LW;
+        let yy = y[i];
+        if (S.scene === 1){ yy = .5 + .5 * Math.sin(i / n * 6.3 * (1.3 + k * .6) + k * 2) * .6 + y[i] * .25; }  // dunes: smooth swells
+        g.lineTo(x, (base - amp * yy) * LH);
+      }
+      g.lineTo(LW, LH); g.closePath(); g.fill();
+      // a lit edge on the ridges facing the light
+      g.strokeStyle = sc.orb.glow + (k === 0 ? '.18)' : '.1)'); g.lineWidth = 1.2; g.stroke();
+    }
+  }
+  return true;
+}
+
+/* ---------- GL ---------- */
+const gl = canvas.getContext('webgl2', { antialias:false, alpha:false, preserveDrawingBuffer:true });
+const VS = `#version 300 es
+in vec2 p; void main(){ gl_Position = vec4(p, 0., 1.); }`;
+const FS = `#version 300 es
+precision highp float;
+uniform sampler2D uVid, uMask, uL0, uL1, uL2, uL3, uL4;
+uniform vec2 uRes, uScale, uMT, uOrb;
+uniform float uMirror, uE, uT, uHasMask, uRise, uGrade, uRimK, uDust, uMotion, uDark, uBars, uFogA;
+uniform vec2 uOff[5];
+uniform float uZoom[5];
+uniform vec3 uShadow, uLight, uRimC, uFog, uDustC;
+out vec4 o;
+float h2(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233))) * 43758.5453); }
+vec4 layer(sampler2D t, int i, vec2 s, float rise){
+  vec2 u = (s - .5) / ${OVER.toFixed(2)} / uZoom[i] + .5 + uOff[i];
+  u.y -= rise;                                                // layers rise into place during the switch
+  return texture(t, u);
+}
+void main(){
+  vec2 s = gl_FragCoord.xy / uRes; s.y = 1. - s.y;
+  vec2 v = (s - .5) * uScale + .5; if (uMirror > .5) v.x = 1. - v.x;
+  vec3 cam = texture(uVid, v).rgb;
+  // the landscape, back to front; each layer arrives a little after the one behind it
+  float r0 = clamp(uRise, 0., 1.);
+  vec3 col = layer(uL0, 0, s, 0.).rgb * smoothstep(0., .25, r0);
+  for (int i = 1; i < 5; i++){
+    float ri = clamp(uRise * 1.6 - float(i) * .15, 0., 1.);
+    float lift = (1. - ri) * (1. - ri) * .5;
+    vec4 L;
+    if (i == 1) L = layer(uL1, 1, s, lift * .6);
+    else if (i == 2) L = layer(uL2, 2, s, lift);
+    else if (i == 3) L = layer(uL3, 3, s, lift);
+    else L = layer(uL4, 4, s, lift);
+    col = mix(col, L.rgb, L.a * smoothstep(0., .3, ri));
+    // haze drifting between the layers
+    if (i == 2 || i == 3){
+      float band = smoothstep(.12, 0., abs(s.y + uOff[i].y - (.56 + .08 * float(i - 2)) - .02 * sin(uT * .15 + float(i))));
+      float wisp = .6 + .4 * sin((s.x + uOff[i].x) * 7. + uT * .16 * float(i));
+      col = mix(col, uFog, band * wisp * uFogA * ri);
+    }
+  }
+  // the person, re-lit by the scene
+  float m = uHasMask > .5 ? texture(uMask, v).r : (uHasMask < -.5 ? 0. : 1.);
+  float a = smoothstep(.35, .65, m);
+  float l = dot(cam, vec3(.299,.587,.114));
+  vec3 graded = mix(uShadow, uLight, smoothstep(.02, .95, l)) * (.55 + .6 * l);
+  graded = mix(cam, graded, uGrade);
+  // rim on the side that faces the light
+  vec2 lightDir = normalize(uOrb - s + vec2(1e-4));
+  vec2 st = uMT;
+  float gx = texture(uMask, v + vec2(st.x, 0.)).r - texture(uMask, v - vec2(st.x, 0.)).r;
+  float gy = texture(uMask, v + vec2(0., st.y)).r - texture(uMask, v - vec2(0., st.y)).r;
+  if (uMirror > .5) gx = -gx;
+  vec2 nrm = -vec2(gx, gy);                                   // points out of the body
+  float rim = uHasMask > .5 ? clamp(dot(nrm, lightDir) * 1.6, 0., 1.) * clamp(length(vec2(gx, gy)) * 1.4, 0., 1.) : 0.;
+  graded += uRimC * rim * uRimK * .7;
+  col = mix(col, graded, a * smoothstep(.2, .6, uRise));
+  // dust / snow in front, stirred up by motion
+  vec2 dp = gl_FragCoord.xy / 3. + vec2(-uT * 14., uT * 9.) + uOff[4] * uRes / 3.;
+  vec2 cell = fract(dp) - .5;
+  float d = step(.9988 - .0012 * uMotion, h2(floor(dp))) * smoothstep(.5, .2, length(cell)) * (.35 + .8 * uMotion) * uDust;
+  col += uDustC * d * .6 * smoothstep(.3, 1., uRise);
+  // film: grain, vignette, letterbox
+  col += (h2(gl_FragCoord.xy + fract(uT) * 91.) - .5) * .028;
+  vec2 q = s - .5; q.x *= uRes.x / uRes.y;
+  col *= 1. - .35 * smoothstep(.45, 1.05, length(q)) * uDark;
+  float bar = step(s.y, uBars) + step(1. - uBars, s.y);
+  col = mix(col, vec3(0.), bar);
+  o = vec4(mix(cam, col, uE), 1.);
+}`;
+function sh(type, src){ const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s; }
+function prog(vs, fs){ const p = gl.createProgram(); gl.attachShader(p, sh(gl.VERTEX_SHADER, vs)); gl.attachShader(p, sh(gl.FRAGMENT_SHADER, fs));
+  gl.bindAttribLocation(p, 0, 'p'); gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+  const U = {}, n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+  for (let i = 0; i < n; i++){ const u = gl.getActiveUniform(p, i); U[u.name.replace('[0]', '')] = gl.getUniformLocation(p, u.name); }
+  return { p, U }; }
+function tex(){ const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE); return t; }
+let P = null, vao, texVid, texMask, texL = [];
+function initGL(){
+  P = prog(VS, FS);
+  vao = gl.createVertexArray(); gl.bindVertexArray(vao);
+  const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+  texVid = tex(); texMask = tex(); for (let i = 0; i < NL; i++) texL.push(tex());
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+  gl.bindTexture(gl.TEXTURE_2D, texMask); gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, 1, 1, 0, gl.RED, gl.UNSIGNED_BYTE, new Uint8Array([0]));
+}
+function uploadLayers(){
+  for (let i = 0; i < NL; i++){ gl.activeTexture(gl.TEXTURE2 + i); gl.bindTexture(gl.TEXTURE_2D, texL[i]);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, LAYERS[i]); }
+}
+
+/* ---------- mask + head ---------- */
+const M = { w:0, h:0, f:null, b:null, has:false, live:false, external:false, lastT:0, dirty:false };
+function ingestMask(data, w, h){
+  if (!data || !(w > 0) || !(h > 0) || !(w * h <= 4e6) || data.length < w * h) return false;
+  if (M.w !== w || M.h !== h){ M.w = w; M.h = h; M.f = new Float32Array(w * h); M.b = new Uint8Array(w * h); }
+  for (let i = 0, n = w * h; i < n; i++){ let m = data[i]; if (!(m >= 0)) m = 0; else if (m > 1) m = 1; M.f[i] = m; M.b[i] = m * 255; }
+  M.has = true; M.live = true; M.lastT = performance.now(); M.dirty = true;
+  return true;
+}
+// head position (screen, -1..1 from centre) and body size, from a coarse scan of the mask
+const HEAD = { x:0, y:0, area:0, ok:false, px:0, py:0, pT:0, speed:0 };
+function findHead(W, H){
+  HEAD.ok = false; if (!M.has || !M.live) return;
+  const s = Math.max(W / vidW, H / vidH), ox = (W - vidW * s) / 2, oy = (H - vidH * s) / 2;
+  const at = (sx, sy) => { const u = ((mirror ? W - sx : sx) - ox) / s / vidW, v = (sy - oy) / s / vidH;
+    return (u >= 0 && u < 1 && v >= 0 && v < 1) ? M.f[(v * M.h | 0) * M.w + (u * M.w | 0)] : 0; };
+  const rows = 48, cols = 40; let area = 0, top = -1, hx = 0, hn = 0;
+  for (let j = 0; j < rows; j++){
+    const y = (j + .5) / rows * H;
+    for (let i = 0; i < cols; i++){
+      const x = (i + .5) / cols * W;
+      if (at(x, y) > .5){ area++; if (top < 0) top = j; if (j - top < 5){ hx += x; hn++; } }
+    }
+  }
+  if (top < 0 || hn < 2) return;
+  HEAD.ok = true; HEAD.area = area / (rows * cols);
+  HEAD.x = (hx / hn / W) * 2 - 1; HEAD.y = ((top + 3) / rows) * 2 - 1;
+  const now = performance.now();
+  if (HEAD.pT){ const dt = (now - HEAD.pT) / 1000; if (dt > 0 && dt < .5){ const v = Math.hypot(HEAD.x - HEAD.px, HEAD.y - HEAD.py) / dt; HEAD.speed = Math.max(HEAD.speed * .7, v); } }
+  HEAD.px = HEAD.x; HEAD.py = HEAD.y; HEAD.pT = now;
+}
+
+/* ---------- model ---------- */
+let segmenter = null, lastTs = 0, lastSegVT = -1;
+async function initModel(){
+  try{
+    const vision = await import(VISION_URL);
+    const fs = await vision.FilesetResolver.forVisionTasks(WASM_URL);
+    const opts = d => ({ baseOptions:{ modelAssetPath:SEG_MODEL, delegate:d }, runningMode:'VIDEO', outputConfidenceMasks:true, outputCategoryMask:false });
+    try { segmenter = await vision.ImageSegmenter.createFromOptions(fs, opts('GPU')); }
+    catch(e){ segmenter = await vision.ImageSegmenter.createFromOptions(fs, opts('CPU')); }
+    setStatus('');
+  }catch(e){
+    if (M.external) return;
+    setStatus('人物検出モデルを読み込めませんでした（ネット接続を確認）。\n人を切り抜けないので、景色だけを映します。');
+  }
+}
+function segment(now){
+  if (!segmenter || M.external || video.readyState < 2) return;
+  const vt = video.currentTime; if (vt === lastSegVT) return; lastSegVT = vt;
+  try{
+    const ts = Math.max(lastTs + 1, Math.round(now)); lastTs = ts;
+    segmenter.segmentForVideo(video, ts, res => {
+      const ms = res && res.confidenceMasks; if (!ms || !ms.length) return;
+      const mk = ms[ms.length - 1]; ingestMask(mk.getAsFloat32Array(), mk.width, mk.height);
+    });
+  }catch(e){}
+}
+
+/* ---------- camera ---------- */
+let stream = null, facing = 'user', mirror = true, started = false, vidW = 1280, vidH = 720, lastVT = -1;
+function setStatus(t){ $('status').textContent = t || ''; }
+function camError(e){
+  const msg = (e && (e.message || e.name)) ? (e.message || e.name) : String(e || 'unknown');
+  const text = 'カメラを起動できませんでした：' + msg + '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+  $('err').textContent = text;
+  if (started) setStatus(text);
+}
+async function startCam(){
+  const md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) throw new Error('getUserMedia is unavailable');
+  const s = await md.getUserMedia({ video:{ facingMode:{ ideal:facing }, width:{ ideal:1280 }, height:{ ideal:720 } }, audio:false });
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = s; mirror = facing === 'user';
+  video.srcObject = s;
+  await new Promise(r => { if (video.readyState >= 1) r(); else video.onloadedmetadata = () => r(); });
+  await video.play().catch(()=>{});
+  vidW = video.videoWidth || 1280; vidH = video.videoHeight || 720;
+  HEAD.pT = 0; HEAD.speed = 0;
+}
+
+/* ---------- audio: wind that follows how much you move, and a low drone per scene ---------- */
+let actx = null, bus = null, recDest = null, wind = null, windF = null, drone = [];
+function ensureAudio(){
+  if (actx){ if (actx.state === 'suspended') actx.resume().catch(()=>{}); return; }
+  const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+  actx = new AC(); bus = actx.createGain(); bus.gain.value = .55; bus.connect(actx.destination);
+  recDest = actx.createMediaStreamDestination(); bus.connect(recDest);
+  const sr = actx.sampleRate, n = sr * 3, b = actx.createBuffer(1, n, sr), d = b.getChannelData(0);
+  let lp = 0; for (let i = 0; i < n; i++){ lp = lp * .97 + (Math.random() * 2 - 1) * .03; d[i] = lp * 6; }
+  const src = actx.createBufferSource(); src.buffer = b; src.loop = true;
+  windF = actx.createBiquadFilter(); windF.type = 'bandpass'; windF.frequency.value = 400; windF.Q.value = .8;
+  wind = actx.createGain(); wind.gain.value = 0; src.connect(windF); windF.connect(wind); wind.connect(bus); src.start();
+  [55, 82.4, 110.2].forEach(f => { const o = actx.createOscillator(); o.type = 'sine'; o.frequency.value = f; const g = actx.createGain(); g.gain.value = 0; o.connect(g); g.connect(bus); o.start(); drone.push({ o, g }); });
+  actx.resume().catch(()=>{});
+}
+const ROOTS = [55, 43.65, 61.74];
+function setDrone(on){
+  if (!actx) return;
+  const r = ROOTS[S.scene], t = actx.currentTime;
+  drone.forEach((d, i) => { d.o.frequency.setTargetAtTime(r * [1, 1.5, 2][i], t, .5); d.g.gain.setTargetAtTime(on ? [.05, .03, .02][i] : 0, t, .8); });
+}
+
+// the switch: plain camera (X = 0) ⇄ landscape (X = 2)
+const MODE = { on:false, X:0 };
+function setMode(on){
+  if (on === MODE.on) return;
+  MODE.on = on;
+  $('mode').textContent = on ? '◂ CAMERA' : '▸ HARUKA';
+  $('next').style.visibility = on ? 'visible' : 'hidden';
+  setDrone(on);
+}
+$('mode').onclick = () => setMode(!MODE.on);
+addEventListener('keydown', e => { if (started && (e.key === ' ' || e.key === 'Enter') && document.activeElement.tagName !== 'INPUT'){ e.preventDefault(); setMode(!MODE.on); } });
+$('go').onclick = async () => {
+  $('err').textContent = '';
+  ensureAudio();
+  try{
+    if (!gl) throw new Error('WebGL2 に未対応のブラウザです');
+    if (!P) initGL();
+    await startCam();
+  }catch(e){ camError(e); return; }
+  $('start').style.display = 'none';
+  ['gear','flip','bar','rec','shoot','next','hud','mode'].forEach(id => $(id).classList.add('show'));
+  MODE.on = true; setMode(false);
+  if (!started){ started = true; initModel(); requestAnimationFrame(loop); }
+};
+$('flip').onclick = async () => {
+  const prev = facing; facing = facing === 'user' ? 'environment' : 'user';
+  try { await startCam(); } catch(e){ facing = prev; camError(e); }
+};
+$('gear').onclick = () => $('panel').classList.toggle('hide');
+// changing the scene: the old one sinks, the new one rises (reuses the switch's rise)
+const SWAP = { t:-1, to:0 };
+function setScene(i){
+  if (!MODE.on || MODE.X < 2){ S.scene = i; paintedKey = ''; syncChips(); return; }
+  if (SWAP.t >= 0) return;
+  SWAP.t = 0; SWAP.to = i;
+}
+function syncChips(){ [...$('pals').children].forEach(x => x.classList.toggle('on', +x.dataset.p === S.scene)); }
+$('next').onclick = () => setScene((S.scene + 1) % SCENES.length);
+canvas.addEventListener('pointerdown', () => { if (started && MODE.on) setScene((S.scene + 1) % SCENES.length); });
+$('pals').onclick = e => { const b = e.target.closest('button'); if (b) setScene(+b.dataset.p); };
+[['sDepth','depth'],['sGrade','grade'],['sRim','rim'],['sDust','dust']].forEach(([id,k]) => { $(id).oninput = e => { S[k] = +e.target.value; }; });
+
+$('shoot').onclick = () => {
+  try{
+    canvas.toBlob(b => { if (!b) return; const a = document.createElement('a'); a.href = URL.createObjectURL(b);
+      a.download = 'haruka-' + Date.now() + '.png'; a.click(); }, 'image/png');
+  }catch(e){ setStatus('保存できませんでした。'); }
+};
+let rec = null, chunks = [];
+$('rec').onclick = () => {
+  if (rec && rec.state === 'recording'){ rec.stop(); return; }
+  try{
+    ensureAudio();
+    const tracks = [...canvas.captureStream(30).getVideoTracks()];
+    if (recDest) tracks.push(...recDest.stream.getAudioTracks());
+    const mime = ['video/mp4;codecs=avc1','video/webm;codecs=vp9,opus','video/webm'].find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || '';
+    rec = new MediaRecorder(new MediaStream(tracks), mime ? { mimeType:mime } : {});
+    chunks = [];
+    rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+    rec.onstop = () => {
+      $('rec').classList.remove('on'); $('rec').textContent = '● REC';
+      const ext = (rec.mimeType || '').includes('mp4') ? 'mp4' : 'webm';
+      const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(chunks, { type:rec.mimeType || 'video/webm' }));
+      a.download = 'haruka.' + ext; a.click();
+    };
+    rec.start(); $('rec').classList.add('on'); $('rec').textContent = '■ STOP';
+  }catch(e){ setStatus('録画を開始できませんでした。'); }
+};
+
+/* ---------- render ---------- */
+let lastT = 0, hudT = 0, motion = 0;
+const VIEW = { x:0, y:0, z:0 };                           // smoothed head
+const DEPTHS = [.012, .03, .07, .12, .22];
+const OFF = new Float32Array(10), ZOOM = new Float32Array(5);
+const STATE = { rise:0, off:[] };
+function loop(now){
+  requestAnimationFrame(loop);
+  const dt = lastT ? Math.min(.1, (now - lastT)/1000) : 1/60; lastT = now;
+  const t = now / 1000;
+  if (video.videoWidth && (video.videoWidth !== vidW || video.videoHeight !== vidH)){ vidW = video.videoWidth; vidH = video.videoHeight; }
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  let W = Math.round(innerWidth*dpr), H = Math.round(innerHeight*dpr);
+  const k = Math.min(1, 1500 / Math.max(W, H)); W = Math.round(W*k); H = Math.round(H*k);
+  if (canvas.width !== W || canvas.height !== H){ canvas.width = W; canvas.height = H; }
+  if (paint(W, H)) uploadLayers();
+  segment(now);
+  if (M.live && now - M.lastT > 1200) M.live = false;
+  if (video.readyState < 2) return;
+  const vt = video.currentTime, fresh = vt !== lastVT; lastVT = vt;
+  if (fresh){ gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, texVid);
+    try { gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video); } catch(e){ return; } }
+  if (M.dirty){ M.dirty = false; gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, texMask);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, M.w, M.h, 0, gl.RED, gl.UNSIGNED_BYTE, M.b); findHead(W, H); }
+  if (!M.live) HEAD.ok = false;
+
+  // head → view, with a spring; no head → the view drifts home
+  const tx = HEAD.ok ? HEAD.x : 0, ty = HEAD.ok ? HEAD.y + .45 : 0, tz = HEAD.ok ? HEAD.area : .25;
+  const a = 1 - Math.exp(-dt / .25);
+  VIEW.x += (tx - VIEW.x) * a; VIEW.y += (ty - VIEW.y) * a; VIEW.z += (tz - VIEW.z) * a;
+  HEAD.speed *= Math.exp(-dt / .4);
+  motion = Math.min(1, HEAD.speed * .6);
+  const depthK = .3 + 1.4 * S.depth;
+  for (let i = 0; i < NL; i++){
+    OFF[i * 2] = -VIEW.x * DEPTHS[i] * depthK;               // move right → the far world slides left, the near more
+    OFF[i * 2 + 1] = -VIEW.y * DEPTHS[i] * depthK * .6;
+    ZOOM[i] = 1 + (VIEW.z - .25) * DEPTHS[i] * 1.2;          // come closer → near layers grow a little
+  }
+  STATE.off = Array.from(OFF);
+
+  // the switch and scene swaps share one "rise" (0 = sunk, 1 = in place)
+  MODE.X = MODE.on ? Math.min(2, MODE.X + dt) : Math.max(0, MODE.X - dt * 2.2);
+  const E = Math.min(1, MODE.X / .4);
+  let rise = Math.max(0, Math.min(1, (MODE.X - .3) / 1.5));
+  if (SWAP.t >= 0){
+    SWAP.t += dt;
+    if (SWAP.t < .7) rise = Math.min(rise, 1 - SWAP.t / .7);
+    else {
+      if (S.scene !== SWAP.to){ S.scene = SWAP.to; paintedKey = ''; if (paint(W, H)) uploadLayers(); syncChips(); setDrone(true); }
+      rise = Math.min(rise, (SWAP.t - .7) / 1.2);
+      if (SWAP.t > 1.9) SWAP.t = -1;
+    }
+  }
+  STATE.rise = rise;
+
+  const sc = SCENES[S.scene];
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, 0, W, H);
+  gl.useProgram(P.p); gl.bindVertexArray(vao);
+  const U = P.U;
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, texVid);
+  gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, texMask);
+  for (let i = 0; i < NL; i++){ gl.activeTexture(gl.TEXTURE2 + i); gl.bindTexture(gl.TEXTURE_2D, texL[i]); }
+  gl.uniform1i(U.uVid, 0); gl.uniform1i(U.uMask, 1);
+  gl.uniform1i(U.uL0, 2); gl.uniform1i(U.uL1, 3); gl.uniform1i(U.uL2, 4); gl.uniform1i(U.uL3, 5); gl.uniform1i(U.uL4, 6);
+  const sa = W/H, va = vidW/vidH;
+  gl.uniform2f(U.uRes, W, H); gl.uniform2f(U.uScale, sa < va ? sa/va : 1, sa < va ? 1 : va/sa);
+  const scl = Math.max(W / vidW, H / vidH), px = Math.min(W, H) * .0035;
+  gl.uniform2f(U.uMT, px / (vidW * scl), px / (vidH * scl));
+  gl.uniform2f(U.uOrb, sc.orb.x + OFF[2], sc.orb.y + OFF[3]);
+  gl.uniform1f(U.uMirror, mirror ? 1 : 0); gl.uniform1f(U.uE, E); gl.uniform1f(U.uT, t);
+  gl.uniform1f(U.uHasMask, M.has ? (M.live ? 1 : -1) : 0);
+  gl.uniform1f(U.uRise, rise); gl.uniform1f(U.uGrade, .3 + .7 * S.grade); gl.uniform1f(U.uRimK, .2 + 1.3 * S.rim);
+  gl.uniform1f(U.uDust, S.dust); gl.uniform1f(U.uMotion, motion); gl.uniform1f(U.uDark, sc.dark ? 1 : .4); gl.uniform1f(U.uFogA, sc.fogA);
+  gl.uniform1f(U.uBars, W > H * 1.2 ? Math.max(0, (1 - (W / H) / 2.2) / 2) * Math.min(1, rise * 2) : 0);
+  gl.uniform2fv(U.uOff, OFF); gl.uniform1fv(U.uZoom, ZOOM);
+  gl.uniform3fv(U.uShadow, sc.shadow); gl.uniform3fv(U.uLight, sc.light); gl.uniform3fv(U.uRimC, sc.rim); gl.uniform3fv(U.uFog, sc.fog); gl.uniform3fv(U.uDustC, sc.dust);
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+  if (actx && wind){ wind.gain.setTargetAtTime(MODE.on ? .02 + motion * .25 : 0, actx.currentTime, .15); windF.frequency.setTargetAtTime(300 + motion * 900, actx.currentTime, .2); }
+  document.body.classList.toggle('fog', MODE.X > .6 && !sc.dark && W <= H * 1.2);   // dark UI only on the pale scene without bars
+  $('hud').style.visibility = MODE.X > 1.6 ? 'visible' : 'hidden';
+  hudT += dt;
+  if (hudT > .3){ hudT = 0;
+    $('hud').textContent = 'HARUKA  ' + sc.name + '\nVIEW ' + (VIEW.x >= 0 ? '+' : '−') + Math.abs(VIEW.x).toFixed(2) + ' ' + (VIEW.y >= 0 ? '+' : '−') + Math.abs(VIEW.y).toFixed(2) + '\nDEPTH ×' + depthK.toFixed(2); }
+}
+
+/* ---------- test hook (used by the local verification harness) ---------- */
+window.__HARUKA = {
+  ingestMask(d, w, h){ if (!M.external) setStatus(''); M.external = true; return ingestMask(d, w, h); },
+  state: () => ({ head:{ ok:HEAD.ok, x:HEAD.x, y:HEAD.y, area:HEAD.area }, view:{ ...VIEW }, off:STATE.off, rise:STATE.rise, scene:S.scene, motion, maskLive:M.live }),
+  palette(i){ setScene(i); },
+  mode(c){ setMode(!!c); },
+  tap(){ setScene((S.scene + 1) % SCENES.length); },
+  view: () => ({ on:MODE.on, X:MODE.X }),
+};
+</script>
+</body>
+</html>
