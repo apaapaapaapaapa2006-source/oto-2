@@ -1,0 +1,712 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="description" content="暗い風洞の中に立つと、白い煙の流線があなたの体の形に沿って曲がって流れていく。止まれば静かな層流、動けば体のうしろに渦が巻いて線が乱れる。">
+<meta name="theme-color" content="#050505">
+<title>RYUSEN ─ 風洞に立つあなた</title>
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  RYUSEN 流線 ─ 風洞に立つあなた                        ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  MOOD       自動車やスポーツブランドの広告で見る、風洞の煙の可視化。
+             真っ暗な試験室に、あなたは暗いモノクロの「試験体」として立つ。
+             左から細い白い煙の線が何十本も流れてきて、体の輪郭に沿って分かれ、
+             肩や頭をなめて後ろへ抜ける。一本だけ色のついた染料の線が混じる。
+             止まれば線は静かに整い、動けば体のうしろに渦が生まれて線が巻き、ちぎれる。
+  PALETTE    TUNNEL    地 #050505・煙 #f2f0ea・染料 #e0402a（信号の赤）
+             SCHLIEREN 地 #0d0904・煙 #f3d9a6（琥珀の単色）・染料 #fff6e0
+             DRAFT     地 #0a1424（製図の紺）・煙 #d9e4f2・染料 #f2b233
+  TYPE       Familjen Grotesk 400/600（見出し）＋ Victor Mono 300（計器）。
+  MOTION     風は短辺の 0.22〜0.6 倍／秒。煙の線は 11 秒ぶんの痕跡を引きずる。
+             体が動いた縁から乱れが生まれ、風下へ運ばれながら 1.5 秒で消える。
+             タップでその点に煙を吹き込み、渦を一つ起こす。
+  SIGNATURE  立っているだけで、あなたの形が流線で描き出されること。
+  SWITCH     はじめは素のカメラ。「▸ RYUSEN」で部屋が暗転し、送風機が回って
+             煙の前線が左から（縦長の画面では上から）押し寄せる。「◂ CAMERA」で風が止み映像が戻る。
+  TECH       Canvas 2D。人物マスクを画面の升目に落とし、体からの距離場と
+             その勾配（外向きの法線）を作る。風は法線方向の成分を削がれて
+             体に沿う。動いた縁には外向きの押しと「乱れ」を注入し、乱れは風で
+             運ばれ、カール・ノイズの渦になる。風は流れ関数のラプラス方程式を毎フレーム SOR で解いた
+             ポテンシャル流で、体は一本の流線になる。煙は線ごとに 420 粒の輪バッファ。
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@400;600&family=Victor+Mono:wght@300;400&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#050505;--fg:#f2f0ea;--dim:rgba(242,240,234,.5);--line:rgba(242,240,234,.2);--acc:#e0402a}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none}
+html,body{margin:0;height:100%;background:var(--bg);overflow:hidden;color:var(--fg);
+  font-family:"Familjen Grotesk","Hiragino Sans","Noto Sans JP",sans-serif;transition:background .4s,color .4s}
+#cv{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+#cam{position:fixed;left:0;top:0;width:2px;height:2px;opacity:.01;pointer-events:none}
+
+#start{position:fixed;inset:0;z-index:30;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;
+  padding:28px;text-align:center;background:var(--bg)}
+#start .t{font:300 10px "Victor Mono",monospace;letter-spacing:.46em;margin-right:-.46em;color:var(--dim)}
+#start h1{margin:0;font:600 min(14vw,88px)/1 "Familjen Grotesk",sans-serif;letter-spacing:.22em;margin-right:-.22em}
+#start svg{width:150px;height:60px}
+#start p{margin:0;font-size:12px;line-height:2.1;color:var(--dim);letter-spacing:.1em;font-family:"Hiragino Sans","Noto Sans JP",sans-serif;font-weight:300}
+#go{appearance:none;border:1px solid var(--line);background:transparent;color:var(--fg);font:400 10px "Victor Mono",monospace;
+  letter-spacing:.5em;padding:15px 30px 15px 36px;cursor:pointer;transition:border-color .3s}
+#go:hover{border-color:var(--fg)}
+#err{font-size:12px;line-height:1.8;max-width:340px;min-height:1em;white-space:pre-line;color:#e39a8a;font-family:"Hiragino Sans","Noto Sans JP",sans-serif}
+
+.btn{position:fixed;z-index:12;appearance:none;border:0;background:transparent;color:var(--fg);font:400 10px "Victor Mono","Hiragino Sans",monospace;
+  letter-spacing:.3em;padding:10px 8px;display:none;cursor:pointer;opacity:.6;transition:opacity .3s}
+.btn.show{display:block}
+.btn:hover{opacity:1}
+#gear{right:10px;top:calc(env(safe-area-inset-top) + 6px);font-size:14px;letter-spacing:0}
+#flip{right:10px;top:calc(env(safe-area-inset-top) + 40px);letter-spacing:.1em;font-family:"Hiragino Sans","Noto Sans JP",sans-serif}
+#bar{position:fixed;left:0;right:0;bottom:calc(env(safe-area-inset-bottom) + 10px);z-index:12;display:none;justify-content:center;align-items:center;gap:30px}
+#bar.show{display:flex}
+#bar .btn{position:static;display:block}
+#bar #shoot{width:42px;height:42px;border-radius:50%;border:1px solid var(--fg);padding:0;opacity:.8;
+  background:linear-gradient(90deg,transparent 30%,var(--fg) 30% 31.5%,transparent 31.5% 49%,var(--fg) 49% 50.5%,transparent 50.5% 68%,var(--fg) 68% 69.5%,transparent 69.5%)}
+#rec.on{opacity:1;color:var(--acc)}
+#hud{position:fixed;left:14px;top:calc(env(safe-area-inset-top) + 14px);z-index:11;font:300 9px "Victor Mono",monospace;letter-spacing:.24em;color:var(--dim);
+  pointer-events:none;display:none;line-height:2.1;white-space:pre}
+#hud.show{display:block}
+#status{position:fixed;left:14px;bottom:calc(env(safe-area-inset-bottom) + 70px);z-index:11;font-size:11px;letter-spacing:.04em;
+  color:var(--dim);pointer-events:none;max-width:72vw;line-height:1.7;white-space:pre-line;font-family:"Hiragino Sans","Noto Sans JP",sans-serif}
+
+#panel{position:fixed;right:10px;top:calc(env(safe-area-inset-top) + 78px);z-index:12;width:min(270px,calc(100vw - 20px));
+  background:color-mix(in srgb,var(--bg) 86%,transparent);border:1px solid var(--line);padding:14px 16px;display:flex;flex-direction:column;gap:13px;
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);transition:opacity .25s}
+#panel.hide{opacity:0;pointer-events:none}
+.chips{display:flex;border:1px solid var(--line)}
+.chips button{flex:1;appearance:none;border:0;background:transparent;color:var(--fg);padding:8px 2px;font:400 9px "Victor Mono",monospace;
+  letter-spacing:.16em;cursor:pointer;opacity:.55}
+.chips button.on{opacity:1;background:color-mix(in srgb,var(--fg) 12%,transparent)}
+#panel label{display:flex;align-items:center;gap:10px;font-size:11px;letter-spacing:.04em;font-family:"Hiragino Sans","Noto Sans JP",sans-serif;font-weight:300}
+#panel label span{width:74px;flex:none;color:var(--dim)}
+#panel input[type=range]{flex:1;accent-color:var(--acc)}
+#panel .note{font-size:10px;color:var(--dim);line-height:1.7;font-family:"Hiragino Sans","Noto Sans JP",sans-serif}
+#mode{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom) + 72px);z-index:13;display:none;
+  appearance:none;border:1px solid var(--line);background:color-mix(in srgb,var(--bg) 55%,transparent);color:var(--fg);
+  font:400 10px "Victor Mono",monospace;letter-spacing:.42em;padding:13px 22px 13px 28px;cursor:pointer;
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);transition:border-color .3s}
+#mode.show{display:block}
+#mode:hover{border-color:var(--fg)}
+body.cam #mode{border-color:rgba(255,255,255,.55);color:#fff;background:rgba(0,0,0,.35)}
+body.cam .btn{color:#fff}
+body.cam #bar #shoot{border-color:#fff}
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<video id="cam" playsinline muted autoplay></video>
+<div id="hud"></div>
+<div id="status"></div>
+<button id="gear" class="btn" aria-label="調整">⚙</button>
+<button id="flip" class="btn">⟲ カメラ</button>
+<button id="mode">▸ RYUSEN</button>
+<div id="bar">
+  <button id="rec" class="btn">● REC</button>
+  <button id="shoot" class="btn" aria-label="撮る"></button>
+  <button id="puff" class="btn">PUFF</button>
+</div>
+
+<div id="panel" class="hide">
+  <div class="chips" id="pals">
+    <button data-p="0" class="on">TUNNEL</button>
+    <button data-p="1">SCHLIEREN</button>
+    <button data-p="2">DRAFT</button>
+  </div>
+  <div class="chips" id="dirs">
+    <button data-d="0" class="on">→ 横風</button>
+    <button data-d="1">↓ 吹き下ろし</button>
+  </div>
+  <label><span>風の速さ</span><input type="range" id="sWind" min="0" max="1" step="0.01" value="0.5"></label>
+  <label><span>煙の本数</span><input type="range" id="sLines" min="0" max="1" step="0.01" value="0.5"></label>
+  <label><span>乱れやすさ</span><input type="range" id="sSens" min="0" max="1" step="0.01" value="0.55"></label>
+  <label><span>人の明るさ</span><input type="range" id="sBody" min="0" max="1" step="0.01" value="0.45"></label>
+  <div class="note">止まれば層流、動けば体のうしろに渦。<br>PUFF か画面タップで、その点に煙を吹き込む。</div>
+</div>
+
+<div id="start">
+  <div class="t">WIND · TUNNEL · STUDY</div>
+  <svg viewBox="0 0 150 60" aria-hidden="true" fill="none" stroke="currentColor" stroke-width=".7">
+    <path d="M0 10 C50 10 60 6 75 6 S110 12 150 12" opacity=".5"/>
+    <path d="M0 20 C45 20 55 12 75 12 S105 24 150 22" opacity=".7"/>
+    <path d="M0 30 C45 30 55 18 75 18 S100 40 115 32 S135 26 150 32" stroke="#e0402a"/>
+    <path d="M0 40 C45 40 55 50 75 52 S105 38 150 40" opacity=".7"/>
+    <path d="M0 50 C50 50 60 57 75 57 S110 50 150 50" opacity=".5"/>
+    <ellipse cx="72" cy="32" rx="9" ry="13" fill="currentColor" stroke="none" opacity=".25"/>
+  </svg>
+  <h1>RYUSEN</h1>
+  <p>まずは、いつものカメラ。<br>ボタンを押すと、あなたは暗い風洞の中に立つ。</p>
+  <button id="go">START</button>
+  <div id="err"></div>
+</div>
+
+<script>
+'use strict';
+/* =====================================================================
+   RYUSEN — smoke streaklines in a wind tunnel, bending around the person.
+   A screen-space grid holds the person mask, its distance field and the
+   outward normal. The wind loses its normal component near the body so the
+   smoke hugs the outline. Where the outline moves, an outward push and a
+   scalar "turbulence" are injected; both are carried downstream by the
+   wind and decay, and turbulence becomes swirls through curl noise.
+   Each smoke line is a ring buffer of particles emitted at a fixed rate.
+   ===================================================================== */
+const VISION_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs';
+const WASM_URL   = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm';
+const SEG_MODEL  = 'https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite';
+
+const $ = id => document.getElementById(id);
+const cv = $('cv'), video = $('cam');
+const ctx = cv.getContext('2d');
+
+const PALS = [
+  { name:'TUNNEL',    bg:'#050505', smoke:'242,240,234', dye:'224,64,42',  tint:'#8d949c', css:['#050505','#f2f0ea','#e0402a'] },
+  { name:'SCHLIEREN', bg:'#0d0904', smoke:'243,217,166', dye:'255,246,224',tint:'#b08a55', css:['#0d0904','#f3d9a6','#fff6e0'] },
+  { name:'DRAFT',     bg:'#0a1424', smoke:'217,228,242', dye:'242,178,51', tint:'#6d86a8', css:['#0a1424','#d9e4f2','#f2b233'] },
+];
+for (const p of PALS) p.rgb = [1, 3, 5].map(i => parseInt(p.bg.slice(i, i + 2), 16));
+const S = { pal:0, dir:0, wind:.5, lines:.5, sens:.55, body:.45 };
+
+/* ---------- grid: mask, distance, normal, flow ---------- */
+const GS = 84;                                            // cells on the short edge
+const G = { w:0, h:0, cell:0, m:null, prevM:null, d:null, nx:null, ny:null, T:null, T2:null, px:null, py:null, px2:null, py2:null, vx:null, vy:null, blur:null, on:0 };
+function ensureGrid(W, H){
+  let w, h; if (W >= H){ h = GS; w = Math.round(GS * W / H); } else { w = GS; h = Math.round(GS * H / W); }
+  if (w === G.w && h === G.h) return;
+  G.w = w; G.h = h; G.cell = Math.min(W, H) / GS;
+  const n = w * h, f = () => new Float32Array(n);
+  G.m = new Uint8Array(n); G.prevM = new Uint8Array(n); G.d = f(); G.nx = f(); G.ny = f(); G.blur = f();
+  G.psi = f(); G.psiDir = -1; G.T = f(); G.T2 = f(); G.px = f(); G.py = f(); G.px2 = f(); G.py2 = f(); G.vx = f(); G.vy = f();
+  maskCv.width = w; maskCv.height = h; maskImg = mctx.createImageData(w, h);
+}
+const maskCv = document.createElement('canvas'), mctx = maskCv.getContext('2d');
+let maskImg = null;
+
+const M = { w:0, h:0, f:null, has:false, live:false, external:false, lastT:0, dirty:false };
+function ingestMask(data, w, h){
+  if (!data || !(w > 0) || !(h > 0) || !(w * h <= 4e6) || data.length < w * h) return false;
+  if (M.w !== w || M.h !== h){ M.w = w; M.h = h; M.f = new Float32Array(w * h); }
+  for (let i = 0, n = w * h; i < n; i++){ let m = data[i]; if (!(m >= 0)) m = 0; else if (m > 1) m = 1; M.f[i] = m; }
+  M.has = true; M.live = true; M.lastT = performance.now(); M.dirty = true;
+  return true;
+}
+// mask → screen cells (cover crop + mirror). Returns how many cells changed.
+function sampleMask(W, H){
+  const t = G.prevM; G.prevM = G.m; G.m = t;
+  if (!(M.has && M.live)){ G.m.fill(0); G.on = 0; return 0; }
+  const s = Math.max(W / vidW, H / vidH), ox = (W - vidW * s) / 2, oy = (H - vidH * s) / 2;
+  let ch = 0, on = 0;
+  for (let y = 0; y < G.h; y++){
+    const v = (((y + .5) / G.h * H) - oy) / s / vidH;
+    for (let x = 0; x < G.w; x++){
+      const sx = (x + .5) / G.w * W, u = ((mirror ? W - sx : sx) - ox) / s / vidW;
+      let m = 0;
+      if (u >= 0 && u < 1 && v >= 0 && v < 1) m = M.f[(v * M.h | 0) * M.w + (u * M.w | 0)] > .5 ? 1 : 0;
+      const i = y * G.w + x; G.m[i] = m; if (m !== G.prevM[i]) ch++; on += m;
+    }
+  }
+  G.on = on;
+  return ch;
+}
+// exact Euclidean distance outside the body (Felzenszwalb–Huttenlocher), in short-edge units
+const EDT = { f:null, dd:null, v:null, z:null, n:0 };
+function edt1(f, n, dd, v, z){
+  let k = 0; v[0] = 0; z[0] = -1e20; z[1] = 1e20;
+  for (let q = 1; q < n; q++){
+    let s = ((f[q] + q * q) - (f[v[k]] + v[k] * v[k])) / (2 * q - 2 * v[k]);
+    while (s <= z[k]){ k--; s = ((f[q] + q * q) - (f[v[k]] + v[k] * v[k])) / (2 * q - 2 * v[k]); }
+    k++; v[k] = q; z[k] = s; z[k + 1] = 1e20;
+  }
+  k = 0;
+  for (let q = 0; q < n; q++){ while (z[k + 1] < q) k++; const dq = q - v[k]; dd[q] = dq * dq + f[v[k]]; }
+}
+function distance(){
+  const w = G.w, h = G.h, d = G.d, BIG = 1e12, n = Math.max(w, h);
+  if (EDT.n < n){ EDT.n = n; EDT.f = new Float64Array(n); EDT.dd = new Float64Array(n); EDT.v = new Int32Array(n); EDT.z = new Float64Array(n + 1); }
+  const f = EDT.f, dd = EDT.dd, v = EDT.v, z = EDT.z;
+  if (!G.on){ d.fill(50); G.nx.fill(0); G.ny.fill(0); return; }
+  for (let i = 0; i < w * h; i++) d[i] = G.m[i] ? 0 : BIG;
+  for (let x = 0; x < w; x++){ for (let y = 0; y < h; y++) f[y] = d[y * w + x]; edt1(f, h, dd, v, z); for (let y = 0; y < h; y++) d[y * w + x] = dd[y]; }
+  for (let y = 0; y < h; y++){ const o = y * w; for (let x = 0; x < w; x++) f[x] = d[o + x]; edt1(f, w, dd, v, z); for (let x = 0; x < w; x++) d[o + x] = dd[x]; }
+  for (let i = 0; i < w * h; i++) d[i] = d[i] >= BIG * .5 ? 50 : Math.sqrt(d[i]) / GS;
+  // a softened mask gives the outward normal both outside and inside the body
+  const b = G.blur;
+  for (let i = 0; i < w * h; i++) b[i] = G.m[i];
+  for (let pass = 0; pass < 3; pass++){
+    for (let y = 0; y < h; y++){ const o = y * w; let p = b[o]; for (let x = 1; x < w - 1; x++){ const c = b[o + x]; b[o + x] = (p + 2 * c + b[o + x + 1]) * .25; p = c; } }
+    for (let x = 0; x < w; x++){ let p = b[x]; for (let y = 1; y < h - 1; y++){ const i = y * w + x, c = b[i]; b[i] = (p + 2 * c + b[i + w]) * .25; p = c; } }
+  }
+  // outward normal: the distance gradient outside, the softened mask's gradient inside
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++){
+    const i = y * w + x;
+    let gx, gy;
+    if (G.m[i]){
+      gx = -((x < w - 1 ? b[i + 1] : b[i]) - (x > 0 ? b[i - 1] : b[i]));
+      gy = -((y < h - 1 ? b[i + w] : b[i]) - (y > 0 ? b[i - w] : b[i]));
+    } else {
+      gx = (x < w - 1 ? d[i + 1] : d[i]) - (x > 0 ? d[i - 1] : d[i]);
+      gy = (y < h - 1 ? d[i + w] : d[i]) - (y > 0 ? d[i - w] : d[i]);
+    }
+    const l = Math.hypot(gx, gy);
+    if (l > 1e-6){ G.nx[i] = gx / l; G.ny[i] = gy / l; } else { G.nx[i] = 0; G.ny[i] = 0; }
+  }
+}
+
+/* ---------- potential flow: stream function ψ, Laplace ∇²ψ = 0 around the body ---------- */
+// far field ψ = y (wind →) or ψ = −x (wind ↓, a downdraft); the body is one streamline (ψ = its mean edge value).
+function farPsi(x, y){ return S.dir === 1 ? -x : y; }
+function solvePsi(iters){
+  const w = G.w, h = G.h, psi = G.psi, m = G.m, up = S.dir === 1;
+  if (G.psiDir !== S.dir){ G.psiDir = S.dir; for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) psi[y * w + x] = farPsi(x, y); iters = Math.max(iters, 400); }
+  // the body's value: mean ψ of the air touching it
+  let sum = 0, cnt = 0;
+  for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++){
+    const i = y * w + x; if (!m[i]) continue;
+    if (!m[i - 1]){ sum += psi[i - 1]; cnt++; } if (!m[i + 1]){ sum += psi[i + 1]; cnt++; }
+    if (!m[i - w]){ sum += psi[i - w]; cnt++; } if (!m[i + w]){ sum += psi[i + w]; cnt++; }
+  }
+  const C = cnt ? sum / cnt : 0;
+  // a side wall is solid unless the body touches it; then it opens so the air can leave past you
+  let tA = 0, tB = 0;
+  if (!up){ for (let x = 0; x < w; x++){ tA += m[x] + m[w + x]; tB += m[(h - 1) * w + x] + m[(h - 2) * w + x]; } }
+  else { for (let y = 0; y < h; y++){ tA += m[y * w] + m[y * w + 1]; tB += m[y * w + w - 1] + m[y * w + w - 2]; } }
+  const openA = tA > 2, openB = tB > 2;
+  const om = 1.85;
+  for (let it = 0; it < iters; it++){
+    for (let y = 0; y < h; y++){
+      for (let x = 0; x < w; x++){
+        const i = y * w + x;
+        if (m[i]){ psi[i] = C; continue; }
+        // walls: Dirichlet on the sides the wind runs along and on the inlet, open outlet
+        // inlet fixed, outlet open; an open side wall keeps the free-stream speed but lets air leave
+        // (so a body standing on the floor sends the air past it instead of into a corner)
+        if (!up){
+          if (x === 0){ psi[i] = y; continue; }
+          if (y === 0){ psi[i] = openA ? psi[i + w] - 1 : 0; continue; }
+          if (y === h - 1){ psi[i] = openB ? psi[i - w] + 1 : h - 1; continue; }
+          if (x === w - 1){ psi[i] = psi[i - 1]; continue; }
+        } else {
+          if (y === 0){ psi[i] = -x; continue; }
+          if (x === 0){ psi[i] = openA ? psi[i + 1] + 1 : 0; continue; }
+          if (x === w - 1){ psi[i] = openB ? psi[i - 1] - 1 : -(w - 1); continue; }
+          if (y === h - 1){ psi[i] = psi[i - w]; continue; }
+        }
+        const g = (psi[i - 1] + psi[i + 1] + psi[i - w] + psi[i + w]) * .25;
+        psi[i] += om * (g - psi[i]);
+      }
+    }
+  }
+}
+
+/* ---------- value noise → curl ---------- */
+const PERM = new Uint8Array(512); { const p = []; for (let i = 0; i < 256; i++) p.push(i); for (let i = 255; i > 0; i--){ const j = (Math.random() * (i + 1)) | 0; [p[i], p[j]] = [p[j], p[i]]; } for (let i = 0; i < 512; i++) PERM[i] = p[i & 255]; }
+function vn(x, y){
+  const xi = Math.floor(x), yi = Math.floor(y), xf = x - xi, yf = y - yi;
+  const a = PERM[(PERM[xi & 255] + yi) & 511], b = PERM[(PERM[(xi + 1) & 255] + yi) & 511];
+  const c = PERM[(PERM[xi & 255] + yi + 1) & 511], d = PERM[(PERM[(xi + 1) & 255] + yi + 1) & 511];
+  const u = xf * xf * (3 - 2 * xf), v = yf * yf * (3 - 2 * yf);
+  return ((a + (b - a) * u) * (1 - v) + (c + (d - c) * u) * v) / 255;
+}
+
+/* ---------- flow update ---------- */
+let windNow = 0;
+const STATS = { turb:0, inside:0, lines:0, pts:0 };
+function flow(dt, now, E, changed){
+  const w = G.w, h = G.h, n = w * h, t = now / 1000;
+  const up = S.dir === 1;
+  const U = windNow;                                     // short edges / s
+  const ux = up ? 0 : U, uy = up ? U : 0;           // 'up' is the downdraft (wind ↓)
+  // advect turbulence + push downstream (semi-Lagrangian along the uniform wind), then decay
+  const sx = ux * dt * GS, sy = uy * dt * GS, dec = Math.exp(-dt / 1.5), decP = Math.exp(-dt / .6);
+  const T = G.T, T2 = G.T2, px = G.px, py = G.py, px2 = G.px2, py2 = G.py2;
+  for (let y = 0; y < h; y++){
+    const yy = Math.min(h - 1, Math.max(0, y - sy)), y0 = yy | 0, y1 = Math.min(h - 1, y0 + 1), fy = yy - y0;
+    for (let x = 0; x < w; x++){
+      const xx = Math.min(w - 1, Math.max(0, x - sx)), x0 = xx | 0, x1 = Math.min(w - 1, x0 + 1), fx = xx - x0;
+      const a = y0 * w + x0, b = y0 * w + x1, c = y1 * w + x0, d = y1 * w + x1;
+      const l = (1 - fx) * (1 - fy), m = fx * (1 - fy), o = (1 - fx) * fy, p = fx * fy, i = y * w + x;
+      T2[i] = (T[a] * l + T[b] * m + T[c] * o + T[d] * p) * dec;
+      px2[i] = (px[a] * l + px[b] * m + px[c] * o + px[d] * p) * decP;
+      py2[i] = (py[a] * l + py[b] * m + py[c] * o + py[d] * p) * decP;
+    }
+  }
+  G.T = T2; G.T2 = T; G.px = px2; G.px2 = px; G.py = py2; G.py2 = py;
+  const TT = G.T, PX = G.px, PY = G.py;
+  // the moving outline: gained cells push outward, lost cells leave a hole the air rushes into
+  const k = (.9 + 3.2 * S.sens);
+  let inj = 0;
+  if (changed && MODE.on){
+    for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++){
+      const i = y * w + x, m = G.m[i], pm = G.prevM[i];
+      if (m === pm) continue;
+      const s = m ? 1 : -.6;
+      inj++;
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++){
+        const j = i + dy * w + dx;
+        TT[j] = Math.min(3, TT[j] + .45 * k);
+        PX[j] += G.nx[i] * s * .5 * k; PY[j] += G.ny[i] * s * .5 * k;
+      }
+    }
+  }
+  // velocity: wind hugging the body + outline pushes + curl-noise swirls scaled by turbulence
+  const d = G.d, nx = G.nx, ny = G.ny, vx = G.vx, vy = G.vy, DEL = .07;
+  let tsum = 0;
+  for (let y = 0; y < h; y++){
+    for (let x = 0; x < w; x++){
+      const i = y * w + x;
+      let bx, by;
+      if (G.m[i]){                                        // inside: out along the normal, fast
+        bx = nx[i] * U * 3; by = ny[i] * U * 3;
+      } else {
+        const psi = G.psi;
+        const pyp = y < h - 1 ? psi[i + w] : psi[i], pym = y > 0 ? psi[i - w] : psi[i];
+        const pxp = x < w - 1 ? psi[i + 1] : psi[i], pxm = x > 0 ? psi[i - 1] : psi[i];
+        const sy = (y > 0 && y < h - 1) ? .5 : 1, sx2 = (x > 0 && x < w - 1) ? .5 : 1;
+        // u = ∂ψ/∂y, v = −∂ψ/∂x  (the downdraft uses ψ = −x, which gives v = +U)
+        bx = (pyp - pym) * sy * U; by = -(pxp - pxm) * sx2 * U;
+        if (d[i] < .15){
+          const wgt = Math.exp(-d[i] / DEL), un = ux * nx[i] + uy * ny[i];
+          if (un > 0) TT[i] = Math.max(TT[i], .2 * wgt * Math.min(1, U * 4));     // a quiet wake behind you
+        }
+      }
+      const tb = TT[i];
+      tsum += tb;
+      if (tb > .01){
+        // curl of the noise potential (finite difference in noise space)
+        const qx = x * .075 - t * .25 * (up ? 0 : 1), qy = y * .075 - t * .25 * (up ? 1 : 0), e = .5;
+        const cxn = (vn(qx, qy + e) - vn(qx, qy - e)), cyn = -(vn(qx + e, qy) - vn(qx - e, qy));
+        const a = Math.min(1.6, tb) * (.25 + U * 2.2);
+        bx += cxn * a * 1.5; by += cyn * a * 1.5;
+      }
+      vx[i] = bx + PX[i] * .35; vy[i] = by + PY[i] * .35;
+    }
+  }
+  STATS.turb = tsum / n;
+}
+
+/* ---------- smoke lines ---------- */
+const K = 420;                                           // particles per line (≈ 11 s of smoke)
+const L = { n:0, x:null, y:null, head:null, acc:0, seeds:null, dye:null, key:'' };
+function ensureLines(W, H){
+  const short = Math.min(W, H), up = S.dir === 1;
+  const per = Math.round(26 + 44 * S.lines);
+  const across = up ? W : H, n = Math.max(8, Math.round(per * across / short));
+  const key = n + ':' + W + 'x' + H + ':' + S.dir;
+  if (key === L.key) return;
+  L.key = key; L.n = n;
+  L.x = new Float32Array(n * K).fill(NaN); L.y = new Float32Array(n * K).fill(NaN);
+  L.head = 0; L.acc = 0; L.seeds = new Float32Array(n); L.dye = new Uint8Array(n);
+  for (let i = 0; i < n; i++){ L.seeds[i] = (i + .5) / n; }
+  const mid = Math.round(n * .46);                        // one dye line near the middle, one more lower down
+  L.dye[mid] = 1; if (n > 30) L.dye[Math.round(n * .78)] = 1;
+}
+function clearLines(){ if (L.x){ L.x.fill(NaN); L.y.fill(NaN); } }
+function sampleV(px, py, W, H, out){
+  const gx = px / W * G.w - .5, gy = py / H * G.h - .5;
+  const x0 = Math.max(0, Math.min(G.w - 2, gx | 0)), y0 = Math.max(0, Math.min(G.h - 2, gy | 0));
+  const fx = Math.max(0, Math.min(1, gx - x0)), fy = Math.max(0, Math.min(1, gy - y0));
+  const a = y0 * G.w + x0, b = a + 1, c = a + G.w, d = c + 1;
+  const l = (1 - fx) * (1 - fy), m = fx * (1 - fy), o = (1 - fx) * fy, p = fx * fy;
+  out[0] = G.vx[a] * l + G.vx[b] * m + G.vx[c] * o + G.vx[d] * p;
+  out[1] = G.vy[a] * l + G.vy[b] * m + G.vy[c] * o + G.vy[d] * p;
+}
+const V2 = new Float32Array(2);
+function advect(dt, W, H, emitting){
+  const short = Math.min(W, H), up = S.dir === 1, n = L.n;
+  // emit at a fixed rate so the spacing does not depend on the frame rate
+  const rate = 38;
+  L.acc += dt * rate;
+  while (L.acc >= 1){
+    L.acc -= 1;
+    L.head = (L.head + 1) % K;
+    for (let i = 0; i < n; i++){
+      const k = i * K + L.head;
+      if (emitting){
+        const j = (Math.random() - .5) * .0015 * short;
+        if (up){ L.x[k] = L.seeds[i] * W + j; L.y[k] = -2; } else { L.x[k] = -2; L.y[k] = L.seeds[i] * H + j; }
+      } else { L.x[k] = NaN; L.y[k] = NaN; }
+    }
+  }
+  const sc = short * dt;
+  let inside = 0, pts = 0;
+  for (let k = 0, N = n * K; k < N; k++){
+    let x = L.x[k]; if (x !== x) continue;
+    let y = L.y[k];
+    sampleV(x, y, W, H, V2);
+    x += V2[0] * sc; y += V2[1] * sc;
+    if (x < -20 || x > W + 20 || y < -20 || y > H + 20){ L.x[k] = NaN; continue; }
+    const gx = Math.min(G.w - 1, Math.max(0, x / W * G.w | 0)), gy = Math.min(G.h - 1, Math.max(0, y / H * G.h | 0));
+    if (G.m[gy * G.w + gx] && G.blur[gy * G.w + gx] > .8){ L.x[k] = NaN; inside++; continue; }   // your body cuts the smoke
+    L.x[k] = x; L.y[k] = y; pts++;
+  }
+  STATS.inside = inside; STATS.pts = pts;
+}
+
+/* ---------- model ---------- */
+let segmenter = null, lastTs = 0, lastSegVT = -1;
+async function initModel(){
+  try{
+    const vision = await import(VISION_URL);
+    const fs = await vision.FilesetResolver.forVisionTasks(WASM_URL);
+    const opts = d => ({ baseOptions:{ modelAssetPath:SEG_MODEL, delegate:d }, runningMode:'VIDEO', outputConfidenceMasks:true, outputCategoryMask:false });
+    try { segmenter = await vision.ImageSegmenter.createFromOptions(fs, opts('GPU')); }
+    catch(e){ segmenter = await vision.ImageSegmenter.createFromOptions(fs, opts('CPU')); }
+    setStatus('');
+  }catch(e){
+    if (M.external) return;
+    setStatus('人物検出モデルを読み込めませんでした（ネット接続を確認）。\n体の形が取れないので、煙はまっすぐ流れます。');
+  }
+}
+function segment(now){
+  if (!segmenter || M.external || video.readyState < 2) return;
+  const vt = video.currentTime; if (vt === lastSegVT) return; lastSegVT = vt;
+  try{
+    const ts = Math.max(lastTs + 1, Math.round(now)); lastTs = ts;
+    segmenter.segmentForVideo(video, ts, res => {
+      const ms = res && res.confidenceMasks; if (!ms || !ms.length) return;
+      const mk = ms[ms.length - 1]; ingestMask(mk.getAsFloat32Array(), mk.width, mk.height);
+    });
+  }catch(e){}
+}
+
+/* ---------- camera ---------- */
+let stream = null, facing = 'user', mirror = true, started = false, vidW = 1280, vidH = 720, camT0 = 0;
+function setStatus(t){ $('status').textContent = t || ''; }
+function camError(e){
+  const msg = (e && (e.message || e.name)) ? (e.message || e.name) : String(e || 'unknown');
+  const text = 'カメラを起動できませんでした：' + msg + '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+  $('err').textContent = text;
+  if (started) setStatus(text);
+}
+async function startCam(){
+  const md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) throw new Error('getUserMedia is unavailable');
+  const s = await md.getUserMedia({ video:{ facingMode:{ ideal:facing }, width:{ ideal:1280 }, height:{ ideal:720 } }, audio:false });
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = s; mirror = facing === 'user';
+  video.srcObject = s;
+  await new Promise(r => { if (video.readyState >= 1) r(); else video.onloadedmetadata = () => r(); });
+  await video.play().catch(()=>{});
+  vidW = video.videoWidth || 1280; vidH = video.videoHeight || 720;
+  camT0 = performance.now();
+}
+
+/* ---------- audio: the tunnel's air, louder with speed and turbulence ---------- */
+let actx = null, bus = null, recDest = null, air = null, airF = null, gustG = null;
+function ensureAudio(){
+  if (actx){ if (actx.state === 'suspended') actx.resume().catch(()=>{}); return; }
+  const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+  actx = new AC(); bus = actx.createGain(); bus.gain.value = .6; bus.connect(actx.destination);
+  recDest = actx.createMediaStreamDestination(); bus.connect(recDest);
+  const sr = actx.sampleRate, n = sr * 3 | 0, buf = actx.createBuffer(1, n, sr), d = buf.getChannelData(0);
+  let b0 = 0, b1 = 0, b2 = 0;
+  for (let i = 0; i < n; i++){ const w = Math.random() * 2 - 1; b0 = .997 * b0 + w * .03; b1 = .96 * b1 + w * .1; b2 = .6 * b2 + w * .3; d[i] = (b0 + b1 + b2) * .5; }
+  const src = actx.createBufferSource(); src.buffer = buf; src.loop = true;
+  airF = actx.createBiquadFilter(); airF.type = 'lowpass'; airF.frequency.value = 300; airF.Q.value = .4;
+  air = actx.createGain(); air.gain.value = 0;
+  src.connect(airF); airF.connect(air); air.connect(bus); src.start();
+  actx.resume().catch(()=>{});
+}
+
+// the switch: plain camera (X = 0) ⇄ tunnel (X = 1)
+const MODE = { on:false, X:0 };
+function setMode(on){
+  if (on === MODE.on) return;
+  MODE.on = on;
+  $('mode').textContent = on ? '◂ CAMERA' : '▸ RYUSEN';
+  document.body.classList.toggle('cam', !on);
+  $('puff').style.visibility = on ? 'visible' : 'hidden';
+  if (on){ clearLines(); windNow = 0; if (G.T) G.T.fill(0); }
+}
+$('mode').onclick = () => setMode(!MODE.on);
+addEventListener('keydown', e => { if (started && (e.key === ' ' || e.key === 'Enter') && document.activeElement.tagName !== 'INPUT'){ e.preventDefault(); setMode(!MODE.on); } });
+$('go').onclick = async () => {
+  $('err').textContent = '';
+  ensureAudio();
+  try{ await startCam(); }catch(e){ camError(e); return; }
+  $('start').style.display = 'none';
+  ['gear','flip','bar','rec','shoot','puff','hud','mode'].forEach(id => $(id).classList.add('show'));
+  MODE.on = true; setMode(false);
+  if (!started){ setDir(innerHeight > innerWidth * 1.15 ? 1 : 0); started = true; initModel(); requestAnimationFrame(loop); }
+};
+$('flip').onclick = async () => {
+  const prev = facing; facing = facing === 'user' ? 'environment' : 'user';
+  try { await startCam(); } catch(e){ facing = prev; camError(e); }
+};
+$('gear').onclick = () => $('panel').classList.toggle('hide');
+// a puff: a burst of turbulence and an outward blast at one point
+function puff(fx, fy){
+  if (!MODE.on || MODE.X < 1 || !G.T) return;
+  const cx = fx * G.w, cy = fy * G.h, r = GS * .12;
+  for (let y = Math.max(0, cy - r * 2 | 0); y < Math.min(G.h, cy + r * 2); y++)
+    for (let x = Math.max(0, cx - r * 2 | 0); x < Math.min(G.w, cx + r * 2); x++){
+      const dx = x - cx, dy = y - cy, q = Math.exp(-(dx * dx + dy * dy) / (r * r)), l = Math.hypot(dx, dy) + 1e-3, i = y * G.w + x;
+      G.T[i] = Math.min(3, G.T[i] + 2.2 * q); G.px[i] += dx / l * q * 1.6; G.py[i] += dy / l * q * 1.6;
+    }
+  if (actx && actx.state === 'running'){ const t = actx.currentTime; air.gain.cancelScheduledValues(t); air.gain.setTargetAtTime(.9, t, .03); }
+}
+$('puff').onclick = () => puff(.3, .5);
+cv.addEventListener('pointerdown', e => { if (started) puff(e.clientX / innerWidth, e.clientY / innerHeight); });
+function setPal(i){
+  S.pal = i; const p = PALS[i];
+  [...$('pals').children].forEach(x => x.classList.toggle('on', +x.dataset.p === i));
+  const r = document.documentElement.style;
+  r.setProperty('--bg', p.css[0]); r.setProperty('--fg', p.css[1]); r.setProperty('--acc', p.css[2]);
+}
+$('pals').onclick = e => { const b = e.target.closest('button'); if (b) setPal(+b.dataset.p); };
+// portrait screens start with the downdraft: a standing body blocks most of a sideways wind there
+function setDir(d){ S.dir = d; [...$('dirs').children].forEach(x => x.classList.toggle('on', +x.dataset.d === d)); }
+$('dirs').onclick = e => { const b = e.target.closest('button'); if (b) setDir(+b.dataset.d); };
+[['sWind','wind'],['sLines','lines'],['sSens','sens'],['sBody','body']].forEach(([id,k]) => { $(id).oninput = e => { S[k] = +e.target.value; }; });
+
+$('shoot').onclick = () => {
+  try{
+    cv.toBlob(b => { if (!b) return; const a = document.createElement('a'); a.href = URL.createObjectURL(b);
+      a.download = 'ryusen-' + Date.now() + '.png'; a.click(); }, 'image/png');
+  }catch(e){ setStatus('保存できませんでした。'); }
+};
+let rec = null, chunks = [];
+$('rec').onclick = () => {
+  if (rec && rec.state === 'recording'){ rec.stop(); return; }
+  try{
+    ensureAudio();
+    const tracks = [...cv.captureStream(30).getVideoTracks()];
+    if (recDest) tracks.push(...recDest.stream.getAudioTracks());
+    const mime = ['video/mp4;codecs=avc1','video/webm;codecs=vp9,opus','video/webm'].find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || '';
+    rec = new MediaRecorder(new MediaStream(tracks), mime ? { mimeType:mime } : {});
+    chunks = [];
+    rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+    rec.onstop = () => {
+      $('rec').classList.remove('on'); $('rec').textContent = '● REC';
+      const ext = (rec.mimeType || '').includes('mp4') ? 'mp4' : 'webm';
+      const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(chunks, { type:rec.mimeType || 'video/webm' }));
+      a.download = 'ryusen.' + ext; a.click();
+    };
+    rec.start(); $('rec').classList.add('on'); $('rec').textContent = '■ STOP';
+  }catch(e){ setStatus('録画を開始できませんでした。'); }
+};
+
+/* ---------- render ---------- */
+let lastT = 0, hudT = 0, lastMaskT = -1;
+function drawVideoCover(W, H){
+  const s = Math.max(W / vidW, H / vidH), dw = vidW * s, dh = vidH * s;
+  ctx.save();
+  if (mirror){ ctx.translate(W, 0); ctx.scale(-1, 1); }
+  ctx.drawImage(video, (W - dw) / 2, (H - dh) / 2, dw, dh);
+  ctx.restore();
+}
+function loop(now){
+  requestAnimationFrame(loop);
+  const dt = lastT ? Math.min(.1, (now - lastT)/1000) : 1/60; lastT = now;
+  if (video.videoWidth && (video.videoWidth !== vidW || video.videoHeight !== vidH)){ vidW = video.videoWidth; vidH = video.videoHeight; }
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  let W = Math.round(innerWidth*dpr), H = Math.round(innerHeight*dpr);
+  const kk = Math.min(1, 1600 / Math.max(W, H)); W = Math.round(W*kk); H = Math.round(H*kk);
+  if (cv.width !== W || cv.height !== H){ cv.width = W; cv.height = H; }
+  ensureGrid(W, H); ensureLines(W, H);
+  segment(now);
+  if (M.live && now - M.lastT > 1200){ M.live = false; M.dirty = true; }
+  if (video.readyState < 2) return;
+
+  MODE.X = MODE.on ? Math.min(1, MODE.X + dt / .9) : Math.max(0, MODE.X - dt / .6);
+  const E = MODE.X * MODE.X * (3 - 2 * MODE.X);
+  // the fan spins up after the room goes dark
+  const target = MODE.on && MODE.X > .5 ? .22 + .38 * S.wind : 0;
+  windNow += (target - windNow) * Math.min(1, dt * (MODE.on ? 1.6 : 4));
+
+  let changed = 0;
+  if (M.dirty){
+    M.dirty = false; changed = sampleMask(W, H); distance();
+    // a camera cut or a new person popping in is not motion
+    if (now - camT0 < 700 || changed > G.on * .8) changed = 0;
+  }
+  if (MODE.X > 0) solvePsi(G.on ? 24 : 4);
+  // slow frames are split so the smoke never jumps through the body
+  const sub = Math.max(1, Math.ceil(dt / .025));
+  for (let q = 0; q < sub; q++){
+    flow(dt / sub, now, E, q ? 0 : changed);
+    if (MODE.X > 0) advect(dt / sub, W, H, MODE.on && MODE.X > .5);
+  }
+
+  const p = PALS[S.pal];
+  // 1. the camera
+  ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
+  drawVideoCover(W, H);
+  if (E > 0){
+    // 2. the test body: cold dim monochrome
+    ctx.globalAlpha = E;
+    ctx.globalCompositeOperation = 'saturation'; ctx.fillStyle = '#808080'; ctx.fillRect(0, 0, W, H);
+    ctx.globalCompositeOperation = 'multiply'; ctx.fillStyle = p.tint; ctx.fillRect(0, 0, W, H);
+    const b = .25 + .75 * S.body, g = Math.round(255 * b);
+    ctx.fillStyle = `rgb(${g},${g},${g})`; ctx.fillRect(0, 0, W, H);
+    // 3. the room goes dark around the person
+    if (maskImg){
+      const md = maskImg.data, has = M.has && M.live, c = p.rgb;
+      for (let i = 0, n = G.w * G.h; i < n; i++){
+        const o = i * 4; md[o] = c[0]; md[o + 1] = c[1]; md[o + 2] = c[2];
+        md[o + 3] = has ? 255 * Math.min(1, Math.max(0, (.5 - G.blur[i]) * 2.4)) : 150;   // no mask: the whole frame just dims
+      }
+      mctx.putImageData(maskImg, 0, 0);
+      ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = E;
+      ctx.imageSmoothingEnabled = true;
+      ctx.drawImage(maskCv, 0, 0, W, H);
+      ctx.globalCompositeOperation = 'source-over';
+    }
+    // 4. the smoke
+    const lw = Math.max(1, Math.min(W, H) / 520);
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    for (let pass = 0; pass < 2; pass++){
+      ctx.lineWidth = pass ? lw : lw * 4.5;
+      for (let i = 0; i < L.n; i++){
+        const dye = L.dye[i];
+        ctx.strokeStyle = `rgba(${dye ? p.dye : p.smoke},${(pass ? (dye ? .95 : .62) : (dye ? .16 : .06)) * E})`;
+        ctx.beginPath();
+        // smooth: quadratic curves through the midpoints of consecutive particles
+        let pen = false, lx = 0, ly = 0;
+        const base = i * K, jump = W * .08;
+        for (let q = 0; q < K; q++){
+          const k = base + (L.head - q + K) % K, x = L.x[k];
+          if (x !== x){ if (pen) ctx.lineTo(lx, ly); pen = false; continue; }
+          const y = L.y[k];
+          if (pen && Math.abs(x - lx) + Math.abs(y - ly) < jump) ctx.quadraticCurveTo(lx, ly, (lx + x) * .5, (ly + y) * .5);
+          else { if (pen) ctx.lineTo(lx, ly); ctx.moveTo(x, y); }
+          pen = true; lx = x; ly = y;
+        }
+        if (pen) ctx.lineTo(lx, ly);
+        ctx.stroke();
+      }
+    }
+    ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
+  }
+  // wall-clock: the grid of the air, the dim frame of the tunnel
+  if (actx && actx.state === 'running'){
+    const lv = Math.min(1, windNow * 1.5) * .35 + Math.min(1, STATS.turb * 6) * .5;
+    if (air.gain.value < .5 || !MODE.on) air.gain.setTargetAtTime(lv * E * .55, actx.currentTime, .12);
+    airF.frequency.setTargetAtTime(250 + 900 * lv, actx.currentTime, .15);
+  }
+  $('hud').style.visibility = MODE.X >= 1 ? 'visible' : 'hidden';
+  hudT += dt;
+  if (hudT > .3){ hudT = 0; STATS.lines = L.n;
+    $('hud').textContent = 'RYUSEN  ' + p.name + '\nWIND  ' + (windNow * 10).toFixed(1) + ' m/s\nTURB  ' + Math.min(99, STATS.turb * 400).toFixed(0).padStart(2, '0') + ' %'; }
+}
+
+/* ---------- test hook (used by the local verification harness) ---------- */
+window.__RYUSEN = {
+  ingestMask(d, w, h){ if (!M.external) setStatus(''); M.external = true; return ingestMask(d, w, h); },
+  dropMask(){ M.lastT = -1e9; },
+  state: () => ({ turb:STATS.turb, inside:STATS.inside, pts:STATS.pts, lines:L.n, wind:windNow, maskLive:M.live, on:G.on }),
+  // mean turbulence in a screen rectangle (0..1 coords)
+  turbIn(x0, y0, x1, y1){ let s = 0, c = 0; for (let y = y0 * G.h | 0; y < y1 * G.h; y++) for (let x = x0 * G.w | 0; x < x1 * G.w; x++){ s += G.T[y * G.w + x]; c++; } return c ? s / c : 0; },
+  // how far the smoke is displaced from its straight path near a screen point (short-edge units)
+  palette(i){ setPal(i); },
+  dir(d){ setDir(d); },
+  mode(c){ setMode(!!c); },
+  puff(x, y){ puff(x, y); },
+  view: () => ({ on:MODE.on, X:MODE.X }),
+};
+</script>
+</body>
+</html>
