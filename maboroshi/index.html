@@ -1,0 +1,553 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="description" content="部屋が暗くなり、映った人が床から投影されたホログラムになる。走査線と輪郭の光で透けて立ち、速く動いたところから信号が裂けて横にずれ、少し前の自分の残像が遅れてついてくる。">
+<meta name="theme-color" content="#030608">
+<title>MABOROSHI ─ 投影された、あなたのホログラム</title>
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  MABOROSHI 幻 ─ 投影された、あなたのホログラム        ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  MOOD       近未来映画の広告ホログラム。暗い部屋の床にある投影器から光の
+             円錐が立ちのぼり、映った人だけが透ける光の像になる。細い走査線、
+             ゆっくり昇る明るい帯、輪郭の縁光、左右にわずかに割れた色。
+             動いたところは信号が乱れて横に裂け、行ごとにずれ、少し前の自分が
+             遅れた残像として重なる。止まれば像はまた静かに結び直る。
+  PALETTE    CYAN    地 #030608・像 #9fe6ff・縁 #e8fbff・割れ 赤 #ff5a7a／青 #4aa8ff
+             VIOLET  地 #06040a・像 #c7a8ff・縁 #f3eaff
+             MONO    地 #050505・像 #e8e8e8・縁 #ffffff（色の割れなし）
+  TYPE       Syne Mono（計器と数字）＋ Inter Tight 200（見出し）。
+  MOTION     走査帯は 6 秒で下から上へ。像の明滅はごく小さく一定。
+             裂けは動いた行だけに、動きの大きさに比例して起き、0.4 秒で退く。
+             タップで一度だけ全体の信号が落ちて、下から結び直す。
+  SIGNATURE  動けば動くほど、あなたの像が信号として壊れて、また結ぶこと。
+  SWITCH     はじめは素のカメラ。「▸ MABOROSHI」で部屋が暗転し、床の投影器が灯って
+             像が下から一行ずつ組み上がる。「◂ CAMERA」で像が一本の線に畳まれて消える。
+  TECH       WebGL2 の一枚のシェーダ。人物は セルフィー分割のマスク、裂けは
+             画面の行ごとの動き量（縮小映像の差分）を 1 列のテクスチャで渡す。
+             残像は 0.3 秒ごとに撮り直す映像とマスクの控え。
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Syne+Mono&family=Inter+Tight:wght@200;400&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#030608;--fg:#dff6ff;--dim:rgba(223,246,255,.5);--line:rgba(159,230,255,.25);--acc:#9fe6ff}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none}
+html,body{margin:0;height:100%;background:var(--bg);overflow:hidden;color:var(--fg);
+  font-family:"Inter Tight","Hiragino Sans","Noto Sans JP",sans-serif;font-weight:200;transition:background .4s}
+#gl{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+#cam{position:fixed;left:0;top:0;width:2px;height:2px;opacity:.01;pointer-events:none}
+#est{display:none}
+
+#start{position:fixed;inset:0;z-index:30;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:24px;
+  padding:28px;text-align:center;background:var(--bg)}
+#start .t{font:400 10px "Syne Mono",monospace;letter-spacing:.5em;margin-right:-.5em;color:var(--dim)}
+#start h1{margin:0;font:200 min(12vw,78px)/1 "Inter Tight",sans-serif;letter-spacing:.3em;margin-right:-.3em;
+  color:var(--acc);text-shadow:-2px 0 rgba(255,90,122,.55),2px 0 rgba(74,168,255,.55),0 0 18px rgba(159,230,255,.45)}
+#start .beam{width:2px;height:54px;background:linear-gradient(to top,var(--acc),transparent);box-shadow:0 0 12px var(--acc)}
+#start p{margin:0;font-size:12px;line-height:2.1;color:var(--dim);letter-spacing:.1em;font-family:"Hiragino Sans","Noto Sans JP",sans-serif;font-weight:300}
+#go{appearance:none;border:1px solid var(--line);background:transparent;color:var(--fg);font:400 11px "Syne Mono",monospace;
+  letter-spacing:.5em;padding:15px 30px 15px 36px;cursor:pointer;transition:border-color .3s,box-shadow .3s}
+#go:hover{border-color:var(--acc);box-shadow:0 0 16px rgba(159,230,255,.3)}
+#err{font-size:12px;line-height:1.8;max-width:340px;min-height:1em;white-space:pre-line;color:#ff9aae;font-family:"Hiragino Sans","Noto Sans JP",sans-serif}
+
+.btn{position:fixed;z-index:12;appearance:none;border:0;background:transparent;color:var(--fg);font:400 10px "Syne Mono","Hiragino Sans",monospace;
+  letter-spacing:.3em;padding:10px 8px;display:none;cursor:pointer;opacity:.6;transition:opacity .3s}
+.btn.show{display:block}
+.btn:hover{opacity:1}
+#gear{right:10px;top:calc(env(safe-area-inset-top) + 6px);font-size:14px;letter-spacing:0}
+#flip{right:10px;top:calc(env(safe-area-inset-top) + 40px);letter-spacing:.1em;font-family:"Hiragino Sans","Noto Sans JP",sans-serif}
+#bar{position:fixed;left:0;right:0;bottom:calc(env(safe-area-inset-bottom) + 10px);z-index:12;display:none;justify-content:center;align-items:center;gap:30px}
+#bar.show{display:flex}
+#bar .btn{position:static;display:block}
+#bar #shoot{width:42px;height:42px;border-radius:50%;border:1px solid var(--acc);padding:0;opacity:.8;box-shadow:0 0 10px rgba(159,230,255,.3) inset}
+#rec.on{opacity:1;color:#ff7a92}
+#hud{position:fixed;left:14px;top:calc(env(safe-area-inset-top) + 14px);z-index:11;font:400 9px "Syne Mono",monospace;letter-spacing:.24em;color:var(--dim);
+  pointer-events:none;display:none;line-height:2.1;white-space:pre}
+#hud.show{display:block}
+#status{position:fixed;left:14px;bottom:calc(env(safe-area-inset-bottom) + 70px);z-index:11;font-size:11px;letter-spacing:.04em;
+  color:var(--dim);pointer-events:none;max-width:72vw;line-height:1.7;white-space:pre-line;font-family:"Hiragino Sans","Noto Sans JP",sans-serif}
+
+#panel{position:fixed;right:10px;top:calc(env(safe-area-inset-top) + 78px);z-index:12;width:min(270px,calc(100vw - 20px));
+  background:color-mix(in srgb,var(--bg) 84%,transparent);border:1px solid var(--line);padding:14px 16px;display:flex;flex-direction:column;gap:13px;
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);transition:opacity .25s}
+#panel.hide{opacity:0;pointer-events:none}
+.chips{display:flex;border:1px solid var(--line)}
+.chips button{flex:1;appearance:none;border:0;background:transparent;color:var(--fg);padding:8px 2px;font:400 9px "Syne Mono",monospace;
+  letter-spacing:.2em;cursor:pointer;opacity:.55}
+.chips button.on{opacity:1;background:color-mix(in srgb,var(--acc) 16%,transparent)}
+#panel label{display:flex;align-items:center;gap:10px;font-size:11px;letter-spacing:.04em;font-family:"Hiragino Sans","Noto Sans JP",sans-serif;font-weight:300}
+#panel label span{width:74px;flex:none;color:var(--dim)}
+#panel input[type=range]{flex:1;accent-color:var(--acc)}
+#panel .note{font-size:10px;color:var(--dim);line-height:1.7;font-family:"Hiragino Sans","Noto Sans JP",sans-serif}
+#mode{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom) + 72px);z-index:13;display:none;
+  appearance:none;border:1px solid var(--line);background:color-mix(in srgb,var(--bg) 55%,transparent);color:var(--fg);
+  font:400 10px "Syne Mono",monospace;letter-spacing:.42em;padding:13px 22px 13px 28px;cursor:pointer;
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);transition:border-color .3s,box-shadow .3s}
+#mode.show{display:block}
+#mode:hover{border-color:var(--acc);box-shadow:0 0 14px rgba(159,230,255,.25)}
+body.cam #mode{border-color:rgba(255,255,255,.55);color:#fff;background:rgba(0,0,0,.35)}
+body.cam .btn{color:#fff}
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<canvas id="est"></canvas>
+<video id="cam" playsinline muted autoplay></video>
+<div id="hud"></div>
+<div id="status"></div>
+<button id="gear" class="btn" aria-label="調整">⚙</button>
+<button id="flip" class="btn">⟲ カメラ</button>
+<button id="mode">▸ MABOROSHI</button>
+<div id="bar">
+  <button id="rec" class="btn">● REC</button>
+  <button id="shoot" class="btn" aria-label="撮る"></button>
+  <button id="drop" class="btn">DROP</button>
+</div>
+
+<div id="panel" class="hide">
+  <div class="chips" id="pals">
+    <button data-p="0" class="on">CYAN</button>
+    <button data-p="1">VIOLET</button>
+    <button data-p="2">MONO</button>
+  </div>
+  <label><span>透け</span><input type="range" id="sGlass" min="0" max="1" step="0.01" value="0.5"></label>
+  <label><span>走査線</span><input type="range" id="sScan" min="0" max="1" step="0.01" value="0.5"></label>
+  <label><span>乱れやすさ</span><input type="range" id="sTear" min="0" max="1" step="0.01" value="0.55"></label>
+  <label><span>残像</span><input type="range" id="sGhost" min="0" max="1" step="0.01" value="0.5"></label>
+  <div class="note">速く動いたところから信号が裂ける。<br>DROP か画面タップで、像が一度落ちて結び直す。</div>
+</div>
+
+<div id="start">
+  <div class="t">PROJECTED · SIGNAL</div>
+  <h1>MABOROSHI</h1>
+  <div class="beam"></div>
+  <p>まずは、いつものカメラ。<br>ボタンを押すと、あなたは光で投影されたホログラムになる。</p>
+  <button id="go">START</button>
+  <div id="err"></div>
+</div>
+
+<script>
+'use strict';
+/* =====================================================================
+   MABOROSHI — the person as a projected hologram. One fragment shader:
+   the room goes dark, a projector cone rises from the floor, and the
+   masked person is rebuilt additively from luminance, scanlines, a rim
+   and split colour. Rows where the body moved tear sideways in bands
+   (a one-column texture of per-row motion), and a snapshot taken every
+   0.3 s trails behind as a lagging ghost.
+   ===================================================================== */
+const VISION_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs';
+const WASM_URL   = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm';
+const SEG_MODEL  = 'https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite';
+
+const $ = id => document.getElementById(id);
+const canvas = $('gl'), video = $('cam'), est = $('est');
+const ectx = est.getContext('2d', { willReadFrequently:true });
+
+const PALS = [
+  { name:'CYAN',   bg:[.012,.024,.032], tint:[.62,.90,1.0], rim:[.91,.98,1.0], split:1, css:['#030608','#dff6ff','#9fe6ff'] },
+  { name:'VIOLET', bg:[.024,.016,.04],  tint:[.78,.66,1.0], rim:[.95,.92,1.0], split:1, css:['#06040a','#efe6ff','#c7a8ff'] },
+  { name:'MONO',   bg:[.02,.02,.02],    tint:[.91,.91,.91], rim:[1,1,1],       split:0, css:['#050505','#eeeeee','#e8e8e8'] },
+];
+const S = { pal:0, glass:.5, scan:.5, tear:.55, ghost:.5 };
+
+/* ---------- GL ---------- */
+const gl = canvas.getContext('webgl2', { antialias:false, alpha:false, preserveDrawingBuffer:true });
+const VS = `#version 300 es
+in vec2 p; void main(){ gl_Position = vec4(p, 0., 1.); }`;
+const FS = `#version 300 es
+precision highp float;
+uniform sampler2D uVid, uMask, uHold, uHoldM, uRow;
+uniform vec2 uRes, uScale, uMT;
+uniform float uTearK, uMirror, uE, uReveal, uT, uHasMask, uBurst, uGlass, uScan, uGhost, uGhostDx, uSplit, uDrop;
+uniform vec3 uBg, uTint, uRimC;
+out vec4 o;
+float h1(float n){ return fract(sin(n * 91.3458) * 47453.5453); }
+float h2(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233))) * 43758.5453); }
+vec2 cv(vec2 s){ vec2 v = (s - .5) * uScale + .5; if (uMirror > .5) v.x = 1. - v.x; return v; }
+float lum(vec3 c){ return dot(c, vec3(.299,.587,.114)); }
+float msk(sampler2D t, vec2 v){ return uHasMask > .5 ? texture(t, v).r : (uHasMask < -.5 ? 0. : 1.); }
+void main(){
+  vec2 s = gl_FragCoord.xy / uRes; s.y = 1. - s.y;                 // y down, like the page
+  vec3 cam = texture(uVid, cv(s)).rgb;
+  float asp = uRes.x / uRes.y;
+  // ---- the dark room and the projector ----
+  vec3 bg = uBg;
+  float dxb = (s.x - .5) * asp;
+  float up = 1.02 - s.y;                                             // distance above the floor emitter
+  float cone = exp(-abs(dxb) / (.03 + .42 * up)) * (1. - smoothstep(.2, 1.1, up)) * .16;
+  float emitter = exp(-pow(dxb / .22, 2.) - pow((s.y - .995) / .012, 2.));
+  float dust = step(.9965, h2(floor(gl_FragCoord.xy / 2.) + floor(uT * 3.) * 17.)) * exp(-abs(dxb) / (.05 + .3 * up)) * .9;
+  bg += uTint * (cone + emitter * .9 + dust * .25) * smoothstep(0., .6, uReveal + .2);
+  bg += (h2(gl_FragCoord.xy + fract(uT) * 101.) - .5) * .02;
+  // ---- the signal: tear the rows that moved ----
+  float row = texture(uRow, vec2(.5, s.y)).r;
+  float band = floor(s.y * 72.), tick = floor(uT * 16.);
+  float tear = row * (.4 + 1.6 * uTearK);
+  tear = tear + uBurst;
+  float pick = h1(band * 3.1 + tick * 7.7);
+  float dx = pick > .5 - .25 * min(1., tear) ? (h1(band + tick * 13.) - .5) * tear * .16 : 0.;
+  dx += (h1(floor(s.y * 300.) + tick) - .5) * .004 * tear;          // fine jitter
+  vec2 sv = s + vec2(dx, 0.);
+  float ca = (.0016 + .012 * min(1., tear)) * uSplit;
+  vec2 vg = cv(sv), vr = cv(sv + vec2(ca, 0.)), vb = cv(sv - vec2(ca, 0.));
+  float m = msk(uMask, vg), mr = msk(uMask, vr), mb = msk(uMask, vb);
+  float lg = lum(texture(uVid, vg).rgb), lr = lum(texture(uVid, vr).rgb), lb = lum(texture(uVid, vb).rgb);
+  // rim: the mask falling off toward the outside
+  float ring = 0.;
+  for (int i = 0; i < 8; i++){ float a = float(i) * .785398; ring += msk(uMask, vg + vec2(cos(a), sin(a)) * uMT); }
+  float rim = uHasMask > .5 ? clamp((m - ring / 8.) * 3.5, 0., 1.) : 0.;
+  float body = .04 + .96 * pow(lg, 1.25);
+  vec3 holo;
+  holo.g = body * smoothstep(.3, .7, m);
+  holo.r = (.04 + .96 * pow(lr, 1.25)) * smoothstep(.3, .7, mr);
+  holo.b = (.04 + .96 * pow(lb, 1.25)) * smoothstep(.3, .7, mb);
+  if (uSplit < .5) holo = vec3(holo.g);
+  vec3 hc = uTint * mix(vec3(holo.g), holo, .85) * (.25 + .85 * (1. - uGlass));
+  hc += uRimC * rim * 1.1;
+  hc += uTint * smoothstep(.3, .7, m) * .10;                         // a faint fill so dark clothes still glow
+  // scanlines, the rising bar, a small constant flicker
+  float sl = sin(gl_FragCoord.y * 3.14159 / 1.5); sl *= sl;
+  hc *= 1. - uScan * .55 * sl;
+  float bar = exp(-pow((s.y - (1. - fract(uT / 6.))) * 14., 2.));
+  hc *= 1. + .7 * bar;
+  hc *= .94 + .06 * h1(floor(uT * 24.));
+  // the lagging ghost
+  vec2 vh = cv(sv + vec2(uGhostDx, 0.));
+  float gm = msk(uHoldM, vh);
+  hc += uTint * (.25 + .6 * lum(texture(uHold, vh).rgb)) * smoothstep(.3, .7, gm) * uGhost * .6 * (1. - smoothstep(.3, .7, m) * .6);
+  // blocks drop out of the signal when it tears hard
+  float blk = h2(floor(gl_FragCoord.xy / vec2(24., 6.)) + tick);
+  hc *= 1. - step(1. - .5 * clamp(tear - .35, 0., 1.), blk) * .9;
+  // building up from the floor (the switch) and a signal drop (tap)
+  float edge = 1. - uReveal * 1.1;
+  float shown = smoothstep(edge, edge + .02, s.y);
+  float scanline = exp(-pow((s.y - edge) * 180., 2.)) * step(.001, uReveal) * step(uReveal, .999);
+  hc = hc * shown * (1. - uDrop) + uRimC * scanline * .8 * smoothstep(.2, .6, m + .3);
+  vec3 outc = bg + hc;
+  o = vec4(mix(cam, outc, uE), 1.);
+}`;
+function sh(type, src){ const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s; }
+function prog(vs, fs){ const p = gl.createProgram(); gl.attachShader(p, sh(gl.VERTEX_SHADER, vs)); gl.attachShader(p, sh(gl.FRAGMENT_SHADER, fs));
+  gl.bindAttribLocation(p, 0, 'p'); gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+  const U = {}, n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+  for (let i = 0; i < n; i++){ const u = gl.getActiveUniform(p, i); U[u.name] = gl.getUniformLocation(p, u.name); }
+  return { p, U }; }
+function tex(){ const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE); return t; }
+let P = null, vao, texVid, texMask, texHold, texHoldM, texRow;
+function initGL(){
+  P = prog(VS, FS);
+  vao = gl.createVertexArray(); gl.bindVertexArray(vao);
+  const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+  texVid = tex(); texMask = tex(); texHold = tex(); texHoldM = tex(); texRow = tex();
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+  const one = new Uint8Array([255]);
+  for (const t of [texMask, texHoldM]){ gl.bindTexture(gl.TEXTURE_2D, t); gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, 1, 1, 0, gl.RED, gl.UNSIGNED_BYTE, one); }
+  gl.bindTexture(gl.TEXTURE_2D, texRow); gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, 1, 1, 0, gl.RED, gl.UNSIGNED_BYTE, new Uint8Array([0]));
+  gl.bindTexture(gl.TEXTURE_2D, texHold); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0,0,0,255]));
+}
+
+/* ---------- mask ---------- */
+const M = { w:0, h:0, b:null, has:false, live:false, external:false, lastT:0, dirty:false };
+function ingestMask(data, w, h){
+  if (!data || !(w > 0) || !(h > 0) || !(w * h <= 4e6) || data.length < w * h) return false;
+  if (M.w !== w || M.h !== h){ M.w = w; M.h = h; M.b = new Uint8Array(w * h); }
+  for (let i = 0, n = w * h; i < n; i++){ let m = data[i]; if (!(m >= 0)) m = 0; else if (m > 1) m = 1; M.b[i] = m * 255; }
+  M.has = true; M.live = true; M.lastT = performance.now(); M.dirty = true;
+  return true;
+}
+
+/* ---------- per-row motion, measured in screen space on a small copy of the camera ---------- */
+const FSHORT = 72;
+const F = { w:0, h:0, cur:null, prev:null, have:false, row:null, rowB:null };
+function ensureField(W, H){
+  let w, h; if (W >= H){ h = FSHORT; w = Math.round(FSHORT * W / H); } else { w = FSHORT; h = Math.round(FSHORT * H / W); }
+  if (w === F.w && h === F.h) return;
+  F.w = w; F.h = h; est.width = w; est.height = h;
+  F.cur = new Uint8Array(w * h); F.prev = new Uint8Array(w * h); F.have = false;
+  F.row = new Float32Array(h); F.rowB = new Uint8Array(h);
+}
+function grab(){
+  const w = F.w, h = F.h, vw = video.videoWidth, vh = video.videoHeight;
+  if (!(vw > 0 && vh > 0)) return false;
+  const sa = w / h, va = vw / vh;
+  let cw = vw, ch = vh; if (va > sa) cw = vh * sa; else ch = vw / sa;
+  ectx.setTransform(mirror ? -1 : 1, 0, 0, 1, mirror ? w : 0, 0);
+  try { ectx.drawImage(video, (vw - cw)/2, (vh - ch)/2, cw, ch, 0, 0, w, h); } catch(e){ return false; }
+  const d = ectx.getImageData(0, 0, w, h).data;
+  const t = F.prev; F.prev = F.cur; F.cur = t;
+  for (let i = 0, j = 0, n = w*h; i < n; i++, j += 4) F.cur[i] = (d[j]*77 + d[j+1]*150 + d[j+2]*29) >> 8;
+  const ok = F.have; F.have = true; return ok;
+}
+let motionAll = 0;
+function updateRows(dt, fresh){
+  const w = F.w, h = F.h;
+  let armed = fresh && F.have && performance.now() - camT0 > 700;
+  if (armed){ let ch = 0; for (let i = 0; i < w * h; i += 5) if (Math.abs(F.cur[i] - F.prev[i]) > 36) ch++; if (ch * 5 > w * h * .45) armed = false; }
+  const decay = Math.exp(-dt / .4);
+  let sum = 0;
+  for (let y = 0; y < h; y++){
+    let r = F.row[y] * decay;
+    if (armed){
+      let c = 0; const o = y * w;
+      for (let x = 0; x < w; x++){ const dv = F.cur[o + x] - F.prev[o + x]; if (dv > 22 || dv < -22) c++; }
+      const v = Math.min(1, Math.max(0, c - w * .02) / (w * .1));   // a few changed pixels (breathing, noise) are not a tear
+      if (v > r) r = v;
+    }
+    F.row[y] = r; sum += r;
+  }
+  // a row also shakes a little when its neighbours tear
+  for (let y = 0; y < h; y++){
+    const a = F.row[Math.max(0, y - 1)], b = F.row[Math.min(h - 1, y + 1)];
+    F.rowB[y] = Math.min(255, Math.max(F.row[y], (a + b) * .35) * 255);
+  }
+  motionAll = sum / h;
+  gl.activeTexture(gl.TEXTURE4); gl.bindTexture(gl.TEXTURE_2D, texRow);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, 1, h, 0, gl.RED, gl.UNSIGNED_BYTE, F.rowB);
+}
+
+/* ---------- model ---------- */
+let segmenter = null, lastTs = 0, lastSegVT = -1;
+async function initModel(){
+  try{
+    const vision = await import(VISION_URL);
+    const fs = await vision.FilesetResolver.forVisionTasks(WASM_URL);
+    const opts = d => ({ baseOptions:{ modelAssetPath:SEG_MODEL, delegate:d }, runningMode:'VIDEO', outputConfidenceMasks:true, outputCategoryMask:false });
+    try { segmenter = await vision.ImageSegmenter.createFromOptions(fs, opts('GPU')); }
+    catch(e){ segmenter = await vision.ImageSegmenter.createFromOptions(fs, opts('CPU')); }
+    setStatus('');
+  }catch(e){
+    if (M.external) return;
+    setStatus('人物検出モデルを読み込めませんでした（ネット接続を確認）。\n画面全体をホログラムにして続けます。');
+  }
+}
+function segment(now){
+  if (!segmenter || M.external || video.readyState < 2) return;
+  const vt = video.currentTime; if (vt === lastSegVT) return; lastSegVT = vt;
+  try{
+    const ts = Math.max(lastTs + 1, Math.round(now)); lastTs = ts;
+    segmenter.segmentForVideo(video, ts, res => {
+      const ms = res && res.confidenceMasks; if (!ms || !ms.length) return;
+      const mk = ms[ms.length - 1]; ingestMask(mk.getAsFloat32Array(), mk.width, mk.height);
+    });
+  }catch(e){}
+}
+
+/* ---------- camera ---------- */
+let stream = null, facing = 'user', mirror = true, started = false, vidW = 1280, vidH = 720, lastVT = -1, camT0 = 0;
+function setStatus(t){ $('status').textContent = t || ''; }
+function camError(e){
+  const msg = (e && (e.message || e.name)) ? (e.message || e.name) : String(e || 'unknown');
+  const text = 'カメラを起動できませんでした：' + msg + '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+  $('err').textContent = text;
+  if (started) setStatus(text);
+}
+async function startCam(){
+  const md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) throw new Error('getUserMedia is unavailable');
+  const s = await md.getUserMedia({ video:{ facingMode:{ ideal:facing }, width:{ ideal:1280 }, height:{ ideal:720 } }, audio:false });
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = s; mirror = facing === 'user';
+  video.srcObject = s;
+  await new Promise(r => { if (video.readyState >= 1) r(); else video.onloadedmetadata = () => r(); });
+  await video.play().catch(()=>{});
+  vidW = video.videoWidth || 1280; vidH = video.videoHeight || 720;
+  F.have = false; camT0 = performance.now();
+}
+
+/* ---------- audio: a projector hum, and the crackle of a torn signal ---------- */
+let actx = null, bus = null, recDest = null, hum = null, crackle = null, crackF = null;
+function ensureAudio(){
+  if (actx){ if (actx.state === 'suspended') actx.resume().catch(()=>{}); return; }
+  const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+  actx = new AC(); bus = actx.createGain(); bus.gain.value = .55; bus.connect(actx.destination);
+  recDest = actx.createMediaStreamDestination(); bus.connect(recDest);
+  hum = actx.createGain(); hum.gain.value = 0; hum.connect(bus);
+  const lp = actx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 900; lp.connect(hum);
+  [55, 110.3, 164.9].forEach((f, i) => { const o = actx.createOscillator(); o.type = i ? 'sine' : 'triangle'; o.frequency.value = f;
+    const g = actx.createGain(); g.gain.value = [.5, .25, .12][i]; o.connect(g); g.connect(lp); o.start(); });
+  const sr = actx.sampleRate, n = sr * 2, b = actx.createBuffer(1, n, sr), d = b.getChannelData(0);
+  for (let i = 0; i < n; i++) d[i] = Math.random() < .08 ? (Math.random() * 2 - 1) : (Math.random() * 2 - 1) * .15;
+  const src = actx.createBufferSource(); src.buffer = b; src.loop = true;
+  crackF = actx.createBiquadFilter(); crackF.type = 'bandpass'; crackF.frequency.value = 3200; crackF.Q.value = .6;
+  crackle = actx.createGain(); crackle.gain.value = 0;
+  src.connect(crackF); crackF.connect(crackle); crackle.connect(bus); src.start();
+  actx.resume().catch(()=>{});
+}
+function sweep(up){
+  if (!actx || actx.state !== 'running') return;
+  const t = actx.currentTime, o = actx.createOscillator(), g = actx.createGain();
+  o.type = 'sine'; o.frequency.setValueAtTime(up ? 80 : 900, t); o.frequency.exponentialRampToValueAtTime(up ? 900 : 60, t + (up ? 1.2 : .5));
+  g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime(.18, t + .1); g.gain.exponentialRampToValueAtTime(.0001, t + (up ? 1.3 : .6));
+  o.connect(g); g.connect(bus); o.start(t); o.stop(t + 1.4);
+}
+
+// the switch: plain camera (X = 0) ⇄ hologram (X = 2)
+const MODE = { on:false, X:0 };
+function setMode(on){
+  if (on === MODE.on) return;
+  MODE.on = on;
+  $('mode').textContent = on ? '◂ CAMERA' : '▸ MABOROSHI';
+  document.body.classList.toggle('cam', !on);
+  $('drop').style.visibility = on ? 'visible' : 'hidden';
+  sweep(on);
+}
+$('mode').onclick = () => setMode(!MODE.on);
+addEventListener('keydown', e => { if (started && (e.key === ' ' || e.key === 'Enter') && document.activeElement.tagName !== 'INPUT'){ e.preventDefault(); setMode(!MODE.on); } });
+$('go').onclick = async () => {
+  $('err').textContent = '';
+  ensureAudio();
+  try{
+    if (!gl) throw new Error('WebGL2 に未対応のブラウザです');
+    if (!P) initGL();
+    await startCam();
+  }catch(e){ camError(e); return; }
+  $('start').style.display = 'none';
+  ['gear','flip','bar','rec','shoot','drop','hud','mode'].forEach(id => $(id).classList.add('show'));
+  MODE.on = true; setMode(false);
+  if (!started){ started = true; initModel(); requestAnimationFrame(loop); }
+};
+$('flip').onclick = async () => {
+  const prev = facing; facing = facing === 'user' ? 'environment' : 'user';
+  try { await startCam(); } catch(e){ facing = prev; camError(e); }
+};
+$('gear').onclick = () => $('panel').classList.toggle('hide');
+// a signal drop: tear everything, black out, then rebuild from the floor
+const DROP = { t:-1 };
+function drop(){ if (!MODE.on || MODE.X < 2) return; DROP.t = 0; if (actx && crackle) crackle.gain.setTargetAtTime(.5, actx.currentTime, .01); }
+$('drop').onclick = drop;
+canvas.addEventListener('pointerdown', () => { if (started) drop(); });
+function setPal(i){
+  S.pal = i; const p = PALS[i];
+  [...$('pals').children].forEach(x => x.classList.toggle('on', +x.dataset.p === i));
+  const r = document.documentElement.style;
+  r.setProperty('--bg', p.css[0]); r.setProperty('--fg', p.css[1]); r.setProperty('--acc', p.css[2]);
+}
+$('pals').onclick = e => { const b = e.target.closest('button'); if (b) setPal(+b.dataset.p); };
+[['sGlass','glass'],['sScan','scan'],['sTear','tear'],['sGhost','ghost']].forEach(([id,k]) => { $(id).oninput = e => { S[k] = +e.target.value; }; });
+
+$('shoot').onclick = () => {
+  try{
+    canvas.toBlob(b => { if (!b) return; const a = document.createElement('a'); a.href = URL.createObjectURL(b);
+      a.download = 'maboroshi-' + Date.now() + '.png'; a.click(); }, 'image/png');
+  }catch(e){ setStatus('保存できませんでした。'); }
+};
+let rec = null, chunks = [];
+$('rec').onclick = () => {
+  if (rec && rec.state === 'recording'){ rec.stop(); return; }
+  try{
+    ensureAudio();
+    const tracks = [...canvas.captureStream(30).getVideoTracks()];
+    if (recDest) tracks.push(...recDest.stream.getAudioTracks());
+    const mime = ['video/mp4;codecs=avc1','video/webm;codecs=vp9,opus','video/webm'].find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || '';
+    rec = new MediaRecorder(new MediaStream(tracks), mime ? { mimeType:mime } : {});
+    chunks = [];
+    rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+    rec.onstop = () => {
+      $('rec').classList.remove('on'); $('rec').textContent = '● REC';
+      const ext = (rec.mimeType || '').includes('mp4') ? 'mp4' : 'webm';
+      const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(chunks, { type:rec.mimeType || 'video/webm' }));
+      a.download = 'maboroshi.' + ext; a.click();
+    };
+    rec.start(); $('rec').classList.add('on'); $('rec').textContent = '■ STOP';
+  }catch(e){ setStatus('録画を開始できませんでした。'); }
+};
+
+/* ---------- render ---------- */
+let lastT = 0, hudT = 0, holdT = 0, ghostDx = 0, holdHas = false;
+const STATE = { burst:0, drop:0, reveal:0 };
+function loop(now){
+  requestAnimationFrame(loop);
+  const dt = lastT ? Math.min(.1, (now - lastT)/1000) : 1/60; lastT = now;
+  const t = now / 1000;
+  if (video.videoWidth && (video.videoWidth !== vidW || video.videoHeight !== vidH)){ vidW = video.videoWidth; vidH = video.videoHeight; }
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  let W = Math.round(innerWidth*dpr), H = Math.round(innerHeight*dpr);
+  const k = Math.min(1, 1800 / Math.max(W, H)); W = Math.round(W*k); H = Math.round(H*k);
+  if (canvas.width !== W || canvas.height !== H){ canvas.width = W; canvas.height = H; }
+  ensureField(W, H);
+  segment(now);
+  if (M.live && now - M.lastT > 1200) M.live = false;
+  if (video.readyState < 2) return;
+  const vt = video.currentTime, fresh = vt !== lastVT; lastVT = vt;
+  const grabbed = fresh && grab();
+  updateRows(dt, grabbed && MODE.X >= 2);
+  if (fresh){ gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, texVid);
+    try { gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video); } catch(e){ return; } }
+  if (M.dirty){ M.dirty = false; gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, texMask);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, M.w, M.h, 0, gl.RED, gl.UNSIGNED_BYTE, M.b); }
+  // the ghost: a snapshot every 0.3 s, drifting sideways with how much you move
+  holdT += dt;
+  if (holdT > .3 && fresh){
+    holdT = 0; holdHas = true;
+    gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, texHold);
+    try { gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video); } catch(e){}
+    if (M.b){ gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, texHoldM); gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, M.w, M.h, 0, gl.RED, gl.UNSIGNED_BYTE, M.b); }
+  }
+  ghostDx += ((motionAll > .02 ? .012 + motionAll * .06 : 0) * Math.sin(t * 1.3) - ghostDx) * (1 - Math.exp(-dt / .3));
+
+  MODE.X = MODE.on ? Math.min(2, MODE.X + dt) : Math.max(0, MODE.X - dt * 2.4);
+  const E = Math.min(1, MODE.X / .5);
+  let reveal = Math.max(0, Math.min(1, (MODE.X - .45) / 1.4));
+  // tap: tear everything for 0.25 s, black out, rebuild from the floor
+  let burst = 0, dropK = 0;
+  if (DROP.t >= 0){
+    DROP.t += dt;
+    if (DROP.t < .28) burst = 1.2;
+    else if (DROP.t < .5){ dropK = 1; }
+    else if (DROP.t < 1.6){ reveal = Math.min(reveal, (DROP.t - .5) / 1.1); }
+    else DROP.t = -1;
+  }
+  STATE.burst = burst; STATE.drop = dropK; STATE.reveal = reveal;
+
+  const p = PALS[S.pal];
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, 0, W, H);
+  gl.useProgram(P.p); gl.bindVertexArray(vao);
+  const U = P.U;
+  gl.uniform1i(U.uVid, 0); gl.uniform1i(U.uMask, 1); gl.uniform1i(U.uHold, 2); gl.uniform1i(U.uHoldM, 3); gl.uniform1i(U.uRow, 4);
+  const sa = W/H, va = vidW/vidH;
+  gl.uniform2f(U.uRes, W, H); gl.uniform2f(U.uScale, sa < va ? sa/va : 1, sa < va ? 1 : va/sa);
+  const sc = Math.max(W / vidW, H / vidH), rimPx = Math.min(W, H) * .007;
+  gl.uniform2f(U.uMT, rimPx / (vidW * sc), rimPx / (vidH * sc));
+  gl.uniform1f(U.uMirror, mirror ? 1 : 0); gl.uniform1f(U.uE, E); gl.uniform1f(U.uReveal, reveal); gl.uniform1f(U.uT, t);
+  gl.uniform1f(U.uHasMask, M.has ? (M.live ? 1 : -1) : 0);   // no model yet → whole frame; stale mask → nobody
+  gl.uniform1f(U.uBurst, burst); gl.uniform1f(U.uDrop, dropK);
+  gl.uniform1f(U.uGlass, S.glass); gl.uniform1f(U.uScan, .2 + .8 * S.scan); gl.uniform1f(U.uTearK, S.tear);
+  gl.uniform1f(U.uGhost, holdHas ? S.ghost * Math.min(1, motionAll * 8 + .15) : 0); gl.uniform1f(U.uGhostDx, ghostDx);
+  gl.uniform1f(U.uSplit, p.split);
+  gl.uniform3fv(U.uBg, p.bg); gl.uniform3fv(U.uTint, p.tint); gl.uniform3fv(U.uRimC, p.rim);
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+  if (actx && hum){
+    hum.gain.setTargetAtTime(MODE.on ? .12 * reveal : 0, actx.currentTime, .2);
+    if (DROP.t < 0 || DROP.t > .3) crackle.gain.setTargetAtTime(MODE.on && MODE.X >= 2 ? Math.min(.35, motionAll * 2.2 * (.4 + S.tear)) : 0, actx.currentTime, .06);
+  }
+  $('hud').style.visibility = MODE.X > 1.4 ? 'visible' : 'hidden';
+  hudT += dt;
+  if (hudT > .3){ hudT = 0;
+    const sig = Math.max(0, 1 - motionAll * 3 - burst);
+    $('hud').textContent = 'MABOROSHI  ' + p.name + '\nSIGNAL ' + (sig * 100).toFixed(1).padStart(5, '0') + '%\nFRAME ' + String(Math.floor(t * 30) % 100000).padStart(5, '0'); }
+}
+
+/* ---------- test hook (used by the local verification harness) ---------- */
+window.__MABOROSHI = {
+  ingestMask(d, w, h){ if (!M.external) setStatus(''); M.external = true; return ingestMask(d, w, h); },
+  state: () => ({ motion:motionAll, rows:F.row ? Array.from(F.row) : [], maskLive:M.live, ghostDx, burst:STATE.burst, drop:STATE.drop, reveal:STATE.reveal }),
+  palette(i){ setPal(i); },
+  mode(c){ setMode(!!c); },
+  tap(){ drop(); },
+  view: () => ({ on:MODE.on, X:MODE.X }),
+};
+</script>
+</body>
+</html>
