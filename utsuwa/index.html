@@ -1,0 +1,822 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="description" content="映った人が、琥珀色の酒を満たしたガラスの器になる。顔は透きとおったガラスに、体は光を通す琥珀に。動けば体の中で酒が揺れて波打ち、跳べば頭の中まで飛沫が上がる。">
+<meta name="theme-color" content="#0b0806">
+<title>UTSUWA ─ 満たされた器のあなた</title>
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  UTSUWA 器 ─ 満たされた器のあなた                    ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  MOOD       ウイスキーの広告の、黒い背景に一本だけ立つカットガラスの瓶。
+             映った人の輪郭がそのまま器になり、胸から下は光を通す琥珀の酒、
+             その上は透きとおったガラスで、顔は銀色に冷たく映る。後ろの壁には
+             酒を通った光が琥珀色に滲む。体を横に動かすと中の酒が揺れて
+             反対側へ打ち寄せ、跳べば飛沫が首を越えて頭の中まで上がる。
+  PALETTE    WHISKY     地 #0b0806・酒 琥珀 #d8731f→#4a1806・ガラス 銀 #c9d0d6
+             CHAMPAGNE  地 #0a0907・酒 淡い金 #f0d482・泡がたくさん立つ
+             ROSSO      地 #0b0607・酒 深い紅 #9e1a22→#2a0408
+  TYPE       Forum（見出し・ローマン体の大文字、酒のラベルの書体）＋ Fira Mono（計器）。
+  MOTION     液面は体の横の加速度で傾き、端で跳ね返って数秒かけて静まる。
+             体の縁が液面のあたりで動けば、そこが波立つ。跳ぶ・沈むなど体が上下に速く
+             動けば、液面ぜんぶが跳ね上がる。跳ねた飛沫はガラスの
+             内側で跳ね返り、液面に落ちて波紋になる。泡は底から昇る。
+             タップするとその位置から氷がひとつ落ちて浮かび、波に揺られて漂う。
+  SIGNATURE  自分の体の中で、酒が揺れていること。
+  SWITCH     はじめは素のカメラ。「▸ UTSUWA」で部屋が暗くなり、頭の上から
+             琥珀の酒が細く注がれ、体の底から満ちていく。「◂ CAMERA」で酒が抜けて戻る。
+  TECH       WebGL2。人物マスクを画面の升目に落として器の形と重心を取り、
+             液面は列ごとの一次元の波（波動方程式、器の外の列は止める）。
+             重心の加速度が傾きの力に、縁の動きが局所の波になる。飛沫・泡・氷は
+             CPU の粒で、マスクの外へ出ようとするとガラスに当たって跳ね返る。
+             描画は一枚のシェーダで、液面の高さは浮動小数の一次元テクスチャ。
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Forum&family=Fira+Mono&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0b0806;--fg:#efe6d6;--dim:rgba(239,230,214,.5);--line:rgba(239,230,214,.2);--acc:#d8731f}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none}
+html,body{margin:0;height:100%;background:var(--bg);overflow:hidden;color:var(--fg);
+  font-family:"Forum","Hiragino Mincho ProN","Noto Serif JP",serif;transition:background .4s,color .4s}
+#gl{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+#cam{position:fixed;left:0;top:0;width:2px;height:2px;opacity:.01;pointer-events:none}
+
+#start{position:fixed;inset:0;z-index:30;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;
+  padding:28px;text-align:center;background:var(--bg)}
+#start .t{font:400 10px "Fira Mono",monospace;letter-spacing:.5em;margin-right:-.5em;color:var(--dim)}
+#start h1{margin:0;font:400 min(15vw,96px)/1 "Forum",serif;letter-spacing:.24em;margin-right:-.24em}
+#start svg{width:70px;height:110px}
+#start p{margin:0;font-size:12px;line-height:2.1;color:var(--dim);letter-spacing:.1em;font-family:"Hiragino Sans","Noto Sans JP",sans-serif;font-weight:300}
+#go{appearance:none;border:1px solid var(--line);background:transparent;color:var(--fg);font:400 10px "Fira Mono",monospace;
+  letter-spacing:.5em;padding:15px 30px 15px 36px;cursor:pointer;transition:border-color .3s}
+#go:hover{border-color:var(--acc)}
+#err{font-size:12px;line-height:1.8;max-width:340px;min-height:1em;white-space:pre-line;color:#e39a8a;font-family:"Hiragino Sans","Noto Sans JP",sans-serif}
+
+.btn{position:fixed;z-index:12;appearance:none;border:0;background:transparent;color:var(--fg);font:400 10px "Fira Mono","Hiragino Sans",monospace;
+  letter-spacing:.3em;padding:10px 8px;display:none;cursor:pointer;opacity:.62;transition:opacity .3s}
+.btn.show{display:block}
+.btn:hover{opacity:1}
+#gear{right:10px;top:calc(env(safe-area-inset-top) + 6px);font-size:14px;letter-spacing:0}
+#flip{right:10px;top:calc(env(safe-area-inset-top) + 40px);letter-spacing:.1em;font-family:"Hiragino Sans","Noto Sans JP",sans-serif}
+#bar{position:fixed;left:0;right:0;bottom:calc(env(safe-area-inset-bottom) + 10px);z-index:12;display:none;justify-content:center;align-items:center;gap:30px}
+#bar.show{display:flex}
+#bar .btn{position:static;display:block}
+#bar #shoot{width:42px;height:42px;border-radius:50%;border:1px solid var(--fg);padding:0;opacity:.8;
+  background:linear-gradient(to top,var(--acc) 0 46%,transparent 46%);background-clip:content-box;padding:5px}
+#rec.on{opacity:1;color:var(--acc)}
+#hud{position:fixed;left:14px;top:calc(env(safe-area-inset-top) + 14px);z-index:11;font:400 9px "Fira Mono",monospace;letter-spacing:.24em;color:var(--dim);
+  pointer-events:none;display:none;line-height:2.1;white-space:pre}
+#hud.show{display:block}
+#status{position:fixed;left:14px;bottom:calc(env(safe-area-inset-bottom) + 132px);z-index:11;font-size:11px;letter-spacing:.04em;
+  color:var(--dim);pointer-events:none;max-width:72vw;line-height:1.7;white-space:pre-line;font-family:"Hiragino Sans","Noto Sans JP",sans-serif}
+
+#panel{position:fixed;right:10px;top:calc(env(safe-area-inset-top) + 78px);z-index:12;width:min(270px,calc(100vw - 20px));
+  background:color-mix(in srgb,var(--bg) 86%,transparent);border:1px solid var(--line);padding:14px 16px;display:flex;flex-direction:column;gap:13px;
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);transition:opacity .25s}
+#panel.hide{opacity:0;pointer-events:none}
+.chips{display:flex;border:1px solid var(--line)}
+.chips button{flex:1;appearance:none;border:0;background:transparent;color:var(--fg);padding:8px 2px;font:400 9px "Fira Mono",monospace;
+  letter-spacing:.16em;cursor:pointer;opacity:.55}
+.chips button.on{opacity:1;background:color-mix(in srgb,var(--fg) 12%,transparent)}
+#panel label{display:flex;align-items:center;gap:10px;font-size:11px;letter-spacing:.04em;font-family:"Hiragino Sans","Noto Sans JP",sans-serif;font-weight:300}
+#panel label span{width:74px;flex:none;color:var(--dim)}
+#panel input[type=range]{flex:1;accent-color:var(--acc)}
+#panel .note{font-size:10px;color:var(--dim);line-height:1.7;font-family:"Hiragino Sans","Noto Sans JP",sans-serif}
+#mode{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom) + 72px);z-index:13;display:none;
+  appearance:none;border:1px solid var(--line);background:color-mix(in srgb,var(--bg) 55%,transparent);color:var(--fg);
+  font:400 10px "Fira Mono",monospace;letter-spacing:.42em;padding:13px 22px 13px 28px;cursor:pointer;
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);transition:border-color .3s}
+#mode.show{display:block}
+#mode:hover{border-color:var(--acc)}
+body.cam #mode{border-color:rgba(255,255,255,.55);color:#fff;background:rgba(0,0,0,.35)}
+body.cam .btn{color:#fff}
+body.cam #bar #shoot{border-color:#fff}
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<video id="cam" playsinline muted autoplay></video>
+<div id="hud"></div>
+<div id="status"></div>
+<button id="gear" class="btn" aria-label="調整">⚙</button>
+<button id="flip" class="btn">⟲ カメラ</button>
+<button id="mode">▸ UTSUWA</button>
+<div id="bar">
+  <button id="rec" class="btn">● REC</button>
+  <button id="shoot" class="btn" aria-label="撮る"></button>
+  <button id="ice" class="btn">ICE</button>
+</div>
+
+<div id="panel" class="hide">
+  <div class="chips" id="pals">
+    <button data-p="0" class="on">WHISKY</button>
+    <button data-p="1">CHAMPAGNE</button>
+    <button data-p="2">ROSSO</button>
+  </div>
+  <label><span>酒の量</span><input type="range" id="sFill" min="0" max="1" step="0.01" value="0.38"></label>
+  <label><span>揺れやすさ</span><input type="range" id="sSlosh" min="0" max="1" step="0.01" value="0.55"></label>
+  <label><span>泡</span><input type="range" id="sFizz" min="0" max="1" step="0.01" value="0.4"></label>
+  <label><span>顔の明るさ</span><input type="range" id="sBody" min="0" max="1" step="0.01" value="0.5"></label>
+  <div class="note">体を横に動かすと酒が揺れ、跳べば飛沫が上がる。<br>ICE か画面タップで、その位置から氷を落とす。</div>
+</div>
+
+<div id="start">
+  <div class="t">A VESSEL · OF · YOU</div>
+  <svg viewBox="0 0 70 110" aria-hidden="true" fill="none" stroke="currentColor" stroke-width=".8">
+    <path d="M35 108 C14 108 8 100 8 86 C8 74 16 68 24 64 C28 62 29 58 27 54 C22 50 20 44 20 36 C20 22 27 12 35 12 C43 12 50 22 50 36 C50 44 48 50 43 54 C41 58 42 62 46 64 C54 68 62 74 62 86 C62 100 56 108 35 108 Z"/>
+    <path d="M9.5 80 C20 76 28 83 35 80 C43 77 51 82 60.5 79 L61 86 C61 100 55 107 35 107 C15 107 9 100 9 86 Z" fill="#d8731f" stroke="none" opacity=".9"/>
+  </svg>
+  <h1>UTSUWA</h1>
+  <p>まずは、いつものカメラ。<br>ボタンを押すと、あなたは酒を満たした器になる。</p>
+  <button id="go">START</button>
+  <div id="err"></div>
+</div>
+
+<script>
+'use strict';
+/* =====================================================================
+   UTSUWA — the person as a glass vessel holding a liquid. The person mask
+   is dropped onto a screen grid; its bounding rows give the fill level and
+   its centroid gives the body's acceleration. The liquid surface is a 1-D
+   wave per grid column (wave equation, sub-stepped), pushed by the body's
+   sideways acceleration (a tilt) and by the outline moving near the
+   surface. Splash drops, bubbles and ice are CPU particles that bounce off
+   the inside of the glass (the mask edge). One shader paints glass above
+   the surface, liquid below it, and the light the liquid throws on the wall.
+   ===================================================================== */
+const VISION_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs';
+const WASM_URL   = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm';
+const SEG_MODEL  = 'https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite';
+
+const $ = id => document.getElementById(id);
+const canvas = $('gl'), video = $('cam');
+
+const PALS = [
+  { name:'WHISKY',    bg:[.043,.031,.024], liq:[.86,.46,.13], deep:[.29,.095,.024], glass:[.79,.82,.85], hi:[1,.88,.66], fizz:.5, css:['#0b0806','#efe6d6','#d8731f'] },
+  { name:'CHAMPAGNE', bg:[.039,.035,.027], liq:[.95,.83,.5],  deep:[.5,.36,.14],   glass:[.82,.83,.82], hi:[1,.97,.86], fizz:2.6, css:['#0a0907','#f2ead6','#e6c66a'] },
+  { name:'ROSSO',     bg:[.043,.024,.027], liq:[.7,.1,.13],   deep:[.17,.016,.03], glass:[.8,.8,.84],   hi:[1,.8,.78],  fizz:.35, css:['#0b0607','#f0e4e2','#b8222c'] },
+];
+const S = { pal:0, fill:.38, slosh:.55, fizz:.4, body:.5 };
+
+/* ---------- screen grid: the vessel ---------- */
+const GS = 96;                                            // cells on the short edge
+const G = { w:0, h:0, m:null, prevM:null, on:0, top:0, bot:0, sh:0, cx:0, cy:0, wet:null, rw:null };
+const SURF = { h:null, v:null, ys:null, tex:null };
+function ensureGrid(W, H){
+  let w, h; if (W >= H){ h = GS; w = Math.round(GS * W / H); } else { w = GS; h = Math.round(GS * H / W); }
+  if (w === G.w && h === G.h) return;
+  G.w = w; G.h = h; G.m = new Uint8Array(w * h); G.prevM = new Uint8Array(w * h); G.wet = new Uint8Array(w); G.rw = new Uint16Array(h);
+  SURF.h = new Float32Array(w); SURF.v = new Float32Array(w); SURF.ys = new Float32Array(w);
+  if (gl && SURF.tex){ gl.bindTexture(gl.TEXTURE_2D, SURF.tex); gl.texImage2D(gl.TEXTURE_2D, 0, gl.R32F, w, 1, 0, gl.RED, gl.FLOAT, null); }
+  LV.y = -1;
+}
+const M = { w:0, h:0, f:null, b:null, has:false, live:false, external:false, lastT:0, dirty:false };
+function ingestMask(data, w, h){
+  if (!data || !(w > 0) || !(h > 0) || !(w * h <= 4e6) || data.length < w * h) return false;
+  if (M.w !== w || M.h !== h){ M.w = w; M.h = h; M.f = new Float32Array(w * h); M.b = new Uint8Array(w * h); }
+  for (let i = 0, n = w * h; i < n; i++){ let m = data[i]; if (!(m >= 0)) m = 0; else if (m > 1) m = 1; M.f[i] = m; M.b[i] = m * 255; }
+  M.has = true; M.live = true; M.lastT = performance.now(); M.dirty = true;
+  return true;
+}
+// mask → screen cells (cover crop + mirror); also the vessel's rows and centroid
+function sampleMask(W, H){
+  const t = G.prevM; G.prevM = G.m; G.m = t;
+  const live = M.has && M.live;
+  if (!live){
+    if (noModel){ G.m.fill(1); G.on = G.w * G.h; G.top = 0; G.bot = G.h - 1; G.sh = 0; G.cx = G.w / 2; G.cy = G.h / 2; return 0; }
+    G.m.fill(0); G.on = 0; return 0;
+  }
+  const s = Math.max(W / vidW, H / vidH), ox = (W - vidW * s) / 2, oy = (H - vidH * s) / 2;
+  let ch = 0, on = 0, sx = 0, sy = 0, top = -1, bot = -1;
+  for (let y = 0; y < G.h; y++){
+    const v = (((y + .5) / G.h * H) - oy) / s / vidH;
+    let row = 0;
+    for (let x = 0; x < G.w; x++){
+      const px = (x + .5) / G.w * W, u = ((mirror ? W - px : px) - ox) / s / vidW;
+      let m = 0;
+      if (u >= 0 && u < 1 && v >= 0 && v < 1) m = M.f[(v * M.h | 0) * M.w + (u * M.w | 0)] > .5 ? 1 : 0;
+      const i = y * G.w + x; G.m[i] = m; if (m !== G.prevM[i]) ch++;
+      if (m){ on++; row++; sx += x; sy += y; }
+    }
+    G.rw[y] = row;
+    if (row >= 2){ if (top < 0) top = y; bot = y; }
+  }
+  G.on = on;
+  if (on > 30){
+    G.top = top; G.bot = bot; G.cx = sx / on; G.cy = sy / on;
+    // the shoulder line: the first row from the top that is nearly as wide as the torso
+    let mw = 0; for (let y = top; y <= bot; y++) if (G.rw[y] > mw) mw = G.rw[y];
+    let sh = top; for (let y = top; y <= bot; y++) if (G.rw[y] >= mw * .55){ sh = y; break; }
+    G.sh = G.sh ? G.sh + (sh - G.sh) * .3 : sh;
+  }
+  return ch;
+}
+function inMask(x, y){ const xi = x | 0, yi = y | 0; return xi >= 0 && yi >= 0 && xi < G.w && yi < G.h && G.m[yi * G.w + xi] === 1; }
+
+/* ---------- the body's motion: centroid velocity and acceleration (short edges / s) ---------- */
+const BODY = { ok:false, x:0, y:0, vx:0, vy:0, ax:0, ay:0, rvy:0, t:0 };
+function trackBody(now){
+  if (G.on < 60 || noModel){ BODY.ok = false; BODY.vx = BODY.vy = BODY.ax = BODY.ay = BODY.rvy = 0; return; }
+  const x = G.cx / GS, y = G.cy / GS;
+  if (!BODY.ok || now - BODY.t > 1000){ BODY.ok = true; BODY.x = x; BODY.y = y; BODY.vx = BODY.vy = BODY.ax = BODY.ay = BODY.rvy = 0; BODY.t = now; return; }
+  const dt = Math.max(.016, (now - BODY.t) / 1000); BODY.t = now;
+  let vx = (x - BODY.x) / dt, vy = (y - BODY.y) / dt; BODY.x = x; BODY.y = y;
+  vx = Math.max(-6, Math.min(6, vx)); vy = Math.max(-6, Math.min(6, vy)); BODY.rvy = vy;
+  // acceleration from the smoothed velocity, so a mask that only shimmers does not read as a push
+  const pvx = BODY.vx, pvy = BODY.vy;
+  BODY.vx += (vx - BODY.vx) * .45; BODY.vy += (vy - BODY.vy) * .45;
+  const ax = (BODY.vx - pvx) / dt, ay = (BODY.vy - pvy) / dt;
+  BODY.ax += (Math.max(-60, Math.min(60, ax)) - BODY.ax) * .4; BODY.ay += (Math.max(-60, Math.min(60, ay)) - BODY.ay) * .4;
+}
+
+/* ---------- the liquid ---------- */
+const LV = { y:-1, fill:0 };
+const TILT = { s:0 };                               // level in grid rows; fill animates during the pour
+const POUR = { on:false, t0:0, x:0 };
+let slosh = 0;
+function liquid(dt, now, changed){
+  const w = G.w, h = SURF.h, v = SURF.v, wet = G.wet;
+  // level: a share of the vessel's height, measured from its lowest row
+  // the level is measured on the torso (bottom → shoulders); past 1 it rises into the neck and head
+  const f = (.2 + 1.3 * S.fill) * (MODE.on ? LV.fill : 0);
+  const tor = Math.max(4, G.bot + 1 - G.sh), head = Math.max(2, G.sh - G.top);
+  const target = G.on > 30 ? (f <= 1 ? G.bot + 1 - f * tor : G.sh - (f - 1) * head * 1.6) : G.h + 2;
+  LV.y = LV.y < 0 ? target : LV.y + (target - LV.y) * Math.min(1, dt * 5);
+  const row = Math.round(LV.y);
+  for (let x = 0; x < w; x++){
+    let wv = 0;
+    for (let r = row - 1; r <= row + 1; r++) if (r >= 0 && r < G.h && G.m[r * w + x]) wv = 1;
+    wet[x] = wv;
+  }
+  // forcing: the body's sideways acceleration tilts the surface; edges moving at the surface kick it
+  // in an accelerating vessel the surface leans to slope = −a/g; it springs toward that lean and
+  // keeps swinging after the body stops, which is the slosh
+  const k = .4 + 1.6 * S.slosh, cx = G.cx;
+  const axd = Math.sign(BODY.ax) * Math.max(0, Math.abs(BODY.ax) - .6);   // a dead band for tracking jitter
+  const slope = BODY.ok && MODE.on ? Math.max(-1.2, Math.min(1.2, -axd / 1.4 * k)) : 0;
+  TILT.s += (slope - TILT.s) * Math.min(1, dt * 12);
+  if (changed && MODE.on && MODE.X > .5){
+    for (let x = 0; x < w; x++){
+      if (!wet[x]) continue;
+      let c = 0;
+      for (let r = Math.max(0, row - 6); r <= Math.min(G.h - 1, row + 6); r++){ const i = r * w + x; if (G.m[i] !== G.prevM[i]) c++; }
+      if (c) v[x] += (Math.random() - .5) * c * k * 4.5;
+    }
+  }
+  if (POUR.on){
+    const px = POUR.x | 0;
+    for (let x = Math.max(0, px - 2); x <= Math.min(w - 1, px + 2); x++) v[x] -= (Math.random() * 30 + 10) * dt * 6;
+  }
+  // the wave: sub-stepped so the speed is the same at any frame rate
+  const c = GS * .85, sub = Math.max(1, Math.ceil(dt / .007)), d = dt / sub, c2 = c * c;
+  for (let q = 0; q < sub; q++){
+    for (let x = 0; x < w; x++){
+      if (!wet[x]){ v[x] *= .8; h[x] *= .9; continue; }
+      const l = x > 0 && wet[x - 1], r = x < w - 1 && wet[x + 1];
+      const hl = l ? h[x - 1] : h[x], hr = r ? h[x + 1] : h[x], vl = l ? v[x - 1] : v[x], vr = r ? v[x + 1] : v[x];
+      // wave + a little viscosity so a narrow neck cannot grow needles
+      const lean = Math.max(-10, Math.min(10, TILT.s * (x - cx)));
+      v[x] += (c2 * (hl + hr - 2 * h[x]) + 30 * (vl + vr - 2 * v[x]) - 1.5 * v[x] + 26 * (lean - h[x])) * d;
+    }
+    for (let x = 0; x < w; x++){ h[x] += v[x] * d; if (h[x] > 11) h[x] = 11; else if (h[x] < -11) h[x] = -11; }
+  }
+  let e = 0, ne = 0;
+  for (let x = 0; x < w; x++){
+    if (wet[x]){ e += v[x] * v[x]; ne++; }
+    // splash: a column flung upward faster than the surface can hold sheds drops
+    if (wet[x] && v[x] > 32 && Math.random() < dt * 10 * (v[x] / 40)) spawnDrop(x + Math.random(), LV.y - h[x] - .5, (Math.random() - .5) * 14, -Math.min(60, v[x]) * (.5 + Math.random() * .3));
+    SURF.ys[x] = (LV.y - h[x]) / G.h;
+  }
+  slosh = ne ? Math.sqrt(e / ne) : 0;
+}
+// a jump, a bob or a drop — the body moving fast up or down — throws the whole surface
+let lastJump = 0;
+function jumpSplash(now){
+  if (!BODY.ok || !MODE.on || MODE.X < 1) return;
+  const vy = BODY.rvy, th = 1.5 - .6 * S.slosh;           // short edges per second
+  if (Math.abs(vy) < th || now - lastJump < 450) return;
+  lastJump = now; STATS.jumps++;
+  const w = G.w, s = Math.min(1.6, Math.abs(vy) / th * .8), ay = vy;
+  for (let x = 0; x < w; x++){
+    if (!G.wet[x]) continue;
+    SURF.v[x] += (Math.random() * 30 + 18) * s * (ay > 0 ? 1 : -1);
+    if (Math.random() < .3 * s) spawnDrop(x + Math.random(), LV.y - SURF.h[x] - .5, (Math.random() - .5) * 22, -(30 + Math.random() * 40) * s);
+  }
+  splashSound(s);
+}
+
+/* ---------- drops, bubbles, ice ---------- */
+const DMAX = 700, BMAX = 520, IMAX = 3;
+const DR = { x:new Float32Array(DMAX), y:new Float32Array(DMAX), vx:new Float32Array(DMAX), vy:new Float32Array(DMAX), live:new Uint8Array(DMAX), n:0, next:0 };
+const BU = { x:new Float32Array(BMAX), y:new Float32Array(BMAX), r:new Float32Array(BMAX), ph:new Float32Array(BMAX), live:new Uint8Array(BMAX), next:0 };
+const ICE = [];
+function spawnDrop(x, y, vx, vy){
+  const k = DR.next; DR.next = (DR.next + 1) % DMAX;
+  DR.x[k] = x; DR.y[k] = y; DR.vx[k] = vx; DR.vy[k] = vy; DR.live[k] = 1;
+}
+function spawnBubble(x, y, r){
+  const k = BU.next; BU.next = (BU.next + 1) % BMAX;
+  BU.x[k] = x; BU.y[k] = y; BU.r[k] = r; BU.ph[k] = Math.random() * 6.28; BU.live[k] = 1;
+}
+function surfAt(x){ const xi = Math.max(0, Math.min(G.w - 1, x | 0)); return LV.y - SURF.h[xi]; }
+function particles(dt, now){
+  const g = GS * 2.6;
+  let nd = 0;
+  for (let k = 0; k < DMAX; k++){
+    if (!DR.live[k]) continue;
+    let x = DR.x[k], y = DR.y[k];
+    DR.vy[k] += g * dt;
+    let nx = x + DR.vx[k] * dt, ny = y + DR.vy[k] * dt;
+    // the inside of the glass: a drop that would leave the vessel bounces back in
+    if (!inMask(nx, y)){ DR.vx[k] *= -.35; nx = x; }
+    if (!inMask(nx, ny)){ DR.vy[k] *= -.3; ny = y; if (!inMask(nx, ny)){ DR.live[k] = 0; continue; } }
+    DR.x[k] = nx; DR.y[k] = ny;
+    if (DR.vy[k] > 0 && ny >= surfAt(nx)){                // back into the liquid: a small ring
+      DR.live[k] = 0; const xi = nx | 0; if (xi >= 0 && xi < G.w) SURF.v[xi] -= 1.5 + DR.vy[k] * .03;
+      continue;
+    }
+    if (ny > G.h + 2){ DR.live[k] = 0; continue; }
+    nd++;
+  }
+  STATS.drops = nd;
+  // bubbles: born low in the liquid, rise and wobble, pop at the surface
+  const p = PALS[S.pal], rate = MODE.on && MODE.X > .3 ? (p.fizz * (.3 + 1.4 * S.fizz) * 14 + slosh * .6 + (POUR.on ? 60 : 0)) : 0;
+  let want = rate * dt;
+  for (let tries = 0; want > 0 && tries < 40 && G.on > 30; tries++){
+    if (Math.random() > want) break; want -= 1;
+    const x = Math.random() * G.w, y = LV.y + Math.random() * (G.bot - LV.y + 1);
+    if (inMask(x, y) && y > surfAt(x) + 1) spawnBubble(x, y, .35 + Math.random() * .6);
+  }
+  let pops = 0;
+  for (let k = 0; k < BMAX; k++){
+    if (!BU.live[k]) continue;
+    BU.y[k] -= GS * (.1 + BU.r[k] * .12) * dt;
+    BU.ph[k] += dt * 9; BU.x[k] += Math.sin(BU.ph[k]) * dt * 3;
+    if (!inMask(BU.x[k], BU.y[k])){ BU.live[k] = 0; continue; }
+    if (BU.y[k] <= surfAt(BU.x[k])){ BU.live[k] = 0; pops++; const xi = BU.x[k] | 0; if (xi >= 0 && xi < G.w) SURF.v[xi] += .5; }
+  }
+  if (pops) fizzSound(pops);
+  // ice: falls, floats mostly under, rides the slope of the surface, knocks against the glass
+  for (let i = ICE.length - 1; i >= 0; i--){
+    const c = ICE[i], half = c.s / 2;
+    const sy = surfAt(c.x), sub = c.y + half - sy;          // how deep its bottom is
+    if (sub > 0){
+      const depth = Math.min(c.s, sub), extra = Math.max(0, sub - c.s) / c.s;
+      c.vy += (g - g * 1.25 * depth / c.s - g * 2.5 * extra) * dt;   // buoyancy: floats about four fifths under
+      c.vy *= Math.exp(-dt * 5); c.vx *= Math.exp(-dt * 1.2);
+      const xi = Math.max(1, Math.min(G.w - 2, c.x | 0));
+      c.vx += -(SURF.h[xi + 1] - SURF.h[xi - 1]) * .5 * GS * .9 * dt;   // slides downhill on the swell
+      if (!c.inLiquid){ c.inLiquid = true; for (let x = xi - 3; x <= xi + 3; x++) if (x >= 0 && x < G.w) SURF.v[x] -= Math.min(60, c.vy * 1.4);
+        for (let n = 0; n < 14; n++) spawnDrop(c.x + (Math.random() - .5) * c.s, sy - .5, (Math.random() - .5) * 40, -(20 + Math.random() * 40)); splashSound(.7); }
+    } else { c.vy += g * dt; c.inLiquid = false; }
+    c.av += (c.vx * .02 - c.av * 1.5) * dt; c.a += c.av * dt;
+    let nx = c.x + c.vx * dt, ny = c.y + c.vy * dt;
+    // glass walls
+    if (!inMask(nx - half, ny) || !inMask(nx + half, ny)){ if (Math.abs(c.vx) > 6 && now - c.clink > 160){ c.clink = now; clink(Math.min(1, Math.abs(c.vx) / 40)); } c.vx *= -.45; nx = c.x; }
+    if (!inMask(nx, ny + half) && sub <= 0){ c.vy *= -.3; ny = c.y; }
+    c.x = nx; c.y = ny;
+    if (c.y > G.h + 10 || !inMask(c.x, c.y) && c.y > G.bot + 4) ICE.splice(i, 1);
+  }
+}
+function dropIce(fx, fy){
+  if (!MODE.on || MODE.X < 1 || G.on < 30) return false;
+  let x = fx * G.w, y = Math.min(fy * G.h, surfAt(fx * G.w) - 4);
+  // drop it from inside the glass: find the vessel in that column above the surface
+  if (!inMask(x, y)){
+    let best = -1; for (let r = Math.max(0, Math.round(LV.y) - 2); r >= 0; r--){ if (inMask(x, r)){ best = r; if (r < LV.y - 8) break; } }
+    if (best < 0) return false; y = best;
+  }
+  if (ICE.length >= IMAX) ICE.shift();
+  ICE.push({ x, y, vx:0, vy:4, s:GS * .085, a:Math.random() * .6 - .3, av:(Math.random() - .5) * 2, inLiquid:false, clink:0 });
+  STATS.ice++;
+  return true;
+}
+
+/* ---------- GL ---------- */
+const gl = canvas.getContext('webgl2', { antialias:false, alpha:false, preserveDrawingBuffer:true });
+const VS_Q = `#version 300 es
+layout(location=0) in vec2 p; void main(){ gl_Position = vec4(p, 0., 1.); }`;
+const FS_MAIN = `#version 300 es
+precision highp float;
+uniform sampler2D uVid, uMask, uSurf;
+uniform vec2 uRes, uScale, uMT;
+uniform float uMirror, uE, uT, uHasMask, uPx, uBody, uPour, uPourX, uPourW, uLvl, uSW;
+uniform vec3 uBg, uLiq, uDeep, uGlass, uHi;
+out vec4 o;
+float h2(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233))) * 43758.5453); }
+float vn(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3. - 2. * f);
+  return mix(mix(h2(i), h2(i + vec2(1,0)), f.x), mix(h2(i + vec2(0,1)), h2(i + vec2(1,1)), f.x), f.y); }
+float lum(vec3 c){ return dot(c, vec3(.299,.587,.114)); }
+float surfY(float x){                       // manual linear filter of the float texture
+  float fx = x * uSW - .5, i = floor(fx), f = fx - i;
+  float a = texelFetch(uSurf, ivec2(clamp(int(i), 0, int(uSW) - 1), 0), 0).r;
+  float b = texelFetch(uSurf, ivec2(clamp(int(i) + 1, 0, int(uSW) - 1), 0), 0).r;
+  return mix(a, b, f);
+}
+vec2 vidUV(vec2 s){ vec2 v = (s - .5) * uScale + .5; if (uMirror > .5) v.x = 1. - v.x; return v; }
+float maskAt(vec2 s){ return uHasMask > .5 ? texture(uMask, vidUV(s)).r : (uHasMask < -.5 ? 0. : 1.); }
+void main(){
+  vec2 s = gl_FragCoord.xy / uRes; s.y = 1. - s.y;
+  vec2 v = vidUV(s);
+  vec3 cam = texture(uVid, v).rgb;
+  float m = maskAt(s), a = smoothstep(.3, .7, m);
+  // the glass normal from the mask's slope (screen space)
+  vec2 d = uMT;
+  float gx = maskAt(s + vec2(d.x, 0.)) - maskAt(s - vec2(d.x, 0.));
+  float gy = maskAt(s + vec2(0., d.y)) - maskAt(s - vec2(0., d.y));
+  vec2 gn = vec2(gx, gy);
+  float edge = clamp(length(gn) * 1.2, 0., 1.);
+  vec2 n = edge > .001 ? -normalize(gn) : vec2(0.);          // points outward
+  float ys = surfY(s.x);
+  float below = smoothstep(ys - uPx * .7, ys + uPx * .7, s.y);
+  float depth = max(0., s.y - ys);
+  // ── glass: the face and head, silver, with thick edges that bend what is behind them
+  vec2 rv = vidUV(s - n * edge * .012);
+  vec3 cr = texture(uVid, rv).rgb;
+  float l = lum(cr);
+  float g = smoothstep(.04, .95, l); g = g * g * (3. - 2. * g);
+  vec3 glassC = uGlass * (.07 + .8 * g) * (.55 + .8 * uBody);
+  glassC = mix(uBg, glassC, .9) * (1. - .45 * edge);   // a little of the dark room shows through
+  vec2 L = normalize(vec2(-.6, -.8));
+  float spec = pow(max(0., dot(n, L)), 6.) * edge;
+  float rim = smoothstep(.15, .9, edge);
+  glassC += uHi * (spec * .9 + rim * .28);
+  // the outer glass as a curved surface: a broad normal from the blurred outline, lit from the upper left
+  vec2 d2 = uMT * 7.;
+  float bx = textureLod(uMask, vidUV(s + vec2(d2.x, 0.)), 3.).r - textureLod(uMask, vidUV(s - vec2(d2.x, 0.)), 3.).r;
+  float by = textureLod(uMask, vidUV(s + vec2(0., d2.y)), 3.).r - textureLod(uMask, vidUV(s - vec2(0., d2.y)), 3.).r;
+  if (uMirror > .5) bx = -bx;
+  vec2 nb = -vec2(bx, by) * 1.6; nb *= min(1., 1. / max(1e-3, length(nb)));
+  vec3 N3 = vec3(nb, sqrt(max(0., 1. - dot(nb, nb))));
+  float shine = pow(max(0., dot(N3, normalize(vec3(-.55, -.6, .58)))), 26.) * (uHasMask > .5 ? 1. : 0.);
+  float sheen = pow(max(0., dot(N3, normalize(vec3(.75, .1, .65)))), 9.) * (uHasMask > .5 ? 1. : 0.);
+  glassC += uHi * (shine * .55 + sheen * .12);
+  // ── liquid: the body seen through amber, darker with depth, caustics, a lit band under the surface
+  vec2 wob = vec2(vn(s * 18. + uT * .6) - .5, vn(s * 18. - uT * .5 + 7.) - .5) * .006;
+  vec3 cl = texture(uVid, vidUV(s + wob)).rgb;
+  float ll = lum(cl);
+  float k = exp(-depth * 3.2);
+  vec3 liq = mix(uDeep, uLiq, k) * (.4 + .95 * ll);
+  float ca = vn(vec2(s.x * 30. + uT * .7, s.y * 22. - uT * 1.1));
+  ca = pow(smoothstep(.45, .95, ca), 2.);
+  liq += uLiq * ca * .35 * k;
+  liq += uHi * exp(-depth / (uPx * 5.)) * .45;             // light caught just under the surface
+  liq *= 1. - .25 * edge; liq += uHi * (spec * .6 + shine * .45) + uLiq * rim * .35;
+  float meniscus = exp(-pow((s.y - ys) / (uPx * 1.1), 2.));
+  vec3 inside = mix(glassC, liq, below) + uHi * meniscus * .9 * a;
+  // ── the room: dark, with the light the liquid throws on the wall behind
+  float blur = uHasMask > .5 ? textureLod(uMask, v, 4.5).r : 0.;
+  float lit = smoothstep(uLvl - .15, uLvl + .1, s.y);
+  vec3 bg = uBg * (1. - .35 * length(s - vec2(.5, .55)));
+  bg += uLiq * blur * lit * .32 + uLiq * pow(blur, 3.) * lit * .25;
+  bg += (h2(gl_FragCoord.xy + fract(uT) * 91.) - .5) * .012;
+  vec3 c = mix(bg, inside, a);
+  // the pour: a thin twisting stream from the top of the frame into the vessel
+  if (uPour > 0.){
+    float sx = uPourX + sin(s.y * 34. + uT * 9.) * uPourW * .18;
+    float wdt = uPourW * (.55 + .45 * smoothstep(0., .5, s.y));
+    float st = smoothstep(wdt, wdt * .6, abs(s.x - sx)) * step(s.y, ys + .01) * uPour;
+    vec3 sc = uLiq * (.8 + .5 * vn(vec2(s.x * 80., s.y * 6. - uT * 18.))) + uHi * smoothstep(wdt * .5, 0., abs(s.x - sx + wdt * .35)) * .7;
+    c = mix(c, sc, st);
+  }
+  o = vec4(mix(cam, c, uE), 1.);
+}`;
+const VS_P = `#version 300 es
+layout(location=0) in vec2 aP; layout(location=1) in vec3 aA;    // size, kind, angle
+uniform vec2 uRes; out float vK; out float vAng;
+void main(){ vK = aA.y; vAng = aA.z; vec2 c = aP / uRes * 2. - 1.; c.y = -c.y; gl_Position = vec4(c, 0., 1.); gl_PointSize = aA.x; }`;
+const FS_P = `#version 300 es
+precision highp float;
+uniform vec3 uLiq, uHi; uniform float uE;
+in float vK; in float vAng; out vec4 o;
+void main(){
+  vec2 q = gl_PointCoord * 2. - 1.;
+  if (vK < .5){                                  // a drop: a lit amber bead
+    float r = length(q); if (r > 1.) discard;
+    vec3 c = uLiq * (.7 + .5 * (1. - r)) + uHi * smoothstep(.45, 0., length(q + vec2(.35, .35))) * .9;
+    o = vec4(c, smoothstep(1., .75, r) * uE);
+  } else if (vK < 1.5){                          // a bubble: a bright rim, clear inside
+    float r = length(q); if (r > 1.) discard;
+    float ring = smoothstep(.55, .85, r) * smoothstep(1., .88, r);
+    float hl = smoothstep(.35, 0., length(q + vec2(.3, .35)));
+    o = vec4(uHi, (ring * .75 + hl * .8) * uE);
+  } else {                                       // ice: a rounded square, clear with bright edges
+    float cs = cos(vAng), sn = sin(vAng);
+    vec2 p = mat2(cs, -sn, sn, cs) * q * 1.42;
+    vec2 e = abs(p) - vec2(.78); float dd = length(max(e, 0.)) + min(max(e.x, e.y), 0.) - .14;
+    if (dd > 0.) discard;
+    float edge = smoothstep(-.22, 0., dd);
+    float face = smoothstep(.2, -.6, p.x + p.y);
+    vec3 c = mix(vec3(.82, .9, .95), uHi, .3) * (.25 + .5 * face) + vec3(1.) * edge * .8;
+    o = vec4(c, (.35 + .55 * edge + .2 * face) * uE);
+  }
+}`;
+function sh(type, src){ const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s; }
+function prog(vs, fs){ const p = gl.createProgram(); gl.attachShader(p, sh(gl.VERTEX_SHADER, vs)); gl.attachShader(p, sh(gl.FRAGMENT_SHADER, fs));
+  gl.linkProgram(p); if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+  const U = {}, n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+  for (let i = 0; i < n; i++){ const u = gl.getActiveUniform(p, i); U[u.name] = gl.getUniformLocation(p, u.name); }
+  return { p, U }; }
+function tparams(filter){
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, filter); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE); }
+let PM = null, PP = null, vaoQ, vaoP, vboP, texVid, texMask, maxPt = 64;
+const PV = new Float32Array((DMAX + BMAX + IMAX) * 5);
+function initGL(){
+  PM = prog(VS_Q, FS_MAIN); PP = prog(VS_P, FS_P);
+  vaoQ = gl.createVertexArray(); gl.bindVertexArray(vaoQ);
+  const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+  vaoP = gl.createVertexArray(); gl.bindVertexArray(vaoP);
+  vboP = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, vboP); gl.bufferData(gl.ARRAY_BUFFER, PV.byteLength, gl.DYNAMIC_DRAW);
+  gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 20, 0);
+  gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 20, 8);
+  gl.bindVertexArray(null);
+  texVid = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, texVid); tparams(gl.LINEAR);
+  texMask = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, texMask); tparams(gl.LINEAR_MIPMAP_LINEAR);
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, 1, 1, 0, gl.RED, gl.UNSIGNED_BYTE, new Uint8Array([0])); gl.generateMipmap(gl.TEXTURE_2D);
+  SURF.tex = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, SURF.tex);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  const r = gl.getParameter(gl.ALIASED_POINT_SIZE_RANGE); if (r && r[1]) maxPt = r[1];
+}
+
+/* ---------- model ---------- */
+let segmenter = null, lastTs = 0, lastSegVT = -1, noModel = false;
+async function initModel(){
+  try{
+    const vision = await import(VISION_URL);
+    const fs = await vision.FilesetResolver.forVisionTasks(WASM_URL);
+    const opts = d => ({ baseOptions:{ modelAssetPath:SEG_MODEL, delegate:d }, runningMode:'VIDEO', outputConfidenceMasks:true, outputCategoryMask:false });
+    try { segmenter = await vision.ImageSegmenter.createFromOptions(fs, opts('GPU')); }
+    catch(e){ segmenter = await vision.ImageSegmenter.createFromOptions(fs, opts('CPU')); }
+  }catch(e){
+    if (M.external) return;
+    noModel = true;
+    setStatus('人物検出モデルを読み込めませんでした（ネット接続を確認）。\n画面ぜんぶを一つの器にして満たします。');
+  }
+}
+function segment(now){
+  if (!segmenter || M.external || video.readyState < 2) return;
+  const vt = video.currentTime; if (vt === lastSegVT) return; lastSegVT = vt;
+  try{
+    const ts = Math.max(lastTs + 1, Math.round(now)); lastTs = ts;
+    segmenter.segmentForVideo(video, ts, res => {
+      const ms = res && res.confidenceMasks; if (!ms || !ms.length) return;
+      const mk = ms[ms.length - 1]; ingestMask(mk.getAsFloat32Array(), mk.width, mk.height);
+    });
+  }catch(e){}
+}
+
+/* ---------- camera ---------- */
+let stream = null, facing = 'user', mirror = true, started = false, vidW = 1280, vidH = 720, lastVT = -1, camT0 = 0;
+function setStatus(t){ $('status').textContent = t || ''; }
+function camError(e){
+  const msg = (e && (e.message || e.name)) ? (e.message || e.name) : String(e || 'unknown');
+  const text = 'カメラを起動できませんでした：' + msg + '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+  $('err').textContent = text;
+  if (started) setStatus(text);
+}
+async function startCam(){
+  const md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) throw new Error('getUserMedia is unavailable');
+  const s = await md.getUserMedia({ video:{ facingMode:{ ideal:facing }, width:{ ideal:1280 }, height:{ ideal:720 } }, audio:false });
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = s; mirror = facing === 'user';
+  video.srcObject = s;
+  await new Promise(r => { if (video.readyState >= 1) r(); else video.onloadedmetadata = () => r(); });
+  await video.play().catch(()=>{});
+  vidW = video.videoWidth || 1280; vidH = video.videoHeight || 720;
+  camT0 = performance.now(); BODY.ok = false;
+}
+
+/* ---------- audio: the liquid moving, the pour, splashes, fizz and the clink of ice ---------- */
+let actx = null, bus = null, recDest = null, sloshG = null, sloshF = null, pourG = null, pourF = null, noiseBuf = null, lastFizz = 0;
+function ensureAudio(){
+  if (actx){ if (actx.state === 'suspended') actx.resume().catch(()=>{}); return; }
+  const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+  actx = new AC(); bus = actx.createGain(); bus.gain.value = .6;
+  const comp = actx.createDynamicsCompressor(); comp.threshold.value = -16; comp.ratio.value = 5;
+  bus.connect(comp); comp.connect(actx.destination);
+  recDest = actx.createMediaStreamDestination(); comp.connect(recDest);
+  const sr = actx.sampleRate, n = sr * 2 | 0; noiseBuf = actx.createBuffer(1, n, sr);
+  const d = noiseBuf.getChannelData(0); let b = 0; for (let i = 0; i < n; i++){ const w = Math.random() * 2 - 1; b = b * .9 + w * .1; d[i] = b * 3; }
+  const loop = (f, q, type) => { const s = actx.createBufferSource(); s.buffer = noiseBuf; s.loop = true; const fl = actx.createBiquadFilter(); fl.type = type; fl.frequency.value = f; fl.Q.value = q; const g = actx.createGain(); g.gain.value = 0; s.connect(fl); fl.connect(g); g.connect(bus); s.start(); return [g, fl]; };
+  [sloshG, sloshF] = loop(420, .8, 'lowpass');
+  [pourG, pourF] = loop(900, 2.2, 'bandpass');
+  actx.resume().catch(()=>{});
+}
+function splashSound(s){
+  if (!actx || actx.state !== 'running') return;
+  const t = actx.currentTime, src = actx.createBufferSource(), f = actx.createBiquadFilter(), g = actx.createGain();
+  src.buffer = noiseBuf; f.type = 'bandpass'; f.frequency.setValueAtTime(1400, t); f.frequency.exponentialRampToValueAtTime(380, t + .35); f.Q.value = 1.2;
+  g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime(.35 * s + .05, t + .015); g.gain.exponentialRampToValueAtTime(.0001, t + .5);
+  src.connect(f); f.connect(g); g.connect(bus); src.start(t, Math.random()); src.stop(t + .6);
+}
+function fizzSound(n){
+  if (!actx || actx.state !== 'running') return;
+  const now = performance.now(); if (now - lastFizz < 45) return; lastFizz = now;
+  const t = actx.currentTime, o = actx.createOscillator(), g = actx.createGain();
+  const f = 1800 + Math.random() * 2600; o.frequency.setValueAtTime(f, t); o.frequency.exponentialRampToValueAtTime(f * 1.6, t + .03);
+  g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime(.03 + Math.min(.05, n * .01), t + .003); g.gain.exponentialRampToValueAtTime(.0001, t + .04);
+  o.connect(g); g.connect(bus); o.start(t); o.stop(t + .05);
+}
+function clink(s){
+  if (!actx || actx.state !== 'running') return;
+  const t = actx.currentTime;
+  for (const [f, a] of [[2780, 1], [4310, .5], [6950, .25]]){
+    const o = actx.createOscillator(), g = actx.createGain(); o.frequency.value = f * (.98 + Math.random() * .04);
+    g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime(.12 * s * a + .005, t + .002); g.gain.exponentialRampToValueAtTime(.0001, t + .32);
+    o.connect(g); g.connect(bus); o.start(t); o.stop(t + .35);
+  }
+}
+
+// the switch: plain camera (X = 0) ⇄ vessel (X = 1)
+const MODE = { on:false, X:0 };
+function setMode(on){
+  if (on === MODE.on) return;
+  MODE.on = on;
+  $('mode').textContent = on ? '◂ CAMERA' : '▸ UTSUWA';
+  document.body.classList.toggle('cam', !on);
+  $('ice').style.visibility = on ? 'visible' : 'hidden';
+  if (on){ LV.fill = 0; POUR.on = false; POUR.t0 = performance.now() + 700; ICE.length = 0; if (SURF.h){ SURF.h.fill(0); SURF.v.fill(0); } }
+  else { POUR.on = false; ICE.length = 0; }
+}
+$('mode').onclick = () => setMode(!MODE.on);
+addEventListener('keydown', e => { if (started && (e.key === ' ' || e.key === 'Enter') && document.activeElement.tagName !== 'INPUT'){ e.preventDefault(); setMode(!MODE.on); } });
+$('go').onclick = async () => {
+  $('err').textContent = '';
+  ensureAudio();
+  try{
+    if (!gl) throw new Error('WebGL2 に未対応のブラウザです');
+    if (!PM) initGL();
+    await startCam();
+  }catch(e){ camError(e); return; }
+  $('start').style.display = 'none';
+  ['gear','flip','bar','rec','shoot','ice','hud','mode'].forEach(id => $(id).classList.add('show'));
+  MODE.on = true; setMode(false);
+  if (!started){ started = true; initModel(); requestAnimationFrame(loop); }
+};
+$('flip').onclick = async () => {
+  const prev = facing; facing = facing === 'user' ? 'environment' : 'user';
+  try { await startCam(); } catch(e){ facing = prev; camError(e); }
+};
+$('gear').onclick = () => $('panel').classList.toggle('hide');
+$('ice').onclick = () => dropIce(G.on ? G.cx / G.w : .5, .1);
+canvas.addEventListener('pointerdown', e => { if (started) dropIce(e.clientX / innerWidth, e.clientY / innerHeight); });
+function setPal(i){
+  S.pal = i; const p = PALS[i];
+  [...$('pals').children].forEach(x => x.classList.toggle('on', +x.dataset.p === i));
+  const r = document.documentElement.style;
+  r.setProperty('--bg', p.css[0]); r.setProperty('--fg', p.css[1]); r.setProperty('--acc', p.css[2]);
+}
+$('pals').onclick = e => { const b = e.target.closest('button'); if (b) setPal(+b.dataset.p); };
+[['sFill','fill'],['sSlosh','slosh'],['sFizz','fizz'],['sBody','body']].forEach(([id,k]) => { $(id).oninput = e => { S[k] = +e.target.value; }; });
+
+$('shoot').onclick = () => {
+  try{
+    canvas.toBlob(b => { if (!b) return; const a = document.createElement('a'); a.href = URL.createObjectURL(b);
+      a.download = 'utsuwa-' + Date.now() + '.png'; a.click(); }, 'image/png');
+  }catch(e){ setStatus('保存できませんでした。'); }
+};
+let rec = null, chunks = [];
+$('rec').onclick = () => {
+  if (rec && rec.state === 'recording'){ rec.stop(); return; }
+  try{
+    ensureAudio();
+    const tracks = [...canvas.captureStream(30).getVideoTracks()];
+    if (recDest) tracks.push(...recDest.stream.getAudioTracks());
+    const mime = ['video/mp4;codecs=avc1','video/webm;codecs=vp9,opus','video/webm'].find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || '';
+    rec = new MediaRecorder(new MediaStream(tracks), mime ? { mimeType:mime } : {});
+    chunks = [];
+    rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+    rec.onstop = () => {
+      $('rec').classList.remove('on'); $('rec').textContent = '● REC';
+      const ext = (rec.mimeType || '').includes('mp4') ? 'mp4' : 'webm';
+      const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(chunks, { type:rec.mimeType || 'video/webm' }));
+      a.download = 'utsuwa.' + ext; a.click();
+    };
+    rec.start(); $('rec').classList.add('on'); $('rec').textContent = '■ STOP';
+  }catch(e){ setStatus('録画を開始できませんでした。'); }
+};
+
+/* ---------- loop ---------- */
+let lastT = 0, hudT = 0;
+const STATS = { jumps:0, drops:0, ice:0, frames:0 };
+function loop(now){
+  requestAnimationFrame(loop);
+  const dt = lastT ? Math.min(.1, (now - lastT) / 1000) : 1 / 60; lastT = now;
+  if (video.videoWidth && (video.videoWidth !== vidW || video.videoHeight !== vidH)){ vidW = video.videoWidth; vidH = video.videoHeight; }
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  let W = Math.round(innerWidth * dpr), H = Math.round(innerHeight * dpr);
+  const kk = Math.min(1, 1800 / Math.max(W, H)); W = Math.round(W * kk); H = Math.round(H * kk);
+  if (canvas.width !== W || canvas.height !== H){ canvas.width = W; canvas.height = H; }
+  ensureGrid(W, H);
+  segment(now);
+  if (M.live && now - M.lastT > 1200){ M.live = false; M.dirty = true; }
+  if (video.readyState < 2) return;
+  const vt = video.currentTime, fresh = vt !== lastVT; lastVT = vt;
+  if (fresh){ gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, texVid);
+    try { gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video); } catch(e){ return; } }
+  let changed = 0;
+  if (M.dirty || noModel){
+    if (M.dirty && M.b && M.live){ gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, texMask);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, M.w, M.h, 0, gl.RED, gl.UNSIGNED_BYTE, M.b); gl.generateMipmap(gl.TEXTURE_2D); }
+    M.dirty = false;
+    changed = sampleMask(W, H);
+    if (now - camT0 < 700 || changed > G.on * .6) changed = 0;   // a camera cut or someone stepping in is not sloshing
+    trackBody(now);
+  }
+  MODE.X = MODE.on ? Math.min(1, MODE.X + dt / .8) : Math.max(0, MODE.X - dt / .6);
+  const E = MODE.X * MODE.X * (3 - 2 * MODE.X);
+  // the pour fills the vessel from the bottom; switching back drains it
+  if (MODE.on){
+    if (!POUR.on && LV.fill < 1 && now >= POUR.t0 && G.on > 30){ POUR.on = true; POUR.x = -1; }
+    if (POUR.on){
+      LV.fill = Math.min(1, LV.fill + dt / 2.6);
+      // the stream lands on the head's centre line
+      let sx = 0, n = 0; const r0 = G.top, r1 = Math.min(G.h - 1, G.top + 6);
+      for (let r = r0; r <= r1; r++) for (let x = 0; x < G.w; x++) if (G.m[r * G.w + x]){ sx += x; n++; }
+      const tx = n ? sx / n : G.cx; POUR.x = POUR.x < 0 ? tx : POUR.x + (tx - POUR.x) * Math.min(1, dt * 8);
+      if (LV.fill >= 1) POUR.on = false;
+    }
+  } else LV.fill = Math.max(0, LV.fill - dt / .5);
+  liquid(dt, now, changed);
+  jumpSplash(now);
+  particles(dt, now);
+  STATS.frames++;
+
+  // sound follows the surface
+  if (actx && actx.state === 'running'){
+    const t = actx.currentTime, lv = Math.min(1, slosh / 30) * E;
+    sloshG.gain.setTargetAtTime(lv * .5, t, .08); sloshF.frequency.setTargetAtTime(260 + 900 * lv, t, .1);
+    pourG.gain.setTargetAtTime(POUR.on ? .32 : 0, t, .06); pourF.frequency.setTargetAtTime(700 + 500 * Math.sin(now / 90) + 400 * LV.fill, t, .03);
+  }
+
+  // upload the surface and draw
+  gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, SURF.tex);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.R32F, G.w, 1, 0, gl.RED, gl.FLOAT, SURF.ys);
+  const p = PALS[S.pal], short = Math.min(W, H), px = 1 / H;
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, 0, W, H); gl.disable(gl.BLEND);
+  gl.useProgram(PM.p); gl.bindVertexArray(vaoQ);
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, texVid);
+  gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, texMask);
+  gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, SURF.tex);
+  const U = PM.U, sa = W / H, va = vidW / vidH;
+  gl.uniform1i(U.uVid, 0); gl.uniform1i(U.uMask, 1); gl.uniform1i(U.uSurf, 2);
+  gl.uniform2f(U.uRes, W, H); gl.uniform2f(U.uScale, sa < va ? sa / va : 1, sa < va ? 1 : va / sa);
+  const mt = short * .006; gl.uniform2f(U.uMT, mt / W, mt / H);
+  gl.uniform1f(U.uMirror, mirror ? 1 : 0); gl.uniform1f(U.uE, E); gl.uniform1f(U.uT, now / 1000);
+  gl.uniform1f(U.uHasMask, M.has && M.live ? 1 : (noModel ? 0 : -1));
+  gl.uniform1f(U.uPx, 1.6 / H); gl.uniform1f(U.uBody, S.body); gl.uniform1f(U.uSW, G.w);
+  gl.uniform1f(U.uPour, POUR.on ? Math.min(1, LV.fill * 6) * (1 - Math.max(0, LV.fill - .92) / .08) : 0);
+  gl.uniform1f(U.uPourX, (POUR.x + .5) / G.w); gl.uniform1f(U.uPourW, short * .016 / W);
+  gl.uniform1f(U.uLvl, LV.y / G.h);
+  gl.uniform3fv(U.uBg, p.bg); gl.uniform3fv(U.uLiq, p.liq); gl.uniform3fv(U.uDeep, p.deep); gl.uniform3fv(U.uGlass, p.glass); gl.uniform3fv(U.uHi, p.hi);
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  // particles
+  let n = 0;
+  const cw = W / G.w, ch = H / G.h, dsz = Math.max(2, short * .0095), bsz = short * .006;
+  for (let k = 0; k < DMAX; k++){ if (!DR.live[k]) continue; const o = n * 5; PV[o] = DR.x[k] * cw; PV[o + 1] = DR.y[k] * ch; PV[o + 2] = dsz; PV[o + 3] = 0; PV[o + 4] = 0; n++; }
+  for (let k = 0; k < BMAX; k++){ if (!BU.live[k]) continue; const o = n * 5; PV[o] = BU.x[k] * cw; PV[o + 1] = BU.y[k] * ch; PV[o + 2] = bsz * (1 + BU.r[k] * 1.6); PV[o + 3] = 1; PV[o + 4] = 0; n++; }
+  for (const c of ICE){ const o = n * 5; PV[o] = c.x * cw; PV[o + 1] = c.y * ch; PV[o + 2] = Math.min(maxPt, c.s * cw * 1.45); PV[o + 3] = 2; PV[o + 4] = c.a; n++; }
+  if (n && E > 0){
+    gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    gl.useProgram(PP.p); gl.bindVertexArray(vaoP);
+    gl.bindBuffer(gl.ARRAY_BUFFER, vboP); gl.bufferSubData(gl.ARRAY_BUFFER, 0, PV, 0, n * 5);
+    gl.uniform2f(PP.U.uRes, W, H); gl.uniform3fv(PP.U.uLiq, p.liq); gl.uniform3fv(PP.U.uHi, p.hi); gl.uniform1f(PP.U.uE, E);
+    gl.drawArrays(gl.POINTS, 0, n);
+    gl.disable(gl.BLEND);
+  }
+
+  $('hud').style.visibility = MODE.X >= 1 ? 'visible' : 'hidden';
+  hudT += dt;
+  if (hudT > .3){ hudT = 0;
+    $('hud').textContent = 'UTSUWA  ' + p.name + '\nFILL   ' + String(Math.round(LV.fill * (20 + 130 * S.fill))).padStart(2, '0') + ' %\nSWELL  ' + slosh.toFixed(1); }
+}
+
+/* ---------- test hook (used by the local verification harness) ---------- */
+window.__UTSUWA = {
+  ingestMask(d, w, h){ if (!M.external) setStatus(''); M.external = true; noModel = false; return ingestMask(d, w, h); },
+  dropMask(){ M.lastT = -1e9; },
+  state: () => ({ slosh, fill:LV.fill, level:LV.y / (G.h || 1), drops:STATS.drops, jumps:STATS.jumps, ice:ICE.length, bodyOK:BODY.ok, ax:BODY.ax, ay:BODY.ay, on:G.on, maskLive:M.live, pouring:POUR.on }),
+  // surface height spread (rows) across the wet columns: a tilted or rough surface reads large
+  surfaceSpread(){ let lo = 1e9, hi = -1e9; for (let x = 0; x < G.w; x++){ if (!G.wet[x]) continue; lo = Math.min(lo, SURF.h[x]); hi = Math.max(hi, SURF.h[x]); } return hi > lo ? hi - lo : 0; },
+  // where the first ice cube sits: its centre relative to the surface, in cube sizes (0 ≈ floating half under)
+  iceFloat(){ const c = ICE[0]; return c ? (c.y - surfAt(c.x)) / c.s : null; },
+  shoulder: () => G.sh / (G.h || 1),
+  palette(i){ setPal(i); },
+  mode(c){ setMode(!!c); },
+  ice(x, y){ return dropIce(x, y); },
+  view: () => ({ on:MODE.on, X:MODE.X }),
+};
+</script>
+</body>
+</html>
