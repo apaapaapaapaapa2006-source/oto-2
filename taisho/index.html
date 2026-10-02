@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="description" content="顔のまんなかの線で画面が折り返され、あなたは完全に左右対称の顔になる。折り目は鼻筋についてくるので、首をかしげたり横を向いたりすると、顔がふくらんだり縮んだりして別人に化ける。タップで右の顔と左の顔が入れ替わる。">
+<meta name="theme-color" content="#0c0c0c">
+<title>TAISHO ─ 鼻筋で折り返す、左右対称の顔</title>
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  TAISHO 対称 ─ 鼻筋で折り返す、左右対称の顔            ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  MOOD       左右対称の肖像写真（顔の半分を鏡で継いだ写真作品）。画面は顔の
+             正中線 ── 額から鼻筋を通って顎まで ── で折り返され、映った人は
+             完全に対称な顔になる。折り目は鼻筋に貼りついているので、首を
+             かしげれば画面ごと斜めに折れ、横を向けば顔が細く尖ったり大きく
+             膨らんだりして、同じ人がまるで別人になる。右半分の顔と左半分の顔は
+             驚くほど違う人で、タップでその二人が入れ替わる。
+  PALETTE    SILVER  銀塩のモノクロ・墨 #0c0c0c・白 #f1efe9・折り目 #f1efe9
+             FILM    カラーネガ（暖色に振った褪色）・折り目 #e8c27a
+             COBALT  二色刷り 紺 #101a3a → 生成 #efe7d6・折り目 #efe7d6
+  TYPE       Fraunces 300 の斜体（題字）＋ Geist Mono 300（計器）。
+  MOTION     折り目は鼻筋に 40ms で追従する。顔が外れると 1 秒かけて垂直に戻る。
+             左右の入れ替えは 0.35 秒で、折り目から外へ開くように塗り替わる。
+  SIGNATURE  首を少し動かすだけで、対称の顔が別人へと化けつづけること。
+  SWITCH     はじめは素のカメラ。「▸ TAISHO」で鼻筋に細い線が一本引かれ、額から顎へ
+             向かって画面が折り返されていく。「◂ CAMERA」で線が畳まれて元に戻る。
+  TECH       WebGL2 の一枚のシェーダ。FaceLandmarker の正中線上の 22 点に、アスペクト
+             補正した画面座標で直線を（主成分で）当て、その線で画素を鏡映して読む。
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@1,9..144,300&family=Geist+Mono:wght@300&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0c0c0c;--fg:#f1efe9;--dim:rgba(241,239,233,.5);--line:rgba(241,239,233,.22);--acc:#f1efe9}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none}
+html,body{margin:0;height:100%;background:var(--bg);overflow:hidden;color:var(--fg);font-family:"Hiragino Sans","Noto Sans JP",sans-serif}
+#gl{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+
+#start{position:fixed;inset:0;z-index:30;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:24px;
+  padding:28px;text-align:center;background:var(--bg)}
+#start .t{font:300 10px "Geist Mono",monospace;letter-spacing:.46em;margin-right:-.46em;color:var(--dim)}
+#start h1{margin:0;font:italic 300 min(15vw,92px)/1 "Fraunces",serif;letter-spacing:.12em;display:flex;align-items:center}
+#start h1 .l{transform:scaleX(-1);display:inline-block}
+#start h1 .axis{display:inline-block;width:1px;height:1.1em;background:var(--fg);margin:0 .12em;opacity:.7}
+#start p{margin:0;font-size:12px;line-height:2.1;color:var(--dim);letter-spacing:.1em;font-weight:300}
+#go{appearance:none;border:1px solid var(--line);background:transparent;color:var(--fg);font:300 10px "Geist Mono",monospace;
+  letter-spacing:.5em;padding:15px 30px 15px 36px;cursor:pointer;transition:border-color .3s}
+#go:hover{border-color:var(--fg)}
+#err{font-size:12px;line-height:1.8;max-width:340px;min-height:1em;white-space:pre-line;color:#e3a19a}
+
+.btn{position:fixed;z-index:12;appearance:none;border:0;background:transparent;color:#fff;font:300 10px "Geist Mono","Hiragino Sans",monospace;
+  letter-spacing:.3em;padding:10px 8px;display:none;cursor:pointer;opacity:.7;transition:opacity .3s;text-shadow:0 0 6px rgba(0,0,0,.6)}
+.btn.show{display:block}
+.btn:hover{opacity:1}
+#gear{right:10px;top:calc(env(safe-area-inset-top) + 6px);font-size:14px;letter-spacing:0}
+#flip{right:10px;top:calc(env(safe-area-inset-top) + 40px);letter-spacing:.1em;font-family:"Hiragino Sans","Noto Sans JP",sans-serif}
+#bar{position:fixed;left:0;right:0;bottom:calc(env(safe-area-inset-bottom) + 10px);z-index:12;display:none;justify-content:center;align-items:center;gap:30px}
+#bar.show{display:flex}
+#bar .btn{position:static;display:block}
+#bar #shoot{width:42px;height:42px;border-radius:50%;border:1px solid #fff;padding:0;position:relative;opacity:.85}
+#shoot::after{content:"";position:absolute;left:50%;top:7px;bottom:7px;width:1px;background:#fff}
+#rec.on{opacity:1;color:#ff8a7a}
+#hud{position:fixed;left:14px;top:calc(env(safe-area-inset-top) + 14px);z-index:11;font:300 9px "Geist Mono",monospace;letter-spacing:.24em;color:rgba(255,255,255,.6);
+  pointer-events:none;display:none;line-height:2.1;white-space:pre;text-shadow:0 0 6px rgba(0,0,0,.6)}
+#hud.show{display:block}
+#status{position:fixed;left:14px;bottom:calc(env(safe-area-inset-bottom) + 70px);z-index:11;font-size:11px;letter-spacing:.04em;
+  color:rgba(255,255,255,.75);pointer-events:none;max-width:72vw;line-height:1.7;white-space:pre-line;text-shadow:0 0 6px rgba(0,0,0,.7)}
+
+#panel{position:fixed;right:10px;top:calc(env(safe-area-inset-top) + 78px);z-index:12;width:min(270px,calc(100vw - 20px));
+  background:rgba(12,12,12,.82);border:1px solid var(--line);padding:14px 16px;display:flex;flex-direction:column;gap:13px;
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);transition:opacity .25s}
+#panel.hide{opacity:0;pointer-events:none}
+.chips{display:flex;border:1px solid var(--line)}
+.chips button{flex:1;appearance:none;border:0;background:transparent;color:var(--fg);padding:8px 2px;font:300 9px "Geist Mono",monospace;
+  letter-spacing:.2em;cursor:pointer;opacity:.55}
+.chips button.on{opacity:1;background:rgba(241,239,233,.12)}
+#panel label{display:flex;align-items:center;gap:10px;font-size:11px;letter-spacing:.04em;font-weight:300}
+#panel label span{width:74px;flex:none;color:var(--dim)}
+#panel input[type=range]{flex:1;accent-color:var(--fg)}
+#panel .note{font-size:10px;color:var(--dim);line-height:1.7}
+#mode{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom) + 72px);z-index:13;display:none;
+  appearance:none;border:1px solid rgba(255,255,255,.5);background:rgba(0,0,0,.35);color:#fff;
+  font:300 10px "Geist Mono",monospace;letter-spacing:.42em;padding:13px 22px 13px 28px;cursor:pointer;
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
+#mode.show{display:block}
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<div id="hud"></div>
+<div id="status"></div>
+<button id="gear" class="btn" aria-label="調整">⚙</button>
+<button id="flip" class="btn">⟲ カメラ</button>
+<button id="mode">▸ TAISHO</button>
+<div id="bar">
+  <button id="rec" class="btn">● REC</button>
+  <button id="shoot" class="btn" aria-label="撮る"></button>
+  <button id="swap" class="btn">L ⇄ R</button>
+</div>
+
+<div id="panel" class="hide">
+  <div class="chips" id="pals">
+    <button data-p="0" class="on">SILVER</button>
+    <button data-p="1">FILM</button>
+    <button data-p="2">COBALT</button>
+  </div>
+  <label><span>コントラスト</span><input type="range" id="sCon" min="0" max="1" step="0.01" value="0.55"></label>
+  <label><span>粒子</span><input type="range" id="sGrain" min="0" max="1" step="0.01" value="0.45"></label>
+  <label><span>折り目の線</span><input type="range" id="sLine" min="0" max="1" step="0.01" value="0.5"></label>
+  <div class="note">首をかしげたり横を向いたりすると、顔が化ける。<br>画面タップか L ⇄ R で、右の顔と左の顔が入れ替わる。</div>
+</div>
+
+<div id="start">
+  <div class="t">SYMMETRIC · PORTRAIT</div>
+  <h1><span class="l">TAI</span><span class="axis"></span><span>SHO</span></h1>
+  <p>まずは、いつものカメラ。<br>ボタンを押すと、鼻筋で画面が折り返されて、左右対称の顔になる。</p>
+  <button id="go">START</button>
+  <div id="err"></div>
+</div>
+
+<script>
+'use strict';
+/* =====================================================================
+   TAISHO — the frame is folded along the face's own midline. A line is
+   fitted (least squares, aspect-corrected screen pixels) through 22
+   FaceLandmarker points from forehead to chin; every pixel on the far
+   side of it is replaced by its mirror image from the near side. QUAD
+   folds once more across the perpendicular through the eyes.
+   ===================================================================== */
+const VISION_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs';
+const WASM_URL   = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm';
+const FACE_MODEL = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
+const MIDLINE = [10, 151, 9, 8, 168, 6, 197, 195, 5, 4, 1, 19, 94, 2, 164, 0, 17, 18, 200, 199, 175, 152];
+const EYE = 168;                                        // must be visible too (between the eyes)
+
+const $ = id => document.getElementById(id);
+const canvas = $('gl');
+const video = document.createElement('video'); video.playsInline = true; video.muted = true; video.autoplay = true;
+
+const PALS = [
+  { name:'SILVER', mode:0, a:[.035,.035,.04], b:[.95,.94,.91], line:[.95,.94,.91] },
+  { name:'FILM',   mode:1, a:[.07,.05,.04],   b:[1,.96,.9],    line:[.91,.76,.48] },
+  { name:'COBALT', mode:2, a:[.063,.10,.23],  b:[.94,.905,.84], line:[.94,.905,.84] },
+];
+const S = { pal:0, con:.55, grain:.45, line:.5, side:1 };
+
+/* ---------- GL ---------- */
+const gl = canvas.getContext('webgl2', { antialias:false, alpha:false, preserveDrawingBuffer:true });
+const VS = `#version 300 es
+in vec2 p; void main(){ gl_Position = vec4(p, 0., 1.); }`;
+const FS = `#version 300 es
+precision highp float;
+uniform sampler2D uVid;
+uniform vec2 uRes, uScale, uP, uN;              // fold point and unit normal (px, y down)
+uniform float uMirror, uE, uReveal, uSide, uSideMix, uT, uCon, uGrain, uLine, uMode;
+uniform vec3 uA, uB, uLineC;
+out vec4 o;
+float h2(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233))) * 43758.5453); }
+vec3 cam(vec2 px){
+  vec2 s = px / uRes;
+  vec2 v = (s - .5) * uScale + .5; if (uMirror > .5) v.x = 1. - v.x;
+  return texture(uVid, v).rgb;
+}
+vec2 fold(vec2 px, float side, out float dist){
+  float d = dot(px - uP, uN); dist = d;
+  if (d * side < 0.) px -= 2. * d * uN;
+  return px;
+}
+void main(){
+  vec2 px = vec2(gl_FragCoord.x, uRes.y - gl_FragCoord.y);
+  vec3 raw = cam(px);
+  // reveal runs down the midline from the top of the frame
+  vec2 t = vec2(-uN.y, uN.x); if (t.y < 0.) t = -t;
+  float along = dot(px - uP, t) / length(uRes) + .5;
+  float shown = smoothstep(uReveal * 1.25 - .06, uReveal * 1.25 - .12, along);
+  float d;
+  vec2 fa = fold(px, uSide, d);
+  vec3 c = cam(fa);
+  // swapping sides opens outward from the fold
+  if (uSideMix < .999){
+    float dd; vec2 fb = fold(px, -uSide, dd);
+    float k = smoothstep(uSideMix * length(uRes) * .6 + 2., uSideMix * length(uRes) * .6 - 2., abs(d));
+    c = mix(cam(fb), c, k);
+  }
+  c = mix(raw, c, shown);
+  // the print
+  float l = dot(c, vec3(.299,.587,.114));
+  float k = .7 + 1.6 * uCon;
+  float g = clamp((l - .5) * k + .5, 0., 1.); g = g * g * (3. - 2. * g);
+  vec3 outc;
+  if (uMode < .5) outc = mix(uA, uB, g);
+  else if (uMode < 1.5){ vec3 cc = clamp((c - .5) * (.6 + .9 * uCon) + .5, 0., 1.); cc = cc * cc * (3. - 2. * cc); outc = cc * vec3(1.04, .98, .9) + vec3(.025, .018, .03); }
+  else outc = mix(uA, uB, g);
+  outc += (h2(gl_FragCoord.xy + fract(uT) * 91.7) - .5) * .12 * uGrain;
+  vec2 q = gl_FragCoord.xy / uRes - .5; q.x *= uRes.x / uRes.y;
+  outc *= 1. - .3 * smoothstep(.4, 1.1, length(q));
+  // the fold line, a hairline drawn as far as the reveal has reached
+  float line = exp(-pow(abs(d) / .9, 2.)) * uLine * smoothstep(uReveal * 1.25, uReveal * 1.25 - .02, along);
+  outc = mix(outc, uLineC, line * .85);
+  o = vec4(mix(raw, outc, uE), 1.);
+}`;
+function sh(type, src){ const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s; }
+function prog(vs, fs){ const p = gl.createProgram(); gl.attachShader(p, sh(gl.VERTEX_SHADER, vs)); gl.attachShader(p, sh(gl.FRAGMENT_SHADER, fs));
+  gl.bindAttribLocation(p, 0, 'p'); gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+  const U = {}, n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+  for (let i = 0; i < n; i++){ const u = gl.getActiveUniform(p, i); U[u.name] = gl.getUniformLocation(p, u.name); }
+  return { p, U }; }
+let P = null, vao, texVid;
+function initGL(){
+  P = prog(VS, FS);
+  vao = gl.createVertexArray(); gl.bindVertexArray(vao);
+  const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+  texVid = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, texVid);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.MIRRORED_REPEAT); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+}
+
+/* ---------- the fold: a line fitted through the midline landmarks ---------- */
+let W = 2, H = 2;
+const FOLD = { has:false, seen:0, px:0, py:0, nx:1, ny:0, qx:0, qy:0, tpx:0, tpy:0, tnx:1, tny:0, tqx:0, tqy:0, init:false };
+function toPx(u, v, out){
+  const s = Math.max(W / vidW, H / vidH), dw = vidW * s, dh = vidH * s;
+  let x = (W - dw) / 2 + u * dw; const y = (H - dh) / 2 + v * dh;
+  if (mirror) x = W - x;
+  out[0] = x; out[1] = y; return out;
+}
+const okLm = p => p && Number.isFinite(p.x) && Number.isFinite(p.y) && Math.abs(p.x) < 4 && Math.abs(p.y) < 4;
+const XS = new Float32Array(MIDLINE.length), YS = new Float32Array(MIDLINE.length), TMP = [0, 0];
+// one face observation (normalised landmarks in video space); called by the model and the test hook
+function onFace(lm, now){
+  now = now == null ? performance.now() : now;
+  if (W < 8 || !Array.isArray(lm) || lm.length < 468) return false;
+  let n = 0;
+  for (const i of MIDLINE){ const p = lm[i]; if (!okLm(p)) continue; toPx(p.x, p.y, TMP); XS[n] = TMP[0]; YS[n] = TMP[1]; n++; }
+  if (n < 8 || !okLm(lm[EYE])) return false;
+  // principal direction of the points (total least squares: robust when the line is near vertical)
+  let mx = 0, my = 0; for (let i = 0; i < n; i++){ mx += XS[i]; my += YS[i]; } mx /= n; my /= n;
+  let sxx = 0, syy = 0, sxy = 0;
+  for (let i = 0; i < n; i++){ const dx = XS[i] - mx, dy = YS[i] - my; sxx += dx * dx; syy += dy * dy; sxy += dx * dy; }
+  const ang = .5 * Math.atan2(2 * sxy, sxx - syy);           // direction of largest spread
+  let tx = Math.cos(ang), ty = Math.sin(ang);
+  if (ty < 0){ tx = -tx; ty = -ty; }
+  const span = Math.sqrt(sxx + syy);
+  if (!(span > 4)) return false;
+  toPx(lm[EYE].x, lm[EYE].y, TMP); FOLD.ex = TMP[0]; FOLD.ey = TMP[1];
+  FOLD.tpx = mx; FOLD.tpy = my; FOLD.tnx = ty; FOLD.tny = -tx; FOLD.tqx = TMP[0]; FOLD.tqy = TMP[1];
+  if (FOLD.tnx < 0){ FOLD.tnx = -FOLD.tnx; FOLD.tny = -FOLD.tny; }   // normal points to screen-right
+  if (!FOLD.init){ FOLD.px = FOLD.tpx; FOLD.py = FOLD.tpy; FOLD.nx = FOLD.tnx; FOLD.ny = FOLD.tny; FOLD.qx = FOLD.tqx; FOLD.qy = FOLD.tqy; FOLD.init = true; }
+  FOLD.has = true; FOLD.seen = now;
+  return true;
+}
+function stepFold(dt, now){
+  if (FOLD.has && now - FOLD.seen > 600) FOLD.has = false;
+  if (!FOLD.init){ FOLD.px = FOLD.tpx = W / 2; FOLD.py = FOLD.tpy = H / 2; FOLD.qx = FOLD.tqx = W / 2; FOLD.qy = FOLD.tqy = H * .4; FOLD.init = true; }
+  if (!FOLD.has){ FOLD.tnx = 1; FOLD.tny = 0; }              // no face: the fold eases back upright where it was
+  const a = 1 - Math.exp(-dt / (FOLD.has ? .04 : 1));
+  FOLD.px += (FOLD.tpx - FOLD.px) * a; FOLD.py += (FOLD.tpy - FOLD.py) * a;
+  FOLD.qx += (FOLD.tqx - FOLD.qx) * a; FOLD.qy += (FOLD.tqy - FOLD.qy) * a;
+  FOLD.nx += (FOLD.tnx - FOLD.nx) * a; FOLD.ny += (FOLD.tny - FOLD.ny) * a;
+  const l = Math.hypot(FOLD.nx, FOLD.ny) || 1; FOLD.nx /= l; FOLD.ny /= l;
+}
+
+/* ---------- model ---------- */
+let face = null, lastTs = 0, lastVT2 = -1, faceExternal = false;
+async function initModel(){
+  try{
+    const vision = await import(VISION_URL);
+    const fs = await vision.FilesetResolver.forVisionTasks(WASM_URL);
+    const opts = d => ({ baseOptions:{ modelAssetPath:FACE_MODEL, delegate:d }, runningMode:'VIDEO', numFaces:1 });
+    try { face = await vision.FaceLandmarker.createFromOptions(fs, opts('GPU')); }
+    catch(e){ face = await vision.FaceLandmarker.createFromOptions(fs, opts('CPU')); }
+    setStatus('');
+  }catch(e){
+    if (faceExternal) return;
+    setStatus('顔の検出モデルを読み込めませんでした（ネット接続を確認）。\n画面のまんなかで折り返して続けます。');
+  }
+}
+function detect(now){
+  if (!face || faceExternal || video.readyState < 2) return;
+  const vt = video.currentTime; if (vt === lastVT2) return; lastVT2 = vt;
+  try{
+    const ts = Math.max(lastTs + 1, Math.round(now)); lastTs = ts;
+    const r = face.detectForVideo(video, ts);
+    const lm = r && r.faceLandmarks && r.faceLandmarks[0];
+    if (lm) onFace(lm, now);
+  }catch(e){}
+}
+
+/* ---------- camera ---------- */
+let stream = null, facing = 'user', mirror = true, started = false, vidW = 1280, vidH = 720, lastVT = -1;
+function setStatus(t){ $('status').textContent = t || ''; }
+function camError(e){
+  const msg = (e && (e.message || e.name)) ? (e.message || e.name) : String(e || 'unknown');
+  const text = 'カメラを起動できませんでした：' + msg + '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+  $('err').textContent = text;
+  if (started) setStatus(text);
+}
+async function startCam(){
+  const md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) throw new Error('getUserMedia is unavailable');
+  const s = await md.getUserMedia({ video:{ facingMode:{ ideal:facing }, width:{ ideal:1280 }, height:{ ideal:720 } }, audio:false });
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = s; mirror = facing === 'user';
+  video.srcObject = s;
+  await new Promise(r => { if (video.readyState >= 1) r(); else video.onloadedmetadata = () => r(); });
+  await video.play().catch(()=>{});
+  vidW = video.videoWidth || 1280; vidH = video.videoHeight || 720;
+  FOLD.has = false;
+}
+
+/* ---------- audio: a glassy swell when the fold closes or the sides swap ---------- */
+let actx = null, bus = null, recDest = null;
+function ensureAudio(){
+  if (actx){ if (actx.state === 'suspended') actx.resume().catch(()=>{}); return; }
+  const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+  actx = new AC(); bus = actx.createGain(); bus.gain.value = .5; bus.connect(actx.destination);
+  recDest = actx.createMediaStreamDestination(); bus.connect(recDest);
+  actx.resume().catch(()=>{});
+}
+function swell(f, dur){
+  if (!actx || actx.state !== 'running') return;
+  const t = actx.currentTime;
+  [1, 1.5, 2.01].forEach((m, i) => {
+    const o = actx.createOscillator(), g = actx.createGain();
+    o.type = 'sine'; o.frequency.value = f * m;
+    g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime([.08, .04, .025][i], t + dur * .6); g.gain.exponentialRampToValueAtTime(.0001, t + dur * 1.6);
+    o.connect(g); g.connect(bus); o.start(t); o.stop(t + dur * 1.7);
+  });
+}
+
+// the switch: plain camera (X = 0) ⇄ folded (X = 1.6)
+const MODE = { on:false, X:0 };
+function setMode(on){
+  if (on === MODE.on) return;
+  MODE.on = on;
+  $('mode').textContent = on ? '◂ CAMERA' : '▸ TAISHO';
+  $('swap').style.visibility = on ? 'visible' : 'hidden';
+  swell(on ? 220 : 165, on ? 1.2 : .5);
+}
+$('mode').onclick = () => setMode(!MODE.on);
+addEventListener('keydown', e => { if (started && (e.key === ' ' || e.key === 'Enter') && document.activeElement.tagName !== 'INPUT'){ e.preventDefault(); setMode(!MODE.on); } });
+$('go').onclick = async () => {
+  $('err').textContent = '';
+  ensureAudio();
+  try{
+    if (!gl) throw new Error('WebGL2 に未対応のブラウザです');
+    if (!P) initGL();
+    await startCam();
+  }catch(e){ camError(e); return; }
+  $('start').style.display = 'none';
+  ['gear','flip','bar','rec','shoot','swap','hud','mode'].forEach(id => $(id).classList.add('show'));
+  MODE.on = true; setMode(false);
+  if (!started){ started = true; initModel(); requestAnimationFrame(loop); }
+};
+$('flip').onclick = async () => {
+  const prev = facing; facing = facing === 'user' ? 'environment' : 'user';
+  try { await startCam(); } catch(e){ facing = prev; camError(e); }
+};
+$('gear').onclick = () => $('panel').classList.toggle('hide');
+const SWAP = { mix:1 };
+function swapSides(){ if (!MODE.on || MODE.X < 1.6) return; S.side = -S.side; SWAP.mix = 0; swell(S.side > 0 ? 196 : 247, .6); }
+$('swap').onclick = swapSides;
+canvas.addEventListener('pointerdown', () => { if (started) swapSides(); });
+$('pals').onclick = e => { const b = e.target.closest('button'); if (!b) return; S.pal = +b.dataset.p; [...$('pals').children].forEach(x => x.classList.toggle('on', x === b)); };
+[['sCon','con'],['sGrain','grain'],['sLine','line']].forEach(([id,k]) => { $(id).oninput = e => { S[k] = +e.target.value; }; });
+
+$('shoot').onclick = () => {
+  try{
+    canvas.toBlob(b => { if (!b) return; const a = document.createElement('a'); a.href = URL.createObjectURL(b);
+      a.download = 'taisho-' + Date.now() + '.png'; a.click(); }, 'image/png');
+  }catch(e){ setStatus('保存できませんでした。'); }
+};
+let rec = null, chunks = [];
+$('rec').onclick = () => {
+  if (rec && rec.state === 'recording'){ rec.stop(); return; }
+  try{
+    ensureAudio();
+    const tracks = [...canvas.captureStream(30).getVideoTracks()];
+    if (recDest) tracks.push(...recDest.stream.getAudioTracks());
+    const mime = ['video/mp4;codecs=avc1','video/webm;codecs=vp9,opus','video/webm'].find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || '';
+    rec = new MediaRecorder(new MediaStream(tracks), mime ? { mimeType:mime } : {});
+    chunks = [];
+    rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+    rec.onstop = () => {
+      $('rec').classList.remove('on'); $('rec').textContent = '● REC';
+      const ext = (rec.mimeType || '').includes('mp4') ? 'mp4' : 'webm';
+      const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(chunks, { type:rec.mimeType || 'video/webm' }));
+      a.download = 'taisho.' + ext; a.click();
+    };
+    rec.start(); $('rec').classList.add('on'); $('rec').textContent = '■ STOP';
+  }catch(e){ setStatus('録画を開始できませんでした。'); }
+};
+
+/* ---------- render ---------- */
+let lastT = 0, hudT = 0;
+function loop(now){
+  requestAnimationFrame(loop);
+  const dt = lastT ? Math.min(.1, (now - lastT)/1000) : 1/60; lastT = now;
+  if (video.videoWidth && (video.videoWidth !== vidW || video.videoHeight !== vidH)){ vidW = video.videoWidth; vidH = video.videoHeight; }
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  let w = Math.round(innerWidth*dpr), h = Math.round(innerHeight*dpr);
+  const k = Math.min(1, 1800 / Math.max(w, h)); w = Math.round(w*k); h = Math.round(h*k);
+  if (canvas.width !== w || canvas.height !== h){ canvas.width = w; canvas.height = h; }
+  W = w; H = h;
+  detect(now);
+  if (video.readyState < 2) return;
+  const vt = video.currentTime, fresh = vt !== lastVT; lastVT = vt;
+  if (fresh){ gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, texVid);
+    try { gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video); } catch(e){ return; } }
+  stepFold(dt, now);
+  MODE.X = MODE.on ? Math.min(1.6, MODE.X + dt) : Math.max(0, MODE.X - dt * 2.2);
+  const E = Math.min(1, MODE.X / .3);
+  const reveal = Math.max(0, Math.min(1, (MODE.X - .2) / 1.3));
+  SWAP.mix = Math.min(1, SWAP.mix + dt / .35);
+  const p = PALS[S.pal];
+
+  gl.viewport(0, 0, W, H); gl.useProgram(P.p); gl.bindVertexArray(vao);
+  const U = P.U;
+  gl.uniform1i(U.uVid, 0);
+  const sa = W/H, va = vidW/vidH;
+  gl.uniform2f(U.uRes, W, H); gl.uniform2f(U.uScale, sa < va ? sa/va : 1, sa < va ? 1 : va/sa);
+  gl.uniform2f(U.uP, FOLD.px, FOLD.py); gl.uniform2f(U.uN, FOLD.nx, FOLD.ny);
+  gl.uniform1f(U.uMirror, mirror ? 1 : 0); gl.uniform1f(U.uE, E); gl.uniform1f(U.uReveal, reveal);
+  gl.uniform1f(U.uSide, S.side); gl.uniform1f(U.uSideMix, SWAP.mix);
+  gl.uniform1f(U.uT, now / 1000); gl.uniform1f(U.uCon, S.con); gl.uniform1f(U.uGrain, S.grain); gl.uniform1f(U.uLine, S.line);
+  gl.uniform1f(U.uMode, p.mode); gl.uniform3fv(U.uA, p.a); gl.uniform3fv(U.uB, p.b); gl.uniform3fv(U.uLineC, p.line);
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+  $('hud').style.visibility = MODE.X >= 1.6 ? 'visible' : 'hidden';
+  hudT += dt;
+  if (hudT > .3){ hudT = 0;
+    const deg = Math.atan2(FOLD.nx, -FOLD.ny) * 57.2958 - 90;
+    $('hud').textContent = 'TAISHO  ' + p.name + '\nAXIS ' + (deg >= 0 ? '+' : '−') + Math.abs(deg).toFixed(1).padStart(4, '0') + '°\n' + (S.side > 0 ? 'RIGHT' : 'LEFT') + ' × 2' + (FOLD.has ? '' : '  · NO FACE'); }
+}
+
+/* ---------- test hook (used by the local verification harness) ---------- */
+window.__TAISHO = {
+  face(lm){ if (!faceExternal) setStatus(''); faceExternal = true; return onFace(lm); },
+  state: () => ({ has:FOLD.has, p:[FOLD.px, FOLD.py], n:[FOLD.nx, FOLD.ny], eye:[FOLD.ex, FOLD.ey], side:S.side, W, H }),
+  // distance (px) from the between-the-eyes point to the current fold line
+  offAxis: () => Math.abs((FOLD.ex - FOLD.px) * FOLD.nx + (FOLD.ey - FOLD.py) * FOLD.ny),
+  offTarget: () => Math.abs((FOLD.ex - FOLD.tpx) * FOLD.tnx + (FOLD.ey - FOLD.tpy) * FOLD.tny),
+  palette(i){ S.pal = i; },
+  mode(c){ setMode(!!c); },
+  tap(){ swapSides(); },
+  view: () => ({ on:MODE.on, X:MODE.X }),
+};
+</script>
+</body>
+</html>
