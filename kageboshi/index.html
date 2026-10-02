@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="description" content="部屋の明かりが落ち、横から一灯だけの光があなたを照らして、壁に大きな影が落ちる。その影は一秒ほど遅れてあなたを追いかけてくる。タップすると影をその場に置いていける。">
+<meta name="theme-color" content="#0d0a08">
+<title>KAGEBOSHI ─ 遅れてついてくる、あなたの影</title>
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  KAGEBOSHI 影法師 ─ 遅れてついてくる、あなたの影        ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  MOOD       夜の部屋で、横に置いた裸電球だけが点いている映画のワンカット。
+             映った人は片側から照らされ、うしろの壁に大きな影が落ちる。
+             ただしその影はほんの少し遅れていて、首をかしげれば一拍おいて影が
+             かしげ、止まれば影があとから追いついてくる。タップすると影は
+             その姿勢のまま壁に残り、もう一度タップするとゆっくり戻ってくる。
+  PALETTE    TUNGSTEN  光 #ffcf94（電球）・影 #120c0a・壁の闇 #0d0a08
+             MOON      光 #bcd2ff（窓の月明かり）・影 #05070c
+             NOIR      モノクロの硬調・影 #050505
+  TYPE       Bodoni Moda 400 の斜体（題字）＋ Red Hat Mono 300（計器）。
+  MOTION     影の遅れは既定 0.9 秒（0.3〜2 秒）。影は光源から 1.47 倍に広がって、光と反対の側へ大きく落ちる。
+             置いた影は、戻すと 0.8 秒かけていまの影に溶けて戻る。
+  SIGNATURE  自分より遅れて動く、自分の影。
+  SWITCH     はじめは素のカメラ。「▸ KAGEBOSHI」で部屋が暗転し、カチッと電球が点いて
+             壁に影が浮かび上がる。「◂ CAMERA」で電球が消えて元の部屋に戻る。
+  TECH       WebGL2。人物マスクを時刻つきで 64 枚のテクスチャ配列に貯め、
+             「いま − 遅れ」にいちばん近い一枚を影として、光源から拡大して壁に落とす。
+             裸電球の硬い影なので縁は少しだけぼかし、人の上には落とさない。
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:ital,opsz,wght@1,6..96,400&family=Red+Hat+Mono:wght@300&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0d0a08;--fg:#f3e6d2;--dim:rgba(243,230,210,.5);--line:rgba(243,230,210,.22);--acc:#ffcf94}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none}
+html,body{margin:0;height:100%;background:var(--bg);overflow:hidden;color:var(--fg);font-family:"Hiragino Sans","Noto Sans JP",sans-serif}
+#gl{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+
+#start{position:fixed;inset:0;z-index:30;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:24px;
+  padding:28px;text-align:center;background:radial-gradient(circle at 25% 30%,#2a1d14,#0d0a08 60%)}
+#start .t{font:300 10px "Red Hat Mono",monospace;letter-spacing:.46em;margin-right:-.46em;color:var(--dim)}
+#start h1{margin:0;font:italic 400 min(13vw,82px)/1 "Bodoni Moda",serif;letter-spacing:.06em;position:relative}
+#start h1::after{content:"KAGEBOSHI";position:absolute;left:.12em;top:.1em;color:rgba(0,0,0,.6);z-index:-1;filter:blur(3px);transform:scale(1.06) skewX(-8deg)}
+#start p{margin:0;font-size:12px;line-height:2.1;color:var(--dim);letter-spacing:.1em;font-weight:300}
+#go{appearance:none;border:1px solid var(--line);background:transparent;color:var(--fg);font:300 10px "Red Hat Mono",monospace;
+  letter-spacing:.5em;padding:15px 30px 15px 36px;cursor:pointer;transition:border-color .3s}
+#go:hover{border-color:var(--acc)}
+#err{font-size:12px;line-height:1.8;max-width:340px;min-height:1em;white-space:pre-line;color:#f0a395}
+
+.btn{position:fixed;z-index:12;appearance:none;border:0;background:transparent;color:var(--fg);font:300 10px "Red Hat Mono","Hiragino Sans",monospace;
+  letter-spacing:.3em;padding:10px 8px;display:none;cursor:pointer;opacity:.65;transition:opacity .3s}
+.btn.show{display:block}
+.btn:hover{opacity:1}
+#gear{right:10px;top:calc(env(safe-area-inset-top) + 6px);font-size:14px;letter-spacing:0}
+#flip{right:10px;top:calc(env(safe-area-inset-top) + 40px);letter-spacing:.1em;font-family:"Hiragino Sans","Noto Sans JP",sans-serif}
+#bar{position:fixed;left:0;right:0;bottom:calc(env(safe-area-inset-bottom) + 10px);z-index:12;display:none;justify-content:center;align-items:center;gap:30px}
+#bar.show{display:flex}
+#bar .btn{position:static;display:block}
+#bar #shoot{width:42px;height:42px;border-radius:50%;border:1px solid var(--fg);padding:0;opacity:.8;background:radial-gradient(circle at 38% 38%,var(--acc) 0 5px,transparent 6px)}
+#rec.on{opacity:1;color:#ff8a76}
+#hold.on{opacity:1;color:var(--acc)}
+#hud{position:fixed;left:14px;top:calc(env(safe-area-inset-top) + 14px);z-index:11;font:300 9px "Red Hat Mono",monospace;letter-spacing:.24em;color:var(--dim);
+  pointer-events:none;display:none;line-height:2.1;white-space:pre}
+#hud.show{display:block}
+#status{position:fixed;left:14px;bottom:calc(env(safe-area-inset-bottom) + 70px);z-index:11;font-size:11px;letter-spacing:.04em;
+  color:var(--dim);pointer-events:none;max-width:72vw;line-height:1.7;white-space:pre-line}
+
+#panel{position:fixed;right:10px;top:calc(env(safe-area-inset-top) + 78px);z-index:12;width:min(270px,calc(100vw - 20px));
+  background:rgba(13,10,8,.84);border:1px solid var(--line);padding:14px 16px;display:flex;flex-direction:column;gap:13px;
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);transition:opacity .25s}
+#panel.hide{opacity:0;pointer-events:none}
+.chips{display:flex;border:1px solid var(--line)}
+.chips button{flex:1;appearance:none;border:0;background:transparent;color:var(--fg);padding:8px 2px;font:300 9px "Red Hat Mono",monospace;
+  letter-spacing:.2em;cursor:pointer;opacity:.55}
+.chips button.on{opacity:1;background:rgba(243,230,210,.12)}
+#panel label{display:flex;align-items:center;gap:10px;font-size:11px;letter-spacing:.04em;font-weight:300}
+#panel label span{width:74px;flex:none;color:var(--dim)}
+#panel input[type=range]{flex:1;accent-color:var(--acc)}
+#panel .note{font-size:10px;color:var(--dim);line-height:1.7}
+#mode{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom) + 72px);z-index:13;display:none;
+  appearance:none;border:1px solid rgba(255,255,255,.45);background:rgba(0,0,0,.35);color:#fff;
+  font:300 10px "Red Hat Mono",monospace;letter-spacing:.42em;padding:13px 22px 13px 28px;cursor:pointer;
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
+#mode.show{display:block}
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<div id="hud"></div>
+<div id="status"></div>
+<button id="gear" class="btn" aria-label="調整">⚙</button>
+<button id="flip" class="btn">⟲ カメラ</button>
+<button id="mode">▸ KAGEBOSHI</button>
+<div id="bar">
+  <button id="rec" class="btn">● REC</button>
+  <button id="shoot" class="btn" aria-label="撮る"></button>
+  <button id="hold" class="btn">影を置く</button>
+</div>
+
+<div id="panel" class="hide">
+  <div class="chips" id="pals">
+    <button data-p="0" class="on">TUNGSTEN</button>
+    <button data-p="1">MOON</button>
+    <button data-p="2">NOIR</button>
+  </div>
+  <div class="chips" id="sides">
+    <button data-s="-1" class="on">光は左</button>
+    <button data-s="1">光は右</button>
+  </div>
+  <label><span>影の遅れ</span><input type="range" id="sDelay" min="0" max="1" step="0.01" value="0.35"></label>
+  <label><span>影の大きさ</span><input type="range" id="sSize" min="0" max="1" step="0.01" value="0.45"></label>
+  <label><span>部屋の暗さ</span><input type="range" id="sDark" min="0" max="1" step="0.01" value="0.6"></label>
+  <div class="note">首をかしげたり、手を上げたりしてみる。影は少し遅れてついてくる。<br>画面タップか「影を置く」で、影をその姿勢のまま壁に残せる。</div>
+</div>
+
+<div id="start">
+  <div class="t">A SHADOW THAT LAGS</div>
+  <h1>KAGEBOSHI</h1>
+  <p>まずは、いつものカメラ。<br>ボタンを押すと明かりが落ちて、壁にあなたの影が落ちる。<br>その影は、少し遅れてついてくる。</p>
+  <button id="go">START</button>
+  <div id="err"></div>
+</div>
+
+<script>
+'use strict';
+/* =====================================================================
+   KAGEBOSHI — a lagging shadow. Person masks are kept with timestamps in
+   a 64-layer texture array; the shader takes the layer nearest to
+   (now − delay), projects it from a lamp beside the person onto the wall
+   (scaled up, pushed away from the lamp), softens it with 9 taps and
+   darkens only the wall with it. The person is re-lit from the lamp side.
+   ===================================================================== */
+const VISION_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs';
+const WASM_URL   = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm';
+const SEG_MODEL  = 'https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite';
+
+const $ = id => document.getElementById(id);
+const canvas = $('gl');
+const video = document.createElement('video'); video.playsInline = true; video.muted = true; video.autoplay = true;
+
+const PALS = [
+  { name:'TUNGSTEN', light:[1,.80,.58], dark:[.05,.035,.03], shadow:[.07,.045,.035], mono:0 },
+  { name:'MOON',     light:[.74,.83,1],  dark:[.02,.03,.05],  shadow:[.02,.028,.05],  mono:0 },
+  { name:'NOIR',     light:[1,1,1],      dark:[.02,.02,.02],  shadow:[.02,.02,.02],   mono:1 },
+];
+const S = { pal:0, side:-1, delay:.35, size:.45, dark:.6 };
+const NL = 64;                                          // remembered masks
+
+/* ---------- GL ---------- */
+const gl = canvas.getContext('webgl2', { antialias:false, alpha:false, preserveDrawingBuffer:true });
+const VS = `#version 300 es
+in vec2 p; void main(){ gl_Position = vec4(p, 0., 1.); }`;
+const FS = `#version 300 es
+precision highp float;
+precision highp sampler2DArray;
+uniform sampler2D uVid;
+uniform sampler2DArray uMasks;
+uniform vec2 uRes, uScale, uLamp, uBlur;
+uniform float uMirror, uE, uLampOn, uLayer, uHeld, uHeldLayer, uHeldMix, uHasMask, uCur, uScaleS, uDark, uT, uMono, uShadowOn;
+uniform vec3 uLight, uDarkC, uShadowC;
+out vec4 o;
+float h2(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233))) * 43758.5453); }
+vec2 vuv(vec2 s){ vec2 v = (s - .5) * uScale + .5; if (uMirror > .5) v.x = 1. - v.x; return v; }
+float maskAt(vec2 s, float layer){
+  if (uHasMask < .5) return 0.;
+  vec2 v = vuv(s);
+  if (v.x < 0. || v.x > 1. || v.y < 0. || v.y > 1.) return 0.;
+  return texture(uMasks, vec3(v, layer)).r;
+}
+float softShadow(vec2 s, float layer){
+  float acc = 0.;
+  for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++) acc += maskAt(s + vec2(float(i), float(j)) * uBlur, layer);
+  return acc / 9.;
+}
+void main(){
+  vec2 s = gl_FragCoord.xy / uRes; s.y = 1. - s.y;
+  vec3 cam = texture(uVid, vuv(s)).rgb;
+  // the person's own mask, softened a little so the cut edge does not show
+  float me = 0.;
+  if (uHasMask > .5){ float a = 0.; for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++) a += maskAt(s + vec2(float(i), float(j)) * uBlur * 1.7, uCur); me = smoothstep(.5, .85, a / 9.); }
+  // the lamp: light falls off with distance from it, in aspect-correct units
+  vec2 q = (s - uLamp) * vec2(uRes.x / uRes.y, 1.);
+  float fall = 1. / (1. + 2.2 * dot(q, q));
+  float l = dot(cam, vec3(.299,.587,.114));
+  vec3 base = uMono > .5 ? vec3(l) : cam;
+  // one light for the whole room: the lamp's pool, falling to dark
+  float pool = clamp(fall * (1.25 - uDark * .6), 0., 1.);
+  vec3 wall = mix(uDarkC, base * uLight * 1.2, pool);
+  // the person: a strong key from the lamp side, a darker fill side, a touch more contrast
+  float toward = (uLamp.x < .5 ? -1. : 1.) * (s.x - .5);       // > 0 on the lamp's side of the frame
+  float side = clamp(1. + toward * 1.4, .62, 1.3);
+  // the person stands nearer the lamp than the wall, so the same light reaches them stronger
+  vec3 body = mix(uDarkC, base * mix(vec3(1.), uLight, .55) * 1.1, clamp(pool * 1.1 + .42, 0., 1.)) * side;
+  body = clamp((body - .5) * 1.15 + .5, 0., 1.);
+  // the shadow: the mask from a moment ago, projected away from the lamp onto the wall
+  vec2 sp = uLamp + (s - uLamp) / uScaleS;
+  float sh = softShadow(sp, uLayer);
+  if (uHeld > .5) sh = mix(softShadow(sp, uHeldLayer), sh, uHeldMix);
+  sh *= uShadowOn;
+  wall = mix(wall, uShadowC, smoothstep(.15, .7, sh) * .92);
+  vec3 c = mix(wall, body, me);
+  c += (h2(gl_FragCoord.xy + fract(uT) * 77.) - .5) * .03;
+  vec2 v = s - .5; v.x *= uRes.x / uRes.y;
+  c *= 1. - .35 * smoothstep(.45, 1.1, length(v));
+  c = mix(vec3(0.), c, uLampOn);
+  o = vec4(mix(cam, c, uE), 1.);
+}`;
+function sh(type, src){ const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s; }
+function prog(vs, fs){ const p = gl.createProgram(); gl.attachShader(p, sh(gl.VERTEX_SHADER, vs)); gl.attachShader(p, sh(gl.FRAGMENT_SHADER, fs));
+  gl.bindAttribLocation(p, 0, 'p'); gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+  const U = {}, n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+  for (let i = 0; i < n; i++){ const u = gl.getActiveUniform(p, i); U[u.name] = gl.getUniformLocation(p, u.name); }
+  return { p, U }; }
+let P = null, vao, texVid, texMasks, masksKey = '';
+function initGL(){
+  P = prog(VS, FS);
+  vao = gl.createVertexArray(); gl.bindVertexArray(vao);
+  const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+  texVid = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, texVid);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  texMasks = gl.createTexture();
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+}
+function ensureMasks(w, h){
+  const key = w + 'x' + h; if (key === masksKey) return; masksKey = key;
+  gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D_ARRAY, texMasks);
+  gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.texImage3D(gl.TEXTURE_2D_ARRAY, 0, gl.R8, w, h, NL, 0, gl.RED, gl.UNSIGNED_BYTE, null);
+  RING.t.fill(-1); RING.next = 0; RING.cur = -1;
+}
+
+/* ---------- the mask history ---------- */
+const RING = { t:new Float64Array(NL).fill(-1), next:0, cur:-1 };
+const M = { w:0, h:0, b:null, has:false, live:false, external:false, lastT:0 };
+function ingestMask(data, w, h, now){
+  if (!data || !(w > 0) || !(h > 0) || !(w * h <= 4e6) || data.length < w * h) return false;
+  now = now == null ? performance.now() : now;
+  if (M.w !== w || M.h !== h){ M.w = w; M.h = h; M.b = new Uint8Array(w * h); }
+  for (let i = 0, n = w * h; i < n; i++){ let m = data[i]; if (!(m >= 0)) m = 0; else if (m > 1) m = 1; M.b[i] = m * 255; }
+  M.has = true; M.live = true; M.lastT = now;
+  if (!P) return true;
+  ensureMasks(w, h);
+  // keep at most one mask per 40 ms, so 64 layers cover more than two seconds
+  if (RING.cur >= 0 && now - RING.t[RING.cur] < 40){
+    gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D_ARRAY, texMasks);
+    gl.texSubImage3D(gl.TEXTURE_2D_ARRAY, 0, 0, 0, RING.cur, w, h, 1, gl.RED, gl.UNSIGNED_BYTE, M.b);
+    return true;
+  }
+  let L = RING.next;
+  if (HELD.on && L === HELD.layer) L = (L + 1) % NL;          // never overwrite the shadow left on the wall
+  RING.next = (L + 1) % NL;
+  return ingestLayer(L, w, h, now);
+}
+function ingestLayer(L, w, h, now){
+  gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D_ARRAY, texMasks);
+  gl.texSubImage3D(gl.TEXTURE_2D_ARRAY, 0, 0, 0, L, w, h, 1, gl.RED, gl.UNSIGNED_BYTE, M.b);
+  RING.t[L] = now; RING.cur = L;
+  return true;
+}
+// the layer whose time is nearest to (now − delay); never newer than now
+function delayedLayer(now, delay){
+  let best = -1, bd = 1e12; const want = now - delay;
+  for (let i = 0; i < NL; i++){ const t = RING.t[i]; if (t < 0 || (i === HELD.layer && HELD.on)) continue; const d = Math.abs(t - want); if (d < bd){ bd = d; best = i; } }
+  return best;
+}
+const HELD = { on:false, layer:-1, mix:1, back:-1 };
+
+/* ---------- model ---------- */
+let segmenter = null, lastTs = 0, lastSegVT = -1;
+async function initModel(){
+  try{
+    const vision = await import(VISION_URL);
+    const fs = await vision.FilesetResolver.forVisionTasks(WASM_URL);
+    const opts = d => ({ baseOptions:{ modelAssetPath:SEG_MODEL, delegate:d }, runningMode:'VIDEO', outputConfidenceMasks:true, outputCategoryMask:false });
+    try { segmenter = await vision.ImageSegmenter.createFromOptions(fs, opts('GPU')); }
+    catch(e){ segmenter = await vision.ImageSegmenter.createFromOptions(fs, opts('CPU')); }
+    setStatus('');
+  }catch(e){
+    if (M.external) return;
+    setStatus('人物検出モデルを読み込めませんでした（ネット接続を確認）。\n影は出せませんが、電球の明かりは続けます。');
+  }
+}
+function segment(now){
+  if (!segmenter || M.external || video.readyState < 2) return;
+  const vt = video.currentTime; if (vt === lastSegVT) return; lastSegVT = vt;
+  try{
+    const ts = Math.max(lastTs + 1, Math.round(now)); lastTs = ts;
+    segmenter.segmentForVideo(video, ts, res => {
+      const ms = res && res.confidenceMasks; if (!ms || !ms.length) return;
+      const mk = ms[ms.length - 1]; ingestMask(mk.getAsFloat32Array(), mk.width, mk.height, now);
+    });
+  }catch(e){}
+}
+
+/* ---------- camera ---------- */
+let stream = null, facing = 'user', mirror = true, started = false, vidW = 1280, vidH = 720, lastVT = -1;
+function setStatus(t){ $('status').textContent = t || ''; }
+function camError(e){
+  const msg = (e && (e.message || e.name)) ? (e.message || e.name) : String(e || 'unknown');
+  const text = 'カメラを起動できませんでした：' + msg + '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+  $('err').textContent = text;
+  if (started) setStatus(text);
+}
+async function startCam(){
+  const md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) throw new Error('getUserMedia is unavailable');
+  const s = await md.getUserMedia({ video:{ facingMode:{ ideal:facing }, width:{ ideal:1280 }, height:{ ideal:720 } }, audio:false });
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = s; mirror = facing === 'user';
+  video.srcObject = s;
+  await new Promise(r => { if (video.readyState >= 1) r(); else video.onloadedmetadata = () => r(); });
+  await video.play().catch(()=>{});
+  vidW = video.videoWidth || 1280; vidH = video.videoHeight || 720;
+  RING.t.fill(-1); RING.cur = -1; HELD.on = false;
+}
+
+/* ---------- audio: the lamp's click and hum ---------- */
+let actx = null, bus = null, recDest = null, hum = null;
+function ensureAudio(){
+  if (actx){ if (actx.state === 'suspended') actx.resume().catch(()=>{}); return; }
+  const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+  actx = new AC(); bus = actx.createGain(); bus.gain.value = .6; bus.connect(actx.destination);
+  recDest = actx.createMediaStreamDestination(); bus.connect(recDest);
+  hum = actx.createGain(); hum.gain.value = 0; hum.connect(bus);
+  const lp = actx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 500; lp.connect(hum);
+  [50, 100, 150].forEach((f, i) => { const o = actx.createOscillator(); o.type = 'sine'; o.frequency.value = f; const g = actx.createGain(); g.gain.value = [.5, .3, .1][i]; o.connect(g); g.connect(lp); o.start(); });
+  actx.resume().catch(()=>{});
+}
+function click(vol){
+  if (!actx || actx.state !== 'running') return;
+  const t = actx.currentTime, n = actx.sampleRate * .04 | 0, b = actx.createBuffer(1, n, actx.sampleRate), d = b.getChannelData(0);
+  for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * Math.exp(-i / n * 9);
+  const s = actx.createBufferSource(); s.buffer = b; const f = actx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 2400; f.Q.value = 2;
+  const g = actx.createGain(); g.gain.value = vol; s.connect(f); f.connect(g); g.connect(bus); s.start(t);
+}
+
+// the switch: plain camera (X = 0) ⇄ lamp-lit room (X = 1.6)
+const MODE = { on:false, X:0 };
+function setMode(on){
+  if (on === MODE.on) return;
+  MODE.on = on;
+  $('mode').textContent = on ? '◂ CAMERA' : '▸ KAGEBOSHI';
+  $('hold').style.visibility = on ? 'visible' : 'hidden';
+  if (!on){ HELD.on = false; $('hold').classList.remove('on'); $('hold').textContent = '影を置く'; click(.4); }
+  if (hum && actx) hum.gain.setTargetAtTime(on ? .035 : 0, actx.currentTime + (on ? .45 : 0), .2);
+}
+$('mode').onclick = () => setMode(!MODE.on);
+addEventListener('keydown', e => { if (started && (e.key === ' ' || e.key === 'Enter') && document.activeElement.tagName !== 'INPUT'){ e.preventDefault(); setMode(!MODE.on); } });
+$('go').onclick = async () => {
+  $('err').textContent = '';
+  ensureAudio();
+  try{
+    if (!gl) throw new Error('WebGL2 に未対応のブラウザです');
+    if (!P) initGL();
+    await startCam();
+  }catch(e){ camError(e); return; }
+  $('start').style.display = 'none';
+  ['gear','flip','bar','rec','shoot','hold','hud','mode'].forEach(id => $(id).classList.add('show'));
+  MODE.on = true; setMode(false);
+  if (!started){ started = true; initModel(); requestAnimationFrame(loop); }
+};
+$('flip').onclick = async () => {
+  const prev = facing; facing = facing === 'user' ? 'environment' : 'user';
+  try { await startCam(); } catch(e){ facing = prev; camError(e); }
+};
+$('gear').onclick = () => $('panel').classList.toggle('hide');
+// leave the shadow on the wall / call it back
+function toggleHold(){
+  if (!MODE.on || MODE.X < 1.6) return;
+  if (!HELD.on){
+    const L = delayedLayer(performance.now(), delayMs()); if (L < 0) return;
+    HELD.on = true; HELD.layer = L; HELD.mix = 0;
+    $('hold').classList.add('on'); $('hold').textContent = '影を戻す'; click(.25);
+  } else { HELD.on = false; HELD.mix = 0; HELD.back = HELD.layer; $('hold').classList.remove('on'); $('hold').textContent = '影を置く'; click(.18); }
+}
+$('hold').onclick = toggleHold;
+canvas.addEventListener('pointerdown', () => { if (started) toggleHold(); });
+$('pals').onclick = e => { const b = e.target.closest('button'); if (!b) return; S.pal = +b.dataset.p; [...$('pals').children].forEach(x => x.classList.toggle('on', x === b)); };
+$('sides').onclick = e => { const b = e.target.closest('button'); if (!b) return; S.side = +b.dataset.s; [...$('sides').children].forEach(x => x.classList.toggle('on', x === b)); };
+[['sDelay','delay'],['sSize','size'],['sDark','dark']].forEach(([id,k]) => { $(id).oninput = e => { S[k] = +e.target.value; }; });
+const delayMs = () => 300 + 1700 * S.delay;
+
+$('shoot').onclick = () => {
+  try{
+    canvas.toBlob(b => { if (!b) return; const a = document.createElement('a'); a.href = URL.createObjectURL(b);
+      a.download = 'kageboshi-' + Date.now() + '.png'; a.click(); }, 'image/png');
+  }catch(e){ setStatus('保存できませんでした。'); }
+};
+let rec = null, chunks = [];
+$('rec').onclick = () => {
+  if (rec && rec.state === 'recording'){ rec.stop(); return; }
+  try{
+    ensureAudio();
+    const tracks = [...canvas.captureStream(30).getVideoTracks()];
+    if (recDest) tracks.push(...recDest.stream.getAudioTracks());
+    const mime = ['video/mp4;codecs=avc1','video/webm;codecs=vp9,opus','video/webm'].find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || '';
+    rec = new MediaRecorder(new MediaStream(tracks), mime ? { mimeType:mime } : {});
+    chunks = [];
+    rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+    rec.onstop = () => {
+      $('rec').classList.remove('on'); $('rec').textContent = '● REC';
+      const ext = (rec.mimeType || '').includes('mp4') ? 'mp4' : 'webm';
+      const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(chunks, { type:rec.mimeType || 'video/webm' }));
+      a.download = 'kageboshi.' + ext; a.click();
+    };
+    rec.start(); $('rec').classList.add('on'); $('rec').textContent = '■ STOP';
+  }catch(e){ setStatus('録画を開始できませんでした。'); }
+};
+
+/* ---------- render ---------- */
+let lastT = 0, hudT = 0, clicked = false;
+const STATE = { layer:-1, lagMs:0, lampOn:0, shadowOn:0 };
+function loop(now){
+  requestAnimationFrame(loop);
+  const dt = lastT ? Math.min(.1, (now - lastT)/1000) : 1/60; lastT = now;
+  if (video.videoWidth && (video.videoWidth !== vidW || video.videoHeight !== vidH)){ vidW = video.videoWidth; vidH = video.videoHeight; }
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  let W = Math.round(innerWidth*dpr), H = Math.round(innerHeight*dpr);
+  const k = Math.min(1, 1600 / Math.max(W, H)); W = Math.round(W*k); H = Math.round(H*k);
+  if (canvas.width !== W || canvas.height !== H){ canvas.width = W; canvas.height = H; }
+  segment(now);
+  if (M.live && now - M.lastT > 1200) M.live = false;
+  if (video.readyState < 2) return;
+  const vt = video.currentTime, fresh = vt !== lastVT; lastVT = vt;
+  if (fresh){ gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, texVid);
+    try { gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video); } catch(e){ return; } }
+  if (!masksKey) ensureMasks(1, 1);
+
+  // the switch: the room goes dark (0 → .35), the lamp clicks on (.55), the shadow fades onto the wall
+  MODE.X = MODE.on ? Math.min(1.6, MODE.X + dt) : Math.max(0, MODE.X - dt * 2.4);
+  const E = Math.min(1, MODE.X / .35);
+  const lampOn = MODE.on ? (MODE.X < .55 ? .12 : Math.min(1, .12 + (MODE.X - .55) * 6)) : Math.min(1, MODE.X);
+  if (MODE.on && MODE.X >= .55 && !clicked){ clicked = true; click(.5); }
+  if (!MODE.on) clicked = false;
+  const shadowOn = Math.max(0, Math.min(1, (MODE.X - .7) / .8));
+  HELD.mix = Math.min(1, HELD.mix + dt / .8);
+
+  const layer = delayedLayer(now, delayMs());
+  STATE.layer = layer; STATE.lagMs = layer >= 0 ? now - RING.t[layer] : 0; STATE.lampOn = lampOn; STATE.shadowOn = shadowOn;
+  const p = PALS[S.pal];
+  const lamp = S.side < 0 ? [.02, .34] : [.98, .34];
+  gl.viewport(0, 0, W, H); gl.useProgram(P.p); gl.bindVertexArray(vao);
+  const U = P.U;
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, texVid);
+  gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D_ARRAY, texMasks);
+  gl.uniform1i(U.uVid, 0); gl.uniform1i(U.uMasks, 1);
+  const sa = W/H, va = vidW/vidH;
+  gl.uniform2f(U.uRes, W, H); gl.uniform2f(U.uScale, sa < va ? sa/va : 1, sa < va ? 1 : va/sa);
+  gl.uniform2f(U.uLamp, lamp[0], lamp[1]);
+  const blurPx = Math.min(W, H) * .0045; gl.uniform2f(U.uBlur, blurPx / W, blurPx / H);
+  const live = M.has && M.live;
+  gl.uniform1f(U.uHasMask, live && RING.cur >= 0 ? 1 : 0);
+  gl.uniform1f(U.uCur, RING.cur < 0 ? 0 : RING.cur);
+  gl.uniform1f(U.uLayer, layer < 0 ? 0 : layer);
+  const heldShown = HELD.on || HELD.mix < 1;
+  gl.uniform1f(U.uHeld, heldShown && (HELD.on ? HELD.layer : HELD.back) >= 0 ? 1 : 0);
+  gl.uniform1f(U.uHeldLayer, HELD.on ? HELD.layer : (HELD.back >= 0 ? HELD.back : 0));
+  gl.uniform1f(U.uHeldMix, HELD.on ? 0 : HELD.mix);
+  gl.uniform1f(U.uScaleS, 1.2 + .6 * S.size); gl.uniform1f(U.uDark, S.dark);
+  gl.uniform1f(U.uMirror, mirror ? 1 : 0); gl.uniform1f(U.uE, E); gl.uniform1f(U.uLampOn, lampOn); gl.uniform1f(U.uT, now / 1000);
+  gl.uniform1f(U.uMono, p.mono); gl.uniform1f(U.uShadowOn, shadowOn * (layer >= 0 ? 1 : 0));
+  gl.uniform3fv(U.uLight, p.light); gl.uniform3fv(U.uDarkC, p.dark); gl.uniform3fv(U.uShadowC, p.shadow);
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+  $('hud').style.visibility = MODE.X >= 1.6 ? 'visible' : 'hidden';
+  hudT += dt;
+  if (hudT > .3){ hudT = 0;
+    $('hud').textContent = 'KAGEBOSHI  ' + p.name + '\nLAG ' + (STATE.lagMs / 1000).toFixed(2) + ' s' + (HELD.on ? '\nSHADOW LEFT ON THE WALL' : ''); }
+}
+
+/* ---------- test hook (used by the local verification harness) ---------- */
+window.__KAGEBOSHI = {
+  ingestMask(d, w, h){ if (!M.external) setStatus(''); M.external = true; return ingestMask(d, w, h); },
+  state: () => ({ ...STATE, held:HELD.on, maskLive:M.live, stored:RING.t.filter(t => t >= 0).length }),
+  palette(i){ S.pal = i; },
+  mode(c){ setMode(!!c); },
+  tap(){ toggleHold(); },
+  view: () => ({ on:MODE.on, X:MODE.X }),
+};
+</script>
+</body>
+</html>
