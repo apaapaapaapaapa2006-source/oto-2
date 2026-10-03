@@ -1,0 +1,650 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="description" content="映った人が細い線で彫られた版画になり、体の輪郭から波紋が絶えず広がっていく。止まれば静かな同心円、動けば波が前に詰まって後ろに尾を引き、朱の航跡が残る。">
+<meta name="theme-color" content="#0a0b0d">
+<title>HAMON ─ あなたから広がる波紋</title>
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  HAMON 波紋 ─ あなたから広がる波紋                     ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  MOOD       テクノのレコードジャケット／美術館のオプアート。映った人は一本の
+             細い線を何重にも巻いた彫版の肖像になり、その輪郭から波紋が絶えず
+             外へ広がる。止まっていれば完全な同心の等高線、歩けば波が前に詰まり
+             後ろに広がる船の航跡になり、波より速く動けば円錐の衝撃波が立つ。
+             速く動いた瞬間に生まれた輪だけが朱に染まって、ゆっくり遠ざかる。
+  PALETTE    NIGHT   地 #0a0b0d・線 #e9e6df・朱 #d6452f
+             BONE    地 #ebe6dc・線 #151413・朱 #c23a22
+             COBALT  地 #0d1836・線 #dde5f4・金 #e9b949
+  TYPE       Gloock（題字のセリフ）＋ Fragment Mono（計器）。
+  MOTION     波の速さは既定で短辺の 0.12 倍／秒。ゆっくり、止まらずに。
+             線は体の芯から外へ流れて輪郭を越え、そのまま波紋になる。
+  SIGNATURE  動いた軌跡が、朱の航跡として水面に残る。
+  SWITCH     はじめは素のカメラ。「▸ HAMON」で体の中心から一つの輪が広がり、
+             その内側から画面が線の世界に塗り替わる。「◂ CAMERA」で輪が縮んで戻る。
+  INTERACT   タップすると、そこに石が落ちて朱の波紋が立つ。二人並べば波が干渉する。
+  TECH       WebGL2 + 浮動小数テクスチャ。画面の各点に「いちばん新しく届いた波の年齢」
+             を持たせ、毎フレーム波の進むぶんだけ円く広げる（ホイヘンスの原理）。体の上は
+             年齢 0 に戻るので、動けば航跡と衝撃波が自然に生まれる。線は波の発射時刻の
+             等値線で、朱は輪郭の速さの履歴から決まる。体の内側はジャンプフラッドで求めた
+             輪郭までの距離で同じ位相の線を引き、明るさで線の太さを変える。
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Gloock&family=Fragment+Mono&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0a0b0d;--fg:#e9e6df;--dim:rgba(233,230,223,.5);--line:rgba(233,230,223,.22);--acc:#d6452f}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none}
+html,body{margin:0;height:100%;background:var(--bg);overflow:hidden;color:var(--fg);font-family:"Hiragino Sans","Noto Sans JP",sans-serif}
+#gl{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+
+#start{position:fixed;inset:0;z-index:30;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:24px;
+  padding:28px;text-align:center;background:var(--bg);overflow:hidden}
+#start::before{content:"";position:absolute;left:50%;top:50%;width:200vmax;height:200vmax;transform:translate(-50%,-50%);z-index:-1;
+  background:repeating-radial-gradient(circle,transparent 0 13px,rgba(233,230,223,.13) 13px 14px);
+  -webkit-mask:radial-gradient(circle,#000 0,transparent 42vmin);mask:radial-gradient(circle,#000 0,transparent 42vmin)}
+#start .t{font:400 10px "Fragment Mono",monospace;letter-spacing:.46em;margin-right:-.46em;color:var(--dim)}
+#start h1{margin:0;font:400 min(15vw,92px)/1 "Gloock",serif;letter-spacing:.08em;margin-right:-.08em}
+#start h1 i{font-style:normal;color:var(--acc)}
+#start p{margin:0;font-size:12px;line-height:2.1;color:var(--dim);letter-spacing:.1em;font-weight:300;background:rgba(10,11,13,.75);padding:4px 10px}
+#go{appearance:none;border:1px solid var(--line);background:var(--bg);color:var(--fg);font:400 10px "Fragment Mono",monospace;
+  letter-spacing:.5em;padding:15px 30px 15px 36px;cursor:pointer;transition:border-color .3s}
+#go:hover{border-color:var(--acc)}
+#err{font-size:12px;line-height:1.8;max-width:340px;min-height:1em;white-space:pre-line;color:#f0a395}
+
+.btn{position:fixed;z-index:12;appearance:none;border:0;background:transparent;color:var(--fg);font:400 10px "Fragment Mono","Hiragino Sans",monospace;
+  letter-spacing:.3em;padding:10px 8px;display:none;cursor:pointer;opacity:.65;transition:opacity .3s;mix-blend-mode:difference}
+.btn.show{display:block}
+.btn:hover{opacity:1}
+#gear{right:10px;top:calc(env(safe-area-inset-top) + 6px);font-size:14px;letter-spacing:0}
+#flip{right:10px;top:calc(env(safe-area-inset-top) + 40px);letter-spacing:.1em;font-family:"Hiragino Sans","Noto Sans JP",sans-serif}
+#bar{position:fixed;left:0;right:0;bottom:calc(env(safe-area-inset-bottom) + 10px);z-index:12;display:none;justify-content:center;align-items:center;gap:34px}
+#bar.show{display:flex}
+#bar .btn{position:static;display:block}
+#bar #shoot{width:42px;height:42px;border-radius:50%;border:1px solid #fff;padding:0;opacity:.8;background:radial-gradient(circle,transparent 0 9px,#fff 9px 10px,transparent 10px)}
+#rec.on{opacity:1;color:#ff8a76;mix-blend-mode:normal}
+#hud{position:fixed;left:14px;top:calc(env(safe-area-inset-top) + 14px);z-index:11;font:400 9px "Fragment Mono",monospace;letter-spacing:.24em;color:#fff;opacity:.55;
+  pointer-events:none;display:none;line-height:2.1;white-space:pre;mix-blend-mode:difference}
+#hud.show{display:block}
+#status{position:fixed;left:14px;bottom:calc(env(safe-area-inset-bottom) + 120px);z-index:11;font-size:11px;letter-spacing:.04em;
+  color:var(--fg);pointer-events:none;max-width:72vw;line-height:1.7;white-space:pre-line;text-shadow:0 0 6px #000}
+
+#panel{position:fixed;right:10px;top:calc(env(safe-area-inset-top) + 78px);z-index:12;width:min(270px,calc(100vw - 20px));
+  background:rgba(10,11,13,.86);border:1px solid var(--line);padding:14px 16px;display:flex;flex-direction:column;gap:13px;
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);transition:opacity .25s}
+#panel.hide{opacity:0;pointer-events:none}
+.chips{display:flex;border:1px solid var(--line)}
+.chips button{flex:1;appearance:none;border:0;background:transparent;color:var(--fg);padding:8px 2px;font:400 9px "Fragment Mono",monospace;
+  letter-spacing:.2em;cursor:pointer;opacity:.55}
+.chips button.on{opacity:1;background:rgba(233,230,223,.12)}
+#panel label{display:flex;align-items:center;gap:10px;font-size:11px;letter-spacing:.04em;font-weight:300}
+#panel label span{width:74px;flex:none;color:var(--dim)}
+#panel input[type=range]{flex:1;accent-color:var(--acc)}
+#panel .note{font-size:10px;color:var(--dim);line-height:1.7}
+#mode{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom) + 72px);z-index:13;display:none;
+  appearance:none;border:1px solid rgba(255,255,255,.45);background:rgba(0,0,0,.35);color:#fff;
+  font:400 10px "Fragment Mono",monospace;letter-spacing:.42em;padding:13px 22px 13px 28px;cursor:pointer;
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
+#mode.show{display:block}
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<div id="hud"></div>
+<div id="status"></div>
+<button id="gear" class="btn" aria-label="調整">⚙</button>
+<button id="flip" class="btn">⟲ カメラ</button>
+<button id="mode">▸ HAMON</button>
+<div id="bar">
+  <button id="rec" class="btn">● REC</button>
+  <button id="shoot" class="btn" aria-label="撮る"></button>
+  <button id="stone" class="btn">石を落とす</button>
+</div>
+
+<div id="panel" class="hide">
+  <div class="chips" id="pals">
+    <button data-p="0" class="on">NIGHT</button>
+    <button data-p="1">BONE</button>
+    <button data-p="2">COBALT</button>
+  </div>
+  <label><span>線の細かさ</span><input type="range" id="sDense" min="0" max="1" step="0.01" value="0.5"></label>
+  <label><span>波の速さ</span><input type="range" id="sSpeed" min="0" max="1" step="0.01" value="0.4"></label>
+  <label><span>波の届く距離</span><input type="range" id="sReach" min="0" max="1" step="0.01" value="0.55"></label>
+  <label><span>朱の出やすさ</span><input type="range" id="sAcc" min="0" max="1" step="0.01" value="0.5"></label>
+  <div class="note">止まると静かな同心円。歩くと波が前に詰まって後ろに航跡が伸び、速く動いたときの輪だけが朱になる。<br>画面をタップするとそこに石が落ちる。</div>
+</div>
+
+<div id="start">
+  <div class="t">RIPPLES FROM YOUR OUTLINE</div>
+  <h1>HAM<i>O</i>N</h1>
+  <p>まずは、いつものカメラ。<br>ボタンを押すと、あなたは線で彫られた版画になり<br>体の輪郭から波紋が広がりはじめる。</p>
+  <button id="go">START</button>
+  <div id="err"></div>
+</div>
+
+<script>
+'use strict';
+/* =====================================================================
+   HAMON — ripples from your outline.
+   Field textures live in SCREEN space at a reduced resolution:
+     HEAT  (RGBA16F) g = the body mask in field space
+     WAVE  (RGBA16F) r = age of the newest ripple that has reached here,
+                      g = it came from a stone. Each frame the field is
+                      dilated by a disc of radius c·dt (16 taps); the body
+                      resets it to 0. Ring colour comes from a 30 Hz history
+                      of how fast the outline was moving when it was emitted.
+     JFA   (RGBA32F) xy = nearest outside texel, for the inner engraving.
+   The display pass draws iso-lines of emission time outside the body and
+   lines of the same phase inside it, thickened by the camera brightness.
+   ===================================================================== */
+const VISION_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs';
+const WASM_URL   = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm';
+const SEG_MODEL  = 'https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite';
+
+const $ = id => document.getElementById(id);
+const canvas = $('gl');
+const video = document.createElement('video'); video.playsInline = true; video.muted = true; video.autoplay = true;
+
+const PALS = [
+  { name:'NIGHT',  bg:[.039,.043,.051], ink:[.914,.902,.875], acc:[.84,.27,.18],  dark:1 },
+  { name:'BONE',   bg:[.922,.902,.863], ink:[.082,.078,.075], acc:[.76,.23,.13],  dark:0 },
+  { name:'COBALT', bg:[.051,.094,.212], ink:[.867,.898,.957], acc:[.914,.725,.286], dark:1 },
+];
+const S = { pal:0, dense:.5, speed:.4, reach:.55, acc:.5 };
+const FIELD_SHORT = 240;
+const MAX_AGE = 60;                                       // seconds; older means "no ripple here"                                  // field texels on the short edge
+
+/* ---------- GL ---------- */
+const gl = canvas.getContext('webgl2', { antialias:false, alpha:false, preserveDrawingBuffer:true });
+const hasFloat = !!(gl && gl.getExtension('EXT_color_buffer_float'));
+const VS = `#version 300 es
+in vec2 p; void main(){ gl_Position = vec4(p, 0., 1.); }`;
+const CAM = `
+uniform vec2 uScale; uniform float uMirror;
+vec2 vuv(vec2 s){ vec2 v = (s - .5) * uScale + .5; if (uMirror > .5) v.x = 1. - v.x; return v; }
+bool in01(vec2 v){ return v.x >= 0. && v.x <= 1. && v.y >= 0. && v.y <= 1.; }`;
+// MASK: g = the body, in field space
+const FS_HEAT = `#version 300 es
+precision highp float;
+uniform sampler2D uMask; uniform vec2 uField; uniform float uHas;
+${CAM}
+out vec4 o;
+void main(){
+  vec2 s = gl_FragCoord.xy / uField; vec2 v = vuv(vec2(s.x, 1. - s.y));
+  o = vec4(0., (uHas > .5 && in01(v)) ? texture(uMask, v).r : 0., 0., 1.);
+}`;
+// WAVE: r = age of the newest ripple that has reached this texel (Huygens: each frame the
+// field is dilated by a disc of radius c·dt, the body re-emits at age 0); g = "from a stone".
+const FS_WAVE = `#version 300 es
+precision highp float;
+uniform sampler2D uA, uHeat; uniform vec2 uField; uniform float uR, uDt, uMaxAge; uniform vec4 uStone;
+out vec4 o;
+void main(){
+  vec2 x = gl_FragCoord.xy;
+  if (texelFetch(uHeat, ivec2(x), 0).g > .5){ o = vec4(0., 0., 0., 1.); return; }
+  if (uStone.w > 0. && distance(x, uStone.xy) < uStone.z){ o = vec4(0., 1., 0., 1.); return; }
+  vec2 best = texture(uA, x / uField).rg;
+  for (int i = 0; i < 16; i++){
+    float a = float(i) * .39269908;
+    vec2 v = texture(uA, (x + vec2(cos(a), sin(a)) * uR) / uField).rg;
+    if (v.r < best.r) best = v;
+  }
+  o = vec4(min(best.r + uDt, uMaxAge), best.g, 0., 1.);
+}`;
+// JFA: nearest texel outside the body
+const FS_JFA = `#version 300 es
+precision highp float;
+uniform sampler2D uJ, uHeat; uniform vec2 uField; uniform float uStep, uInit;
+out vec4 o;
+void main(){
+  ivec2 ip = ivec2(gl_FragCoord.xy); ivec2 mx = ivec2(uField) - 1; vec2 x = gl_FragCoord.xy;
+  if (uInit > .5){ float m = texelFetch(uHeat, ip, 0).g; o = m < .5 ? vec4(x, 0., 1.) : vec4(-1e5, -1e5, 0., 1.); return; }
+  vec4 best = texelFetch(uJ, ip, 0); float bd = best.x > -1e4 ? distance(x, best.xy) : 1e9;
+  int k = int(uStep);
+  for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++){
+    if (i == 0 && j == 0) continue;
+    ivec2 q = ip + ivec2(i, j) * k;
+    if (q.x < 0 || q.y < 0 || q.x > mx.x || q.y > mx.y) continue;
+    vec4 c = texelFetch(uJ, q, 0);
+    if (c.x > -1e4){ float d = distance(x, c.xy); if (d < bd){ bd = d; best = c; } }
+  }
+  o = best;
+}`;
+const FS_SHOW = `#version 300 es
+precision highp float;
+uniform sampler2D uVid, uMask, uW, uJ, uHeat, uHist;
+uniform vec2 uRes, uField, uCenter;
+uniform float uHas, uNow, uC, uPeriod, uFade, uLine, uAccK, uReveal, uE, uDark, uT, uMaxAge;
+uniform vec3 uBg, uInk, uAcc;
+${CAM}
+out vec4 o;
+float h2(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233))) * 43758.5453); }
+void main(){
+  vec2 s = gl_FragCoord.xy / uRes;
+  vec2 f = s * uField;
+  vec2 cv = vuv(vec2(s.x, 1. - s.y));
+  vec3 cam = texture(uVid, cv).rgb;
+  ivec2 ip = clamp(ivec2(f), ivec2(0), ivec2(uField) - 1);
+  float px = uField.x / uRes.x;                       // field texels per screen pixel
+  float m = (uHas > .5 && in01(cv)) ? texture(uMask, cv).r : 0.;
+  float inside = smoothstep(.42, .58, m);
+  // outside: the ring passing here now was emitted at tx
+  float ink = 0., acc = 0.;
+  // a light 5-tap average turns the steps left by discrete mask updates into slopes
+  vec2 tx1 = 1.4 / uField;
+  vec2 w = (texture(uW, s).rg * 2. + texture(uW, s + tx1).rg + texture(uW, s - tx1).rg
+          + texture(uW, s + vec2(tx1.x, -tx1.y)).rg + texture(uW, s + vec2(-tx1.x, tx1.y)).rg) / 6.;
+  float fwO = px / (uC * uPeriod);                    // ring phase per screen pixel
+  if (w.r < uMaxAge - 1.){
+    float tx = uNow - w.r;
+    float g = tx / uPeriod;
+    float dd = abs(fract(g + .5) - .5);
+    float fg = fwidth(g);
+    float fw = clamp(fg, fwO * .3, fwO * 2.5);
+    int hi = int(mod(floor(tx * 30.), 512.));
+    float sp = max(smoothstep(.12, .5, texelFetch(uHist, ivec2(hi, 0), 0).r * uAccK), smoothstep(.2, .6, w.g));
+    float hw = uLine * (1. + 1.3 * sp) * fw;
+    float fade = exp(-w.r / uFade);
+    // no line where the field is flat (nothing left there at a distinct moment)
+    ink = (1. - smoothstep(hw - fw * .6, hw + fw * .6, dd)) * fade * smoothstep(.12, .4, fg / fwO);
+    acc = sp;
+  }
+  // inside: lines of the same phase, flowing out from the core, thick where the image is dark (or light)
+  vec4 j = texelFetch(uJ, ip, 0);
+  float din = j.x > -1e4 ? distance(f, j.xy) : 0.;
+  float gi = (uNow + din / uC) / uPeriod;
+  float ddi = abs(fract(gi + .5) - .5);
+  float l = dot(cam, vec3(.299, .587, .114));
+  l = clamp((l - .5) * 1.5 + .52, 0., 1.);
+  l = smoothstep(0., 1., l);
+  float tone = uDark > .5 ? l : 1. - l;
+  float hwi = mix(.035, .47, tone);
+  float fwI = max(px / (uC * uPeriod), fwidth(gi) * .5);
+  float inkIn = 1. - smoothstep(hwi - fwI * .7, hwi + fwI * .7, ddi);
+  vec3 ringC = mix(uInk, uAcc, acc);
+  vec3 outC = mix(uBg, ringC, ink);
+  vec3 inC  = mix(uBg, uInk, inkIn);
+  vec3 c = mix(outC, inC, inside);
+  c += (h2(gl_FragCoord.xy + fract(uT) * 91.) - .5) * .035;
+  vec2 v = s - .5; v.x *= uRes.x / uRes.y;
+  if (uDark > .5) c *= 1. - .3 * smoothstep(.5, 1.15, length(v));
+  // the switch: one ring opens from the body and repaints the frame inside it
+  vec2 q = (s - uCenter) * vec2(uRes.x / uRes.y, 1.) / min(1., uRes.x / uRes.y);
+  float dq = length(q);
+  float pxq = 1.5 / min(uRes.x, uRes.y);
+  float rev = 1. - smoothstep(uReveal - pxq, uReveal + pxq, dq);
+  vec3 outp = mix(cam, c, rev * uE);
+  float edge = (1. - smoothstep(0., pxq * 1.6, abs(dq - uReveal))) * step(.001, uReveal) * step(uReveal, 2.2) * uE;
+  outp = mix(outp, uAcc, edge);
+  o = vec4(outp, 1.);
+}`;
+function shader(type, src){ const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s; }
+function prog(fs){ const p = gl.createProgram(); gl.attachShader(p, shader(gl.VERTEX_SHADER, VS)); gl.attachShader(p, shader(gl.FRAGMENT_SHADER, fs));
+  gl.bindAttribLocation(p, 0, 'p'); gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+  const U = {}, n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+  for (let i = 0; i < n; i++){ const u = gl.getActiveUniform(p, i); U[u.name] = gl.getUniformLocation(p, u.name); }
+  return { p, U }; }
+let PH, PW, PJ, PS, vao, texVid, texMask, texHist;
+const F = { w:0, h:0, heat:[], wave:[], jfa:[], wi:0 };
+function tex2(w, h, ifmt, fmt, type, filter){
+  const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, filter); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, filter);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.texImage2D(gl.TEXTURE_2D, 0, ifmt, w, h, 0, fmt, type, null);
+  return t; }
+function target(w, h, ifmt, type, filter){
+  const t = tex2(w, h, ifmt, gl.RGBA, type, filter || gl.NEAREST);
+  const fb = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, t, 0);
+  return { t, fb }; }
+function initGL(){
+  if (!hasFloat) throw new Error('このブラウザは浮動小数テクスチャに対応していません');
+  PH = prog(FS_HEAT); PW = prog(FS_WAVE); PJ = prog(FS_JFA); PS = prog(FS_SHOW);
+  vao = gl.createVertexArray(); gl.bindVertexArray(vao);
+  const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+  texVid = tex2(1, 1, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, gl.LINEAR);
+  texMask = tex2(1, 1, gl.R8, gl.RED, gl.UNSIGNED_BYTE, gl.LINEAR);
+  texHist = tex2(HIST_N, 1, gl.R32F, gl.RED, gl.FLOAT, gl.NEAREST);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.R32F, HIST_N, 1, 0, gl.RED, gl.FLOAT, new Float32Array(HIST_N));
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+}
+function clearTarget(T, r, g, b, a){ gl.bindFramebuffer(gl.FRAMEBUFFER, T.fb); gl.viewport(0, 0, F.w, F.h); gl.clearColor(r, g, b, a); gl.clear(gl.COLOR_BUFFER_BIT); }
+function ensureField(W, H){
+  const k = FIELD_SHORT / Math.min(W, H);
+  const w = Math.max(16, Math.round(W * k)), h = Math.max(16, Math.round(H * k));
+  if (w === F.w && h === F.h) return;
+  [...F.heat, ...F.wave, ...F.jfa].forEach(T => { gl.deleteTexture(T.t); gl.deleteFramebuffer(T.fb); });
+  F.w = w; F.h = h;
+  F.heat = [target(w, h, gl.RGBA16F, gl.HALF_FLOAT)];
+  F.wave = [target(w, h, gl.RGBA16F, gl.HALF_FLOAT, gl.LINEAR), target(w, h, gl.RGBA16F, gl.HALF_FLOAT, gl.LINEAR)];
+  F.jfa  = [target(w, h, gl.RGBA32F, gl.FLOAT), target(w, h, gl.RGBA32F, gl.FLOAT)];
+  F.heat.forEach(T => clearTarget(T, 0, 0, 0, 1));
+  F.wave.forEach(T => clearTarget(T, MAX_AGE, 0, 0, 1));
+  F.jfa.forEach(T => clearTarget(T, -1e5, -1e5, 0, 1));
+  F.wi = 0;
+}
+
+/* ---------- the person mask ---------- */
+const M = { w:0, h:0, b:null, p:null, lastChange:0, has:false, live:false, external:false, lastT:0, cx:.5, cy:.5, area:0, speed:0, raw:0 };
+// how fast the outline moves, in short edges per second, sampled 30 times a second for the ring colours
+const HIST_N = 512, HIST = { last:-1, one:new Float32Array(1) };
+function ingestMask(data, w, h, now){
+  if (!data || !(w > 0) || !(h > 0) || !(w * h <= 4e6) || data.length < w * h) return false;
+  now = now == null ? performance.now() : now;
+  let same = M.w === w && M.h === h && M.has;
+  if (M.w !== w || M.h !== h){ M.w = w; M.h = h; M.b = new Uint8Array(w * h); M.p = new Uint8Array(w * h); }
+  else M.p.set(M.b);
+  let sx = 0, sy = 0, n = 0;
+  for (let y = 0, i = 0; y < h; y++) for (let x = 0; x < w; x++, i++){
+    let m = data[i]; if (!(m >= 0)) m = 0; else if (m > 1) m = 1;
+    M.b[i] = m * 255;
+    if (m > .5){ sx += x; sy += y; n++; }
+  }
+  // the centre of the body in camera uv, for the opening ring
+  if (n > 20){ M.cx = (sx / n + .5) / w; M.cy = (sy / n + .5) / h; }
+  M.area = n / (w * h);
+  if (same && M.live){
+    // displacement ≈ changed area / outline length
+    let diff = 0, edge = 0;
+    const b = M.b, q = M.p;
+    for (let y = 0, i = 0; y < h; y++) for (let x = 0; x < w; x++, i++){
+      diff += Math.abs(b[i] - q[i]);
+      if (x + 1 < w && (b[i] > 127) !== (b[i + 1] > 127)) edge++;
+      if (y + 1 < h && (b[i] > 127) !== (b[i + w] > 127)) edge++;
+    }
+    if (diff > 0){
+      const dts = Math.min(.25, Math.max(.012, (now - M.lastChange) / 1000));
+      const v = edge > 8 ? diff / 255 / edge / Math.min(w, h) / dts : 0;
+      if (isFinite(v)) M.raw = Math.max(M.raw, Math.min(3, v));
+      M.lastChange = now;
+    }
+  } else M.lastChange = now;
+  M.has = true; M.live = true; M.lastT = now;
+  if (texMask){ gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, texMask);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, w, h, 0, gl.RED, gl.UNSIGNED_BYTE, M.b); }
+  return true;
+}
+
+/* ---------- model ---------- */
+let segmenter = null, lastTs = 0, lastSegVT = -1;
+async function initModel(){
+  try{
+    const vision = await import(VISION_URL);
+    const fs = await vision.FilesetResolver.forVisionTasks(WASM_URL);
+    const opts = d => ({ baseOptions:{ modelAssetPath:SEG_MODEL, delegate:d }, runningMode:'VIDEO', outputConfidenceMasks:true, outputCategoryMask:false });
+    try { segmenter = await vision.ImageSegmenter.createFromOptions(fs, opts('GPU')); }
+    catch(e){ segmenter = await vision.ImageSegmenter.createFromOptions(fs, opts('CPU')); }
+    setStatus('');
+  }catch(e){
+    if (M.external) return;
+    setStatus('人物検出モデルを読み込めませんでした（ネット接続を確認）。\n波紋はタップした場所からだけ広がります。');
+  }
+}
+function segment(now){
+  if (!segmenter || M.external || video.readyState < 2) return;
+  const vt = video.currentTime; if (vt === lastSegVT) return; lastSegVT = vt;
+  try{
+    const ts = Math.max(lastTs + 1, Math.round(now)); lastTs = ts;
+    segmenter.segmentForVideo(video, ts, res => {
+      const ms = res && res.confidenceMasks; if (!ms || !ms.length) return;
+      const mk = ms[ms.length - 1]; ingestMask(mk.getAsFloat32Array(), mk.width, mk.height, now);
+    });
+  }catch(e){}
+}
+
+/* ---------- camera ---------- */
+let stream = null, facing = 'user', mirror = true, started = false, vidW = 1280, vidH = 720, lastVT = -1;
+function setStatus(t){ $('status').textContent = t || ''; }
+function camError(e){
+  const msg = (e && (e.message || e.name)) ? (e.message || e.name) : String(e || 'unknown');
+  const text = 'カメラを起動できませんでした：' + msg + '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+  $('err').textContent = text;
+  if (started) setStatus(text);
+}
+async function startCam(){
+  const md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) throw new Error('getUserMedia is unavailable');
+  const s = await md.getUserMedia({ video:{ facingMode:{ ideal:facing }, width:{ ideal:1280 }, height:{ ideal:720 } }, audio:false });
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = s; mirror = facing === 'user';
+  video.srcObject = s;
+  await new Promise(r => { if (video.readyState >= 1) r(); else video.onloadedmetadata = () => r(); });
+  await video.play().catch(()=>{});
+  vidW = video.videoWidth || 1280; vidH = video.videoHeight || 720;
+  M.live = false;
+}
+
+/* ---------- audio: a stone into still water ---------- */
+let actx = null, bus = null, recDest = null;
+function ensureAudio(){
+  if (actx){ if (actx.state === 'suspended') actx.resume().catch(()=>{}); return; }
+  const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+  actx = new AC(); bus = actx.createGain(); bus.gain.value = .5; bus.connect(actx.destination);
+  recDest = actx.createMediaStreamDestination(); bus.connect(recDest);
+  actx.resume().catch(()=>{});
+}
+function plink(f, vol){
+  if (!actx || actx.state !== 'running') return;
+  const t = actx.currentTime, o = actx.createOscillator(), g = actx.createGain();
+  o.type = 'sine'; o.frequency.setValueAtTime(f * 1.9, t); o.frequency.exponentialRampToValueAtTime(f, t + .09);
+  g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(vol, t + .005); g.gain.exponentialRampToValueAtTime(.0001, t + 1.4);
+  o.connect(g); g.connect(bus); o.start(t); o.stop(t + 1.5);
+}
+
+/* ---------- the switch ---------- */
+const MODE = { on:false, X:0 };                          // X: 0 = camera … 1 = ripples everywhere
+const OPEN_S = 1.6;
+function setMode(on){
+  if (on === MODE.on) return;
+  MODE.on = on;
+  $('mode').textContent = on ? '◂ CAMERA' : '▸ HAMON';
+  $('stone').style.visibility = on ? 'visible' : 'hidden';
+  plink(on ? 196 : 147, .22);
+}
+$('mode').onclick = () => setMode(!MODE.on);
+addEventListener('keydown', e => { if (started && (e.key === ' ' || e.key === 'Enter') && document.activeElement.tagName !== 'INPUT'){ e.preventDefault(); setMode(!MODE.on); } });
+$('go').onclick = async () => {
+  $('err').textContent = '';
+  ensureAudio();
+  try{
+    if (!gl) throw new Error('WebGL2 に未対応のブラウザです');
+    if (!PS) initGL();
+    await startCam();
+  }catch(e){ camError(e); return; }
+  $('start').style.display = 'none';
+  ['gear','flip','bar','rec','shoot','stone','hud','mode'].forEach(id => $(id).classList.add('show'));
+  MODE.on = true; setMode(false);
+  if (!started){ started = true; initModel(); requestAnimationFrame(loop); }
+};
+$('flip').onclick = async () => {
+  const prev = facing; facing = facing === 'user' ? 'environment' : 'user';
+  try { await startCam(); } catch(e){ facing = prev; camError(e); }
+};
+$('gear').onclick = () => $('panel').classList.toggle('hide');
+
+// a stone: a short burst of source at a point (screen uv, y down)
+const STONE = { x:.5, y:.5, until:-1 };
+function drop(u, v){
+  if (!MODE.on || MODE.X < .6) return false;
+  if (!(u >= 0 && u <= 1 && v >= 0 && v <= 1)) return false;
+  STONE.x = u; STONE.y = v; STONE.until = performance.now() + 220;
+  plink(330 + Math.random() * 120, .3);
+  return true;
+}
+canvas.addEventListener('pointerdown', e => { if (started) drop(e.clientX / innerWidth, e.clientY / innerHeight); });
+$('stone').onclick = () => drop(.2 + Math.random() * .6, .25 + Math.random() * .5);
+$('pals').onclick = e => { const b = e.target.closest('button'); if (!b) return; setPal(+b.dataset.p); };
+function setPal(i){ S.pal = i; [...$('pals').children].forEach((x, k) => x.classList.toggle('on', k === i)); }
+[['sDense','dense'],['sSpeed','speed'],['sReach','reach'],['sAcc','acc']].forEach(([id,k]) => { $(id).oninput = e => { S[k] = +e.target.value; }; });
+
+$('shoot').onclick = () => {
+  try{
+    canvas.toBlob(b => { if (!b) return; const a = document.createElement('a'); a.href = URL.createObjectURL(b);
+      a.download = 'hamon-' + Date.now() + '.png'; a.click(); }, 'image/png');
+  }catch(e){ setStatus('保存できませんでした。'); }
+};
+let rec = null, chunks = [];
+$('rec').onclick = () => {
+  if (rec && rec.state === 'recording'){ rec.stop(); return; }
+  try{
+    ensureAudio();
+    const tracks = [...canvas.captureStream(30).getVideoTracks()];
+    if (recDest) tracks.push(...recDest.stream.getAudioTracks());
+    const mime = ['video/mp4;codecs=avc1','video/webm;codecs=vp9,opus','video/webm'].find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || '';
+    rec = new MediaRecorder(new MediaStream(tracks), mime ? { mimeType:mime } : {});
+    chunks = [];
+    rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+    rec.onstop = () => {
+      $('rec').classList.remove('on'); $('rec').textContent = '● REC';
+      const ext = (rec.mimeType || '').includes('mp4') ? 'mp4' : 'webm';
+      const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(chunks, { type:rec.mimeType || 'video/webm' }));
+      a.download = 'hamon.' + ext; a.click();
+    };
+    rec.start(); $('rec').classList.add('on'); $('rec').textContent = '■ STOP';
+  }catch(e){ setStatus('録画を開始できませんでした。'); }
+};
+
+/* ---------- render ---------- */
+const T0 = performance.now();
+let lastT = 0, hudT = 0, wakeShown = 0, revCx = .5, revCy = .5;
+const STATE = { wake:0, rings:0, frames:0 };
+function quad(P, fbo, w, h){ gl.bindFramebuffer(gl.FRAMEBUFFER, fbo); gl.viewport(0, 0, w, h); gl.useProgram(P.p); gl.bindVertexArray(vao); }
+function bindTex(unit, t){ gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, t); }
+function camUniforms(U, W, H){
+  const sa = W / H, va = vidW / vidH;
+  gl.uniform2f(U.uScale, sa < va ? sa / va : 1, sa < va ? 1 : va / sa);
+  gl.uniform1f(U.uMirror, mirror ? 1 : 0);
+}
+// camera uv → screen uv (y down), inverse of vuv()
+function camToScreen(u, v, W, H){
+  const sa = W / H, va = vidW / vidH, kx = sa < va ? sa / va : 1, ky = sa < va ? 1 : va / sa;
+  if (mirror) u = 1 - u;
+  return [(u - .5) / kx + .5, (v - .5) / ky + .5];
+}
+function loop(now){
+  requestAnimationFrame(loop);
+  const dt = lastT ? Math.min(.1, (now - lastT) / 1000) : 1 / 60; lastT = now;
+  if (video.videoWidth && (video.videoWidth !== vidW || video.videoHeight !== vidH)){ vidW = video.videoWidth; vidH = video.videoHeight; }
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  let W = Math.round(innerWidth * dpr), H = Math.round(innerHeight * dpr);
+  const k = Math.min(1, 1600 / Math.max(W, H)); W = Math.round(W * k); H = Math.round(H * k);
+  if (canvas.width !== W || canvas.height !== H){ canvas.width = W; canvas.height = H; }
+  segment(now);
+  if (M.live && now - M.lastT > 900) M.live = false;
+  if (video.readyState < 2) return;
+  const vt = video.currentTime, freshV = vt !== lastVT; lastVT = vt;
+  if (freshV){ bindTex(0, texVid); try { gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video); } catch(e){ return; } }
+  ensureField(W, H);
+  STATE.frames++;
+
+  MODE.X = MODE.on ? Math.min(1, MODE.X + dt / OPEN_S) : Math.max(0, MODE.X - dt / .7);
+  const tNow = (now - T0) / 1000;
+  const short = Math.min(F.w, F.h);
+  const c = short * (.05 + .2 * S.speed);                 // texels per second
+  const spacing = short * (.03 - .022 * S.dense);         // texels between rings
+  const period = spacing / c;
+  const fadeS = (.35 + 1.3 * S.reach) * short / c;        // rings live until they travel this far
+  const live = M.has && M.live;
+
+  // 1. the body, in field space
+  const heat = F.heat[0];
+  quad(PH, heat.fb, F.w, F.h);
+  bindTex(0, texMask); gl.uniform1i(PH.U.uMask, 0);
+  gl.uniform2f(PH.U.uField, F.w, F.h); camUniforms(PH.U, F.w, F.h);
+  gl.uniform1f(PH.U.uHas, live ? 1 : 0);
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+  // 2. ripples: dilate the age field by the distance the wave travels this frame
+  const stoneOn = now < STONE.until;
+  const passes = Math.max(1, Math.min(6, Math.ceil(c * dt / 1.5)));
+  for (let p = 0; p < passes; p++){
+    const ws = F.wave[F.wi], wd = F.wave[1 - F.wi];
+    quad(PW, wd.fb, F.w, F.h);
+    bindTex(0, ws.t); bindTex(1, heat.t);
+    gl.uniform1i(PW.U.uA, 0); gl.uniform1i(PW.U.uHeat, 1);
+    gl.uniform2f(PW.U.uField, F.w, F.h); gl.uniform1f(PW.U.uR, c * dt / passes); gl.uniform1f(PW.U.uDt, dt / passes);
+    gl.uniform1f(PW.U.uMaxAge, MAX_AGE);
+    gl.uniform4f(PW.U.uStone, STONE.x * F.w, (1 - STONE.y) * F.h, short * .018, stoneOn ? 1 : 0);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    F.wi = 1 - F.wi;
+  }
+  // 3. inner distance by jump flooding
+  let ji = 0;
+  quad(PJ, F.jfa[0].fb, F.w, F.h);
+  bindTex(1, heat.t); gl.uniform1i(PJ.U.uHeat, 1); gl.uniform1i(PJ.U.uJ, 0);
+  gl.uniform2f(PJ.U.uField, F.w, F.h); gl.uniform1f(PJ.U.uInit, 1);
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  let st0 = 1; while (st0 * 2 < Math.max(F.w, F.h)) st0 *= 2;
+  for (let st = st0; st >= 1; st >>= 1){
+    quad(PJ, F.jfa[1 - ji].fb, F.w, F.h);
+    bindTex(0, F.jfa[ji].t); gl.uniform1f(PJ.U.uInit, 0); gl.uniform1f(PJ.U.uStep, st);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    ji = 1 - ji;
+  }
+
+  // the outline's speed, written into the history at 30 Hz
+  if (!live) M.raw = 0;
+  M.speed += (M.raw - M.speed) * (1 - Math.exp(-dt / .12));
+  M.raw *= Math.exp(-dt / .2);
+  STATE.wake = M.speed;
+  const hidx = Math.floor(tNow * 30);
+  if (HIST.last < 0 || hidx - HIST.last > HIST_N) HIST.last = hidx - 1;
+  bindTex(5, texHist); HIST.one[0] = M.speed;
+  for (let i = HIST.last + 1; i <= hidx; i++) gl.texSubImage2D(gl.TEXTURE_2D, 0, ((i % HIST_N) + HIST_N) % HIST_N, 0, 1, 1, gl.RED, gl.FLOAT, HIST.one);
+  HIST.last = hidx;
+
+  // 4. show
+  const p = PALS[S.pal];
+  // the opening ring starts at the body (or the screen centre)
+  if (MODE.X < .02){ const sc = live && M.area > .01 ? camToScreen(M.cx, M.cy, W, H) : [.5, .5]; revCx = sc[0]; revCy = sc[1]; }
+  const ease = x => x < .5 ? 2 * x * x : 1 - Math.pow(-2 * x + 2, 2) / 2;
+  const reveal = MODE.X >= 1 ? 9 : ease(MODE.X) * 2.3;
+  quad(PS, null, W, H);
+  bindTex(0, texVid); bindTex(1, texMask); bindTex(2, F.wave[F.wi].t); bindTex(3, F.jfa[ji].t); bindTex(4, heat.t); bindTex(5, texHist);
+  const U = PS.U;
+  gl.uniform1i(U.uHist, 5);
+  gl.uniform1i(U.uVid, 0); gl.uniform1i(U.uMask, 1); gl.uniform1i(U.uW, 2); gl.uniform1i(U.uJ, 3); gl.uniform1i(U.uHeat, 4);
+  gl.uniform2f(U.uRes, W, H); gl.uniform2f(U.uField, F.w, F.h); camUniforms(U, W, H);
+  gl.uniform2f(U.uCenter, Math.min(1, Math.max(0, revCx)), 1 - Math.min(1, Math.max(0, revCy)));
+  gl.uniform1f(U.uHas, live ? 1 : 0); gl.uniform1f(U.uNow, tNow); gl.uniform1f(U.uC, c); gl.uniform1f(U.uPeriod, period);
+  gl.uniform1f(U.uFade, fadeS); gl.uniform1f(U.uLine, .7 * Math.max(1, W / innerWidth));
+  gl.uniform1f(U.uAccK, .4 + 2.4 * S.acc); gl.uniform1f(U.uReveal, reveal); gl.uniform1f(U.uE, MODE.X > 0 ? 1 : 0);
+  gl.uniform1f(U.uDark, p.dark); gl.uniform1f(U.uT, tNow); gl.uniform1f(U.uMaxAge, MAX_AGE);
+  gl.uniform3fv(U.uBg, p.bg); gl.uniform3fv(U.uInk, p.ink); gl.uniform3fv(U.uAcc, p.acc);
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+  STATE.rings = Math.round(fadeS / period);
+  $('hud').style.visibility = MODE.X >= 1 ? 'visible' : 'hidden';
+  hudT += dt;
+  if (hudT > .3){ hudT = 0;
+    $('hud').textContent = 'HAMON  ' + p.name + '\nWAVE ' + (c / short).toFixed(2) + ' / s'; }
+}
+
+/* ---------- test hook (used by the local verification harness) ---------- */
+window.__HAMON = {
+  ingestMask(d, w, h){ if (!M.external) setStatus(''); M.external = true; return ingestMask(d, w, h); },
+  // read back the field at screen uv (y down): age of the newest ripple here, stone flag, body
+  probe(u, v){
+    if (!F.w) return null;
+    const x = Math.min(F.w - 1, Math.max(0, Math.floor(u * F.w))), y = Math.min(F.h - 1, Math.max(0, Math.floor((1 - v) * F.h)));
+    const out = new Float32Array(4);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, F.wave[F.wi].fb); gl.readPixels(x, y, 1, 1, gl.RGBA, gl.FLOAT, out);
+    const hb = new Float32Array(4);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, F.heat[0].fb); gl.readPixels(x, y, 1, 1, gl.RGBA, gl.FLOAT, hb);
+    return { age:out[0], stone:out[1], mask:hb[1] };
+  },
+  state: () => ({ ...STATE, maskLive:M.live, mode:MODE.on, X:MODE.X, field:[F.w, F.h] }),
+  palette(i){ setPal(i); },
+  mode(c){ setMode(!!c); },
+  tap(u, v){ return drop(u, v); },
+};
+</script>
+</body>
+</html>
