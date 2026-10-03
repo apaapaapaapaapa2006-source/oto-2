@@ -1,0 +1,684 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="description" content="映った人が暗い肖像写真になり、頭のまわりに真鍮の渾天儀が組み上がる。首を振ったり体を動かしたりすると環がジャイロのように回りだし、速く回るほど大きく開いて金の残光を引く。">
+<meta name="theme-color" content="#0b0907">
+<title>KONTENGI ─ 頭をめぐる真鍮の渾天儀</title>
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  KONTENGI 渾天儀 ─ 頭をめぐる真鍮の渾天儀              ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  MOOD       アルバムジャケットの肖像。暗い部屋で一灯に照らされた温黒調の
+             モノクロ写真になったあなたの頭のまわりに、真鍮の環を組んだ
+             渾天儀（天球儀の骨組み）がゆっくり回っている。後ろ半分は頭と体の
+             影に隠れ、前半分は顔の前を横切る。首を振る・歩く・体を揺らすと
+             環がジャイロのように互い違いに回りだし、速く回るほど遠心力で
+             大きく開いて、金の残光を引きながら顔を照らす。止まればまた静かに締まる。
+  PALETTE    BRASS   影 #0b0907・肌の光 #f1e4cc・真鍮 #c9a24a〜#fff0c2
+             SILVER  影 #07090c・光 #e3e8ef・鋼 #9aa4b2〜#ffffff
+             NOIR    純黒 #050505・白 #f5f5f5・環も白
+  TYPE       Castoro Titling（題字）＋ Martian Mono（計器）。
+  MOTION     ふだんは一周 20〜40 秒のゆっくりした歳差。首の向きの変化と体の
+             動きがトルクになり、減衰は 2 秒強。開き方は回転の速さに比例して最大 1.5 倍。
+  SIGNATURE  頭のまわりで互い違いに回る真鍮の環と、その金の残光。
+  SWITCH     はじめは素のカメラ。「▸ KONTENGI」で色が抜けて部屋が沈み、
+             環が遠くから回りながら飛んできて頭のまわりに締まり、一度だけ光る。
+             「◂ CAMERA」で環がほどけて飛び去り、色が戻る。
+  INTERACT   タップすると環を指で弾いたように一度回せる。
+  TECH       MediaPipe FaceLandmarker（頭の位置・大きさ・傾き・向き）＋
+             ImageSegmenter（体の切り抜きと動き量）。下地は WebGL2 で温黒調に
+             焼き、環は 2D キャンバスで三次元の円を投影して描く。奥側の弧は
+             人物マスクと頭の楕円で切り抜いてから重ねる。
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Castoro+Titling&family=Martian+Mono:wght@300;400&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0b0907;--fg:#f1e4cc;--dim:rgba(241,228,204,.5);--line:rgba(241,228,204,.22);--acc:#d6ae55}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none}
+html,body{margin:0;height:100%;background:var(--bg);overflow:hidden;color:var(--fg);font-family:"Hiragino Sans","Noto Sans JP",sans-serif}
+#out{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+
+#start{position:fixed;inset:0;z-index:30;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;
+  padding:28px;text-align:center;background:radial-gradient(circle at 50% 42%,#231a10,#0b0907 62%);overflow:hidden}
+#start .orb{position:absolute;left:50%;top:42%;width:min(78vw,430px);aspect-ratio:1;transform:translate(-50%,-50%);z-index:-1;opacity:.5}
+#start .orb i{position:absolute;inset:0;border:1px solid rgba(214,174,85,.55);border-radius:50%}
+#start .orb i:nth-child(1){transform:rotateX(72deg)}
+#start .orb i:nth-child(2){transform:rotateY(64deg)}
+#start .orb i:nth-child(3){transform:rotateX(70deg) rotateY(-28deg);inset:-7%;border-width:4px;border-color:rgba(214,174,85,.3)}
+#start .orb i:nth-child(4){inset:-16%;transform:rotateY(78deg) rotateZ(30deg)}
+#start .t{font:300 9px "Martian Mono",monospace;letter-spacing:.46em;margin-right:-.46em;color:var(--dim)}
+#start h1{margin:0;font:400 min(12vw,76px)/1 "Castoro Titling",serif;letter-spacing:.1em;margin-right:-.1em;color:#f3e3bd}
+#start p{margin:0;font-size:12px;line-height:2.1;color:var(--dim);letter-spacing:.1em;font-weight:300}
+#go{appearance:none;border:1px solid rgba(214,174,85,.55);background:rgba(11,9,7,.6);color:var(--fg);font:300 10px "Martian Mono",monospace;
+  letter-spacing:.5em;padding:15px 30px 15px 36px;cursor:pointer;transition:border-color .3s}
+#go:hover{border-color:var(--acc)}
+#err{font-size:12px;line-height:1.8;max-width:340px;min-height:1em;white-space:pre-line;color:#f0a395}
+
+.btn{position:fixed;z-index:12;appearance:none;border:0;background:transparent;color:var(--fg);font:300 10px "Martian Mono","Hiragino Sans",monospace;
+  letter-spacing:.3em;padding:10px 8px;display:none;cursor:pointer;opacity:.65;transition:opacity .3s}
+.btn.show{display:block}
+.btn:hover{opacity:1}
+#gear{right:10px;top:calc(env(safe-area-inset-top) + 6px);font-size:14px;letter-spacing:0}
+#flip{right:10px;top:calc(env(safe-area-inset-top) + 40px);letter-spacing:.1em;font-family:"Hiragino Sans","Noto Sans JP",sans-serif}
+#bar{position:fixed;left:0;right:0;bottom:calc(env(safe-area-inset-bottom) + 10px);z-index:12;display:none;justify-content:center;align-items:center;gap:34px}
+#bar.show{display:flex}
+#bar .btn{position:static;display:block}
+#bar #shoot{width:42px;height:42px;border-radius:50%;border:1px solid var(--fg);padding:0;opacity:.8;
+  background:radial-gradient(circle,transparent 0 8px,var(--acc) 8px 9px,transparent 9px)}
+#rec.on{opacity:1;color:#ff8a76}
+#hud{position:fixed;left:14px;top:calc(env(safe-area-inset-top) + 14px);z-index:11;font:300 8px "Martian Mono",monospace;letter-spacing:.24em;color:var(--dim);
+  pointer-events:none;display:none;line-height:2.2;white-space:pre}
+#hud.show{display:block}
+#status{position:fixed;left:14px;bottom:calc(env(safe-area-inset-bottom) + 120px);z-index:11;font-size:11px;letter-spacing:.04em;
+  color:var(--dim);pointer-events:none;max-width:72vw;line-height:1.7;white-space:pre-line}
+
+#panel{position:fixed;right:10px;top:calc(env(safe-area-inset-top) + 78px);z-index:12;width:min(270px,calc(100vw - 20px));
+  background:rgba(11,9,7,.86);border:1px solid var(--line);padding:14px 16px;display:flex;flex-direction:column;gap:13px;
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);transition:opacity .25s}
+#panel.hide{opacity:0;pointer-events:none}
+.chips{display:flex;border:1px solid var(--line)}
+.chips button{flex:1;appearance:none;border:0;background:transparent;color:var(--fg);padding:8px 2px;font:300 9px "Martian Mono",monospace;
+  letter-spacing:.2em;cursor:pointer;opacity:.55}
+.chips button.on{opacity:1;background:rgba(241,228,204,.12)}
+#panel label{display:flex;align-items:center;gap:10px;font-size:11px;letter-spacing:.04em;font-weight:300}
+#panel label span{width:74px;flex:none;color:var(--dim)}
+#panel input[type=range]{flex:1;accent-color:var(--acc)}
+#panel .note{font-size:10px;color:var(--dim);line-height:1.7}
+#mode{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom) + 72px);z-index:13;display:none;
+  appearance:none;border:1px solid rgba(214,174,85,.6);background:rgba(0,0,0,.35);color:#fff;
+  font:300 10px "Martian Mono",monospace;letter-spacing:.42em;padding:13px 22px 13px 28px;cursor:pointer;
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
+#mode.show{display:block}
+</style>
+</head>
+<body>
+<canvas id="out"></canvas>
+<div id="hud"></div>
+<div id="status"></div>
+<button id="gear" class="btn" aria-label="調整">⚙</button>
+<button id="flip" class="btn">⟲ カメラ</button>
+<button id="mode">▸ KONTENGI</button>
+<div id="bar">
+  <button id="rec" class="btn">● REC</button>
+  <button id="shoot" class="btn" aria-label="撮る"></button>
+  <button id="kick" class="btn">環を弾く</button>
+</div>
+
+<div id="panel" class="hide">
+  <div class="chips" id="pals">
+    <button data-p="0" class="on">BRASS</button>
+    <button data-p="1">SILVER</button>
+    <button data-p="2">NOIR</button>
+  </div>
+  <label><span>環の大きさ</span><input type="range" id="sSize" min="0" max="1" step="0.01" value="0.5"></label>
+  <label><span>回りやすさ</span><input type="range" id="sGain" min="0" max="1" step="0.01" value="0.5"></label>
+  <label><span>残光</span><input type="range" id="sTrail" min="0" max="1" step="0.01" value="0.6"></label>
+  <label><span>部屋の暗さ</span><input type="range" id="sDark" min="0" max="1" step="0.01" value="0.7"></label>
+  <div class="note">首を左右に振る、歩く、体を揺らす。環は互い違いに回りだし、速いほど大きく開く。<br>画面をタップすると環を弾ける。</div>
+</div>
+
+<div id="start">
+  <div class="orb"><i></i><i></i><i></i><i></i></div>
+  <div class="t">AN ARMILLARY SPHERE FOR YOUR HEAD</div>
+  <h1>KONTENGI</h1>
+  <p>まずは、いつものカメラ。<br>ボタンを押すと部屋が沈み、<br>頭のまわりに真鍮の環が組み上がる。</p>
+  <button id="go">START</button>
+  <div id="err"></div>
+</div>
+
+<script>
+'use strict';
+/* =====================================================================
+   KONTENGI — an armillary sphere around the head.
+   Base: WebGL2 grades the camera into a warm-black monochrome portrait,
+   sinks the room, and spills the rings' gold light onto the head.
+   Rings: five 3-D circles around the head centre, projected in 2-D.
+   Arcs behind the head (z < 0) go to a separate canvas that is cut by
+   the person mask and a head ellipse before it is laid under the front
+   arcs. Head-turn rate, head travel and body motion torque the rings in
+   alternating directions; spin opens the sphere and draws ghost trails.
+   ===================================================================== */
+const VISION_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs';
+const WASM_URL   = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm';
+const FACE_MODEL = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
+const SEG_MODEL  = 'https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite';
+
+const $ = id => document.getElementById(id);
+const out = $('out'), ctx = out.getContext('2d');
+const glc = document.createElement('canvas');
+const back = document.createElement('canvas'), bctx = back.getContext('2d');
+const front = document.createElement('canvas'), fctx = front.getContext('2d');
+const glow = document.createElement('canvas'), gctx = glow.getContext('2d');
+const mcv = document.createElement('canvas'), mctx = mcv.getContext('2d');
+const video = document.createElement('video'); video.playsInline = true; video.muted = true; video.autoplay = true;
+
+const PALS = [
+  { name:'BRASS',  sh:[.043,.035,.027], hi:[.945,.894,.80],  spill:[.95,.70,.32], ring:[[.29,.20,.07],[.79,.63,.29],[1,.94,.76]], glow:'rgba(255,196,96,', mono:0 },
+  { name:'SILVER', sh:[.027,.035,.047], hi:[.89,.91,.94],    spill:[.70,.80,1],   ring:[[.18,.20,.24],[.60,.64,.70],[1,1,1]],    glow:'rgba(190,215,255,', mono:0 },
+  { name:'NOIR',   sh:[.02,.02,.02],    hi:[.96,.96,.96],    spill:[1,1,1],       ring:[[.30,.30,.30],[.85,.85,.85],[1,1,1]],    glow:'rgba(255,255,255,', mono:1 },
+];
+const S = { pal:0, size:.5, gain:.5, trail:.6, dark:.7 };
+const D2R = Math.PI / 180;
+// the rings: radius (× head size), band width, tilt from horizontal, resting precession speed, torque sign/gain, decoration
+const RINGS = [
+  { r:1.00, w:.030, tilt:90,   base: .20, k: 1.0, deco:'beads' },
+  { r:1.08, w:.022, tilt:8,    base:-.12, k:-.7,  deco:'' },
+  { r:1.17, w:.064, tilt:31,   base: .26, k: .85, deco:'ticks' },
+  { r:1.31, w:.020, tilt:64,   base:-.34, k:-1.3, deco:'bead' },
+  { r:1.47, w:.014, tilt:-38,  base: .42, k: 1.7, deco:'' },
+].map((g, i) => ({ ...g, phi: i * 1.3, om: g.base, dl:0, dv:0, psi: i * .7 }));
+
+/* ---------- GL: the portrait ---------- */
+const gl = glc.getContext('webgl2', { antialias:false, alpha:false, preserveDrawingBuffer:true });
+const VS = `#version 300 es
+in vec2 p; void main(){ gl_Position = vec4(p, 0., 1.); }`;
+const FS = `#version 300 es
+precision highp float;
+uniform sampler2D uVid, uMask;
+uniform vec2 uRes, uScale, uHead;
+uniform float uMirror, uE, uHas, uR, uSpill, uDark, uT, uMono, uFlash;
+uniform vec3 uSh, uHi, uSpillC;
+out vec4 o;
+float h2(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233))) * 43758.5453); }
+vec2 vuv(vec2 s){ vec2 v = (s - .5) * uScale + .5; if (uMirror > .5) v.x = 1. - v.x; return v; }
+void main(){
+  vec2 s = gl_FragCoord.xy / uRes; s.y = 1. - s.y;
+  vec2 v = vuv(s);
+  vec3 cam = texture(uVid, v).rgb;
+  float m = uHas > .5 ? smoothstep(.3, .75, texture(uMask, v).r) : .75;
+  float l = dot(cam, vec3(.299, .587, .114));
+  // a hard, printed curve: deep blacks, a bright key
+  float lp = smoothstep(.06, .9, l); lp = pow(lp, 1.15);
+  vec3 tone = mix(uSh, uHi, lp);
+  if (uMono > .5) tone = vec3(lp);
+  vec2 q = (s - uHead) * vec2(uRes.x / uRes.y, 1.);
+  float dh = length(q) / max(uR, 1e-3);
+  // the room sinks; the person keeps a key light that falls off from the head
+  float key = mix(.55, 1.08, exp(-dh * dh * .35));
+  vec3 person = tone * key;
+  vec3 room = tone * mix(.42, .05, uDark) * exp(-dh * .35);
+  vec3 c = mix(room, person, m);
+  // the rings' light on the head and shoulders
+  c += uSpillC * uSpill * exp(-dh * dh * .9) * (.35 + .65 * m) * (.5 + .5 * lp);
+  c += uSpillC * uFlash * exp(-dh * dh * .25) * .8;
+  c += (h2(gl_FragCoord.xy + fract(uT) * 91.) - .5) * .045;
+  vec2 w = s - .5; w.x *= uRes.x / uRes.y;
+  c *= 1. - .55 * smoothstep(.35, 1.05, length(w));
+  o = vec4(mix(cam, c, uE), 1.);
+}`;
+function shader(type, src){ const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s; }
+let P = null, U = {}, texVid, texMask;
+function initGL(){
+  P = gl.createProgram(); gl.attachShader(P, shader(gl.VERTEX_SHADER, VS)); gl.attachShader(P, shader(gl.FRAGMENT_SHADER, FS));
+  gl.bindAttribLocation(P, 0, 'p'); gl.linkProgram(P);
+  if (!gl.getProgramParameter(P, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(P));
+  const n = gl.getProgramParameter(P, gl.ACTIVE_UNIFORMS);
+  for (let i = 0; i < n; i++){ const u = gl.getActiveUniform(P, i); U[u.name] = gl.getUniformLocation(P, u.name); }
+  const vao = gl.createVertexArray(); gl.bindVertexArray(vao);
+  const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+  const mk = () => { const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, 1, 1, 0, gl.RED, gl.UNSIGNED_BYTE, new Uint8Array(1)); return t; };
+  texVid = mk(); texMask = mk();
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+}
+
+/* ---------- person mask (for the base, the occlusion and the motion) ---------- */
+const M = { w:0, h:0, b:null, p:null, img:null, has:false, live:false, external:false, lastT:0, lastChange:0, raw:0, energy:0 };
+function ingestMask(data, w, h, now){
+  if (!data || !(w > 0) || !(h > 0) || !(w * h <= 4e6) || data.length < w * h) return false;
+  now = now == null ? performance.now() : now;
+  const same = M.w === w && M.h === h && M.has;
+  if (M.w !== w || M.h !== h){ M.w = w; M.h = h; M.b = new Uint8Array(w * h); M.p = new Uint8Array(w * h);
+    mcv.width = w; mcv.height = h; M.img = mctx.createImageData(w, h); }
+  else M.p.set(M.b);
+  const px = M.img.data;
+  for (let i = 0, n = w * h; i < n; i++){
+    let m = data[i]; if (!(m >= 0)) m = 0; else if (m > 1) m = 1;
+    const v = m * 255; M.b[i] = v; px[i * 4 + 3] = v;
+  }
+  if (same && M.live){
+    let diff = 0, edge = 0; const b = M.b, q = M.p;
+    for (let y = 0, i = 0; y < h; y++) for (let x = 0; x < w; x++, i++){
+      diff += Math.abs(b[i] - q[i]);
+      if (x + 1 < w && (b[i] > 127) !== (b[i + 1] > 127)) edge++;
+      if (y + 1 < h && (b[i] > 127) !== (b[i + w] > 127)) edge++;
+    }
+    if (diff > 0){
+      const dts = Math.min(.25, Math.max(.012, (now - M.lastChange) / 1000));
+      const v = edge > 8 ? diff / 255 / edge / Math.min(w, h) / dts : 0;
+      if (isFinite(v)) M.raw = Math.max(M.raw, Math.min(3, v));
+      M.lastChange = now;
+    }
+  } else M.lastChange = now;
+  mctx.putImageData(M.img, 0, 0);
+  M.has = true; M.live = true; M.lastT = now;
+  if (P){ gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, texMask);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, w, h, 0, gl.RED, gl.UNSIGNED_BYTE, M.b); }
+  return true;
+}
+
+/* ---------- the head (camera-normalised landmarks) ---------- */
+const HEAD = { seen:false, lastObs:0, x:.5, y:.4, h:.25, roll:0, yaw:0, vis:0, px:null, py:null, pyaw:null, external:false };
+const IDX = [10, 152, 1, 234, 454, 33, 263];
+function okPt(p){ return p && Number.isFinite(p.x) && Number.isFinite(p.y); }
+// returns false (and changes nothing) for anything that is not a usable face
+function ingestFace(lm, now){
+  now = now == null ? performance.now() : now;
+  if (!Array.isArray(lm) || lm.length < 468) return false;
+  for (const i of IDX) if (!okPt(lm[i])) return false;
+  const top = lm[10], chin = lm[152], nose = lm[1], cl = lm[234], cr = lm[454], el = lm[33], er = lm[263];
+  const hgt = Math.hypot(chin.x - top.x, (chin.y - top.y) * vidH / vidW) ;      // in camera-width units
+  const wid = Math.hypot(cr.x - cl.x, (cr.y - cl.y) * vidH / vidW);
+  if (!(hgt > .015 && hgt < 2) || !(wid > .01)) return false;
+  // head centre a little above the eyes; size, roll and yaw in camera space
+  const cx = top.x + (chin.x - top.x) * .42, cy = top.y + (chin.y - top.y) * .42;
+  const mid = (cl.x + cr.x) / 2;
+  const yaw = Math.asin(Math.max(-1, Math.min(1, 2 * (nose.x - mid) / wid)));
+  let roll = Math.atan2((er.y - el.y) * vidH / vidW, er.x - el.x);
+  if (!Number.isFinite(roll) || !Number.isFinite(yaw)) return false;
+  // torque from what changed since the previous observation (not from render frames)
+  const dt = HEAD.seen ? Math.min(.25, Math.max(.008, (now - HEAD.lastObs) / 1000)) : 0;
+  if (HEAD.seen && HEAD.px != null && dt > 0){
+    const g = .4 + 1.6 * S.gain;
+    const dyaw = yaw - HEAD.pyaw, dx = (cx - HEAD.px) / hgt, dy = (cy - HEAD.py) / hgt;
+    const tq = Math.max(-8, Math.min(8, (7 * dyaw + 4.5 * dx * (mirror ? -1 : 1)) * g));
+    for (const R of RINGS){ R.om += R.k * tq; R.dv += R.k * dy * 6 * g; }
+  }
+  HEAD.px = cx; HEAD.py = cy; HEAD.pyaw = yaw;
+  const a = HEAD.seen ? .45 : 1;
+  HEAD.x += (cx - HEAD.x) * a; HEAD.y += (cy - HEAD.y) * a; HEAD.h += (hgt - HEAD.h) * a;
+  HEAD.roll += (roll - HEAD.roll) * a; HEAD.yaw += (yaw - HEAD.yaw) * a;
+  HEAD.seen = true; HEAD.lastObs = now;
+  return true;
+}
+function loseHead(){
+  HEAD.seen = false; HEAD.px = HEAD.py = HEAD.pyaw = null;
+  for (const R of RINGS){ R.om = R.base; R.dl = 0; R.dv = 0; }
+}
+
+/* ---------- models ---------- */
+let face = null, segmenter = null, lastTs = 0, lastVT = -1, segFlip = 0;
+async function initModels(){
+  try{
+    const vision = await import(VISION_URL);
+    const fs = await vision.FilesetResolver.forVisionTasks(WASM_URL);
+    const fo = d => ({ baseOptions:{ modelAssetPath:FACE_MODEL, delegate:d }, runningMode:'VIDEO', numFaces:1 });
+    const so = d => ({ baseOptions:{ modelAssetPath:SEG_MODEL, delegate:d }, runningMode:'VIDEO', outputConfidenceMasks:true, outputCategoryMask:false });
+    const mkFace = async () => { try { return await vision.FaceLandmarker.createFromOptions(fs, fo('GPU')); } catch(e){ return await vision.FaceLandmarker.createFromOptions(fs, fo('CPU')); } };
+    const mkSeg  = async () => { try { return await vision.ImageSegmenter.createFromOptions(fs, so('GPU')); } catch(e){ return await vision.ImageSegmenter.createFromOptions(fs, so('CPU')); } };
+    const [f, s] = await Promise.allSettled([mkFace(), mkSeg()]);
+    if (f.status === 'fulfilled') face = f.value;
+    if (s.status === 'fulfilled') segmenter = s.value;
+    if (!face && !HEAD.external) setStatus('顔の検出モデルを読み込めませんでした（ネット接続を確認）。\n環は画面の中央に出ます。');
+    else setStatus('');
+  }catch(e){
+    if (HEAD.external) return;
+    setStatus('検出モデルを読み込めませんでした（ネット接続を確認）。\n環は画面の中央に出ます。');
+  }
+}
+function detect(now){
+  if (video.readyState < 2) return;
+  const vt = video.currentTime; if (vt === lastVT) return; lastVT = vt;
+  const ts = Math.max(lastTs + 1, Math.round(now)); lastTs = ts;
+  if (face && !HEAD.external){
+    try{
+      const r = face.detectForVideo(video, ts);
+      const lm = r && r.faceLandmarks && r.faceLandmarks[0];
+      if (lm) ingestFace(lm, now);
+    }catch(e){}
+  }
+  if (segmenter && !M.external && (segFlip ^= 1)){
+    try{
+      segmenter.segmentForVideo(video, ts, res => {
+        const ms = res && res.confidenceMasks; if (!ms || !ms.length) return;
+        const mk = ms[ms.length - 1]; ingestMask(mk.getAsFloat32Array(), mk.width, mk.height, now);
+      });
+    }catch(e){}
+  }
+}
+
+/* ---------- camera ---------- */
+let stream = null, facing = 'user', mirror = true, started = false, vidW = 1280, vidH = 720, lastFrameVT = -1;
+function setStatus(t){ $('status').textContent = t || ''; }
+function camError(e){
+  const msg = (e && (e.message || e.name)) ? (e.message || e.name) : String(e || 'unknown');
+  const text = 'カメラを起動できませんでした：' + msg + '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+  $('err').textContent = text;
+  if (started) setStatus(text);
+}
+async function startCam(){
+  const md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) throw new Error('getUserMedia is unavailable');
+  const s = await md.getUserMedia({ video:{ facingMode:{ ideal:facing }, width:{ ideal:1280 }, height:{ ideal:720 } }, audio:false });
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = s; mirror = facing === 'user';
+  video.srcObject = s;
+  await new Promise(r => { if (video.readyState >= 1) r(); else video.onloadedmetadata = () => r(); });
+  await video.play().catch(()=>{});
+  vidW = video.videoWidth || 1280; vidH = video.videoHeight || 720;
+  loseHead(); M.live = false;
+}
+
+/* ---------- audio: brass that hums when it spins ---------- */
+let actx = null, bus = null, recDest = null, hum = null, whoosh = null;
+function ensureAudio(){
+  if (actx){ if (actx.state === 'suspended') actx.resume().catch(()=>{}); return; }
+  const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+  actx = new AC(); bus = actx.createGain(); bus.gain.value = .55; bus.connect(actx.destination);
+  recDest = actx.createMediaStreamDestination(); bus.connect(recDest);
+  hum = actx.createGain(); hum.gain.value = 0; hum.connect(bus);
+  [[220, .5], [331, .3], [497, .16], [746, .08]].forEach(([f, g]) => {
+    const o = actx.createOscillator(); o.type = 'sine'; o.frequency.value = f;
+    const k = actx.createGain(); k.gain.value = g; o.connect(k); k.connect(hum); o.start(); });
+  const n = actx.sampleRate * 2 | 0, nb = actx.createBuffer(1, n, actx.sampleRate), d = nb.getChannelData(0);
+  for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+  const src = actx.createBufferSource(); src.buffer = nb; src.loop = true;
+  const bp = actx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 1800; bp.Q.value = 1.4;
+  whoosh = actx.createGain(); whoosh.gain.value = 0; src.connect(bp); bp.connect(whoosh); whoosh.connect(bus); src.start();
+  whoosh.bp = bp;
+  actx.resume().catch(()=>{});
+}
+function ting(vol){
+  if (!actx || actx.state !== 'running') return;
+  const t = actx.currentTime;
+  [[1046, 1], [2793, .45], [5130, .2], [1568, .3]].forEach(([f, g]) => {
+    const o = actx.createOscillator(), k = actx.createGain(); o.type = 'sine'; o.frequency.value = f;
+    k.gain.setValueAtTime(0, t); k.gain.linearRampToValueAtTime(vol * g, t + .004); k.gain.exponentialRampToValueAtTime(.0001, t + 2.2 * (1.2 - g * .5));
+    o.connect(k); k.connect(bus); o.start(t); o.stop(t + 3);
+  });
+}
+
+/* ---------- the switch ---------- */
+const MODE = { on:false, X:0, flash:0, tinged:false };              // X: 0 camera … 1 rings settled
+const IN_S = 1.6;
+function setMode(on){
+  if (on === MODE.on) return;
+  MODE.on = on; MODE.tinged = false;
+  $('mode').textContent = on ? '◂ CAMERA' : '▸ KONTENGI';
+  $('kick').style.visibility = on ? 'visible' : 'hidden';
+  if (on) for (const R of RINGS) R.om = R.base + R.k * 5;              // they arrive spinning
+}
+$('mode').onclick = () => setMode(!MODE.on);
+addEventListener('keydown', e => { if (started && (e.key === ' ' || e.key === 'Enter') && document.activeElement.tagName !== 'INPUT'){ e.preventDefault(); setMode(!MODE.on); } });
+$('go').onclick = async () => {
+  $('err').textContent = '';
+  ensureAudio();
+  try{
+    if (!gl) throw new Error('WebGL2 に未対応のブラウザです');
+    if (!P) initGL();
+    await startCam();
+  }catch(e){ camError(e); return; }
+  $('start').style.display = 'none';
+  ['gear','flip','bar','rec','shoot','kick','hud','mode'].forEach(id => $(id).classList.add('show'));
+  MODE.on = true; setMode(false);
+  if (!started){ started = true; initModels(); requestAnimationFrame(loop); }
+};
+$('flip').onclick = async () => {
+  const prev = facing; facing = facing === 'user' ? 'environment' : 'user';
+  try { await startCam(); } catch(e){ facing = prev; camError(e); }
+};
+$('gear').onclick = () => $('panel').classList.toggle('hide');
+function kick(){
+  if (!MODE.on || MODE.X < .9) return false;
+  const g = .5 + 1.2 * S.gain;
+  for (const R of RINGS){ R.om += R.k * 5 * g; R.dv += (Math.random() - .5) * 3; }
+  ting(.12); return true;
+}
+$('kick').onclick = kick;
+out.addEventListener('pointerdown', () => { if (started) kick(); });
+$('pals').onclick = e => { const b = e.target.closest('button'); if (!b) return; setPal(+b.dataset.p); };
+function setPal(i){ S.pal = i; [...$('pals').children].forEach((x, k) => x.classList.toggle('on', k === i)); }
+[['sSize','size'],['sGain','gain'],['sTrail','trail'],['sDark','dark']].forEach(([id,k]) => { $(id).oninput = e => { S[k] = +e.target.value; }; });
+
+$('shoot').onclick = () => {
+  try{
+    out.toBlob(b => { if (!b) return; const a = document.createElement('a'); a.href = URL.createObjectURL(b);
+      a.download = 'kontengi-' + Date.now() + '.png'; a.click(); }, 'image/png');
+  }catch(e){ setStatus('保存できませんでした。'); }
+};
+let rec = null, chunks = [];
+$('rec').onclick = () => {
+  if (rec && rec.state === 'recording'){ rec.stop(); return; }
+  try{
+    ensureAudio();
+    const tracks = [...out.captureStream(30).getVideoTracks()];
+    if (recDest) tracks.push(...recDest.stream.getAudioTracks());
+    const mime = ['video/mp4;codecs=avc1','video/webm;codecs=vp9,opus','video/webm'].find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || '';
+    rec = new MediaRecorder(new MediaStream(tracks), mime ? { mimeType:mime } : {});
+    chunks = [];
+    rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+    rec.onstop = () => {
+      $('rec').classList.remove('on'); $('rec').textContent = '● REC';
+      const ext = (rec.mimeType || '').includes('mp4') ? 'mp4' : 'webm';
+      const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(chunks, { type:rec.mimeType || 'video/webm' }));
+      a.download = 'kontengi.' + ext; a.click();
+    };
+    rec.start(); $('rec').classList.add('on'); $('rec').textContent = '■ STOP';
+  }catch(e){ setStatus('録画を開始できませんでした。'); }
+};
+
+/* ---------- geometry ---------- */
+const SEG = 64;
+const PT = new Float32Array((SEG + 1) * 4);                          // x, y, z, shade per ring point
+// camera uv → screen px
+function camToScreen(u, v, W, H){
+  const sa = W / H, va = vidW / vidH, kx = sa < va ? sa / va : 1, ky = sa < va ? 1 : va / sa;
+  if (mirror) u = 1 - u;
+  return [((u - .5) / kx + .5) * W, ((v - .5) / ky + .5) * H];
+}
+// fills PT for ring R at angle offset dphi; returns nothing. cx, cy, rad in px, roll in radians
+const L = (() => { const v = [-.45, .62, .64], n = Math.hypot(...v); return v.map(x => x / n); })();
+const HV = (() => { const v = [L[0], L[1], L[2] + 1], n = Math.hypot(...v); return v.map(x => x / n); })();
+function ringPoints(R, phi, tiltDeg, cx, cy, rad, roll){
+  const a = tiltDeg * D2R, ca = Math.cos(a), sa = Math.sin(a), cp = Math.cos(phi), sp = Math.sin(phi), cr = Math.cos(roll), sr = Math.sin(roll);
+  for (let k = 0; k <= SEG; k++){
+    const t = k / SEG * Math.PI * 2, x0 = Math.cos(t), z0 = Math.sin(t);
+    // tilt about X (the circle starts in the horizontal plane), precess about Y, then roll with the head
+    let x = x0, y = -z0 * sa, z = z0 * ca;
+    const x1 = x * cp + z * sp, z1 = -x * sp + z * cp; x = x1; z = z1;
+    const x2 = x * cr - y * sr, y2 = x * sr + y * cr;
+    const persp = 1 / (1 - z * .16);
+    const o = k * 4;
+    PT[o] = cx + x2 * rad * persp; PT[o + 1] = cy - y2 * rad * persp; PT[o + 2] = z;
+    const dif = Math.max(0, x2 * L[0] + y2 * L[1] + z * L[2]);
+    const spc = Math.pow(Math.max(0, x2 * HV[0] + y2 * HV[1] + z * HV[2]), 18);
+    PT[o + 3] = Math.min(1.4, .22 + .78 * dif + 1.1 * spc);
+  }
+  // how open the band looks: its normal against the view
+  const nx = 0, ny = ca, nz = sa;                                   // normal before precession
+  return Math.abs(-nx * sp + nz * cp) ;
+}
+function shadeCol(p, sh, alpha){
+  const c = p.ring, k = Math.min(1, sh);
+  const lo = k < .5 ? c[0] : c[1], hi = k < .5 ? c[1] : c[2], f = k < .5 ? k * 2 : (k - .5) * 2;
+  const r = (lo[0] + (hi[0] - lo[0]) * f) * 255 | 0, g = (lo[1] + (hi[1] - lo[1]) * f) * 255 | 0, b = (lo[2] + (hi[2] - lo[2]) * f) * 255 | 0;
+  return 'rgba(' + r + ',' + g + ',' + b + ',' + alpha.toFixed(3) + ')';
+}
+// draw one ring: back arcs into bctx, front arcs into fctx
+function drawRing(R, phi, cx, cy, rad, roll, alpha, ghost, pal, scale){
+  const open = ringPoints(R, phi, R.tilt + R.dl, cx, cy, rad, roll);
+  const bw = Math.max(1, R.w * rad * (.4 + .6 * open)) * scale;
+  for (let side = 0; side < 2; side++){
+    const c = side === 0 ? bctx : fctx;
+    c.lineCap = 'round';
+    if (ghost){
+      c.lineWidth = Math.max(1, bw * .5); c.strokeStyle = pal.glow + (alpha * .5).toFixed(3) + ')';
+      c.beginPath(); let pen = false;
+      for (let k = 0; k <= SEG; k++){ const o = k * 4, front = PT[o + 2] >= 0;
+        if ((side === 1) === front){ if (!pen){ c.moveTo(PT[o], PT[o + 1]); pen = true; } else c.lineTo(PT[o], PT[o + 1]); } else pen = false; }
+      c.stroke(); continue;
+    }
+    c.lineWidth = bw;
+    for (let k = 0; k < SEG; k++){
+      const o = k * 4, z = (PT[o + 2] + PT[o + 6]) * .5;
+      if ((side === 1) !== (z >= 0)) continue;
+      const sh = (PT[o + 3] + PT[o + 7]) * .5 * (side === 0 ? .55 : 1);
+      c.strokeStyle = shadeCol(pal, sh, alpha);
+      c.beginPath(); c.moveTo(PT[o], PT[o + 1]); c.lineTo(PT[o + 4], PT[o + 5]); c.stroke();
+    }
+    // engraved hour ticks across the band
+    if (R.deco === 'ticks'){
+      c.strokeStyle = 'rgba(20,12,4,' + (alpha * .75).toFixed(3) + ')'; c.lineWidth = Math.max(.7, bw * .09);
+      c.beginPath();
+      for (let j = 0; j < 36; j++){
+        const kk = ((j / 36 + R.psi / (Math.PI * 2)) % 1 + 1) % 1 * SEG, k = kk | 0, o = k * 4, o2 = (k + 1) * 4;
+        if ((side === 1) !== (PT[o + 2] >= 0)) continue;
+        const tx = PT[o2] - PT[o], ty = PT[o2 + 1] - PT[o + 1], tn = Math.hypot(tx, ty) || 1;
+        const len = bw * (j % 3 === 0 ? .5 : .3);
+        c.moveTo(PT[o] - ty / tn * len, PT[o + 1] + tx / tn * len); c.lineTo(PT[o] + ty / tn * len, PT[o + 1] - tx / tn * len);
+      }
+      c.stroke();
+    }
+    // small brass beads that ride the ring
+    if (R.deco === 'beads' || R.deco === 'bead'){
+      const nb = R.deco === 'beads' ? 2 : 1;
+      for (let j = 0; j < nb; j++){
+        const kk = ((j / nb + R.psi / (Math.PI * 2)) % 1 + 1) % 1 * SEG, o = (kk | 0) * 4;
+        if ((side === 1) !== (PT[o + 2] >= 0)) continue;
+        const br = rad * .055 * scale;
+        c.fillStyle = shadeCol(pal, .35 * (side === 0 ? .6 : 1), alpha);
+        c.beginPath(); c.arc(PT[o], PT[o + 1], br, 0, 7); c.fill();
+        c.fillStyle = shadeCol(pal, 1.3, alpha);
+        c.beginPath(); c.arc(PT[o] - br * .3, PT[o + 1] - br * .35, br * .35, 0, 7); c.fill();
+      }
+    }
+  }
+}
+
+/* ---------- render ---------- */
+let lastT = 0, hudT = 0, spin = 0, open = 0, headVis = 0;
+const STATE = { spin:0, open:0, vis:0, frames:0, head:null };
+function loop(now){
+  requestAnimationFrame(loop);
+  const dt = lastT ? Math.min(.1, (now - lastT) / 1000) : 1 / 60; lastT = now;
+  if (video.videoWidth && (video.videoWidth !== vidW || video.videoHeight !== vidH)){ vidW = video.videoWidth; vidH = video.videoHeight; }
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  let W = Math.round(innerWidth * dpr), H = Math.round(innerHeight * dpr);
+  const kk = Math.min(1, 1600 / Math.max(W, H)); W = Math.round(W * kk); H = Math.round(H * kk);
+  if (out.width !== W || out.height !== H){ out.width = glc.width = back.width = front.width = W; out.height = glc.height = back.height = front.height = H;
+    glow.width = Math.max(1, W >> 2); glow.height = Math.max(1, H >> 2); }
+  detect(now);
+  if (M.live && now - M.lastT > 900) M.live = false;
+  // tracking lost: let the rings go and forget the motion
+  if (HEAD.seen && now - HEAD.lastObs > 450) loseHead();
+  if (video.readyState < 2) return;
+  STATE.frames++;
+  const vt = video.currentTime;
+  if (vt !== lastFrameVT){ lastFrameVT = vt; gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, texVid);
+    try { gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video); } catch(e){ return; } }
+
+  MODE.X = MODE.on ? Math.min(1, MODE.X + dt / IN_S) : Math.max(0, MODE.X - dt / .9);
+  const E = Math.min(1, MODE.X / .3);
+  const pal = PALS[S.pal];
+
+  // the body's own motion keeps the rings going in the way they already turn
+  M.energy += ((M.live ? M.raw : 0) - M.energy) * (1 - Math.exp(-dt / .12)); M.raw *= Math.exp(-dt / .2);
+  const g = .4 + 1.6 * S.gain;
+  let sp = 0;
+  for (const R of RINGS){
+    const s = Math.sign(R.om - R.base) || Math.sign(R.k);
+    R.om += s * Math.abs(R.k) * Math.min(1.2, M.energy) * 7 * g * dt;
+    R.om = Math.max(-16, Math.min(16, R.om));
+    R.om += (R.base - R.om) * (1 - Math.exp(-dt / (MODE.X < 1 ? 1.1 : 2.3)));
+    R.phi += R.om * dt; R.psi += (R.om * .6 + R.base) * dt;
+    R.dv += (-26 * R.dl - 3.2 * R.dv) * dt; R.dl += R.dv * dt * 57.3 * .25; R.dl = Math.max(-35, Math.min(35, R.dl));
+    sp += Math.abs(R.om - R.base);
+  }
+  spin += (Math.min(1, sp / RINGS.length / 6) - spin) * (1 - Math.exp(-dt / .25));
+  open += (spin - open) * (1 - Math.exp(-dt / .45));
+  headVis += ((HEAD.seen || !face && !HEAD.external ? 1 : 0) - headVis) * (1 - Math.exp(-dt / .25));
+
+  // head in screen px (falls back to the centre when there is no face model)
+  let hx = W * .5, hy = H * .4, hh = Math.min(W, H) * .2, roll = 0;
+  if (HEAD.seen || HEAD.external || face){
+    const p = camToScreen(HEAD.x, HEAD.y, W, H); hx = p[0]; hy = p[1];
+    const sa = W / H, va = vidW / vidH; hh = HEAD.h * W / (sa < va ? sa / va : 1);
+    roll = mirror ? -HEAD.roll : HEAD.roll;
+  }
+  const settle = 1 - Math.pow(1 - Math.min(1, Math.max(0, (MODE.X - .25) / .75)), 3);
+  if (MODE.on && settle >= .999 && !MODE.tinged){ MODE.tinged = true; MODE.flash = 1; ting(.16); }
+  MODE.flash *= Math.exp(-dt / .35);
+  const fly = MODE.on ? 1 + 2.6 * (1 - settle) : 1 + 1.8 * (1 - MODE.X);
+  const rad = hh * (.62 + .3 * S.size) * (1 + .5 * open) * fly;
+  const ringA = Math.min(1, settle * 1.4) * headVis * (MODE.on ? 1 : MODE.X);
+
+  // 1. the portrait
+  gl.viewport(0, 0, W, H); gl.useProgram(P);
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, texVid);
+  gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, texMask);
+  gl.uniform1i(U.uVid, 0); gl.uniform1i(U.uMask, 1);
+  const sa = W / H, va = vidW / vidH;
+  gl.uniform2f(U.uRes, W, H); gl.uniform2f(U.uScale, sa < va ? sa / va : 1, sa < va ? 1 : va / sa);
+  gl.uniform2f(U.uHead, hx / W, hy / H); gl.uniform1f(U.uR, rad / (1 + .5 * open) / Math.max(1, fly) / H * 1.1);
+  gl.uniform1f(U.uMirror, mirror ? 1 : 0); gl.uniform1f(U.uE, E); gl.uniform1f(U.uHas, M.has && M.live ? 1 : 0);
+  gl.uniform1f(U.uSpill, ringA * (.07 + .3 * spin)); gl.uniform1f(U.uFlash, MODE.flash * headVis);
+  gl.uniform1f(U.uDark, S.dark); gl.uniform1f(U.uT, now / 1000); gl.uniform1f(U.uMono, pal.mono);
+  gl.uniform3fv(U.uSh, pal.sh); gl.uniform3fv(U.uHi, pal.hi); gl.uniform3fv(U.uSpillC, pal.spill);
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
+  ctx.drawImage(glc, 0, 0);
+
+  // 2. the rings: back arcs (cut by the person) → front arcs → glow
+  if (ringA > .003){
+    bctx.globalCompositeOperation = 'source-over'; bctx.clearRect(0, 0, W, H);
+    fctx.globalCompositeOperation = 'source-over'; fctx.clearRect(0, 0, W, H);
+    const scale = W / innerWidth > 1 ? 1 : .8;
+    const ghosts = Math.round((2 + 7 * S.trail) * Math.max(0, Math.min(1, (spin - .08) * 1.8)));
+    for (let i = RINGS.length - 1; i >= 0; i--){
+      const R = RINGS[i], rr = rad * R.r * (MODE.on ? 1 + (1 - settle) * i * .35 : 1);
+      for (let gI = ghosts; gI >= 1; gI--){
+        const lag = R.om * gI * .022 * (.6 + S.trail);
+        drawRing(R, R.phi - lag, hx, hy, rr, roll, ringA * (1 - gI / (ghosts + 1)) * .45, true, pal, scale);
+      }
+      drawRing(R, R.phi, hx, hy, rr, roll, ringA, false, pal, scale);
+    }
+    bctx.globalCompositeOperation = 'destination-out';
+    if (M.has && M.live){
+      const kx = sa < va ? sa / va : 1, ky = sa < va ? 1 : va / sa;
+      const dw = W / kx, dh = H / ky;
+      bctx.save(); bctx.translate(W / 2, H / 2); if (mirror) bctx.scale(-1, 1);
+      bctx.imageSmoothingEnabled = true; bctx.drawImage(mcv, -dw / 2, -dh / 2, dw, dh); bctx.restore();
+    }
+    if (HEAD.seen){ bctx.fillStyle = '#000'; bctx.beginPath(); bctx.ellipse(hx, hy + hh * .08, hh * .5, hh * .66, roll, 0, 7); bctx.fill(); }
+    ctx.drawImage(back, 0, 0);
+    ctx.drawImage(front, 0, 0);
+    // the brass catches the light: a soft additive bloom from a quarter-size copy
+    gctx.clearRect(0, 0, glow.width, glow.height);
+    gctx.drawImage(front, 0, 0, glow.width, glow.height);
+    ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = Math.min(1, .12 + .5 * spin) * .7;
+    ctx.drawImage(glow, -W * .004, -H * .004, W * 1.008, H * 1.008);
+    ctx.globalAlpha = Math.min(1, .08 + .4 * spin) * .45;
+    ctx.drawImage(glow, -W * .02, -H * .02, W * 1.04, H * 1.04);
+    ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
+  }
+  if (hum && actx){ const t = actx.currentTime; hum.gain.setTargetAtTime(ringA * (.006 + .05 * spin * spin), t, .15);
+    whoosh.gain.setTargetAtTime(ringA * .09 * spin, t, .1); whoosh.bp.frequency.setTargetAtTime(900 + 2600 * spin, t, .1); }
+  STATE.spin = spin; STATE.open = open; STATE.vis = headVis;
+  $('hud').style.visibility = MODE.X >= 1 ? 'visible' : 'hidden';
+  hudT += dt;
+  if (hudT > .3){ hudT = 0;
+    $('hud').textContent = 'KONTENGI  ' + pal.name + '\nSPIN ' + (spin * 100 | 0).toString().padStart(3, '0') + '\nOPEN ' + (1 + .5 * open).toFixed(2); }
+}
+
+/* ---------- test hook (used by the local verification harness) ---------- */
+window.__KONTENGI = {
+  ingestMask(d, w, h){ M.external = true; return ingestMask(d, w, h); },
+  ingestFace(lm){ HEAD.external = true; setStatus(''); return ingestFace(lm); },
+  state: () => ({ ...STATE, mode:MODE.on, X:MODE.X, seen:HEAD.seen, maskLive:M.live,
+    head:{ x:HEAD.x, y:HEAD.y, h:HEAD.h, roll:HEAD.roll, yaw:HEAD.yaw }, om:RINGS.map(R => +R.om.toFixed(3)) }),
+  palette(i){ setPal(i); },
+  mode(c){ setMode(!!c); },
+  tap(){ return kick(); },
+};
+</script>
+</body>
+</html>
