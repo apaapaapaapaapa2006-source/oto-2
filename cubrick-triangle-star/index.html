@@ -1,0 +1,579 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>CUBRICK TRIANGLE STAR ─ 指さす先に浮かぶ箱</title>
+<style>
+  :root{
+    --ink:#ecebe7;
+    --ink-dim:#b9b8b3;
+    --glass:rgba(38,39,41,.52);
+    --glass-on:rgba(236,235,231,.9);
+    --cube:#8e9093;
+    box-sizing:border-box;
+    padding-top:env(safe-area-inset-top,0px);
+    padding-bottom:env(safe-area-inset-bottom,0px);
+  }
+  *,*::before,*::after{box-sizing:inherit}
+  html,body{margin:0;height:100%;background:#000;overflow:hidden;
+    font-family:"Hiragino Sans","Hiragino Kaku Gothic ProN","Noto Sans JP",system-ui,sans-serif;
+    color:var(--ink);-webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent}
+  #stage{position:fixed;inset:0}
+  video,canvas{position:absolute;inset:0;width:100%;height:100%}
+  video{object-fit:cover}
+  video.mirror{transform:scaleX(-1)}
+  #three,#debug{pointer-events:none}
+
+  #bar{position:fixed;left:0;right:0;bottom:0;
+    padding:0 14px calc(14px + env(safe-area-inset-bottom,0px));
+    display:flex;gap:8px;flex-wrap:wrap;align-items:center;justify-content:center;z-index:5}
+  #bar button{appearance:none;border:0;border-radius:999px;padding:10px 16px;
+    font:500 14px/1 inherit;font-family:inherit;color:var(--ink);background:var(--glass);
+    -webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);cursor:pointer}
+  #bar button[aria-pressed="true"]{background:var(--glass-on);color:#1d1e20}
+  #bar button:focus-visible,#start:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+  #status{position:fixed;top:calc(12px + env(safe-area-inset-top,0px));left:14px;z-index:5;
+    font-size:12px;color:var(--ink-dim);background:var(--glass);padding:6px 10px;border-radius:8px;
+    -webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px)}
+
+  #intro{position:fixed;inset:0;z-index:10;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    gap:22px;padding:24px;text-align:center;background:#2b2c2e}
+  #intro h1{margin:0;font-weight:800;font-size:clamp(40px,12vw,84px);letter-spacing:-.02em;line-height:.9;color:var(--ink)}
+  #intro h1 span{display:block;color:var(--cube)}
+  #intro p{margin:0;max-width:30em;font-size:15px;line-height:1.75;color:var(--ink-dim)}
+  #start{appearance:none;border:0;border-radius:999px;padding:15px 30px;font:700 16px/1 inherit;font-family:inherit;
+    background:var(--ink);color:#1d1e20;cursor:pointer}
+  #start:disabled{opacity:.5}
+  #err{min-height:1.4em;white-space:pre-line;font-size:13px;color:#f0b4a4}
+  .pill{appearance:none;border:0;border-radius:999px;padding:10px 16px;
+    font:500 14px/1 inherit;font-family:inherit;color:var(--ink);background:var(--glass);
+    -webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);cursor:pointer}
+  .pill[aria-pressed="true"],.pill[aria-expanded="true"]{background:var(--glass-on);color:#1d1e20}
+  .pill:focus-visible,.sw:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+  #tuneBtn{position:fixed;top:calc(12px + env(safe-area-inset-top,0px));right:14px;z-index:6}
+  #panel{position:fixed;top:calc(58px + env(safe-area-inset-top,0px));right:14px;z-index:6;
+    width:min(284px,calc(100vw - 28px));max-height:calc(100dvh - 150px - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px));
+    overflow-y:auto;-webkit-overflow-scrolling:touch;padding:16px;border-radius:18px;
+    background:rgba(34,35,37,.72);-webkit-backdrop-filter:blur(18px);backdrop-filter:blur(18px)}
+  #panel h2{margin:18px 0 10px;font-size:13px;font-weight:600;color:var(--ink-dim);display:flex;justify-content:space-between}
+  #panel h2:first-child{margin-top:0}
+  #panel output{color:var(--ink);font-variant-numeric:tabular-nums}
+  .swatches{display:grid;grid-template-columns:repeat(7,1fr);gap:8px}
+  .sw{appearance:none;width:100%;aspect-ratio:1;border-radius:50%;border:2px solid rgba(255,255,255,.18);padding:0;cursor:pointer}
+  .sw[aria-pressed="true"]{border-color:var(--ink);box-shadow:0 0 0 2px rgba(0,0,0,.5) inset}
+  .sw.custom{position:relative;overflow:hidden;background:conic-gradient(#f33,#fd0,#3c6,#3cf,#36f,#c3f,#f33)}
+  .sw.custom input{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer;border:0;padding:0}
+  .toggles{display:flex;gap:8px;flex-wrap:wrap}
+  .shapes{display:grid;grid-template-columns:repeat(4,1fr)}
+  .shapes .pill{padding:10px 0}
+  .row{display:flex;align-items:center;gap:10px;margin-top:12px;font-size:13px;color:var(--ink-dim)}
+  .row span{flex:none;min-width:6.5em}
+  input[type=range]{flex:1;width:100%;accent-color:#ecebe7}
+  .hidden{display:none!important}
+</style>
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
+</script>
+</head>
+<body>
+<div id="stage">
+  <video id="video" playsinline muted autoplay class="mirror"></video>
+  <canvas id="three"></canvas>
+  <canvas id="debug"></canvas>
+</div>
+
+<div id="status" class="hidden">準備中</div>
+
+<div id="bar" class="hidden">
+  <button id="rayBtn" aria-pressed="false">指の向きを表示</button>
+  <button id="flipBtn">⟲ カメラ</button>
+</div>
+
+<button id="tuneBtn" class="pill hidden" aria-expanded="false" aria-controls="panel">調整</button>
+<div id="panel" class="hidden" role="region" aria-label="調整">
+  <h2>形</h2>
+  <div class="toggles shapes" id="shapes">
+    <button class="pill" data-shape="box" aria-pressed="true">箱</button>
+    <button class="pill" data-shape="sphere" aria-pressed="false">球</button>
+    <button class="pill" data-shape="star" aria-pressed="false">スター</button>
+    <button class="pill" data-shape="tri" aria-pressed="false">三角</button>
+  </div>
+  <h2>色</h2>
+  <div class="swatches" id="swatches"></div>
+  <h2>大きさ <output id="sizeOut">×1.0</output></h2>
+  <input type="range" id="size" min="0.4" max="2.5" step="0.05" value="1" aria-label="箱の大きさ">
+  <h2>エフェクト</h2>
+  <div class="toggles">
+    <button class="pill" id="flashBtn" aria-pressed="false">白黒フラッシュ</button>
+    <button class="pill" id="auraBtn" aria-pressed="false">オーラ</button>
+  </div>
+  <div class="row"><span>点滅の速さ <output id="flashOut">4</output></span><input type="range" id="flashHz" min="1" max="12" step="0.5" value="4" aria-label="点滅の速さ"></div>
+  <h2>ランダム</h2>
+  <div class="toggles"><button class="pill" id="randBtn" aria-pressed="false">色と大きさを自動で変える</button></div>
+  <div class="row"><span>間隔 <output id="randOut">3秒</output></span><input type="range" id="randInt" min="1" max="8" step="0.5" value="3" aria-label="変化の間隔"></div>
+</div>
+
+<div id="intro">
+  <h1>CUBRICK<span>TRIANGLE STAR</span></h1>
+  <p>人差し指・中指・薬指を立てると、その指がさす先に箱が1個ずつ浮かびます（最大3個）。箱を持てるのは片手だけ。指を閉じるか、もう片方の同じ指に箱を当てると、箱がそちらへ移ります。</p>
+  <button id="start">カメラを起動</button>
+  <div id="err" role="status"></div>
+</div>
+
+<script type="module">
+import * as THREE from 'three';
+
+const MP_VER = '0.10.14';
+const MP_URL = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP_VER}`;
+const MODEL_URL = 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task';
+
+const $ = id => document.getElementById(id);
+const video = $('video'), threeCanvas = $('three'), dbg = $('debug'), dctx = dbg.getContext('2d');
+
+/* ---------- 調整用 ---------- */
+const RAY_LEN = 1.25;       // 指先から先へ伸ばす距離（手の大きさに対する倍率）
+const CUBE_SIZE = 0.3;      // 箱の大きさ（手の大きさに対する倍率）
+const HAND_TTL = 200;       // 手を見失っても保持するms
+const ORPHAN_WAIT = 450;    // 指を閉じた箱が受け取り先を待つms
+const TOUCH_DIST = 0.75;    // 相手の指先にこの距離（手の大きさ比）まで近づくと受け渡し
+const TRANSFER_COOL = 1500; // 受け渡し直後に戻ってこないための待ち時間ms
+const SPRING_K = 55, SPRING_C = 11;
+
+// 使う指：1=人差し指, 2=中指, 3=薬指（親指と小指は使わない）
+const SLOTS = [
+  { slot: 1, tip: 8,  base: 6,  name: '人差し指' },
+  { slot: 2, tip: 12, base: 10, name: '中指' },
+  { slot: 3, tip: 16, base: 14, name: '薬指' },
+];
+
+/* ---------- state ---------- */
+let landmarker = null, stream = null, facing = 'user', showRays = false;
+let W = innerWidth, H = innerHeight, DPR = Math.min(devicePixelRatio || 1, 2);
+let lastVideoTime = -1;
+let audioCtx = null;
+const hands = new Map();        // label -> {label, P, hs, f:{slot:{tip,dx,dy,target}}, t}
+const fingerState = {};         // label -> {slot:bool}（ヒステリシス）
+
+/* ---------- three.js ---------- */
+const renderer = new THREE.WebGLRenderer({ canvas: threeCanvas, alpha: true, antialias: true });
+renderer.setClearColor(0x000000, 0);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+const scene = new THREE.Scene();
+const cam = new THREE.OrthographicCamera(-1, 1, 1, -1, -3000, 3000);
+cam.position.z = 1000;
+scene.add(new THREE.HemisphereLight(0xffffff, 0x55585c, 1.6));
+const sun = new THREE.DirectionalLight(0xffffff, 2.2);
+sun.position.set(-0.6, 1, 0.9);
+scene.add(sun);
+/* 形（どれも箱とだいたい同じ大きさに見えるようにそろえる） */
+function starGeometry() {
+  const sh = new THREE.Shape(), n = 5, ro = 0.62, ri = 0.27;
+  for (let i = 0; i < n * 2; i++) {
+    const r = i % 2 ? ri : ro, a = Math.PI / 2 + i * Math.PI / n;
+    i ? sh.lineTo(Math.cos(a) * r, Math.sin(a) * r) : sh.moveTo(Math.cos(a) * r, Math.sin(a) * r);
+  }
+  const g = new THREE.ExtrudeGeometry(sh, { depth: 0.26, bevelEnabled: true, bevelThickness: 0.07,
+    bevelSize: 0.05, bevelSegments: 2 });
+  g.center(); g.computeVertexNormals();
+  return g;
+}
+const GEOS = {
+  box: new THREE.BoxGeometry(1, 1, 1),
+  sphere: new THREE.SphereGeometry(0.6, 40, 28),
+  star: starGeometry(),
+  tri: new THREE.TetrahedronGeometry(0.78),
+};
+const WHITE = new THREE.Color(0xffffff), BLACK = new THREE.Color(0x0a0a0a);
+
+/* 調整パネルの設定 */
+const settings = {
+  shape: 'box',
+  color: new THREE.Color(0x8e9093),
+  sizeMul: 1,
+  flash: false, flashHz: 4,
+  aura: false,
+  random: false, randInt: 3,
+};
+
+/* オーラ用の光のテクスチャ */
+const auraTex = (() => {
+  const cv = document.createElement('canvas'); cv.width = cv.height = 128;
+  const g = cv.getContext('2d'), gr = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+  gr.addColorStop(0, 'rgba(255,255,255,1)');
+  gr.addColorStop(0.3, 'rgba(255,255,255,.45)');
+  gr.addColorStop(0.65, 'rgba(255,255,255,.12)');
+  gr.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = gr; g.fillRect(0, 0, 128, 128);
+  const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; return t;
+})();
+
+function resize() {
+  W = innerWidth; H = innerHeight; DPR = Math.min(devicePixelRatio || 1, 2);
+  renderer.setPixelRatio(DPR);
+  renderer.setSize(W, H, false);
+  cam.left = -W / 2; cam.right = W / 2; cam.top = H / 2; cam.bottom = -H / 2;
+  cam.updateProjectionMatrix();
+  dbg.width = W * DPR; dbg.height = H * DPR;
+  dctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+}
+addEventListener('resize', resize);
+resize();
+
+/* ---------- 箱 ---------- */
+const cubes = [];
+function spawnCube(slot, owner, x, y, size) {
+  const mat = new THREE.MeshStandardMaterial({ color: settings.color, roughness: 0.62, metalness: 0.04 });
+  const mesh = new THREE.Mesh(GEOS[settings.shape], mat);
+  mesh.rotation.set(Math.random() * 6, Math.random() * 6, Math.random() * 6);
+  scene.add(mesh);
+  const aura = new THREE.Sprite(new THREE.SpriteMaterial({ map: auraTex, transparent: true, opacity: 0,
+    blending: THREE.AdditiveBlending, depthWrite: false }));
+  aura.visible = false;
+  scene.add(aura);
+  const now = performance.now();
+  const c = { slot, owner, mesh, mat, aura, auraA: 0, x, y, vx: 0, vy: 0, s: 0, size, pulse: 0,
+    col: settings.color.clone(), colGoal: settings.color.clone(),
+    mul: settings.sizeMul, mulGoal: settings.sizeMul, nextRand: now,
+    orphanAt: 0, cool: 0, dying: false, phase: Math.random() * 6.28,
+    spin: new THREE.Vector3((Math.random() - .5) * 1.4, (Math.random() - .5) * 1.4, (Math.random() - .5) * .8) };
+  cubes.push(c);
+}
+function removeCube(c) {
+  scene.remove(c.mesh); scene.remove(c.aura);
+  c.mat.dispose(); c.aura.material.dispose();
+  cubes.splice(cubes.indexOf(c), 1);
+}
+function transfer(c, toHand, now) {
+  c.owner = toHand.label;
+  c.cool = now + TRANSFER_COOL;
+  c.orphanAt = 0;
+  c.pulse = 1;
+}
+
+// 箱を持っている手（指揮する手）。箱がなければ、指を一番多く立てている手。
+function controller(live) {
+  const count = {};
+  for (const c of cubes) if (!c.dying) count[c.owner] = (count[c.owner] || 0) + 1;
+  let best = null, bc = -1;
+  for (const h of live) {
+    const n = count[h.label] || 0;
+    if (n > bc) { bc = n; best = h; }
+  }
+  if (bc > 0) return best;
+  best = null; bc = 0;
+  for (const h of live) {
+    const n = Object.keys(h.f).length;
+    if (n > bc) { bc = n; best = h; }
+  }
+  return best;
+}
+
+function updateOwnership(now) {
+  for (const [k, h] of hands) if (now - h.t > HAND_TTL) hands.delete(k);
+  const live = [...hands.values()];
+
+  for (const { slot } of SLOTS) {
+    const cube = cubes.find(c => c.slot === slot && !c.dying);
+    const holders = live.filter(h => h.f[slot]);
+
+    if (cube) {
+      const own = hands.get(cube.owner);
+      const ownHas = own && own.f[slot];
+      const other = holders.find(h => h.label !== cube.owner);
+      if (ownHas) {
+        cube.orphanAt = 0;
+        // 相手の同じ指先に箱が届いたら受け渡し
+        if (other && now > cube.cool) {
+          const tip = other.f[slot].tip;
+          if (Math.hypot(cube.x - tip.x, cube.y - tip.y) < other.hs * TOUCH_DIST) transfer(cube, other, now);
+        }
+      } else if (other) {
+        // 指を閉じた → もう片方の手が同じ指を立てていればそちらへ移る
+        transfer(cube, other, now);
+      } else {
+        if (!cube.orphanAt) cube.orphanAt = now;
+        if (now - cube.orphanAt > ORPHAN_WAIT) cube.dying = true;
+      }
+    } else {
+      // 新しい箱は「指揮する手」にだけ出る
+      const ctrl = controller(live);
+      if (ctrl && ctrl.f[slot]) {
+        const f = ctrl.f[slot];
+        spawnCube(slot, ctrl.label, f.tip.x, f.tip.y, clamp(ctrl.hs * CUBE_SIZE, 16, 90));
+      }
+    }
+  }
+}
+
+function stepCubes(dt, now) {
+  const tt = now / 1000;
+  for (const c of [...cubes]) {
+    const h = hands.get(c.owner);
+    const f = h && h.f[c.slot];
+    if (f && !c.dying) {
+      c.size += (clamp(h.hs * CUBE_SIZE, 16, 90) - c.size) * Math.min(1, dt * 6);
+      const fx = Math.sin(tt * 1.7 + c.phase) * c.size * 0.14;
+      const fy = Math.cos(tt * 1.3 + c.phase * 1.3) * c.size * 0.14;
+      c.vx += ((f.target.x + fx - c.x) * SPRING_K - c.vx * SPRING_C) * dt;
+      c.vy += ((f.target.y + fy - c.y) * SPRING_K - c.vy * SPRING_C) * dt;
+    } else {
+      const damp = Math.exp(-3 * dt);
+      c.vx *= damp; c.vy *= damp; c.vy += 20 * dt;
+    }
+    c.x += c.vx * dt; c.y += c.vy * dt;
+    c.pulse = Math.max(0, c.pulse - dt * 3);
+    const goal = c.dying ? 0 : (f ? 1 : 0.85);
+    c.s += (c.size * goal - c.s) * Math.min(1, dt * (c.dying ? 9 : 7));
+    if (c.dying && c.s < 0.6) { removeCube(c); continue; }
+
+    // ランダム：一定間隔で色と大きさの行き先を決め、そこへゆっくり近づける
+    if (settings.random) {
+      if (now >= c.nextRand) {
+        c.colGoal.setHSL(Math.random(), 0.6 + Math.random() * 0.4, 0.42 + Math.random() * 0.22);
+        c.mulGoal = settings.sizeMul * (0.55 + Math.random() * 1.3);
+        c.nextRand = now + settings.randInt * 1000 * (0.8 + Math.random() * 0.4);
+      }
+    } else {
+      c.colGoal.copy(settings.color);
+      c.mulGoal = settings.sizeMul;
+    }
+    const ease = 1 - Math.exp(-dt * (settings.random ? 1.6 : 8));
+    c.col.lerp(c.colGoal, ease);
+    c.mul += (c.mulGoal - c.mul) * ease;
+
+    // 白黒フラッシュ（全部の箱がそろって点滅）
+    let shown = c.col, flashWhite = false;
+    if (settings.flash) {
+      flashWhite = Math.floor(tt * settings.flashHz * 2) % 2 === 0;
+      shown = flashWhite ? WHITE : BLACK;
+    }
+    c.mat.color.copy(shown);
+    if (flashWhite) c.mat.emissive.setScalar(0.55);
+    else if (settings.aura) c.mat.emissive.copy(shown).multiplyScalar(0.35);
+    else c.mat.emissive.setScalar(0);
+
+    const px = c.x - W / 2, py = H / 2 - c.y;
+    const dispSize = Math.max(0.001, c.s * c.mul * (1 + c.pulse * 0.35));
+
+    // オーラ
+    c.auraA += ((settings.aura ? 0.9 : 0) - c.auraA) * Math.min(1, dt * 6);
+    c.aura.visible = c.auraA > 0.01;
+    if (c.aura.visible) {
+      c.aura.material.color.copy(shown === BLACK ? c.col : shown);
+      c.aura.material.opacity = c.auraA * (0.75 + 0.25 * Math.sin(tt * 3.2 + c.phase));
+      c.aura.position.set(px, py, -60);
+      c.aura.scale.setScalar(dispSize * (2.9 + 0.4 * Math.sin(tt * 2.1 + c.phase)));
+    }
+
+    const sp = 1 + Math.hypot(c.vx, c.vy) * 0.004 + c.pulse * 4;
+    c.mesh.rotation.x += c.spin.x * dt * sp;
+    c.mesh.rotation.y += c.spin.y * dt * sp;
+    c.mesh.rotation.z += c.spin.z * dt * sp;
+    c.mesh.position.set(px, py, 0);
+    c.mesh.scale.setScalar(dispSize);
+  }
+}
+
+/* ---------- 手の解析 ---------- */
+const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+
+function mapper() {
+  const vw = video.videoWidth || 1, vh = video.videoHeight || 1;
+  const s = Math.max(W / vw, H / vh);
+  const dw = vw * s, dh = vh * s, ox = (W - dw) / 2, oy = (H - dh) / 2;
+  const mirror = facing === 'user';
+  return lm => { const x = ox + lm.x * dw; return { x: mirror ? W - x : x, y: oy + lm.y * dh }; };
+}
+
+function extended(label, P, s) {
+  const st = fingerState[label] || (fingerState[label] = {});
+  const r = dist(P[s.tip], P[0]) / Math.max(1, dist(P[s.base], P[0]));
+  st[s.slot] = st[s.slot] ? r > 1.08 : r > 1.22;
+  return st[s.slot];
+}
+
+function processHands(res, now) {
+  const map = mapper();
+  const seen = {};
+  (res.landmarks || []).forEach((lms, i) => {
+    let label = res.handednesses?.[i]?.[0]?.categoryName || 'H';
+    if (seen[label]) return;         // 同じラベルが2つ出たフレームは片方を無視
+    seen[label] = 1;
+    const P = lms.map(map);
+    const hs = dist(P[0], P[9]);
+    const f = {};
+    for (const s of SLOTS) {
+      if (!extended(label, P, s)) continue;
+      const tip = P[s.tip], base = P[s.base];
+      let dx = tip.x - base.x, dy = tip.y - base.y;
+      const len = Math.hypot(dx, dy) || 1; dx /= len; dy /= len;
+      f[s.slot] = { tip, dx, dy, target: { x: tip.x + dx * hs * RAY_LEN, y: tip.y + dy * hs * RAY_LEN } };
+    }
+    hands.set(label, { label, P, hs, f, t: now });
+  });
+}
+
+/* ---------- 指の向き表示 ---------- */
+function drawDebug(now) {
+  dctx.clearRect(0, 0, W, H);
+  if (!showRays) return;
+  const owners = new Set(cubes.filter(c => !c.dying).map(c => c.owner));
+  for (const h of hands.values()) {
+    const mine = owners.has(h.label);
+    dctx.fillStyle = mine ? 'rgba(236,235,231,.8)' : 'rgba(236,235,231,.35)';
+    for (const p of h.P) { dctx.beginPath(); dctx.arc(p.x, p.y, 2.2, 0, 7); dctx.fill(); }
+    for (const s of SLOTS) {
+      const f = h.f[s.slot]; if (!f) continue;
+      dctx.strokeStyle = mine ? 'rgba(236,235,231,.85)' : 'rgba(236,235,231,.4)';
+      dctx.lineWidth = 1.5; dctx.setLineDash([5, 5]);
+      dctx.beginPath(); dctx.moveTo(f.tip.x, f.tip.y); dctx.lineTo(f.target.x, f.target.y); dctx.stroke();
+      dctx.setLineDash([]);
+      dctx.beginPath(); dctx.arc(f.tip.x, f.tip.y, h.hs * TOUCH_DIST, 0, 7); dctx.stroke();
+    }
+  }
+}
+
+/* ---------- メインループ ---------- */
+let prev = performance.now();
+function loop() {
+  const now = performance.now();
+  const dt = Math.min(0.05, (now - prev) / 1000); prev = now;
+  if (landmarker && video.readyState >= 2 && video.currentTime !== lastVideoTime) {
+    lastVideoTime = video.currentTime;
+    try { processHands(landmarker.detectForVideo(video, now), now); } catch (e) { console.warn(e); }
+  }
+  updateOwnership(now);
+  stepCubes(dt, now);
+  renderer.render(scene, cam);
+  drawDebug(now);
+  const live = cubes.filter(c => !c.dying);
+  let side = '';
+  if (live.length) {
+    const h = hands.get(live[0].owner);
+    if (h) side = h.P[0].x < W / 2 ? '（画面左の手）' : '（画面右の手）';
+  }
+  $('status').textContent = `手 ${hands.size} ／ 箱 ${live.length}${side}`;
+  requestAnimationFrame(loop);
+}
+
+/* ---------- カメラとモデル ---------- */
+async function startCamera() {
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = await navigator.mediaDevices.getUserMedia({
+    audio: false, video: { facingMode: facing, width: { ideal: 1280 }, height: { ideal: 720 } } });
+  video.srcObject = stream;
+  video.classList.toggle('mirror', facing === 'user');
+  await new Promise(r => video.readyState >= 1 ? r() : video.onloadedmetadata = r);
+  await video.play();
+  lastVideoTime = -1;
+}
+
+async function loadModel() {
+  const { FilesetResolver, HandLandmarker } = await import(`${MP_URL}/vision_bundle.mjs`);
+  const files = await FilesetResolver.forVisionTasks(`${MP_URL}/wasm`);
+  const opts = d => ({ baseOptions: { modelAssetPath: MODEL_URL, delegate: d }, runningMode: 'VIDEO', numHands: 2,
+    minHandDetectionConfidence: 0.5, minHandPresenceConfidence: 0.5, minTrackingConfidence: 0.5 });
+  try { return await HandLandmarker.createFromOptions(files, opts('GPU')); }
+  catch (e) { console.warn('GPU不可、CPUで再試行', e); return await HandLandmarker.createFromOptions(files, opts('CPU')); }
+}
+
+$('start').addEventListener('click', async () => {
+  const btn = $('start'), err = $('err');
+  btn.disabled = true; err.textContent = '';
+  try {
+    try { const AC = window.AudioContext || window.webkitAudioContext; if (AC) { audioCtx = audioCtx || new AC(); audioCtx.resume(); } } catch (e) {}
+    btn.textContent = 'カメラを起動中…';
+    await startCamera();
+    btn.textContent = '手の認識モデルを読み込み中…';
+    landmarker = await loadModel();
+    $('intro').classList.add('hidden');
+    $('bar').classList.remove('hidden');
+    $('status').classList.remove('hidden');
+    $('tuneBtn').classList.remove('hidden');
+    requestAnimationFrame(loop);
+  } catch (e) {
+    console.error(e);
+    btn.disabled = false; btn.textContent = 'もう一度試す';
+    err.textContent = stream
+      ? '手の認識モデルを読み込めませんでした：' + ((e && e.message) || e) + '\nネットワーク接続を確認して、もう一度お試しください。'
+      : 'カメラを起動できませんでした：' + ((e && (e.message || e.name)) || e) + '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+  }
+});
+/* ---------- 調整パネル ---------- */
+const SWATCHES = [
+  ['#8e9093', 'グレー'], ['#f2f2ef', '白'], ['#1c1c1e', '黒'], ['#ff3b30', '赤'], ['#ff9500', 'オレンジ'],
+  ['#ffd60a', '黄'], ['#34c759', '緑'], ['#30d5c8', 'ターコイズ'], ['#0a84ff', '青'], ['#5e5ce6', '藍'],
+  ['#bf5af2', '紫'], ['#ff2d92', 'ピンク'], ['#a2845e', 'ブラウン'],
+];
+$('shapes').addEventListener('click', e => {
+  const b = e.target.closest('[data-shape]'); if (!b) return;
+  settings.shape = b.dataset.shape;
+  $('shapes').querySelectorAll('[data-shape]').forEach(x => x.setAttribute('aria-pressed', x === b));
+  for (const c of cubes) { c.mesh.geometry = GEOS[settings.shape]; c.pulse = 1; }  // 切り替えた瞬間に少し跳ねる
+});
+
+const swBox = $('swatches');
+function pickColor(hex, btn) {
+  settings.color.set(hex);
+  if (settings.random) setRandom(false);   // 色を選んだらランダムは止める
+  swBox.querySelectorAll('.sw').forEach(b => b.setAttribute('aria-pressed', b === btn));
+}
+for (const [hex, name] of SWATCHES) {
+  const b = document.createElement('button');
+  b.className = 'sw'; b.style.background = hex; b.setAttribute('aria-label', name);
+  b.setAttribute('aria-pressed', hex === '#8e9093');
+  b.addEventListener('click', () => pickColor(hex, b));
+  swBox.appendChild(b);
+}
+{
+  const wrap = document.createElement('label');
+  wrap.className = 'sw custom'; wrap.setAttribute('aria-label', '好きな色');
+  const inp = document.createElement('input'); inp.type = 'color'; inp.value = '#8e9093';
+  inp.addEventListener('input', () => pickColor(inp.value, wrap));
+  wrap.appendChild(inp); swBox.appendChild(wrap);
+}
+
+$('tuneBtn').addEventListener('click', e => {
+  const open = $('panel').classList.toggle('hidden') === false;
+  e.currentTarget.setAttribute('aria-expanded', open);
+});
+$('size').addEventListener('input', e => {
+  settings.sizeMul = +e.target.value;
+  $('sizeOut').textContent = '×' + settings.sizeMul.toFixed(1);
+  if (settings.random) cubes.forEach(c => c.mulGoal = settings.sizeMul * (0.55 + Math.random() * 1.3));
+});
+$('flashBtn').addEventListener('click', e => {
+  settings.flash = !settings.flash; e.currentTarget.setAttribute('aria-pressed', settings.flash);
+});
+$('flashHz').addEventListener('input', e => {
+  settings.flashHz = +e.target.value; $('flashOut').textContent = settings.flashHz;
+});
+$('auraBtn').addEventListener('click', e => {
+  settings.aura = !settings.aura; e.currentTarget.setAttribute('aria-pressed', settings.aura);
+});
+function setRandom(on) {
+  settings.random = on;
+  $('randBtn').setAttribute('aria-pressed', on);
+  const now = performance.now();
+  if (on) cubes.forEach((c, i) => c.nextRand = now + i * 250);  // 少しずつずらして変わり始める
+}
+$('randBtn').addEventListener('click', () => setRandom(!settings.random));
+$('randInt').addEventListener('input', e => {
+  settings.randInt = +e.target.value; $('randOut').textContent = settings.randInt + '秒';
+});
+
+$('rayBtn').addEventListener('click', e => {
+  showRays = !showRays;
+  e.currentTarget.setAttribute('aria-pressed', showRays);
+});
+$('flipBtn').addEventListener('click', async () => {
+  facing = facing === 'user' ? 'environment' : 'user';
+  try { await startCamera(); } catch (e) { facing = facing === 'user' ? 'environment' : 'user'; await startCamera(); }
+  hands.clear();
+});
+</script>
+</body>
+</html>
