@@ -1,0 +1,765 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="description" content="手を振ると、映った人がグリッチのモザイクで埋まったシルエットになり、まわりが原色のおもちゃのコラージュで埋め尽くされる。場面は一秒ごとに切り替わる。大人バージョンでは、モノクロに朱一色の静かなコラージュになる。">
+<meta name="theme-color" content="#f3f2f6">
+<title>OMOCHABAKO ─ 手を振ると、おもちゃ箱がひっくり返る</title>
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  OMOCHABAKO おもちゃ箱 ─ 手を振ると、おもちゃ箱がひっくり返る  ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  SOURCE     オーナーが見せてくれた画面録画（2026-10-04）の再現。手を振ると素の
+             カメラがピクセルのブロックに崩れながら左から塗り替わり、映った人は
+             グリッチのモザイクで埋まった白い輪郭のシルエットになり、まわりは
+             キャンディ柄の管・リボン・三角・立方体・ドクロ・歯車・紙吹雪・
+             ひらがなのタイルでぎっしり埋まる。場面は一秒ほどで丸ごと切り替わる。
+  STYLES     POP   録画どおりの原色。白地・赤地（ひらがなタイル）・桃地（ドクロ）の三場面。
+                   #ff3f9a 桃・#2ec5f0 水・#2f5bff 青・#ff2a3b 赤・#ffe23b 黄・#2fd35b 緑。
+             大人  同じ構造をモノクロと朱一色で。骨色の地にクロームの管・黒い球・石膏の
+                   ドクロ、黒地に大きなセリフの数字。場面は三秒ほどでゆっくり替わり、粒子が乗る。
+  TYPE       POP は Dela Gothic One（タイルのかな）＋ Rubik Mono One（UI）。
+             大人は Old Standard TT（数字と題字）＋ Victor Mono（UI）。
+  MOTION     要素はゆっくり漂って回り、場面は切り替えの瞬間だけ一フレームで差し替える。
+             シルエットの中のブロックは保持されたまま上書きされつづける（データモッシュ）。
+  SWITCH     手を開いて左右に振る（またはボタン・スペースキー）。左から升目ごとに塗り替わる。
+  TECH       MediaPipe ImageSegmenter（シルエット）＋ HandLandmarker（手振り）。
+             コラージュは 2D キャンバスで毎フレーム描き、シルエットの中身は低解像度の
+             ブロック画像を拡大して人物マスクで切り抜く。
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Dela+Gothic+One&family=Rubik+Mono+One&family=Old+Standard+TT:ital,wght@0,400;0,700;1,400&family=Victor+Mono:wght@300;400&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#f3f2f6;--fg:#15131a;--pink:#ff3f9a;--cyan:#2ec5f0}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none}
+html,body{margin:0;height:100%;background:#111;overflow:hidden;color:#fff;font-family:"Hiragino Sans","Noto Sans JP",sans-serif}
+#out{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+
+#start{position:fixed;inset:0;z-index:30;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;
+  padding:28px;text-align:center;background:var(--bg);color:var(--fg);overflow:hidden}
+#start .confetti{position:absolute;inset:0;z-index:-1;pointer-events:none}
+#start .t{font:400 10px "Rubik Mono One",monospace;letter-spacing:.3em;margin-right:-.3em;color:#6b6676}
+#start h1{margin:0;font:400 min(11vw,74px)/1 "Rubik Mono One",sans-serif;letter-spacing:.02em;
+  color:#fff;-webkit-text-stroke:2px var(--fg);text-shadow:5px 5px 0 var(--pink),-4px -3px 0 var(--cyan)}
+#start p{margin:0;font-size:12px;line-height:2.1;color:#3d3946;letter-spacing:.08em;background:rgba(243,242,246,.85);padding:2px 10px}
+#go{appearance:none;border:2px solid var(--fg);background:#fff;color:var(--fg);font:400 11px "Rubik Mono One",monospace;
+  letter-spacing:.3em;padding:15px 30px 15px 34px;cursor:pointer;box-shadow:4px 4px 0 var(--pink)}
+#go:active{transform:translate(2px,2px);box-shadow:2px 2px 0 var(--pink)}
+#err{font-size:12px;line-height:1.8;max-width:340px;min-height:1em;white-space:pre-line;color:#c2182b}
+
+.btn{position:fixed;z-index:12;appearance:none;border:0;background:rgba(0,0,0,.35);color:#fff;font:400 10px "Victor Mono","Hiragino Sans",monospace;
+  letter-spacing:.2em;padding:9px 11px;display:none;cursor:pointer;border-radius:3px;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
+.btn.show{display:block}
+#gear{right:10px;top:calc(env(safe-area-inset-top) + 8px);font-size:14px;letter-spacing:0}
+#flip{right:10px;top:calc(env(safe-area-inset-top) + 48px);letter-spacing:.08em;font-family:"Hiragino Sans","Noto Sans JP",sans-serif}
+#bar{position:fixed;left:0;right:0;bottom:calc(env(safe-area-inset-bottom) + 12px);z-index:12;display:none;justify-content:center;align-items:center;gap:22px}
+#bar.show{display:flex}
+#bar .btn{position:static;display:block}
+#bar #shoot{width:46px;height:46px;border-radius:50%;border:2px solid #fff;padding:0;background:rgba(0,0,0,.25)}
+#rec.on{background:#e8263a}
+#styles{position:fixed;left:50%;transform:translateX(-50%);top:calc(env(safe-area-inset-top) + 10px);z-index:13;display:none;
+  border-radius:20px;overflow:hidden;background:rgba(0,0,0,.4);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
+#styles.show{display:flex}
+#styles button{appearance:none;border:0;background:transparent;color:#fff;font:400 11px "Hiragino Sans","Noto Sans JP",sans-serif;
+  letter-spacing:.12em;padding:8px 16px;cursor:pointer;opacity:.6}
+#styles button.on{opacity:1;background:#fff;color:#111}
+#mode{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom) + 76px);z-index:13;display:none;
+  appearance:none;border:0;border-radius:24px;background:rgba(0,0,0,.45);color:#fff;
+  font:400 11px "Hiragino Sans","Noto Sans JP",sans-serif;letter-spacing:.14em;padding:11px 20px;cursor:pointer;
+  backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
+#mode.show{display:block}
+#hint{position:fixed;left:0;right:0;bottom:calc(env(safe-area-inset-bottom) + 124px);z-index:11;text-align:center;font-size:12px;letter-spacing:.1em;
+  color:#fff;text-shadow:0 1px 4px rgba(0,0,0,.6);pointer-events:none;transition:opacity .6s;opacity:0}
+#status{position:fixed;left:14px;bottom:calc(env(safe-area-inset-bottom) + 150px);z-index:11;font-size:11px;
+  color:#fff;pointer-events:none;max-width:72vw;line-height:1.7;white-space:pre-line;text-shadow:0 1px 4px rgba(0,0,0,.7)}
+
+#panel{position:fixed;right:10px;top:calc(env(safe-area-inset-top) + 88px);z-index:12;width:min(270px,calc(100vw - 20px));
+  background:rgba(20,18,26,.88);border-radius:6px;padding:14px 16px;display:flex;flex-direction:column;gap:13px;transition:opacity .25s}
+#panel.hide{opacity:0;pointer-events:none}
+#panel label{display:flex;align-items:center;gap:10px;font-size:11px;letter-spacing:.04em}
+#panel label span{width:84px;flex:none;color:rgba(255,255,255,.6)}
+#panel input[type=range]{flex:1;accent-color:var(--pink)}
+#panel .note{font-size:10px;color:rgba(255,255,255,.6);line-height:1.7}
+</style>
+</head>
+<body>
+<canvas id="out"></canvas>
+<div id="status"></div>
+<div id="hint">手を開いて左右に振ってみて</div>
+<div id="styles"><button data-s="0" class="on">POP</button><button data-s="1">大人</button></div>
+<button id="gear" class="btn" aria-label="調整">⚙</button>
+<button id="flip" class="btn">⟲ カメラ</button>
+<button id="mode">▸ ひっくり返す</button>
+<div id="bar">
+  <button id="rec" class="btn">● REC</button>
+  <button id="shoot" class="btn" aria-label="撮る"></button>
+  <button id="next" class="btn">場面 ↻</button>
+</div>
+
+<div id="panel" class="hide">
+  <label><span>場面の速さ</span><input type="range" id="sCut" min="0" max="1" step="0.01" value="0.5"></label>
+  <label><span>グリッチ</span><input type="range" id="sGlitch" min="0" max="1" step="0.01" value="0.6"></label>
+  <label><span>おもちゃの量</span><input type="range" id="sDense" min="0" max="1" step="0.01" value="0.6"></label>
+  <label><span>手振りで切替</span><input type="checkbox" id="sWave" checked></label>
+  <div class="note">手を開いて左右に二、三回振ると、カメラとおもちゃ箱が入れ替わる。<br>上の POP／大人 で見た目を切り替え。画面タップで場面を替える。</div>
+</div>
+
+<div id="start">
+  <canvas class="confetti" id="conf"></canvas>
+  <div class="t">WAVE YOUR HAND</div>
+  <h1>OMOCHABAKO</h1>
+  <p>まずは、いつものカメラ。<br>手を振ると、あなたはグリッチのシルエットになって<br>まわりがおもちゃでいっぱいになる。大人バージョンもあり。</p>
+  <button id="go">START</button>
+  <div id="err"></div>
+</div>
+
+<script>
+'use strict';
+/* =====================================================================
+   OMOCHABAKO — a pop collage around a glitch silhouette, toggled by a wave.
+   fx canvas: background scene (cut every ~1 s) → collage elements → the
+   person: a low-res block image (held blocks overwritten every frame,
+   like a datamosh) scaled up with no smoothing and cut by the person mask,
+   ringed by a thin outline → a few front elements.
+   The switch lays fx over the camera cell by cell, sweeping from the left,
+   with flickering colour cells on the front of the sweep.
+   ===================================================================== */
+const VISION_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs';
+const WASM_URL   = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm';
+const SEG_MODEL  = 'https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite';
+const HAND_MODEL = 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task';
+
+const $ = id => document.getElementById(id);
+const out = $('out'), ctx = out.getContext('2d');
+const fx = document.createElement('canvas'), f = fx.getContext('2d');
+const sil = document.createElement('canvas'), s2 = sil.getContext('2d');
+const tint = document.createElement('canvas'), t2 = tint.getContext('2d');
+const mcv = document.createElement('canvas'), mctx = mcv.getContext('2d');
+const gcv = document.createElement('canvas'), gctx = gcv.getContext('2d', { willReadFrequently:true });
+const video = document.createElement('video'); video.playsInline = true; video.muted = true; video.autoplay = true;
+
+const S = { style:0, cut:.5, glitch:.6, dense:.6, wave:true };
+const STY = [
+  { name:'POP', pal:['#ff3f9a','#2ec5f0','#2f5bff','#ff2a3b','#ffe23b','#2fd35b','#ff7a1a','#a45bff'],
+    blk:[[255,63,154],[46,197,240],[47,91,255],[255,42,59],[255,226,59],[255,255,255],[201,195,255],[120,230,255]],
+    edge:'rgba(255,255,255,.95)', edge2:'rgba(120,120,140,.7)', cut:[.8, 1.5] },
+  { name:'大人', pal:['#16151a','#e9e5dd','#8d8a86','#c9c5bd','#3a3836','#d4452f'],
+    blk:[[20,20,22],[236,232,224],[150,148,144],[90,88,86],[200,196,190],[212,69,47]],
+    edge:'rgba(20,20,22,.9)', edge2:'rgba(236,232,224,.8)', cut:[2.4, 3.6] },
+];
+
+/* ---------- random helpers ---------- */
+let seed = 1;
+const rnd = () => { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; };
+const rr = (a, b) => a + (b - a) * rnd();
+const pick = a => a[(rnd() * a.length) | 0];
+const KANA = 'あいうえおかきくけこさしすせそたちつてとなにぬねのはひふへほまみむめもやゆよらりるれろわをんがぎぐげござじずぜぞだでどばびぶべぼぱぴぷぺぽ';
+
+/* ---------- scenes ---------- */
+// coordinates are in short-edge units around the screen centre; W/H set at draw time
+let scene = null, sceneT = 0, nextCut = 1;
+function newScene(force){
+  seed = (Math.random() * 2147483646 | 0) + 1;
+  const st = S.style, P = STY[st].pal;
+  const kinds = st === 0 ? ['white', 'red', 'pink'] : ['bone', 'black', 'grey'];
+  let kind = pick(kinds);
+  if (scene && kind === scene.kind && !force) kind = pick(kinds);
+  const sc = { kind, style:st, els:[], conf:[], tiles:null, t0:performance.now() };
+  const dense = .5 + S.dense;
+  const n = Math.round((st === 0 ? 26 : 11) * dense);
+  const types = st === 0
+    ? (kind === 'pink' ? ['skull','skull','tube','star','tri','cube','sphere','ribbon','pix','torus'] :
+       kind === 'red'  ? ['tube','tube','ribbon','torus','cube','tri','star','pix'] :
+                         ['tube','tube','ribbon','ribbon','tri','cube','star','gear','torus','pix','skull','sphere'])
+    : (kind === 'black' ? ['num','num','tube','sphere','ring','tri'] :
+                          ['tube','tube','sphere','skull','ring','cube','tri','bar']);
+  for (let i = 0; i < n; i++){
+    const t = pick(types);
+    const e = { t, x:rr(-1.1, 1.1), y:rr(-.75, .75), r:rr(.06, .2), rot:rr(0, 6.28), vr:rr(-.4, .4) * (st ? .35 : 1),
+      vx:rr(-.04, .04) * (st ? .4 : 1), vy:rr(-.03, .03) * (st ? .4 : 1), z:rnd(), c:pick(P), c2:pick(P), k:rnd() };
+    if (t === 'tube' || t === 'ribbon'){
+      // a long bent tube: four control points in local units
+      const L = rr(.6, 1.4), a = rr(0, 6.28);
+      e.r = rr(.05, .1) * (t === 'ribbon' ? 1.4 : 1);
+      e.pts = [[-L/2, rr(-.2,.2)], [rr(-.3,0), rr(-.6,.6)], [rr(0,.3), rr(-.6,.6)], [L/2, rr(-.2,.2)]].map(([x, y]) => [x*Math.cos(a) - y*Math.sin(a), x*Math.sin(a) + y*Math.cos(a)]);
+      e.rot = 0; e.vr *= .2;
+    }
+    if (t === 'num'){ e.ch = pick(['0','1','2','3','4','5','6','7','8','9','&','№','Ⅶ','Ⅺ']); e.r = rr(.25, .5); }
+    if (st === 1){ e.c = rnd() < .14 ? '#d4452f' : pick(['#16151a','#e9e5dd','#8d8a86','#3a3836']); }
+    sc.els.push(e);
+  }
+  sc.els.sort((a, b) => a.z - b.z);
+  const nc = st === 0 ? Math.round(160 * dense) : Math.round(18 * dense);
+  for (let i = 0; i < nc; i++) sc.conf.push({ x:rr(-1.2, 1.2), y:rr(-.8, .8), s:rr(.006, .016), c:pick(P), rot:rr(0, 6.28), vy:rr(.01, .05), front:rnd() < .35 });
+  if (kind === 'red'){
+    sc.tiles = [];
+    // a loose grid of kana tiles over most of the red, like a wall of stickers
+    for (let gy = -.8; gy < .82; gy += .115) for (let gx = -1.25; gx < 1.27; gx += .115){
+      if (rnd() < .3) continue;
+      sc.tiles.push({ x:gx + rr(-.012, .012), y:gy + rr(-.012, .012), s:rr(.085, .105), ch:KANA[(rnd() * KANA.length) | 0],
+        c:pick(['#2fd35b','#ffffff','#ff3f9a','#2ec5f0','#ffe23b','#e8192e','#ff7a1a']), rot:rr(-.06, .06) });
+    }
+  }
+  scene = sc; sceneT = 0;
+  const [a, b] = STY[st].cut; nextCut = (a + (b - a) * Math.random()) * (1.6 - S.cut * 1.1);
+  STATE.cuts++;
+}
+
+/* ---------- drawing the toys ---------- */
+const shade = (hex, k) => {          // k > 0 lighter, k < 0 darker
+  const n = parseInt(hex.slice(1), 16); let r = n >> 16, g = (n >> 8) & 255, b = n & 255;
+  if (k > 0){ r += (255 - r) * k; g += (255 - g) * k; b += (255 - b) * k; } else { r *= 1 + k; g *= 1 + k; b *= 1 + k; }
+  return 'rgb(' + (r | 0) + ',' + (g | 0) + ',' + (b | 0) + ')';
+};
+function bez(c, p, U, ox, oy){
+  c.beginPath(); c.moveTo(p[0][0] * U + ox, p[0][1] * U + oy);
+  c.bezierCurveTo(p[1][0] * U + ox, p[1][1] * U + oy, p[2][0] * U + ox, p[2][1] * U + oy, p[3][0] * U + ox, p[3][1] * U + oy);
+}
+function drawEl(c, e, U, t, st){
+  const pop = st === 0;
+  c.save(); c.translate(e.x * U, e.y * U);
+  const R = e.r * U;
+  switch (e.t){
+    case 'tube': {
+      const w = R; c.lineCap = 'round'; c.lineJoin = 'round';
+      bez(c, e.pts, U, w * .12, w * .18); c.lineWidth = w; c.strokeStyle = 'rgba(0,0,0,.18)'; c.stroke();
+      bez(c, e.pts, U, 0, 0);
+      c.lineWidth = w; c.strokeStyle = pop ? e.c : '#bdbab4'; c.stroke();
+      c.setLineDash([w * .55, w * .55]); c.lineDashOffset = -t * U * .25 * (pop ? 1 : .3);
+      c.lineWidth = w * .92; c.strokeStyle = pop ? (e.k < .5 ? '#ffffff' : e.c2) : (e.k < .7 ? '#16151a' : '#e9e5dd'); c.stroke();
+      c.setLineDash([]);
+      bez(c, e.pts, U, -w * .18, -w * .2); c.lineWidth = w * .22; c.strokeStyle = 'rgba(255,255,255,.55)'; c.stroke();
+      bez(c, e.pts, U, w * .2, w * .22); c.lineWidth = w * .18; c.strokeStyle = 'rgba(0,0,0,.18)'; c.stroke();
+      break; }
+    case 'ribbon': {
+      const w = R; c.lineCap = 'butt';
+      const cols = pop ? [e.c, '#ffffff', '#2ec5f0', '#2f5bff'] : ['#16151a', '#e9e5dd', '#8d8a86'];
+      for (let i = 0; i < cols.length; i++){
+        bez(c, e.pts, U, (i - cols.length / 2) * w * .3, (i - cols.length / 2) * w * .22);
+        c.lineWidth = w * .34; c.strokeStyle = cols[i]; c.stroke();
+      }
+      break; }
+    case 'tri': {
+      c.rotate(e.rot + t * e.vr);
+      c.fillStyle = e.c; c.beginPath(); c.moveTo(0, -R); c.lineTo(R * .9, R * .6); c.lineTo(-R * .9, R * .6); c.closePath(); c.fill();
+      c.fillStyle = shade(e.c, -.25); c.beginPath(); c.moveTo(0, -R); c.lineTo(R * .9, R * .6); c.lineTo(R * .1, R * .6); c.closePath(); c.fill();
+      break; }
+    case 'cube': {
+      c.rotate(e.rot * .3 + t * e.vr * .3);
+      const a = R * .8;
+      c.fillStyle = shade(e.c, .25); c.beginPath(); c.moveTo(0, -a); c.lineTo(a * .87, -a / 2); c.lineTo(0, 0); c.lineTo(-a * .87, -a / 2); c.closePath(); c.fill();
+      c.fillStyle = e.c; c.beginPath(); c.moveTo(-a * .87, -a / 2); c.lineTo(0, 0); c.lineTo(0, a); c.lineTo(-a * .87, a / 2); c.closePath(); c.fill();
+      c.fillStyle = shade(e.c, -.3); c.beginPath(); c.moveTo(a * .87, -a / 2); c.lineTo(0, 0); c.lineTo(0, a); c.lineTo(a * .87, a / 2); c.closePath(); c.fill();
+      break; }
+    case 'star': {
+      c.rotate(e.rot + t * e.vr);
+      const n = 8 + (e.k * 6 | 0); c.fillStyle = e.c; c.beginPath();
+      for (let i = 0; i <= n * 2; i++){ const a = i / (n * 2) * Math.PI * 2, rr2 = i % 2 ? R * .5 : R; c.lineTo(Math.cos(a) * rr2, Math.sin(a) * rr2); }
+      c.fill(); c.fillStyle = 'rgba(0,0,0,.15)'; c.beginPath(); c.arc(0, 0, R * .5, 0, Math.PI); c.fill();
+      break; }
+    case 'gear': {
+      c.rotate(e.rot + t * 1.2); const n = 12;
+      c.fillStyle = '#c9952e'; c.beginPath();
+      for (let i = 0; i < n * 4; i++){ const a = i / (n * 4) * Math.PI * 2, rr2 = (i % 4 < 2) ? R : R * .8; c.lineTo(Math.cos(a) * rr2, Math.sin(a) * rr2); }
+      c.closePath(); c.fill();
+      c.fillStyle = '#8a5f14'; c.beginPath(); c.arc(0, 0, R * .32, 0, 7); c.fill();
+      c.strokeStyle = '#f2d27a'; c.lineWidth = R * .08; c.beginPath(); c.arc(0, 0, R * .62, 3.6, 5.2); c.stroke();
+      break; }
+    case 'sphere': {
+      const g = c.createRadialGradient(-R * .35, -R * .35, R * .05, 0, 0, R);
+      const base = pop ? e.c : (e.k < .6 ? '#16151a' : '#d4452f');
+      g.addColorStop(0, shade(base, .7)); g.addColorStop(.35, base); g.addColorStop(1, shade(base, -.45));
+      c.fillStyle = g; c.beginPath(); c.arc(0, 0, R, 0, 7); c.fill();
+      break; }
+    case 'torus': {
+      c.rotate(e.rot + t * e.vr); c.scale(1, .7);
+      c.lineWidth = R * .45; c.strokeStyle = '#ff7a1a'; c.beginPath(); c.arc(0, 0, R * .75, 0, 7); c.stroke();
+      c.setLineDash([R * .25, R * .3]); c.strokeStyle = '#ffffff'; c.lineWidth = R * .42; c.stroke(); c.setLineDash([]);
+      c.lineWidth = R * .1; c.strokeStyle = 'rgba(255,255,255,.6)'; c.beginPath(); c.arc(0, 0, R * .85, 3.4, 5.4); c.stroke();
+      break; }
+    case 'ring': {
+      c.lineWidth = Math.max(1, U * .003); c.strokeStyle = e.k < .3 ? '#d4452f' : (scene && scene.kind === 'black' ? '#e9e5dd' : '#16151a');
+      c.beginPath(); c.arc(0, 0, R * 2.2, 0, 7); c.stroke();
+      break; }
+    case 'bar': {
+      c.rotate(e.rot); c.fillStyle = e.c; c.fillRect(-R * 2, -R * .08, R * 4, R * .16);
+      break; }
+    case 'skull': {
+      c.rotate(Math.sin(e.rot + t * .8) * .25);
+      const base = pop ? '#f4f2ee' : '#e4e0d8';
+      const g = c.createRadialGradient(-R * .3, -R * .4, R * .1, 0, -R * .1, R * 1.1);
+      g.addColorStop(0, '#ffffff'); g.addColorStop(.6, base); g.addColorStop(1, '#a8a49c');
+      c.fillStyle = g;
+      c.beginPath(); c.ellipse(0, -R * .15, R * .85, R * .8, 0, 0, 7); c.fill();
+      c.beginPath(); c.roundRect ? c.roundRect(-R * .45, R * .35, R * .9, R * .5, R * .15) : c.rect(-R * .45, R * .35, R * .9, R * .5); c.fill();
+      c.fillStyle = '#2a2622';
+      c.beginPath(); c.ellipse(-R * .32, R * .02, R * .22, R * .25, .2, 0, 7); c.fill();
+      c.beginPath(); c.ellipse(R * .32, R * .02, R * .22, R * .25, -.2, 0, 7); c.fill();
+      c.beginPath(); c.moveTo(0, R * .25); c.lineTo(-R * .08, R * .42); c.lineTo(R * .08, R * .42); c.fill();
+      c.strokeStyle = '#6d675f'; c.lineWidth = R * .04;
+      for (let i = -2; i <= 2; i++){ c.beginPath(); c.moveTo(i * R * .14, R * .58); c.lineTo(i * R * .14, R * .82); c.stroke(); }
+      break; }
+    case 'pix': {
+      for (let i = 0; i < 14; i++){
+        const px = Math.sin(i * 12.9 + e.k * 40) * R * 1.4, py = Math.cos(i * 7.3 + e.k * 30) * R * 1.4, q = R * (.18 + .12 * ((i * 37) % 5) / 5);
+        c.fillStyle = STY[st].pal[(i + (e.k * 9 | 0)) % STY[st].pal.length]; c.fillRect(px, py, q, q);
+      }
+      break; }
+    case 'num': {
+      c.rotate(Math.sin(e.rot) * .12);
+      c.font = 'italic 400 ' + (R * 2.2 | 0) + 'px "Old Standard TT", serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
+      c.fillStyle = e.k < .2 ? '#d4452f' : (scene && scene.kind === 'black' ? '#e9e5dd' : '#16151a'); c.fillText(e.ch, 0, 0);
+      break; }
+  }
+  c.restore();
+}
+function drawScene(c, W, H, t){
+  const U = Math.min(W, H), st = scene.style;
+  const bg = { white:'#f3f2f6', red:'#e8192e', pink:'#f0eef2', bone:'#e6e1d8', black:'#0f0e10', grey:'#a8a59f' }[scene.kind];
+  c.fillStyle = bg; c.fillRect(0, 0, W, H);
+  c.save(); c.translate(W / 2, H / 2);
+  if (scene.kind === 'white' || scene.kind === 'pink'){
+    // pale grey cubes far behind
+    seed = 77;
+    for (let i = 0; i < 9; i++){
+      c.fillStyle = scene.kind === 'pink' ? 'rgba(255,63,154,.75)' : 'rgba(200,200,210,.5)';
+      const x = rr(-1.2, 1.2) * U, y = rr(-.8, .8) * U, s = rr(.08, .2) * U;
+      c.save(); c.translate(x, y); c.rotate(rr(0, 1.5)); c.fillRect(-s / 2, -s / 2, s, s); c.restore();
+    }
+  }
+  if (scene.tiles){
+    c.textAlign = 'center'; c.textBaseline = 'middle';
+    for (const k of scene.tiles){
+      c.save(); c.translate(k.x * U, k.y * U); c.rotate(k.rot);
+      const s = k.s * U; c.fillStyle = k.c; c.fillRect(-s / 2, -s / 2, s, s);
+      c.fillStyle = k.c === '#ffffff' ? '#e8192e' : '#ffffff';
+      c.font = (s * .72 | 0) + 'px "Dela Gothic One", sans-serif'; c.fillText(k.ch, 0, s * .04);
+      c.restore();
+    }
+  }
+  if (scene.kind === 'grey'){ c.fillStyle = '#16151a'; c.fillRect(-W, U * .28, W * 2, U * .02); }
+  for (const e of scene.els){
+    const sv = { x:e.x, y:e.y };
+    e.x += e.vx * t; e.y += e.vy * t;
+    drawEl(c, e, U, t, st);
+    e.x = sv.x; e.y = sv.y;
+  }
+  c.restore();
+}
+function drawConfetti(c, W, H, t, front){
+  const U = Math.min(W, H);
+  c.save(); c.translate(W / 2, H / 2);
+  for (const q of scene.conf){
+    if (q.front !== front) continue;
+    const y = ((q.y + q.vy * t + .8) % 1.6 + 1.6) % 1.6 - .8;
+    c.save(); c.translate(q.x * U, y * U); c.rotate(q.rot + t * 2); c.fillStyle = q.c;
+    c.fillRect(-q.s * U / 2, -q.s * U / 4, q.s * U, q.s * U / 2); c.restore();
+  }
+  c.restore();
+}
+
+/* ---------- the glitch silhouette ---------- */
+const G = { w:0, h:0, img:null, buf:null, cam:null };
+function ensureG(W, H){
+  const gw = 128, gh = Math.max(24, Math.round(128 * H / W));
+  if (G.w === gw && G.h === gh) return;
+  G.w = gw; G.h = gh; gcv.width = gw; gcv.height = gh;
+  G.img = gctx.createImageData(gw, gh); G.buf = G.img.data;
+  for (let i = 0; i < G.buf.length; i += 4){ G.buf[i] = G.buf[i + 1] = G.buf[i + 2] = 235; G.buf[i + 3] = 255; }
+}
+// sample the camera at G resolution (cover + mirror) into G.cam
+function sampleCam(W, H){
+  const sa = W / H, va = vidW / vidH;
+  gctx.save();
+  if (mirror){ gctx.translate(G.w, 0); gctx.scale(-1, 1); }
+  let dw, dh; if (sa < va){ dh = G.h; dw = G.h * va; } else { dw = G.w; dh = G.w / va; }
+  gctx.drawImage(video, (G.w - dw) / 2, (G.h - dh) / 2, dw, dh);
+  gctx.restore();
+  G.cam = gctx.getImageData(0, 0, G.w, G.h).data;
+}
+function glitchStep(dt){
+  const b = G.buf, cam = G.cam, gw = G.w, gh = G.h, st = S.style, B = STY[st].blk;
+  const n = Math.round((40 + 160 * S.glitch) * Math.min(3, dt * 60));
+  for (let k = 0; k < n; k++){
+    const bw = 1 + (Math.random() * Math.random() * 18 | 0), bh = 1 + (Math.random() * 3 | 0);
+    const x0 = Math.random() * gw | 0, y0 = Math.random() * gh | 0, mode = Math.random();
+    let cr, cg, cb;
+    if (mode < .38 * (1.3 - S.glitch * .6)){ cr = -1; }                  // camera, lightened
+    else {
+      // the grown-up box keeps its vermilion rare
+      const c = st === 1 && Math.random() < .93 ? B[(Math.random() * (B.length - 1)) | 0] : B[(Math.random() * B.length) | 0];
+      cr = c[0]; cg = c[1]; cb = c[2]; }
+    const sx = Math.min(gw - 1, x0 + (Math.random() * 6 - 3 | 0));
+    for (let y = y0; y < Math.min(gh, y0 + bh); y++) for (let x = x0; x < Math.min(gw, x0 + bw); x++){
+      const i = (y * gw + x) * 4;
+      if (cr < 0){
+        const j = cam ? (y * gw + sx) * 4 : -1;                         // horizontal smear from one column
+        let r = j >= 0 ? cam[j] : 200, g = j >= 0 ? cam[j + 1] : 200, bb = j >= 0 ? cam[j + 2] : 200;
+        if (st === 0){ b[i] = 255 - (255 - r) * .4; b[i + 1] = 255 - (255 - g) * .38; b[i + 2] = 255 - (255 - bb) * .3; }
+        else { const l = (r * .3 + g * .59 + bb * .11); const v = l < 110 ? l * .6 : 120 + (l - 110) * .9; b[i] = b[i + 1] = b[i + 2] = v; }
+      } else { b[i] = cr; b[i + 1] = cg; b[i + 2] = cb; }
+    }
+  }
+  // a little of the real camera seeps back every frame so the face stays faintly there
+  if (cam){
+    const m = 30 + 60 * (1 - S.glitch);
+    for (let k = 0; k < m; k++){
+      const x0 = Math.random() * gw | 0, y0 = Math.random() * gh | 0, bw = 2 + (Math.random() * 8 | 0);
+      for (let x = x0; x < Math.min(gw, x0 + bw); x++){
+        const i = (y0 * gw + x) * 4;
+        if (st === 0){ b[i] = 255 - (255 - cam[i]) * .55; b[i + 1] = 255 - (255 - cam[i + 1]) * .5; b[i + 2] = 255 - (255 - cam[i + 2]) * .4; }
+        else { const l = cam[i] * .3 + cam[i + 1] * .59 + cam[i + 2] * .11; b[i] = b[i + 1] = b[i + 2] = l; }
+      }
+    }
+  }
+  gctx.putImageData(G.img, 0, 0);
+}
+function drawMaskCover(c, W, H){
+  const sa = W / H, va = vidW / vidH, kx = sa < va ? sa / va : 1, ky = sa < va ? 1 : va / sa;
+  const dw = W / kx, dh = H / ky;
+  c.save(); c.translate(W / 2, H / 2); if (mirror) c.scale(-1, 1);
+  c.imageSmoothingEnabled = true; c.drawImage(mcv, -dw / 2, -dh / 2, dw, dh); c.restore();
+}
+function drawSilhouette(W, H){
+  if (!(M.has && M.live)) return false;
+  const st = S.style;
+  // the mosaic, blocky
+  s2.globalCompositeOperation = 'source-over'; s2.clearRect(0, 0, W, H);
+  s2.imageSmoothingEnabled = false; s2.drawImage(gcv, 0, 0, W, H);
+  s2.globalCompositeOperation = 'destination-in'; drawMaskCover(s2, W, H);
+  s2.globalCompositeOperation = 'source-over';
+  // outline: the mask tinted, nudged in eight directions under the fill
+  t2.globalCompositeOperation = 'source-over'; t2.clearRect(0, 0, W, H);
+  drawMaskCover(t2, W, H);
+  t2.globalCompositeOperation = 'source-in'; t2.fillStyle = scene && scene.kind === 'black' ? STY[1].edge2 : STY[st].edge2; t2.fillRect(0, 0, W, H);
+  t2.globalCompositeOperation = 'source-over';
+  const o = Math.max(1.5, Math.min(W, H) * .004);
+  for (let a = 0; a < 8; a++) f.drawImage(tint, Math.cos(a * .785) * o, Math.sin(a * .785) * o);
+  f.drawImage(sil, 0, 0);
+  return true;
+}
+
+/* ---------- person mask ---------- */
+const M = { w:0, h:0, b:null, img:null, has:false, live:false, lastT:0, external:false };
+function ingestMask(data, w, h, now){
+  if (!data || !(w > 0) || !(h > 0) || !(w * h <= 4e6) || data.length < w * h) return false;
+  now = now == null ? performance.now() : now;
+  if (M.w !== w || M.h !== h){ M.w = w; M.h = h; mcv.width = w; mcv.height = h; M.img = mctx.createImageData(w, h); }
+  const px = M.img.data;
+  for (let i = 0, n = w * h; i < n; i++){
+    let m = data[i]; if (!(m >= 0)) m = 0; else if (m > 1) m = 1;
+    // a harder edge than the raw confidence, like a cut-out sticker
+    m = m < .35 ? 0 : m > .65 ? 1 : (m - .35) / .3;
+    px[i * 4] = px[i * 4 + 1] = px[i * 4 + 2] = 255; px[i * 4 + 3] = m * 255;
+  }
+  mctx.putImageData(M.img, 0, 0);
+  M.has = true; M.live = true; M.lastT = now;
+  return true;
+}
+
+/* ---------- the wave ---------- */
+// an open palm swinging left-right: count reversals of its horizontal travel, measured in
+// aspect-corrected camera units over observation time (not render frames)
+const WAVE = { xs:[], ts:[], lastObs:0, cool:0, open:0, count:0 };
+function palmOf(lm){
+  if (!Array.isArray(lm) || lm.length < 21) return null;
+  for (const i of [0, 5, 8, 9, 12, 16, 17, 20]) { const p = lm[i]; if (!p || !Number.isFinite(p.x) || !Number.isFinite(p.y)) return null; }
+  const ar = vidW / vidH;
+  const P = i => [lm[i].x * ar, lm[i].y];
+  const w = P(0), m = P(9);
+  const size = Math.hypot(m[0] - w[0], m[1] - w[1]);
+  if (!(size > .02)) return null;
+  let ext = 0; for (const i of [8, 12, 16, 20]){ const p = P(i); ext += Math.hypot(p[0] - w[0], p[1] - w[1]); }
+  const cx = (P(0)[0] + P(5)[0] + P(9)[0] + P(17)[0]) / 4;
+  return { x:cx, open:ext / 4 / size, size };
+}
+function resetWave(){ WAVE.xs.length = 0; WAVE.ts.length = 0; }
+function ingestHands(list, now){
+  now = now == null ? performance.now() : now;
+  if (!Array.isArray(list)) return false;
+  let best = null;
+  for (const lm of list){ const p = palmOf(lm); if (p && (!best || p.size > best.size)) best = p; }
+  if (!best){ if (now - WAVE.lastObs > 250) resetWave(); return false; }
+  if (now - WAVE.lastObs > 250) resetWave();                         // tracking was lost: start over
+  WAVE.lastObs = now; WAVE.open = best.open;
+  if (best.open < 1.45){ resetWave(); return true; }                   // not an open hand
+  WAVE.xs.push(best.x); WAVE.ts.push(now);
+  while (WAVE.ts.length && now - WAVE.ts[0] > 1100){ WAVE.ts.shift(); WAVE.xs.shift(); }
+  // reversals with a minimum swing of a third of the palm size
+  const thr = best.size * .45;
+  let dir = 0, ext = WAVE.xs[0], rev = 0;
+  for (let i = 1; i < WAVE.xs.length; i++){
+    const x = WAVE.xs[i];
+    if (dir >= 0 && x > ext){ ext = x; if (dir === 0 && x - WAVE.xs[0] > thr) dir = 1; }
+    else if (dir <= 0 && x < ext){ ext = x; if (dir === 0 && WAVE.xs[0] - x > thr) dir = -1; }
+    if (dir === 1 && ext - x > thr){ dir = -1; ext = x; rev++; }
+    else if (dir === -1 && x - ext > thr){ dir = 1; ext = x; rev++; }
+  }
+  WAVE.count = rev;
+  if (rev >= 2 && now > WAVE.cool && S.wave && started){
+    WAVE.cool = now + 1400; resetWave(); STATE.waves++;
+    setMode(!MODE.on);
+  }
+  return true;
+}
+
+/* ---------- models ---------- */
+let segmenter = null, hands = null, lastTs = 0, lastVT = -1, flipFlop = 0;
+async function initModels(){
+  try{
+    const vision = await import(VISION_URL);
+    const fs = await vision.FilesetResolver.forVisionTasks(WASM_URL);
+    const so = d => ({ baseOptions:{ modelAssetPath:SEG_MODEL, delegate:d }, runningMode:'VIDEO', outputConfidenceMasks:true, outputCategoryMask:false });
+    const ho = d => ({ baseOptions:{ modelAssetPath:HAND_MODEL, delegate:d }, runningMode:'VIDEO', numHands:2 });
+    const mk = async (T, o) => { try { return await T.createFromOptions(fs, o('GPU')); } catch(e){ return await T.createFromOptions(fs, o('CPU')); } };
+    const [a, b] = await Promise.allSettled([mk(vision.ImageSegmenter, so), mk(vision.HandLandmarker, ho)]);
+    if (a.status === 'fulfilled') segmenter = a.value;
+    if (b.status === 'fulfilled') hands = b.value;
+    if (!segmenter && !M.external) setStatus('人物検出モデルを読み込めませんでした（ネット接続を確認）。\nシルエットなしで、おもちゃだけが出ます。');
+    else if (!hands) setStatus('手の検出モデルを読み込めませんでした。\n下のボタンで切り替えてください。');
+    else setStatus('');
+  }catch(e){
+    if (M.external) return;
+    setStatus('検出モデルを読み込めませんでした（ネット接続を確認）。\n下のボタンで切り替えられます（シルエットは出ません）。');
+  }
+}
+function detect(now){
+  if (video.readyState < 2) return;
+  const vt = video.currentTime; if (vt === lastVT) return; lastVT = vt;
+  const ts = Math.max(lastTs + 1, Math.round(now)); lastTs = ts;
+  flipFlop ^= 1;
+  if (segmenter && !M.external){
+    try{ segmenter.segmentForVideo(video, ts, res => {
+      const ms = res && res.confidenceMasks; if (!ms || !ms.length) return;
+      const mk = ms[ms.length - 1]; ingestMask(mk.getAsFloat32Array(), mk.width, mk.height, now); }); }catch(e){}
+  }
+  if (hands && !HANDS_EXTERNAL && flipFlop){
+    try{ const r = hands.detectForVideo(video, ts); ingestHands(r && r.landmarks ? r.landmarks : [], now); }catch(e){}
+  }
+}
+let HANDS_EXTERNAL = false;
+
+/* ---------- camera ---------- */
+let stream = null, facing = 'user', mirror = true, started = false, vidW = 1280, vidH = 720;
+function setStatus(t){ $('status').textContent = t || ''; }
+function camError(e){
+  const msg = (e && (e.message || e.name)) ? (e.message || e.name) : String(e || 'unknown');
+  const text = 'カメラを起動できませんでした：' + msg + '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+  $('err').textContent = text;
+  if (started) setStatus(text);
+}
+async function startCam(){
+  const md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) throw new Error('getUserMedia is unavailable');
+  const s = await md.getUserMedia({ video:{ facingMode:{ ideal:facing }, width:{ ideal:1280 }, height:{ ideal:720 } }, audio:false });
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = s; mirror = facing === 'user';
+  video.srcObject = s;
+  await new Promise(r => { if (video.readyState >= 1) r(); else video.onloadedmetadata = () => r(); });
+  await video.play().catch(()=>{});
+  vidW = video.videoWidth || 1280; vidH = video.videoHeight || 720;
+  M.live = false; resetWave();
+}
+
+/* ---------- audio ---------- */
+let actx = null, bus = null, recDest = null;
+function ensureAudio(){
+  if (actx){ if (actx.state === 'suspended') actx.resume().catch(()=>{}); return; }
+  const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+  actx = new AC(); bus = actx.createGain(); bus.gain.value = .5; bus.connect(actx.destination);
+  recDest = actx.createMediaStreamDestination(); bus.connect(recDest);
+  actx.resume().catch(()=>{});
+}
+function blip(on){
+  if (!actx || actx.state !== 'running') return;
+  const t = actx.currentTime;
+  if (S.style === 0){
+    // a bitcrushed arpeggio up (on) or down (off)
+    const notes = on ? [523, 659, 784, 1047, 1319] : [1047, 784, 659, 523, 392];
+    notes.forEach((fr, i) => { const o = actx.createOscillator(), g = actx.createGain(); o.type = 'square'; o.frequency.value = fr;
+      g.gain.setValueAtTime(0, t + i * .045); g.gain.linearRampToValueAtTime(.08, t + i * .045 + .005); g.gain.exponentialRampToValueAtTime(.001, t + i * .045 + .09);
+      o.connect(g); g.connect(bus); o.start(t + i * .045); o.stop(t + i * .045 + .1); });
+  } else {
+    const o = actx.createOscillator(), g = actx.createGain(); o.type = 'sine';
+    o.frequency.setValueAtTime(on ? 110 : 82, t); o.frequency.exponentialRampToValueAtTime(on ? 55 : 41, t + .5);
+    g.gain.setValueAtTime(.35, t); g.gain.exponentialRampToValueAtTime(.001, t + .7); o.connect(g); g.connect(bus); o.start(t); o.stop(t + .75);
+  }
+  // a short burst of noise for the glitch
+  const n = actx.sampleRate * .12 | 0, nb = actx.createBuffer(1, n, actx.sampleRate), d = nb.getChannelData(0);
+  for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * (((i >> 6) & 1) ? 1 : .2);
+  const src = actx.createBufferSource(), g = actx.createGain(); src.buffer = nb; g.gain.value = S.style === 0 ? .12 : .05;
+  src.connect(g); g.connect(bus); src.start(t);
+}
+function tick(){
+  if (!actx || actx.state !== 'running' || S.style !== 0) return;
+  const t = actx.currentTime, o = actx.createOscillator(), g = actx.createGain(); o.type = 'triangle'; o.frequency.value = 1800 + Math.random() * 900;
+  g.gain.setValueAtTime(.03, t); g.gain.exponentialRampToValueAtTime(.001, t + .04); o.connect(g); g.connect(bus); o.start(t); o.stop(t + .05);
+}
+
+/* ---------- the switch ---------- */
+const MODE = { on:false, X:0, cells:null, cw:0, ch:0, cs:0 };
+function setMode(on){
+  if (on === MODE.on) return;
+  MODE.on = on;
+  $('mode').textContent = on ? '◂ カメラにもどす' : '▸ ひっくり返す';
+  if (on){ newScene(true); STATE.toggles++; }
+  blip(on);
+}
+function setStyle(i){
+  S.style = i; [...$('styles').children].forEach((b, k) => b.classList.toggle('on', k === i));
+  document.querySelector('meta[name=theme-color]').content = i ? '#e6e1d8' : '#f3f2f6';
+  newScene(true);
+  for (let k = 0; G.buf && k < G.buf.length; k += 4){ G.buf[k] = G.buf[k + 1] = G.buf[k + 2] = i ? 200 : 240; }
+}
+$('mode').onclick = () => setMode(!MODE.on);
+$('styles').onclick = e => { const b = e.target.closest('button'); if (b) setStyle(+b.dataset.s); };
+$('next').onclick = () => { if (MODE.on) { newScene(false); tick(); } };
+out.addEventListener('pointerdown', () => { if (started && MODE.on){ newScene(false); tick(); } });
+addEventListener('keydown', e => { if (started && (e.key === ' ' || e.key === 'Enter') && document.activeElement.tagName !== 'INPUT'){ e.preventDefault(); setMode(!MODE.on); } });
+$('go').onclick = async () => {
+  $('err').textContent = '';
+  ensureAudio();
+  try{ await startCam(); }catch(e){ camError(e); return; }
+  $('start').style.display = 'none';
+  ['gear','flip','bar','rec','shoot','next','mode','styles'].forEach(id => $(id).classList.add('show'));
+  $('hint').style.opacity = 1; setTimeout(() => { $('hint').style.opacity = 0; }, 5000);
+  if (!started){ started = true; newScene(true); initModels(); requestAnimationFrame(loop); }
+};
+$('flip').onclick = async () => {
+  const prev = facing; facing = facing === 'user' ? 'environment' : 'user';
+  try { await startCam(); } catch(e){ facing = prev; camError(e); }
+};
+$('gear').onclick = () => $('panel').classList.toggle('hide');
+[['sCut','cut'],['sGlitch','glitch'],['sDense','dense']].forEach(([id,k]) => { $(id).oninput = e => { S[k] = +e.target.value; }; });
+$('sWave').onchange = e => { S.wave = e.target.checked; };
+
+$('shoot').onclick = () => {
+  try{ out.toBlob(b => { if (!b) return; const a = document.createElement('a'); a.href = URL.createObjectURL(b);
+    a.download = 'omochabako-' + Date.now() + '.png'; a.click(); }, 'image/png'); }
+  catch(e){ setStatus('保存できませんでした。'); }
+};
+let rec = null, chunks = [];
+$('rec').onclick = () => {
+  if (rec && rec.state === 'recording'){ rec.stop(); return; }
+  try{
+    ensureAudio();
+    const tracks = [...out.captureStream(30).getVideoTracks()];
+    if (recDest) tracks.push(...recDest.stream.getAudioTracks());
+    const mime = ['video/mp4;codecs=avc1','video/webm;codecs=vp9,opus','video/webm'].find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || '';
+    rec = new MediaRecorder(new MediaStream(tracks), mime ? { mimeType:mime } : {});
+    chunks = [];
+    rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+    rec.onstop = () => {
+      $('rec').classList.remove('on'); $('rec').textContent = '● REC';
+      const ext = (rec.mimeType || '').includes('mp4') ? 'mp4' : 'webm';
+      const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(chunks, { type:rec.mimeType || 'video/webm' }));
+      a.download = 'omochabako.' + ext; a.click();
+    };
+    rec.start(); $('rec').classList.add('on'); $('rec').textContent = '■ STOP';
+  }catch(e){ setStatus('録画を開始できませんでした。'); }
+};
+
+/* ---------- render ---------- */
+let lastT = 0, grainT = 0;
+const STATE = { frames:0, cuts:0, toggles:0, waves:0, sil:false };
+const SWEEP_S = .65;
+function drawCamera(c, W, H){
+  const sa = W / H, va = vidW / vidH;
+  let dw, dh; if (sa < va){ dh = H; dw = H * va; } else { dw = W; dh = W / va; }
+  c.save(); if (mirror){ c.translate(W, 0); c.scale(-1, 1); }
+  c.drawImage(video, (W - dw) / 2, (H - dh) / 2, dw, dh); c.restore();
+}
+function ensureCells(W, H){
+  const cs = Math.max(14, Math.round(Math.min(W, H) / 16));
+  const cw = Math.ceil(W / cs), ch = Math.ceil(H / cs);
+  if (cw === MODE.cw && ch === MODE.ch && cs === MODE.cs) return;
+  MODE.cw = cw; MODE.ch = ch; MODE.cs = cs; MODE.cells = new Float32Array(cw * ch);
+  // each cell flips at its own moment: mostly left to right, with scatter
+  for (let y = 0; y < ch; y++) for (let x = 0; x < cw; x++) MODE.cells[y * cw + x] = x / cw * .72 + Math.random() * .28;
+}
+function loop(now){
+  requestAnimationFrame(loop);
+  const dt = lastT ? Math.min(.1, (now - lastT) / 1000) : 1 / 60; lastT = now;
+  if (video.videoWidth && (video.videoWidth !== vidW || video.videoHeight !== vidH)){ vidW = video.videoWidth; vidH = video.videoHeight; }
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  let W = Math.round(innerWidth * dpr), H = Math.round(innerHeight * dpr);
+  const k = Math.min(1, 1500 / Math.max(W, H)); W = Math.round(W * k); H = Math.round(H * k);
+  if (out.width !== W || out.height !== H){ out.width = fx.width = sil.width = tint.width = W; out.height = fx.height = sil.height = tint.height = H; }
+  detect(now);
+  if (M.live && now - M.lastT > 900) M.live = false;
+  if (video.readyState < 2) return;
+  STATE.frames++;
+  ensureG(W, H); ensureCells(W, H);
+
+  MODE.X = MODE.on ? Math.min(1, MODE.X + dt / SWEEP_S) : Math.max(0, MODE.X - dt / SWEEP_S);
+  const X = MODE.X;
+
+  // the toy box
+  if (X > 0){
+    sceneT += dt;
+    if (MODE.on && sceneT > nextCut){ newScene(false); tick(); }
+    sampleCam(W, H); glitchStep(dt);
+    drawScene(f, W, H, sceneT);
+    drawConfetti(f, W, H, sceneT, false);
+    STATE.sil = drawSilhouette(W, H);
+    drawConfetti(f, W, H, sceneT, true);
+    if (S.style === 1){
+      // film grain for the grown-up box
+      grainT += dt;
+      f.globalAlpha = .07; f.fillStyle = '#000';
+      for (let i = 0; i < 900; i++){ const x = Math.random() * W, y = Math.random() * H; f.fillRect(x, y, 1.5, 1.5); }
+      f.fillStyle = '#fff'; for (let i = 0; i < 600; i++){ const x = Math.random() * W, y = Math.random() * H; f.fillRect(x, y, 1.5, 1.5); }
+      f.globalAlpha = 1;
+    }
+  }
+  // compose: camera, then the toy box laid over it cell by cell
+  if (X <= 0){ drawCamera(ctx, W, H); }
+  else if (X >= 1){ ctx.drawImage(fx, 0, 0); }
+  else {
+    drawCamera(ctx, W, H);
+    const cs = MODE.cs, cw = MODE.cw, cells = MODE.cells, P = STY[S.style].pal;
+    ctx.save(); ctx.beginPath();
+    for (let i = 0; i < cells.length; i++) if (cells[i] < X) ctx.rect((i % cw) * cs, ((i / cw) | 0) * cs, cs, cs);
+    ctx.clip(); ctx.drawImage(fx, 0, 0); ctx.restore();
+    // the front of the sweep flickers in solid colour cells, some only half-size
+    for (let i = 0; i < cells.length; i++){
+      const d = cells[i] - X;
+      if (d >= 0 && d < .09 && Math.random() < .55){
+        const q = Math.random() < .5 ? cs : cs / 2;
+        ctx.fillStyle = P[(Math.random() * P.length) | 0];
+        ctx.fillRect((i % cw) * cs, ((i / cw) | 0) * cs, q, q);
+      }
+    }
+  }
+}
+
+/* ---------- start screen confetti ---------- */
+(() => {
+  const c = $('conf'), g = c.getContext('2d');
+  const draw = () => {
+    if ($('start').style.display === 'none') return;
+    c.width = innerWidth; c.height = innerHeight;
+    const P = STY[0].pal;
+    for (let i = 0; i < 70; i++){
+      g.save(); g.translate(Math.random() * c.width, Math.random() * c.height); g.rotate(Math.random() * 6);
+      g.fillStyle = P[i % P.length]; const s = 6 + Math.random() * 22; g.fillRect(-s / 2, -s / 4, s, s / 2); g.restore();
+    }
+  };
+  draw(); addEventListener('resize', draw);
+})();
+
+/* ---------- test hook (used by the local verification harness) ---------- */
+window.__OMOCHABAKO = {
+  ingestMask(d, w, h){ if (!M.external) setStatus(''); M.external = true; return ingestMask(d, w, h); },
+  ingestHands(list, t){ HANDS_EXTERNAL = true; return ingestHands(list, t); },
+  state: () => ({ ...STATE, mode:MODE.on, X:MODE.X, style:S.style, scene:scene && scene.kind, maskLive:M.live, waveCount:WAVE.count, open:WAVE.open }),
+  mode(c){ setMode(!!c); },
+  style(i){ setStyle(i); },
+  cut(){ newScene(false); },
+};
+</script>
+</body>
+</html>
