@@ -82,8 +82,11 @@ html,body{margin:0;height:100%;background:var(--bg);overflow:hidden;color:var(--
 .chips button.on{opacity:1;background:rgba(244,244,242,.1)}
 #panel label{display:flex;align-items:center;gap:10px;font-size:11px;letter-spacing:.06em;font-weight:400}
 #panel label span{width:74px;flex:none;color:var(--dim)}
-#panel input[type=range]{flex:1;accent-color:#d8d8d4}
+#panel input[type=range]{flex:1;min-width:0;accent-color:#d8d8d4}
 #panel .note{font-size:10px;line-height:1.7;color:var(--dim);font-weight:400}
+#panel .val{width:24px;flex:none;text-align:right;font:300 10px "JetBrains Mono",monospace;color:var(--fg)}
+#panel .sub{font-size:10px;letter-spacing:.2em;color:var(--dim);margin-top:2px}
+.chips button:disabled{opacity:.18;cursor:default}
 </style>
 </head>
 <body>
@@ -105,12 +108,20 @@ html,body{margin:0;height:100%;background:var(--bg);overflow:hidden;color:var(--
     <button data-p="1">SILVER</button>
     <button data-p="2">EMBER</button>
   </div>
-  <label><span>光線の数</span><input type="range" id="sBeams" min="1" max="3" step="1" value="2"></label>
+  <label><span>光線の数</span><input type="range" id="sBeams" min="1" max="3" step="1" value="2"><b id="vBeams" class="val">2本</b></label>
+  <div class="sub">光源の位置</div>
+  <div class="chips" id="srcSel">
+    <button data-s="0" class="on">光源 1</button>
+    <button data-s="1">光源 2</button>
+    <button data-s="2">光源 3</button>
+  </div>
+  <label><span>横の位置</span><input type="range" id="sSrcX" min="0" max="1" step="0.01" value="0"></label>
+  <label><span>縦の位置</span><input type="range" id="sSrcY" min="0" max="1" step="0.01" value="0.40"></label>
   <label><span>分かれ方</span><input type="range" id="sDisp" min="0" max="1" step="0.01" value="0.55"></label>
   <label><span>残光</span><input type="range" id="sTrail" min="0" max="1" step="0.01" value="0.45"></label>
   <label><span>光の強さ</span><input type="range" id="sGain" min="0" max="1" step="0.01" value="0.6"></label>
   <label><span>体の明るさ</span><input type="range" id="sBody" min="0" max="1" step="0.01" value="0.45"></label>
-  <div class="note">画面の暗いところをタップすると、そこが光の出どころになります。</div>
+  <div class="note">画面の暗いところをタップすると、選んでいる光源がそこへ移ります。</div>
 </div>
 
 <div id="start">
@@ -536,16 +547,33 @@ function setPal(i){
   [...$('pals').children].forEach(x => x.classList.toggle('on', +x.dataset.p === i));
 }
 $('pals').onclick = e => { const b = e.target.closest('button'); if (b) setPal(+b.dataset.p); };
-[['sBeams','beams'],['sDisp','disp'],['sTrail','trail'],['sGain','gain'],['sBody','body']].forEach(([id,k]) => { $(id).oninput = e => { S[k] = +e.target.value; }; });
+[['sDisp','disp'],['sTrail','trail'],['sGain','gain'],['sBody','body']].forEach(([id,k]) => { $(id).oninput = e => { S[k] = +e.target.value; }; });
 
 // tap the dark to move the light source (normalised screen coords)
 const SRC = [ { x:0, y:.40, user:false }, { x:1, y:.66, user:false }, { x:.22, y:0, user:false } ];
+// which light the position controls (and taps) move
+let selSrc = 0;
+function syncSrcUI(){
+  [...$('srcSel').children].forEach(x => { const i = +x.dataset.s; x.classList.toggle('on', i === selSrc); x.disabled = i >= S.beams; });
+  $('sSrcX').value = SRC[selSrc].x; $('sSrcY').value = SRC[selSrc].y;
+  $('vBeams').textContent = S.beams + '本';
+}
+function setBeams(n){
+  S.beams = Math.max(1, Math.min(3, n | 0)); $('sBeams').value = S.beams;
+  if (selSrc >= S.beams) selSrc = S.beams - 1;
+  syncSrcUI();
+}
+$('sBeams').oninput = e => setBeams(+e.target.value);
+$('srcSel').onclick = e => { const b = e.target.closest('button'); if (!b || b.disabled) return; selSrc = +b.dataset.s; syncSrcUI(); };
+$('sSrcX').oninput = e => { SRC[selSrc].x = +e.target.value; SRC[selSrc].user = true; };
+$('sSrcY').oninput = e => { SRC[selSrc].y = +e.target.value; SRC[selSrc].user = true; };
+syncSrcUI();
 canvas.addEventListener('pointerup', e => {
   if (!MODE.on) return;
   const r = canvas.getBoundingClientRect(); const nx = (e.clientX - r.left)/r.width, ny = (e.clientY - r.top)/r.height;
   if (!(nx >= 0 && nx <= 1 && ny >= 0 && ny <= 1)) return;
   if (maskAt(nx*W, ny*H) > .5) return;               // tapping yourself does nothing
-  SRC[0].x = nx; SRC[0].y = ny; SRC[0].user = true; click();
+  SRC[selSrc].x = nx; SRC[selSrc].y = ny; SRC[selSrc].user = true; syncSrcUI(); click();
 });
 
 $('shoot').onclick = () => {
@@ -671,8 +699,9 @@ window.__BUNKOU = {
   clearMask(){ M.present = false; M.has = false; },
   mode(on){ setMode(!!on); if (on) MODE.t = 9; },
   palette(i){ setPal(i); },
-  set(k, v){ S[k] = v; },
-  source(x, y){ SRC[0].x = x; SRC[0].y = y; },
+  set(k, v){ if (k === 'beams') setBeams(v); else S[k] = v; },
+  source(x, y, i){ i = i | 0; SRC[i].x = x; SRC[i].y = y; if (i === selSrc) syncSrcUI(); },
+  sources: () => SRC.map(o => [o.x, o.y]),
   state: () => ({ on:MODE.on, present:M.present, cover:M.cover, entries:stats.entries, exits:stats.exits, verts:stats.verts,
                   aim:AIM.map(a => [a.x, a.y]), floatOK }),
 };
