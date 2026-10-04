@@ -1,1063 +1,708 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>HAND//GLITCH</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="description" content="両手のあいだに、映像を切り抜いたカードとグリッチの板が並ぶ。手を広げれば列に、近づければ塊に。手のひらを返すと並びと色が替わる。">
+<meta name="theme-color" content="#000000">
+<title>HAND//GLITCH ─ 両手のあいだに並ぶグリッチのカード</title>
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  HAND//GLITCH ─ 両手のあいだに並ぶグリッチのカード   ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  MOOD       夜の編集卓のモニター。素のカメラから始まり、切り替えると映像が沈んで、
+             両手のあいだに白縁のカードが何十枚も並ぶ。カードは映像の切り抜き・
+             走査線・ノイズ・色ブロック。
+  PALETTE    地は映像そのもの。手の骨格は #00ff66、関節は #ff2244、カードの縁は白。
+             カードの色は NEON / WARM / MONO / AQUA の四組から。
+  TYPE       JetBrains Mono（計器）＋ Space Grotesk（名前）。
+  MOTION     手を広げると塊がほどけて列に並び、近づけると塊に戻る（ばね補間）。
+             切り替えは画面を横切るスライスずれの帯。手のひらを返すと並び方と色の組が
+             替わり、画面全体がずれて RGB に割れる。
+  SWITCH     はじめは素のカメラ。「▸ GLITCH」か片手を振るとエフェクトへ。
+             手のひらを返す（表⇄裏）と並び方と色が替わる。手が見えないあいだは
+             幻の両手がゆっくり呼吸して、カードを並べつづける。
+  TECH       一枚の 2D canvas に、カメラ→色調→カード層（残像つき）→骨格を合成するので、
+             録画にも全部残る。手の検出は MediaPipe HandLandmarker（動的 import、
+             失敗してもボタンとタップで遊べる）。
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
 <style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  html, body {
-    width: 100%; height: 100%;
-    background: #000;
-    overflow: hidden;
-    font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
-    color: #fff;
-    -webkit-user-select: none;
-    user-select: none;
-    touch-action: none;
-  }
-  #stage { position: fixed; inset: 0; overflow: hidden; background: #000; }
-  #video {
-    position: absolute; inset: 0;
-    width: 100%; height: 100%;
-    object-fit: cover;
-    transform: scaleX(-1);
-    z-index: 1;
-    transition: filter 0.6s ease;
-  }
-  #vignette {
-    position: absolute; inset: 0;
-    z-index: 2;
-    pointer-events: none;
-    background: radial-gradient(ellipse at center, transparent 45%, rgba(0,0,0,0.55) 100%);
-    opacity: 0;
-    transition: opacity 0.8s ease;
-  }
-  #vignette.active { opacity: 1; }
-  #panels  { position: absolute; inset: 0; z-index: 3; pointer-events: none; }
-  #overlay { position: absolute; inset: 0; z-index: 4; pointer-events: none; }
-  #ui {
-    position: absolute;
-    top: 12px; left: 12px; right: 12px;
-    z-index: 10;
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    gap: 8px;
-    pointer-events: none;
-  }
-  .badge {
-    background: rgba(0,0,0,0.55);
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
-    border: 1px solid rgba(255,255,255,0.15);
-    padding: 6px 10px;
-    border-radius: 8px;
-    font-size: 11px;
-    line-height: 1.4;
-    pointer-events: auto;
-    letter-spacing: 0.02em;
-  }
-  #controls { display: flex; flex-direction: column; gap: 6px; align-items: flex-end; }
-  button {
-    background: rgba(255,255,255,0.1);
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
-    border: 1px solid rgba(255,255,255,0.25);
-    color: #fff;
-    padding: 8px 12px;
-    border-radius: 8px;
-    font-size: 12px;
-    cursor: pointer;
-    pointer-events: auto;
-    font-family: inherit;
-  }
-  button:active { background: rgba(255,255,255,0.25); }
-  #start {
-    position: absolute;
-    top: 50%; left: 50%;
-    transform: translate(-50%, -50%);
-    z-index: 20;
-    background: rgba(255,255,255,0.08);
-    backdrop-filter: blur(14px);
-    -webkit-backdrop-filter: blur(14px);
-    border: 1px solid rgba(255,255,255,0.3);
-    padding: 20px 32px;
-    border-radius: 16px;
-    font-size: 17px;
-    text-align: center;
-    cursor: pointer;
-    letter-spacing: 0.05em;
-  }
-  #start .title { font-size: 22px; font-weight: 700; letter-spacing: 0.15em; margin-bottom: 8px; }
-  #start .sub { font-size: 11px; opacity: 0.7; margin-top: 8px; line-height: 1.6; }
-  #start.hidden { display: none; }
-  #err {
-    position: absolute;
-    top: 50%; left: 50%;
-    transform: translate(-50%, -50%);
-    background: rgba(255,30,30,0.85);
-    padding: 12px 18px;
-    border-radius: 10px;
-    font-size: 13px;
-    z-index: 30;
-    text-align: center;
-    max-width: 80%;
-    display: none;
-  }
+:root{--acc:#00ff66;--red:#ff2244}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none}
+html,body{margin:0;height:100%;background:#000;overflow:hidden;color:#fff;font-family:"JetBrains Mono","Hiragino Sans",monospace}
+#c{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+
+#start{position:fixed;inset:0;z-index:30;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;padding:28px;text-align:center;
+  background:repeating-linear-gradient(0deg,rgba(255,255,255,.025) 0 1px,transparent 1px 4px),#000}
+#start .t{font-size:10px;letter-spacing:.5em;margin-right:-.5em;color:#666}
+#start h1{margin:0;font:700 min(12vw,76px)/1 "Space Grotesk",sans-serif;letter-spacing:.04em;color:#fff;position:relative;
+  text-shadow:-3px 0 var(--red),3px 0 #00d4ff;animation:jit 2.4s steps(1) infinite}
+@keyframes jit{0%,100%{transform:none}92%{transform:translateX(4px) skewX(-8deg)}94%{transform:translateX(-3px)}96%{transform:none}}
+#start p{margin:0;font:12px/2.1 "Hiragino Sans","Noto Sans JP",sans-serif;color:#9a9a9a;letter-spacing:.06em}
+#go{appearance:none;border:1px solid #fff;background:#fff;color:#000;font:700 13px "JetBrains Mono",monospace;letter-spacing:.35em;padding:16px 38px 16px 44px;cursor:pointer;
+  box-shadow:-4px 0 0 var(--red),4px 0 0 var(--acc)}
+#go:active{transform:scale(.97)}
+#err{font:12px/1.8 "Hiragino Sans",sans-serif;max-width:340px;min-height:1em;white-space:pre-line;color:#ff6b6b}
+
+.btn{position:fixed;z-index:12;appearance:none;border:0;background:rgba(0,0,0,.45);color:#fff;font:400 10px "JetBrains Mono","Hiragino Sans",monospace;
+  letter-spacing:.16em;padding:9px 11px;display:none;cursor:pointer;border-radius:4px;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
+.btn.show{display:block}
+#gear{right:10px;top:calc(env(safe-area-inset-top) + 12px);font-size:14px;letter-spacing:0}
+#flip{right:10px;top:calc(env(safe-area-inset-top) + 52px);font-family:"Hiragino Sans","Noto Sans JP",sans-serif;letter-spacing:.08em}
+#bar{position:fixed;left:0;right:0;bottom:calc(env(safe-area-inset-bottom) + 12px);z-index:12;display:none;justify-content:center;align-items:center;gap:16px}
+#bar.show{display:flex}
+#bar .btn{position:static;display:block}
+#bar #shoot{width:52px;height:52px;border-radius:50%;border:3px solid #fff;padding:0;background:rgba(255,255,255,.12)}
+#rec.on{background:#e8263a}
+#mode{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom) + 78px);z-index:13;display:none;appearance:none;
+  border:1px solid #fff;border-radius:2px;background:rgba(0,0,0,.5);color:#fff;font:700 12px "JetBrains Mono",monospace;letter-spacing:.24em;
+  padding:11px 22px 11px 26px;cursor:pointer;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);box-shadow:-3px 0 0 var(--red),3px 0 0 var(--acc)}
+#mode.show{display:block}
+#label{position:fixed;left:0;right:0;top:calc(env(safe-area-inset-top) + 92px);z-index:11;text-align:center;pointer-events:none;
+  font:700 min(8vw,40px)/1.15 "Space Grotesk",sans-serif;letter-spacing:.1em;color:#fff;text-shadow:-2px 0 var(--red),2px 0 #00d4ff;opacity:0}
+#label small{display:block;font:400 11px "JetBrains Mono",monospace;letter-spacing:.4em;color:#ddd;text-shadow:none;margin-top:6px}
+#label.on{animation:lab 1.3s ease-out}
+@keyframes lab{0%{opacity:0;transform:translateX(-14px) skewX(-12deg)}10%{opacity:1;transform:translateX(6px)}18%{transform:none}75%{opacity:1}100%{opacity:0}}
+#hand{position:fixed;left:12px;top:calc(env(safe-area-inset-top) + 12px);z-index:12;display:flex;align-items:center;gap:5px;
+  padding:6px 10px;border-radius:14px;background:rgba(0,0,0,.45);font-size:14px;opacity:.35;transition:opacity .2s;pointer-events:none}
+#hand::before{content:"✋";filter:grayscale(1)}
+#hand.seen{opacity:.7}
+#hand.open{opacity:1}
+#hand.open::before{filter:none}
+#hand.off{display:none}
+#hand.flip{background:rgba(0,255,102,.75);opacity:1}
+#hand i{width:7px;height:7px;border-radius:50%;background:rgba(255,255,255,.3)}
+#hand[data-n="1"] i:nth-child(1),#hand[data-n="2"] i{background:var(--acc)}
+#info{position:fixed;left:12px;top:calc(env(safe-area-inset-top) + 50px);z-index:11;font:10px/1.6 "JetBrains Mono","Hiragino Sans",monospace;letter-spacing:.12em;
+  color:#fff;opacity:.8;pointer-events:none;text-shadow:0 1px 3px rgba(0,0,0,.9);display:none}
+#info.show{display:block}
+#status{position:fixed;left:14px;bottom:calc(env(safe-area-inset-bottom) + 130px);z-index:11;font:11px/1.7 "Hiragino Sans",sans-serif;
+  color:#fff;pointer-events:none;max-width:72vw;white-space:pre-line;text-shadow:0 1px 4px rgba(0,0,0,.8)}
+#panel{position:fixed;right:10px;top:calc(env(safe-area-inset-top) + 92px);z-index:12;width:min(280px,calc(100vw - 20px));max-height:calc(100vh - 230px);overflow-y:auto;
+  background:rgba(10,10,10,.88);border:1px solid #2a2a2a;border-radius:6px;padding:14px 16px;display:flex;flex-direction:column;gap:12px;transition:opacity .25s}
+#panel.hide{opacity:0;pointer-events:none}
+#panel label{display:flex;align-items:center;gap:10px;font:11px "Hiragino Sans",sans-serif}
+#panel label span{width:96px;flex:none;color:#9a9a9a}
+#panel input[type=range]{flex:1;accent-color:var(--acc)}
+#panel select{flex:1;background:#111;color:#fff;border:1px solid #333;border-radius:3px;font:11px "Hiragino Sans",sans-serif;padding:4px}
+#panel button{appearance:none;border:1px solid #333;background:#111;color:#ddd;border-radius:3px;font:11px "Hiragino Sans",sans-serif;padding:6px;cursor:pointer}
+#panel .note{font:10px/1.7 "Hiragino Sans",sans-serif;color:#8a8a8a}
 </style>
 </head>
 <body>
-<div id="stage">
-  <video id="video" playsinline muted autoplay></video>
-  <div id="vignette"></div>
-  <canvas id="panels"></canvas>
-  <canvas id="overlay"></canvas>
-  <div id="ui">
-    <div class="badge" id="info">手をかざしてください</div>
-    <div id="controls">
-      <button id="snap">📸 撮影</button>
-      <button id="clear">🗑 クリア</button>
-      <button id="layout">▦ レイアウト</button>
-      <button id="mode">モード: 通常</button>
-      <button id="colorMode">🎨 カラー</button>
-      <button id="mute">🔊 音ON</button>
-    </div>
-  </div>
-  <div id="start">
-    <div class="title">HAND//GLITCH</div>
-    🖐 タップして開始
-    <div class="sub">カメラと音を使います<br>両手をかざして、近づけたり広げたり、クルッと返してみて</div>
-  </div>
+<canvas id="c"></canvas>
+<video id="v" playsinline muted autoplay style="display:none"></video>
+<div id="label"></div>
+<div id="hand"><i></i><i></i></div>
+<div id="info"></div>
+<div id="status"></div>
+<button id="gear" class="btn" aria-label="調整">⚙</button>
+<button id="flip" class="btn">⟲ カメラ</button>
+<button id="mode">▸ GLITCH</button>
+<div id="bar">
+  <button id="rec" class="btn">● REC</button>
+  <button id="rand" class="btn">🎲 ランダム</button>
+  <button id="shoot" class="btn" aria-label="撮る"></button>
+  <button id="lay" class="btn">▦ 並び</button>
+</div>
+
+<div id="panel" class="hide">
+  <label><span>強さ</span><input type="range" id="sK" min="0" max="1" step="0.01" value="0.5"></label>
+  <label><span>映像の色</span><select id="sCol"><option value="0">カラー</option><option value="1">モノクロ</option><option value="2">セピア</option></select></label>
+  <label><span>色の組</span><select id="sSet"></select></label>
+  <label><span>音</span><input type="checkbox" id="sSnd" checked></label>
+  <label><span>手振りで切替</span><input type="checkbox" id="sWave" checked></label>
+  <label><span>手を返して次へ</span><input type="checkbox" id="sFlip" checked></label>
+  <label><span>手が無いときも</span><input type="checkbox" id="sGhost" checked></label>
+  <button id="clear">カードを消す</button>
+  <div class="note">両手をかざすと、そのあいだにカードが並ぶ。広げると列に、近づけると塊に。<br>手のひらをくるっと返すと並び方と色が替わる。<br>片手だけを開いて左右に振ると、カメラとエフェクトが入れ替わる。<br>画面をタップしても並びが替わる。🎲 で全部ランダム。</div>
+</div>
+
+<div id="start">
+  <div class="t">TWO HANDS · GLITCH CARDS</div>
+  <h1>HAND//GLITCH</h1>
+  <p>まずは、いつものカメラ。<br>手を振るか「▸ GLITCH」で、両手のあいだにカードが並ぶ。<br>広げて、縮めて、手のひらを返して。🎲 でランダム。</p>
+  <button id="go">START</button>
   <div id="err"></div>
 </div>
 
-<script type="module">
-import {
-  HandLandmarker,
-  FilesetResolver
-} from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.9/vision_bundle.mjs";
+<script>
+'use strict';
+const $ = id => document.getElementById(id);
+const VISION_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs';
+const WASM_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm';
+const HAND_MODEL = 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task';
 
-const video = document.getElementById('video');
-const vignette = document.getElementById('vignette');
-const panelsCanvas = document.getElementById('panels');
-const overlayCanvas = document.getElementById('overlay');
-const pCtx = panelsCanvas.getContext('2d');
-const oCtx = overlayCanvas.getContext('2d');
-const startBtn = document.getElementById('start');
-const infoEl = document.getElementById('info');
-const snapBtn = document.getElementById('snap');
-const clearBtn = document.getElementById('clear');
-const layoutBtn = document.getElementById('layout');
-const modeBtn = document.getElementById('mode');
-const muteBtn = document.getElementById('mute');
-const colorModeBtn = document.getElementById('colorMode');
-const errEl = document.getElementById('err');
+const canvas = $('c'), ctx = canvas.getContext('2d');
+const video = $('v');
+const pc = document.createElement('canvas'), pctx = pc.getContext('2d');     // card layer, keeps a trail
+const S = { k:.5, col:0, set:0, snd:true, wave:true, flip:true, ghost:true, layout:0 };
+const STATE = { frames:0, flips:0, waves:0, randoms:0, spawned:0 };
 
-let handLandmarker = null;
-let running = false;
-let mode = 0; // 0: normal, 1: heavy glitch, 2: minimal
-const modeNames = ['通常', 'グリッチ強', 'ミニマル'];
+const HAND_CONNECTIONS = [[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],
+  [9,13],[13,14],[14,15],[15,16],[13,17],[17,18],[18,19],[19,20],[0,17]];
 
-// 映像の色合い: 0=カラー, 1=モノクロ, 2=セピア
-// 手のグラフィックは別canvas(#overlay)に描いているのでこのフィルターの影響を受けず、
-// モノクロ/セピア時はネオングリーン/レッドがくっきり浮かぶ。
-let colorMode = 0;
-const colorModeNames = ['カラー', 'モノクロ', 'セピア'];
-const colorModeFilters = [
-  { normal: 'none',                                    active: 'saturate(0.75) brightness(0.82) contrast(1.05)' },
-  { normal: 'grayscale(1) contrast(1.08)',              active: 'grayscale(1) brightness(0.8) contrast(1.18)' },
-  { normal: 'sepia(0.75) saturate(1.35) contrast(1.05)', active: 'sepia(0.9) saturate(1.5) brightness(0.78) contrast(1.1)' }
-];
-function updateVideoFilter(bothHands) {
-  const f = colorModeFilters[colorMode];
-  video.style.filter = bothHands ? f.active : f.normal;
+/* ---------- camera ---------- */
+let stream = null, facing = 'user', mirror = true, started = false, vidW = 1280, vidH = 720;
+function setStatus(t){ $('status').textContent = t || ''; }
+function camError(e){
+  const msg = (e && (e.message || e.name)) ? (e.message || e.name) : String(e || 'unknown');
+  const text = 'カメラを起動できませんでした：' + msg + '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+  $('err').textContent = text;
+  if (started) setStatus(text);
 }
-updateVideoFilter(false);
-
-const HAND_CONNECTIONS = [
-  [0,1],[1,2],[2,3],[3,4],
-  [0,5],[5,6],[6,7],[7,8],
-  [5,9],[9,10],[10,11],[11,12],
-  [9,13],[13,14],[14,15],[15,16],
-  [13,17],[17,18],[18,19],[19,20],
-  [0,17]
-];
-
-let CW = 0, CH = 0; // 論理サイズ
-function resize() {
-  const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  CW = window.innerWidth;
-  CH = window.innerHeight;
-  for (const c of [panelsCanvas, overlayCanvas]) {
-    c.width = CW * dpr;
-    c.height = CH * dpr;
-    c.style.width = CW + 'px';
-    c.style.height = CH + 'px';
-  }
-  pCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  oCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+async function startCam(){
+  const md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) throw new Error('getUserMedia is unavailable');
+  const s = await md.getUserMedia({ video:{ facingMode:{ ideal:facing }, width:{ ideal:1280 }, height:{ ideal:720 } }, audio:false });
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = s; mirror = facing === 'user';
+  video.srcObject = s;
+  await new Promise(r => { if (video.readyState >= 1) r(); else video.onloadedmetadata = () => r(); });
+  await video.play().catch(()=>{});
+  vidW = video.videoWidth || 1280; vidH = video.videoHeight || 720;
+  resetWave();
 }
-window.addEventListener('resize', resize);
-resize();
-
-function showErr(msg) {
-  errEl.textContent = msg;
-  errEl.style.display = 'block';
+// cover fit of the camera frame on the canvas; landmarks go through the same mapping
+const COV = { s:1, ox:0, oy:0 };
+function fitCover(W, H){ const s = Math.max(W / vidW, H / vidH); COV.s = s; COV.ox = (W - vidW * s) / 2; COV.oy = (H - vidH * s) / 2; }
+function toScr(p){
+  const x = COV.ox + p.x * vidW * COV.s, y = COV.oy + p.y * vidH * COV.s;
+  return [mirror ? canvas.width - x : x, y];
+}
+function drawCam(c, W, H){
+  c.save();
+  if (mirror){ c.translate(W, 0); c.scale(-1, 1); }
+  c.drawImage(video, COV.ox, COV.oy, vidW * COV.s, vidH * COV.s);
+  c.restore();
+}
+// low-res mirrored snapshot for the camera cards
+const camC = document.createElement('canvas'); camC.width = 320; camC.height = 180;
+const camX = camC.getContext('2d'); let lastGrab = 0;
+function grab(now){
+  if (now - lastGrab < 100 || video.readyState < 2) return; lastGrab = now;
+  camC.height = Math.round(320 * vidH / vidW);
+  camX.save(); if (mirror){ camX.translate(320, 0); camX.scale(-1, 1); }
+  camX.drawImage(video, 0, 0, 320, camC.height); camX.restore();
 }
 
-// ============================================================
-// オーディオ
-// ============================================================
-let audioCtx = null, masterGain = null, muted = false;
+/* ---------- audio ---------- */
+let actx = null, bus = null, recDest = null;
+function ensureAudio(){
+  if (actx){ if (actx.state === 'suspended') actx.resume().catch(()=>{}); return; }
+  const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+  actx = new AC(); bus = actx.createGain(); bus.gain.value = .5; bus.connect(actx.destination);
+  recDest = actx.createMediaStreamDestination(); bus.connect(recDest);
+  actx.resume().catch(()=>{});
+}
+const audioOk = () => actx && actx.state === 'running' && S.snd;
+const SCALE = [0, 2, 4, 7, 9], BASE = 261.63;
+const noteF = (d, o) => BASE * Math.pow(2, (SCALE[d % 5] + 12 * (o + Math.floor(d / 5))) / 12);
 let lastBlip = 0;
-const SCALE = [0, 2, 4, 7, 9]; // ペンタトニック
-const BASE_FREQ = 261.63; // C4
-
-function initAudio() {
-  if (audioCtx) return;
-  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  masterGain = audioCtx.createGain();
-  masterGain.gain.value = 0.5;
-  masterGain.connect(audioCtx.destination);
-}
-
-function noteFreq(degree, octave = 0) {
-  const semis = SCALE[degree % SCALE.length] + 12 * (octave + Math.floor(degree / SCALE.length));
-  return BASE_FREQ * Math.pow(2, semis / 12);
-}
-
-// パネル生成音: 短いブリップ(倍音付き) クールダウン付き
-function blip(pan = 0) {
-  if (!audioCtx || muted) return;
-  const now = audioCtx.currentTime;
-  const nowMs = performance.now();
-  if (nowMs - lastBlip < 90) return; // 音の洪水防止
-  lastBlip = nowMs;
-
-  const degree = Math.floor(Math.random() * 8);
-  const f = noteFreq(degree, 1);
-  const g = audioCtx.createGain();
-  g.gain.setValueAtTime(0.0001, now);
-  g.gain.exponentialRampToValueAtTime(0.12, now + 0.008);
-  g.gain.exponentialRampToValueAtTime(0.0001, now + 0.35);
-
-  const panner = audioCtx.createStereoPanner ? audioCtx.createStereoPanner() : null;
-  if (panner) { panner.pan.value = Math.max(-1, Math.min(1, pan)); g.connect(panner); panner.connect(masterGain); }
-  else g.connect(masterGain);
-
-  // 基音 + 2倍音 + 3倍音
-  const partials = [[1, 1], [2, 0.4], [3, 0.15]];
-  for (const [mult, amp] of partials) {
-    const o = audioCtx.createOscillator();
-    o.type = 'sine';
-    o.frequency.value = f * mult;
-    const og = audioCtx.createGain();
-    og.gain.value = amp;
-    o.connect(og); og.connect(g);
-    o.start(now); o.stop(now + 0.4);
+function blip(pan){
+  if (!audioOk()) return;
+  const nowMs = performance.now(); if (nowMs - lastBlip < 90) return; lastBlip = nowMs;
+  const t = actx.currentTime, f = noteF(Math.random() * 8 | 0, 1);
+  const g = actx.createGain(); g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime(.1, t + .008); g.gain.exponentialRampToValueAtTime(.0001, t + .35);
+  const pn = actx.createStereoPanner ? actx.createStereoPanner() : null;
+  if (pn){ pn.pan.value = Math.max(-1, Math.min(1, pan)); g.connect(pn); pn.connect(bus); } else g.connect(bus);
+  for (const [m, a] of [[1, 1], [2, .4], [3, .15]]){
+    const o = actx.createOscillator(), og = actx.createGain(); o.type = 'sine'; o.frequency.value = f * m; og.gain.value = a;
+    o.connect(og); og.connect(g); o.start(t); o.stop(t + .4);
   }
 }
-
-// フリップ音: ノイズウーッシュ + コードスタブ
-function flipStinger() {
-  if (!audioCtx || muted) return;
-  const now = audioCtx.currentTime;
-
-  // ノイズ
-  const dur = 0.25;
-  const buf = audioCtx.createBuffer(1, audioCtx.sampleRate * dur, audioCtx.sampleRate);
-  const d = buf.getChannelData(0);
+function stinger(){
+  if (!audioOk()) return;
+  const t = actx.currentTime, dur = .25;
+  const buf = actx.createBuffer(1, Math.round(actx.sampleRate * dur), actx.sampleRate), d = buf.getChannelData(0);
   for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / d.length);
-  const src = audioCtx.createBufferSource();
-  src.buffer = buf;
-  const bp = audioCtx.createBiquadFilter();
-  bp.type = 'bandpass';
-  bp.frequency.setValueAtTime(400, now);
-  bp.frequency.exponentialRampToValueAtTime(4000, now + dur);
-  bp.Q.value = 1.2;
-  const ng = audioCtx.createGain();
-  ng.gain.setValueAtTime(0.25, now);
-  ng.gain.exponentialRampToValueAtTime(0.001, now + dur);
-  src.connect(bp); bp.connect(ng); ng.connect(masterGain);
-  src.start(now);
-
-  // コード(ルート + 3度上のスケール音 + オクターブ)
-  const rootDeg = Math.floor(Math.random() * 5);
-  const chord = [noteFreq(rootDeg, 0), noteFreq(rootDeg + 2, 0), noteFreq(rootDeg, 1)];
-  for (const f of chord) {
-    const o = audioCtx.createOscillator();
-    o.type = 'triangle';
-    o.frequency.value = f;
-    const g = audioCtx.createGain();
-    g.gain.setValueAtTime(0.0001, now);
-    g.gain.exponentialRampToValueAtTime(0.08, now + 0.01);
-    g.gain.exponentialRampToValueAtTime(0.0001, now + 0.7);
-    o.connect(g); g.connect(masterGain);
-    o.start(now); o.stop(now + 0.75);
+  const src = actx.createBufferSource(); src.buffer = buf;
+  const bp = actx.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = 1.2;
+  bp.frequency.setValueAtTime(400, t); bp.frequency.exponentialRampToValueAtTime(4000, t + dur);
+  const ng = actx.createGain(); ng.gain.setValueAtTime(.22, t); ng.gain.exponentialRampToValueAtTime(.001, t + dur);
+  src.connect(bp); bp.connect(ng); ng.connect(bus); src.start(t);
+  const r = Math.random() * 5 | 0;
+  for (const f of [noteF(r, 0), noteF(r + 2, 0), noteF(r, 1)]){
+    const o = actx.createOscillator(), g = actx.createGain(); o.type = 'triangle'; o.frequency.value = f;
+    g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime(.07, t + .01); g.gain.exponentialRampToValueAtTime(.0001, t + .7);
+    o.connect(g); g.connect(bus); o.start(t); o.stop(t + .75);
   }
 }
-
-// ============================================================
-// カメラ・MediaPipe
-// ============================================================
-async function setupCamera() {
-  const stream = await navigator.mediaDevices.getUserMedia({
-    video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } },
-    audio: false
-  });
-  video.srcObject = stream;
-  await new Promise(res => video.onloadedmetadata = res);
-  await video.play();
+function sweepSnd(on){
+  if (!audioOk()) return;
+  const t = actx.currentTime, o = actx.createOscillator(), g = actx.createGain(); o.type = 'square';
+  o.frequency.setValueAtTime(on ? 110 : 880, t); o.frequency.exponentialRampToValueAtTime(on ? 1760 : 90, t + .3);
+  g.gain.setValueAtTime(.05, t); g.gain.exponentialRampToValueAtTime(.001, t + .38);
+  o.connect(g); g.connect(bus); o.start(t); o.stop(t + .4);
 }
 
-async function setupHandLandmarker() {
-  const vision = await FilesetResolver.forVisionTasks(
-    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.9/wasm"
-  );
-  handLandmarker = await HandLandmarker.createFromOptions(vision, {
-    baseOptions: {
-      modelAssetPath: "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task",
-      delegate: "GPU"
-    },
-    runningMode: "VIDEO",
-    numHands: 2,
-    minHandDetectionConfidence: 0.5,
-    minHandPresenceConfidence: 0.5,
-    minTrackingConfidence: 0.5
-  });
-}
-
-// カメラのミラー済み低解像度スナップ(カメラパネル用)
-const camCanvas = document.createElement('canvas');
-camCanvas.width = 320; camCanvas.height = 180;
-const camCtx = camCanvas.getContext('2d');
-let lastCamGrab = 0;
-function grabCamera(now) {
-  if (now - lastCamGrab < 120) return; // ~8fpsで十分
-  lastCamGrab = now;
-  if (video.readyState < 2) return;
-  camCtx.save();
-  camCtx.translate(camCanvas.width, 0);
-  camCtx.scale(-1, 1);
-  camCtx.drawImage(video, 0, 0, camCanvas.width, camCanvas.height);
-  camCtx.restore();
-}
-
-// ============================================================
-// パネル
-// ============================================================
-const panels = [];
-const MAX_PANELS = 24;
-
-const PALETTE_SETS = [
-  { name: 'NEON',
-    palettes: [['#00ff88','#003322'], ['#ff00aa','#220022'], ['#00aaff','#001144'], ['#aa00ff','#220044']],
-    types: ['stripes','glitch','blocks','camera','camera'] },
-  { name: 'WARM',
-    palettes: [['#ffee00','#553300'], ['#ff5500','#220000'], ['#ff0044','#330011'], ['#ffaa00','#332200']],
-    types: ['gradient','stripes','solid','camera'] },
-  { name: 'MONO',
-    palettes: [['#ffffff','#000000'], ['#cccccc','#222222'], ['#888888','#111111']],
-    types: ['noise','blocks','glitch','camera','camera'] },
-  { name: 'AQUA',
-    palettes: [['#00ffcc','#003344'], ['#00ddff','#002244'], ['#88ffee','#114455']],
-    types: ['gradient','stripes','noise','camera'] }
+/* ---------- cards ---------- */
+const SETS = [
+  { name:'NEON', pal:[['#00ff88','#003322'], ['#ff00aa','#220022'], ['#00aaff','#001144'], ['#aa00ff','#220044']], types:['stripes','glitch','blocks','camera','camera'] },
+  { name:'WARM', pal:[['#ffee00','#553300'], ['#ff5500','#220000'], ['#ff0044','#330011'], ['#ffaa00','#332200']], types:['gradient','stripes','solid','camera','camera'] },
+  { name:'MONO', pal:[['#ffffff','#000000'], ['#cccccc','#222222'], ['#888888','#111111']], types:['noise','blocks','glitch','camera','camera'] },
+  { name:'AQUA', pal:[['#00ffcc','#003344'], ['#00ddff','#002244'], ['#88ffee','#114455']], types:['gradient','stripes','noise','camera'] }
 ];
-let currentSet = 0;
-
-function makePanel() {
-  const set = PALETTE_SETS[currentSet];
-  const pal = set.palettes[Math.floor(Math.random() * set.palettes.length)];
-  const types = set.types;
-  return {
-    type: types[Math.floor(Math.random() * types.length)],
-    color: pal[0],
-    bg: pal[1],
-    seed: Math.random() * 10000,
-    rotation: (Math.random() - 0.5) * 0.4,
-    aspect: 0.5 + Math.random() * 1.2,
-    life: 1.0,
-    born: performance.now(),
-    // カメラパネル用: クロップ矩形(正規化)
-    cropX: Math.random() * 0.6,
-    cropY: Math.random() * 0.5,
-    cropW: 0.25 + Math.random() * 0.3,
-    cropH: 0.3 + Math.random() * 0.35,
-    tint: Math.random(), // カメラパネルの色被せ方バリエーション
-    // スプリング補間の現在値(初回に初期化)
-    px: null, py: null, prot: null, pw: null, ph: null
-  };
-}
-
-const panelCache = new Map();
-function getPanelTexture(panel, w, h) {
-  const key = `${panel.type}_${panel.seed}_${Math.round(w/4)*4}_${Math.round(h/4)*4}`;
-  if (panelCache.has(key)) return panelCache.get(key);
-  const c = document.createElement('canvas');
-  c.width = Math.max(2, Math.round(w));
-  c.height = Math.max(2, Math.round(h));
-  const ctx = c.getContext('2d');
-  ctx.fillStyle = panel.bg;
-  ctx.fillRect(0, 0, c.width, c.height);
-
-  const rng = mulberry32(Math.floor(panel.seed));
-  switch (panel.type) {
-    case 'stripes': {
-      const stripeH = 4 + rng() * 12;
-      for (let y = 0; y < c.height; y += stripeH) {
-        ctx.fillStyle = rng() > 0.5 ? panel.color : panel.bg;
-        ctx.fillRect(0, y, c.width, stripeH);
-      }
-      break;
-    }
-    case 'noise': {
-      // 低解像度ノイズを拡大(高速化)
-      const nw = Math.max(2, Math.floor(c.width / 4));
-      const nh = Math.max(2, Math.floor(c.height / 4));
-      const nc = document.createElement('canvas');
-      nc.width = nw; nc.height = nh;
-      const nctx = nc.getContext('2d');
-      const img = nctx.createImageData(nw, nh);
-      const fg = hexToRgb(panel.color), bg = hexToRgb(panel.bg);
-      for (let i = 0; i < img.data.length; i += 4) {
-        const t = rng();
-        img.data[i]   = t > 0.5 ? fg.r : bg.r;
-        img.data[i+1] = t > 0.5 ? fg.g : bg.g;
-        img.data[i+2] = t > 0.5 ? fg.b : bg.b;
-        img.data[i+3] = 255;
-      }
-      nctx.putImageData(img, 0, 0);
-      ctx.imageSmoothingEnabled = false;
-      ctx.drawImage(nc, 0, 0, c.width, c.height);
-      break;
-    }
-    case 'blocks': {
-      const cols = 4 + Math.floor(rng() * 8);
-      const rows = 4 + Math.floor(rng() * 8);
-      const cw = c.width / cols, ch = c.height / rows;
-      for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) {
-        ctx.fillStyle = rng() > 0.5 ? panel.color : panel.bg;
-        ctx.fillRect(x * cw, y * ch, cw + 1, ch + 1);
-      }
-      break;
-    }
-    case 'glitch': {
-      ctx.fillStyle = panel.color;
-      ctx.fillRect(0, 0, c.width, c.height);
-      const lines = 6 + Math.floor(rng() * 10);
-      for (let i = 0; i < lines; i++) {
-        ctx.fillStyle = rng() > 0.5 ? panel.bg : '#ffffff';
-        ctx.fillRect(0, rng() * c.height, c.width, 1 + rng() * 4);
-      }
-      for (let i = 0; i < 3; i++) {
-        ctx.fillStyle = ['#ff0044', '#00ff88', '#0088ff'][i];
-        ctx.fillRect(rng() * c.width, 0, 2, c.height);
-      }
-      break;
-    }
-    case 'solid': {
-      ctx.fillStyle = panel.color;
-      ctx.fillRect(0, 0, c.width, c.height);
-      break;
-    }
-    case 'gradient': {
-      const g = ctx.createLinearGradient(0, 0, c.width, c.height);
-      g.addColorStop(0, panel.color);
-      g.addColorStop(1, panel.bg);
-      ctx.fillStyle = g;
-      ctx.fillRect(0, 0, c.width, c.height);
-      break;
-    }
-  }
-  if (panelCache.size > 200) {
-    panelCache.delete(panelCache.keys().next().value);
-  }
-  panelCache.set(key, c);
-  return c;
-}
-
-// カメラパネルはライブ描画(キャッシュしない)
-function drawCameraPanel(panel, w, h) {
-  const sx = panel.cropX * camCanvas.width;
-  const sy = panel.cropY * camCanvas.height;
-  const sw = Math.min(panel.cropW * camCanvas.width, camCanvas.width - sx);
-  const sh = Math.min(panel.cropH * camCanvas.height, camCanvas.height - sy);
-  pCtx.drawImage(camCanvas, sx, sy, sw, sh, -w/2, -h/2, w, h);
-  // カラー被せ(パレット色でティント)
-  if (panel.tint < 0.4) {
-    pCtx.globalCompositeOperation = 'overlay';
-    pCtx.fillStyle = panel.color;
-    pCtx.globalAlpha *= 0.5;
-    pCtx.fillRect(-w/2, -h/2, w, h);
-    pCtx.globalCompositeOperation = 'source-over';
-  } else if (panel.tint < 0.6) {
-    // スキャンライン
-    pCtx.fillStyle = 'rgba(0,0,0,0.35)';
-    for (let y = -h/2; y < h/2; y += 4) pCtx.fillRect(-w/2, y, w, 1.5);
-  } else if (panel.tint < 0.75) {
-    pCtx.globalCompositeOperation = 'difference';
-    pCtx.fillStyle = panel.color;
-    pCtx.fillRect(-w/2, -h/2, w, h);
-    pCtx.globalCompositeOperation = 'source-over';
-  }
-}
-
-function hexToRgb(h) {
-  const m = h.replace('#','');
-  return { r: parseInt(m.substring(0,2),16), g: parseInt(m.substring(2,4),16), b: parseInt(m.substring(4,6),16) };
-}
-function mulberry32(a) {
-  return function() {
-    var t = a += 0x6D2B79F5;
-    t = Math.imul(t ^ t >>> 15, t | 1);
-    t ^= t + Math.imul(t ^ t >>> 7, t | 61);
-    return ((t ^ t >>> 14) >>> 0) / 4294967296;
-  };
-}
-// 最短角度lerp
-function lerpAngle(a, b, t) {
-  let d = b - a;
-  while (d > Math.PI) d -= Math.PI * 2;
-  while (d < -Math.PI) d += Math.PI * 2;
-  return a + d * t;
-}
-
-// ============================================================
-// 状態
-// ============================================================
-let leftHand = null, rightHand = null;
-let lastSpawn = 0;
-
 const LAYOUTS = ['LINE', 'STACK3D', 'COLUMN', 'CROSS', 'RING'];
-const LAYOUT_NAMES = {
-  LINE: '▦ 横一列', STACK3D: '🎴 3Dスタック', COLUMN: '┃ 縦一列',
-  CROSS: '✕ クロス', RING: '◯ 円環'
-};
-let currentLayout = 0;
-let prevLayout = 0;
-let layoutTransition = 1;
-
-let palmL = true, palmR = true;
-let prevPalmL = true, prevPalmR = true;
-let flipCooldown = 0;
-
-// フリップバースト(画面グリッチ) 0〜1
-let burstT = 0;
-
-// パーティクル
+const LAYOUT_JA = { LINE:'横一列', STACK3D:'3D スタック', COLUMN:'縦一列', CROSS:'クロス', RING:'円環' };
+const panels = [], MAX_PANELS = 26;
+let prevLayout = 0, layoutT = 1, burst = 0;
 const particles = [];
 
-function isPalmFacing(landmarks, handednessLabel) {
-  const p0 = landmarks[0], p5 = landmarks[5], p17 = landmarks[17];
-  const cross = (p5.x - p0.x) * (p17.y - p0.y) - (p5.y - p0.y) * (p17.x - p0.x);
-  if (handednessLabel === 'Right') return cross < 0;
-  return cross > 0;
+function mulberry32(a){ return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+function makeTex(p){
+  const c = document.createElement('canvas'); c.width = 128; c.height = 128; const x = c.getContext('2d');
+  const rng = mulberry32(p.seed * 1e4 | 0);
+  x.fillStyle = p.bg; x.fillRect(0, 0, 128, 128);
+  if (p.type === 'stripes'){ const h = 3 + rng() * 10; for (let y = 0; y < 128; y += h){ x.fillStyle = rng() > .5 ? p.color : p.bg; x.fillRect(0, y, 128, h); } }
+  else if (p.type === 'noise'){ for (let y = 0; y < 128; y += 4) for (let i = 0; i < 128; i += 4){ x.fillStyle = rng() > .5 ? p.color : p.bg; x.fillRect(i, y, 4, 4); } }
+  else if (p.type === 'blocks'){ const cl = 4 + (rng() * 8 | 0), rw = 4 + (rng() * 8 | 0);
+    for (let j = 0; j < rw; j++) for (let i = 0; i < cl; i++){ x.fillStyle = rng() > .5 ? p.color : p.bg; x.fillRect(i * 128 / cl, j * 128 / rw, 128 / cl + 1, 128 / rw + 1); } }
+  else if (p.type === 'glitch'){ x.fillStyle = p.color; x.fillRect(0, 0, 128, 128);
+    for (let i = 0, n = 6 + rng() * 10; i < n; i++){ x.fillStyle = rng() > .5 ? p.bg : '#fff'; x.fillRect(0, rng() * 128, 128, 1 + rng() * 4); }
+    ['#ff0044', '#00ff88', '#0088ff'].forEach(cc => { x.fillStyle = cc; x.fillRect(rng() * 128, 0, 2, 128); }); }
+  else if (p.type === 'solid'){ x.fillStyle = p.color; x.fillRect(0, 0, 128, 128); }
+  else if (p.type === 'gradient'){ const g = x.createLinearGradient(0, 0, 128, 128); g.addColorStop(0, p.color); g.addColorStop(1, p.bg); x.fillStyle = g; x.fillRect(0, 0, 128, 128); }
+  return c;
 }
-
-function palmCenter(landmarks) {
-  const idx = [0, 5, 9, 13, 17];
-  let x = 0, y = 0;
-  for (const i of idx) { x += landmarks[i].x; y += landmarks[i].y; }
-  return { x: x / idx.length, y: y / idx.length };
+function makePanel(){
+  const set = SETS[S.set], pal = set.pal[Math.random() * set.pal.length | 0];
+  const p = { type:set.types[Math.random() * set.types.length | 0], color:pal[0], bg:pal[1], seed:Math.random(),
+    rotation:(Math.random() - .5) * .4, aspect:.5 + Math.random() * 1.2, life:1,
+    cropX:Math.random() * .6, cropY:Math.random() * .5, cropW:.25 + Math.random() * .3, cropH:.3 + Math.random() * .35, tint:Math.random(),
+    px:null, py:null, prot:0, pw:0, ph:0, tex:null };
+  if (p.type !== 'camera') p.tex = makeTex(p);
+  STATE.spawned++;
+  return p;
 }
+function pushPanel(){ panels.push(makePanel()); if (panels.length > MAX_PANELS) panels.shift(); }
+function lerpAngle(a, b, t){ let d = b - a; while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2; return a + d * t; }
 
-function spawnParticles(x, y, color, count = 12) {
-  for (let i = 0; i < count; i++) {
-    const a = Math.random() * Math.PI * 2;
-    const v = 2 + Math.random() * 6;
-    particles.push({
-      x, y,
-      vx: Math.cos(a) * v, vy: Math.sin(a) * v - 2,
-      size: 3 + Math.random() * 8,
-      color,
-      rot: Math.random() * Math.PI,
-      vrot: (Math.random() - 0.5) * 0.3,
-      life: 1
-    });
-  }
-}
-
-function onFlip(cx, cy) {
-  currentSet = (currentSet + 1) % PALETTE_SETS.length;
-  prevLayout = currentLayout;
-  currentLayout = (currentLayout + 1) % LAYOUTS.length;
-  layoutTransition = 0;
-  burstT = 1;
-  flipStinger();
-  // パネル一斉追加
-  for (let i = 0; i < 4; i++) {
-    panels.push(makePanel());
-    if (panels.length > MAX_PANELS) panels.shift();
-  }
-  // パーティクル
-  const set = PALETTE_SETS[currentSet];
-  for (let i = 0; i < 3; i++) {
-    const pal = set.palettes[i % set.palettes.length];
-    spawnParticles(cx, cy, pal[0], 8);
-  }
-}
-
-// ============================================================
-// 更新
-// ============================================================
-function update(dt, now) {
-  if (leftHand && rightHand) {
-    const spawnInterval = mode === 1 ? 30 : mode === 2 ? 120 : 55;
-    if (now - lastSpawn > spawnInterval) {
-      lastSpawn = now;
-      panels.push(makePanel());
-      if (panels.length > MAX_PANELS) panels.shift();
-      // 生成音(パンは左右交互っぽく)
-      blip((Math.random() - 0.5) * 1.4);
-    }
-  }
-  if (layoutTransition < 1) layoutTransition = Math.min(1, layoutTransition + dt / 700);
-  if (burstT > 0) burstT = Math.max(0, burstT - dt / 320);
-
-  const decay = (leftHand && rightHand) ? 0.0002 : 0.0012;
-  for (const p of panels) p.life -= dt * decay;
-  for (let i = panels.length - 1; i >= 0; i--) {
-    if (panels[i].life <= 0) panels.splice(i, 1);
-  }
-
-  // パーティクル更新
-  for (const pt of particles) {
-    pt.x += pt.vx; pt.y += pt.vy;
-    pt.vy += 0.25; // 重力
-    pt.rot += pt.vrot;
-    pt.life -= dt / 900;
-  }
-  for (let i = particles.length - 1; i >= 0; i--) {
-    if (particles[i].life <= 0) particles.splice(i, 1);
-  }
-}
-
-// ============================================================
-// レイアウト計算
-// ============================================================
-function computeLayout(layoutName, i, n, p, c) {
+function computeLayout(name, i, n, p, c){
   const { lx, ly, dx, dy, distance, angle, cx, cy, now } = c;
-  const ti = n > 1 ? (i / (n - 1)) : 0.5;
-  const margin = 0.08;
-
-  switch (layoutName) {
-    case 'LINE': {
-      const t = margin + (1 - 2 * margin) * ti;
-      return {
-        x: lx + dx * t, y: ly + dy * t,
-        rot: angle + Math.PI / 2,
-        w: Math.max(6, (distance * (1 - 2 * margin)) / Math.max(n, 1) * 1.05),
-        h: distance * 0.45
-      };
-    }
-    case 'STACK3D': {
-      const t = ti;
-      const scale = 1 - t * 0.55;
-      const drift = Math.sin(angle + Math.PI/2);
-      return {
-        x: lx + dx * t + Math.cos(angle + Math.PI/2) * t * distance * 0.05,
-        y: ly + dy * t + drift * t * distance * 0.045,
-        rot: angle + Math.PI / 2 + (p.seed % 0.3 - 0.15),
-        w: distance * 0.28 * scale * p.aspect,
-        h: distance * 0.42 * scale
-      };
-    }
-    case 'COLUMN': {
-      const total = distance * 1.1;
-      return {
-        x: cx + Math.sin(p.seed * 5 + now * 0.0008) * distance * 0.05,
-        y: cy + (ti - 0.5) * total,
-        rot: angle,
-        w: distance * 0.55,
-        h: Math.max(6, total / Math.max(n, 1) * 1.05)
-      };
-    }
-    case 'CROSS': {
-      const half = Math.max(1, Math.floor(n / 2));
-      if (i % 2 === 0) {
-        const t = margin + (1 - 2 * margin) * ((i / 2) / half);
-        return {
-          x: lx + dx * t, y: ly + dy * t,
-          rot: angle + Math.PI / 2,
-          w: Math.max(6, (distance * 0.85) / half * 1.05),
-          h: distance * 0.4
-        };
-      } else {
-        const t = margin + (1 - 2 * margin) * (((i - 1) / 2) / half);
-        return {
-          x: cx + Math.cos(angle + Math.PI/2) * (t - 0.5) * distance * 0.9,
-          y: cy + Math.sin(angle + Math.PI/2) * (t - 0.5) * distance * 0.9,
-          rot: angle,
-          w: Math.max(6, (distance * 0.85) / half * 1.05),
-          h: distance * 0.4
-        };
-      }
-    }
-    case 'RING': {
-      const radius = distance * 0.45;
-      const theta = angle + Math.PI / 2 + ti * Math.PI * 2 + now * 0.0002; // ゆっくり回る
-      return {
-        x: cx + Math.cos(theta) * radius,
-        y: cy + Math.sin(theta) * radius,
-        rot: theta + Math.PI / 2,
-        w: distance * 0.18 * p.aspect,
-        h: distance * 0.28
-      };
-    }
+  const ti = n > 1 ? i / (n - 1) : .5, m = .08;
+  switch (name){
+    case 'LINE': { const t = m + (1 - 2 * m) * ti;
+      return { x:lx + dx * t, y:ly + dy * t, rot:angle + Math.PI / 2, w:Math.max(6, distance * (1 - 2 * m) / Math.max(n, 1) * 1.05), h:distance * .45 }; }
+    case 'STACK3D': { const sc = 1 - ti * .55;
+      return { x:lx + dx * ti + Math.cos(angle + Math.PI / 2) * ti * distance * .05, y:ly + dy * ti + Math.sin(angle + Math.PI / 2) * ti * distance * .045,
+        rot:angle + Math.PI / 2 + (p.seed * .3 - .15), w:distance * .28 * sc * p.aspect, h:distance * .42 * sc }; }
+    case 'COLUMN': { const tot = distance * 1.1;
+      return { x:cx + Math.sin(p.seed * 50 + now * .0008) * distance * .05, y:cy + (ti - .5) * tot, rot:angle, w:distance * .55, h:Math.max(6, tot / Math.max(n, 1) * 1.05) }; }
+    case 'CROSS': { const half = Math.max(1, n >> 1);
+      if (i % 2 === 0){ const t = m + (1 - 2 * m) * ((i / 2) / half);
+        return { x:lx + dx * t, y:ly + dy * t, rot:angle + Math.PI / 2, w:Math.max(6, distance * .85 / half * 1.05), h:distance * .4 }; }
+      const t = m + (1 - 2 * m) * (((i - 1) / 2) / half);
+      return { x:cx + Math.cos(angle + Math.PI / 2) * (t - .5) * distance * .9, y:cy + Math.sin(angle + Math.PI / 2) * (t - .5) * distance * .9,
+        rot:angle, w:Math.max(6, distance * .85 / half * 1.05), h:distance * .4 }; }
+    case 'RING': { const r = distance * .45, th = angle + Math.PI / 2 + ti * Math.PI * 2 + now * .0002;
+      return { x:cx + Math.cos(th) * r, y:cy + Math.sin(th) * r, rot:th + Math.PI / 2, w:distance * .18 * p.aspect, h:distance * .28 }; }
   }
-  return { x: cx, y: cy, rot: 0, w: 40, h: 60 };
+  return { x:cx, y:cy, rot:0, w:40, h:60 };
 }
 
-// ============================================================
-// 描画
-// ============================================================
-function drawPanels() {
-  // 残像トレイル: 前フレームを少し残す
-  pCtx.save();
-  pCtx.globalCompositeOperation = 'destination-out';
-  pCtx.fillStyle = 'rgba(0,0,0,0.32)';
-  pCtx.fillRect(0, 0, CW, CH);
-  pCtx.restore();
-
-  if (!leftHand || !rightHand) { drawPanels._spreadT = 0; return; }
-
-  const lp = palmCenter(leftHand);
-  const rp = palmCenter(rightHand);
-  const lx = (1 - lp.x) * CW, ly = lp.y * CH;
-  const rx = (1 - rp.x) * CW, ry = rp.y * CH;
-
-  const dx = rx - lx, dy = ry - ly;
-  const distance = Math.hypot(dx, dy);
-  const angle = Math.atan2(dy, dx);
-  const cx = (lx + rx) / 2, cy = (ly + ry) / 2;
-
-  const screenDiag = Math.hypot(CW, CH);
-  const t0 = 0.25, t1 = 0.55;
-  let spreadT = (distance / screenDiag - t0) / (t1 - t0);
-  spreadT = Math.max(0, Math.min(1, spreadT));
-  spreadT = spreadT * spreadT * (3 - 2 * spreadT);
-
-  const now = performance.now();
-  const n = panels.length;
-  const lt = layoutTransition;
-  const layoutBlend = lt * lt * (3 - 2 * lt);
-  const c = { lx, ly, rx, ry, dx, dy, distance, angle, cx, cy, now };
-
-  const layoutName = LAYOUTS[currentLayout];
-  const prevLayoutName = LAYOUTS[prevLayout];
-  const indices = [...Array(n).keys()];
-  if (layoutName === 'STACK3D' || prevLayoutName === 'STACK3D') indices.reverse();
-
-  for (const i of indices) {
-    const p = panels[i];
-
-    // 塊
-    const orbitRadius = distance * 0.18 + 20 + (i % 5) * 8;
-    const orbitSpeed = 0.0006 + (i % 7) * 0.00008;
-    const orbitAngle = p.seed + now * orbitSpeed;
-    const clusterX = cx + Math.cos(orbitAngle) * orbitRadius * Math.cos(i * 0.7);
-    const clusterY = cy + Math.sin(orbitAngle) * orbitRadius * 0.6;
-    const clusterRot = orbitAngle * 0.5 + p.rotation;
-    const clusterW = distance * (0.35 + Math.sin(p.seed * 1.7) * 0.15) * p.aspect;
-    const clusterH = distance * (0.45 + Math.cos(p.seed * 2.3) * 0.15);
-
-    // レイアウト補間
-    const cur  = computeLayout(layoutName, i, n, p, c);
-    const prev = computeLayout(prevLayoutName, i, n, p, c);
-    const layoutX = prev.x * (1 - layoutBlend) + cur.x * layoutBlend;
-    const layoutY = prev.y * (1 - layoutBlend) + cur.y * layoutBlend;
-    const layoutR = lerpAngle(prev.rot, cur.rot, layoutBlend);
-    const layoutW = prev.w * (1 - layoutBlend) + cur.w * layoutBlend;
-    const layoutH = prev.h * (1 - layoutBlend) + cur.h * layoutBlend;
-
-    // 塊⇔展開
-    const tx = clusterX * (1 - spreadT) + layoutX * spreadT;
-    const ty = clusterY * (1 - spreadT) + layoutY * spreadT;
-    const tr = lerpAngle(clusterRot, layoutR, spreadT);
-    const tw = clusterW * (1 - spreadT) + layoutW * spreadT;
-    const th = clusterH * (1 - spreadT) + layoutH * spreadT;
-
-    // スプリング補間(初回は直接)
-    const k = 0.22;
-    if (p.px === null) { p.px = tx; p.py = ty; p.prot = tr; p.pw = tw; p.ph = th; }
-    else {
-      p.px += (tx - p.px) * k;
-      p.py += (ty - p.py) * k;
-      p.prot = lerpAngle(p.prot, tr, k);
-      p.pw += (tw - p.pw) * k;
-      p.ph += (th - p.ph) * k;
-    }
-    const px = p.px, py = p.py, rot = p.prot, w = Math.max(2, p.pw), h = Math.max(2, p.ph);
-
-    pCtx.save();
-    pCtx.translate(px, py);
-    pCtx.rotate(rot);
-    pCtx.globalAlpha = Math.max(0, Math.min(1, p.life));
-
-    // 擬似シャドウ(shadowBlurは使わない)
-    pCtx.fillStyle = 'rgba(0,0,0,0.4)';
-    pCtx.fillRect(-w/2 + 3, -h/2 + 5, w, h);
-
-    if (p.type === 'camera') {
-      drawCameraPanel(p, w, h);
-      pCtx.globalAlpha = Math.max(0, Math.min(1, p.life)); // tintで変わった分を戻す
-    } else {
-      const tex = getPanelTexture(p, w, h);
-      pCtx.drawImage(tex, -w/2, -h/2, w, h);
-    }
-
-    // 白フチ(元動画のカード感)
-    pCtx.strokeStyle = 'rgba(255,255,255,0.9)';
-    pCtx.lineWidth = 1.5;
-    pCtx.strokeRect(-w/2, -h/2, w, h);
-
-    pCtx.restore();
-
-    // RGB splitフラッシュ(グリッチ強モード)
-    if (mode === 1 && Math.random() < 0.12) {
-      pCtx.save();
-      pCtx.globalCompositeOperation = 'screen';
-      pCtx.globalAlpha = 0.3;
-      pCtx.translate(px + (Math.random() - 0.5) * 8, py);
-      pCtx.rotate(rot);
-      pCtx.fillStyle = '#ff0044';
-      pCtx.fillRect(-w/2, -h/2, w, h);
-      pCtx.restore();
-    }
-  }
-
-  // 手と手をつなぐ白い線(二重ストロークで柔らかい発光感)
-  pCtx.save();
-  pCtx.strokeStyle = 'rgba(255,255,255,0.25)';
-  pCtx.lineWidth = 4;
-  pCtx.beginPath(); pCtx.moveTo(lx, ly); pCtx.lineTo(rx, ry); pCtx.stroke();
-  pCtx.strokeStyle = 'rgba(255,255,255,0.9)';
-  pCtx.lineWidth = 1.2;
-  pCtx.beginPath(); pCtx.moveTo(lx, ly); pCtx.lineTo(rx, ry); pCtx.stroke();
-  // 端点に白い玉
-  for (const [x, y] of [[lx, ly], [rx, ry]]) {
-    pCtx.fillStyle = '#fff';
-    pCtx.beginPath(); pCtx.arc(x, y, 5, 0, Math.PI * 2); pCtx.fill();
-  }
-  pCtx.restore();
-
-  // フリップバースト: パネルキャンバス自体をスライスずらし + RGB分裂
-  if (burstT > 0) {
-    const b = burstT;
-    pCtx.save();
-    // スライスずらし(自分自身をずらしコピー)
-    const slices = 6;
-    for (let s = 0; s < slices; s++) {
-      if (Math.random() > b) continue;
-      const sy = Math.random() * CH;
-      const sh = 20 + Math.random() * 60;
-      const off = (Math.random() - 0.5) * 60 * b;
-      pCtx.drawImage(panelsCanvas,
-        0, sy * (panelsCanvas.height / CH), panelsCanvas.width, sh * (panelsCanvas.height / CH),
-        off, sy, CW, sh);
-    }
-    // RGBフリンジ
-    pCtx.globalCompositeOperation = 'screen';
-    pCtx.globalAlpha = 0.25 * b;
-    pCtx.fillStyle = '#ff0033';
-    pCtx.fillRect(-8 * b, 0, CW, CH);
-    pCtx.fillStyle = '#0033ff';
-    pCtx.fillRect(8 * b, 0, CW, CH);
-    pCtx.restore();
-  }
-
-  drawPanels._spreadT = spreadT;
-}
-
-function drawHandOverlay() {
-  oCtx.clearRect(0, 0, CW, CH);
-
-  for (const hand of [leftHand, rightHand]) {
-    if (!hand) continue;
-    oCtx.strokeStyle = '#00ff66';
-    oCtx.lineWidth = 2;
-    oCtx.beginPath();
-    for (const [a, b] of HAND_CONNECTIONS) {
-      const pa = hand[a], pb = hand[b];
-      oCtx.moveTo((1 - pa.x) * CW, pa.y * CH);
-      oCtx.lineTo((1 - pb.x) * CW, pb.y * CH);
-    }
-    oCtx.stroke();
-    oCtx.fillStyle = '#ff2244';
-    for (const lm of hand) {
-      oCtx.beginPath();
-      oCtx.arc((1 - lm.x) * CW, lm.y * CH, 3.5, 0, Math.PI * 2);
-      oCtx.fill();
-    }
-  }
-
-  // パーティクル
-  for (const pt of particles) {
-    oCtx.save();
-    oCtx.translate(pt.x, pt.y);
-    oCtx.rotate(pt.rot);
-    oCtx.globalAlpha = Math.max(0, pt.life);
-    oCtx.fillStyle = pt.color;
-    oCtx.fillRect(-pt.size/2, -pt.size/2, pt.size, pt.size);
-    oCtx.restore();
+/* ---------- hands ---------- */
+let hands = null, HANDS_EXTERNAL = false, lastTs = 0, lastVT = -1;
+let HANDS = [], handsT = -1e9;            // up to two valid hands, sorted left→right on screen: { lm, palm:[x,y] }
+async function initModels(){
+  try{
+    const vision = await import(VISION_URL);
+    const fs = await vision.FilesetResolver.forVisionTasks(WASM_URL);
+    const ho = d => ({ baseOptions:{ modelAssetPath:HAND_MODEL, delegate:d }, runningMode:'VIDEO', numHands:2,
+      minHandDetectionConfidence:.5, minHandPresenceConfidence:.5, minTrackingConfidence:.5 });
+    try { hands = await vision.HandLandmarker.createFromOptions(fs, ho('GPU')); } catch(e){ hands = await vision.HandLandmarker.createFromOptions(fs, ho('CPU')); }
+    setStatus('');
+  }catch(e){
+    if (HANDS_EXTERNAL) return;
+    setStatus('手の検出モデルを読み込めませんでした（ネット接続を確認）。\n幻の両手とボタン・タップで遊べます。');
   }
 }
-
-// ============================================================
-// メインループ
-// ============================================================
-let lastTime = 0;
-async function loop() {
-  if (!running) return;
-  const now = performance.now();
-  const dt = Math.min(50, now - lastTime);
-  lastTime = now;
-
-  grabCamera(now);
-
-  if (video.readyState >= 2 && handLandmarker) {
-    const res = handLandmarker.detectForVideo(video, now);
-    leftHand = null; rightHand = null;
-    let leftHd = null, rightHd = null;
-    if (res.landmarks && res.landmarks.length > 0) {
-      for (let i = 0; i < res.landmarks.length; i++) {
-        const lm = res.landmarks[i];
-        const hd = res.handedness?.[i]?.[0]?.categoryName;
-        if (hd === 'Left') { rightHand = lm; rightHd = hd; }
-        else if (hd === 'Right') { leftHand = lm; leftHd = hd; }
-        else if (!leftHand) { leftHand = lm; leftHd = hd; }
-        else { rightHand = lm; rightHd = hd; }
-      }
-    }
-
-    if (flipCooldown > 0) flipCooldown -= dt;
-    let flipped = false;
-    let flipX = CW / 2, flipY = CH / 2;
-    if (leftHand && leftHd) {
-      const p = isPalmFacing(leftHand, leftHd);
-      if (p !== prevPalmL && flipCooldown <= 0) {
-        flipped = true;
-        const pc = palmCenter(leftHand);
-        flipX = (1 - pc.x) * CW; flipY = pc.y * CH;
-      }
-      prevPalmL = p; palmL = p;
-    }
-    if (rightHand && rightHd) {
-      const p = isPalmFacing(rightHand, rightHd);
-      if (p !== prevPalmR && flipCooldown <= 0) {
-        flipped = true;
-        const pc = palmCenter(rightHand);
-        flipX = (1 - pc.x) * CW; flipY = pc.y * CH;
-      }
-      prevPalmR = p; palmR = p;
-    }
-    if (flipped) {
-      onFlip(flipX, flipY);
-      flipCooldown = 400;
-    }
+function detect(now){
+  if (!hands || HANDS_EXTERNAL || video.readyState < 2) return;
+  const vt = video.currentTime; if (vt === lastVT) return; lastVT = vt;
+  const ts = Math.max(lastTs + 1, Math.round(now)); lastTs = ts;
+  try{ const r = hands.detectForVideo(video, ts); ingestHands(r && r.landmarks ? r.landmarks : [], now); }catch(e){}
+}
+const WAVE = { xs:[], ts:[], lastObs:0, closedSince:0, cool:0, open:0, openS:0, count:0, seen:false, isOpen:false };
+const WAVE_WIN = 2000, WAVE_GAP = 600, WAVE_CLOSED = 400;
+const FLIP = { side:0, cand:0, candT:0, cool:0, flashT:0 };
+const FLIP_ON = .3, FLIP_HOLD = 140, FLIP_COOL = 800;
+function flipStep(best, now){
+  const cand = best.side > FLIP_ON ? 1 : best.side < -FLIP_ON ? -1 : 0;     // edge-on hands count as neither
+  if (!cand) return;
+  if (cand !== FLIP.cand){ FLIP.cand = cand; FLIP.candT = now; }
+  if (cand === FLIP.side || now - FLIP.candT < FLIP_HOLD) return;
+  const had = FLIP.side; FLIP.side = cand;
+  if (had && now > FLIP.cool && S.flip && started && WAVE.openS > 1.05){
+    FLIP.cool = now + FLIP_COOL; FLIP.flashT = now; STATE.flips++;
+    resetWave(); WAVE.cool = Math.max(WAVE.cool, now + 700);              // a flip is not the start of a wave
+    if (MODE.on) onFlip(best.scr[0], best.scr[1]);
   }
-
-  update(dt, now);
-  drawPanels();
-  drawHandOverlay();
-
-  // 演出: 両手検出時はビネット + 映像を落ち着かせてパネルを主役に
-  const bothHands = !!(leftHand && rightHand);
-  vignette.classList.toggle('active', bothHands);
-  updateVideoFilter(bothHands);
-
-  if (bothHands) {
-    const lSym = palmL ? '✋' : '🤚';
-    const rSym = palmR ? '✋' : '🤚';
-    const sT = drawPanels._spreadT || 0;
-    let phaseLabel;
-    if (sT < 0.2) phaseLabel = '🌀 集合';
-    else if (sT < 0.8) phaseLabel = '✨ 展開中';
-    else phaseLabel = LAYOUT_NAMES[LAYOUTS[currentLayout]];
-    infoEl.textContent = `${lSym}${rSym} ${phaseLabel} [${PALETTE_SETS[currentSet].name}] パネル${panels.length}`;
-  } else if (leftHand || rightHand) {
-    infoEl.textContent = '片手検出中 - もう片方の手も';
-  } else {
-    infoEl.textContent = '手をかざしてください — クルッと返すとレイアウト+色切替';
+}
+function palmOf(lm){
+  if (!Array.isArray(lm) || lm.length < 21) return null;
+  for (let i = 0; i < 21; i++){ const p = lm[i]; if (!p || !Number.isFinite(p.x) || !Number.isFinite(p.y)) return null; }
+  const ar = vidW / vidH;
+  const P = i => [lm[i].x * ar, lm[i].y];
+  const w = P(0), m = P(9);
+  const size = Math.hypot(m[0] - w[0], m[1] - w[1]);
+  if (!(size > .02)) return null;
+  let ext = 0; for (const i of [8, 12, 16, 20]){ const p = P(i); ext += Math.hypot(p[0] - w[0], p[1] - w[1]); }
+  const cx = (P(0)[0] + P(5)[0] + P(9)[0] + P(17)[0]) / 4;
+  // which face of the hand is towards the camera: the turn from index base to pinky base, seen from the wrist
+  const a1 = P(5), a2 = P(17), v1x = a1[0] - w[0], v1y = a1[1] - w[1], v2x = a2[0] - w[0], v2y = a2[1] - w[1];
+  const den = Math.hypot(v1x, v1y) * Math.hypot(v2x, v2y);
+  const side = den > 1e-9 ? (v1x * v2y - v1y * v2x) / den : 0;
+  let sx = 0, sy = 0; for (const i of [0, 5, 9, 13, 17]){ sx += lm[i].x; sy += lm[i].y; }
+  return { x:cx, open:ext / 4 / size, size, side, lm, palmN:{ x:sx / 5, y:sy / 5 } };
+}
+function resetWave(){ WAVE.xs.length = 0; WAVE.ts.length = 0; WAVE.count = 0; }
+function countTurns(xs, thr){
+  let lo = xs[0], hi = xs[0], dir = 0, ext = xs[0], rev = 0;
+  for (let i = 1; i < xs.length; i++){
+    const x = xs[i];
+    if (dir === 0){ lo = Math.min(lo, x); hi = Math.max(hi, x);
+      if (x - lo > thr){ dir = 1; ext = x; } else if (hi - x > thr){ dir = -1; ext = x; } }
+    else if (dir === 1){ if (x > ext) ext = x; else if (ext - x > thr){ dir = -1; ext = x; rev++; } }
+    else { if (x < ext) ext = x; else if (x - ext > thr){ dir = 1; ext = x; rev++; } }
   }
+  return rev;
+}
+function ingestHands(list, now){
+  now = now == null ? performance.now() : now;
+  if (!Array.isArray(list)) return false;
+  const valid = [];
+  for (const lm of list){ const p = palmOf(lm); if (p) valid.push(p); }
+  valid.sort((a, b) => b.size - a.size); valid.length = Math.min(valid.length, 2);
+  for (const p of valid) p.scr = toScr(p.palmN);
+  HANDS = valid.slice().sort((a, b) => a.scr[0] - b.scr[0]).map(p => ({ lm:p.lm, palm:p.scr }));
+  if (valid.length) handsT = now;
+  const best = valid[0];
+  if (!best){
+    if (now - WAVE.lastObs > WAVE_GAP){ resetWave(); WAVE.seen = false; WAVE.isOpen = false; FLIP.side = FLIP.cand = 0; }
+    return false;
+  }
+  if (now - WAVE.lastObs > WAVE_GAP){ resetWave(); WAVE.openS = best.open; FLIP.side = FLIP.cand = 0; }   // tracking was lost: start over
+  WAVE.lastObs = now; WAVE.seen = true; WAVE.open = best.open;
+  WAVE.openS += (best.open - WAVE.openS) * .5;
+  WAVE.isOpen = WAVE.isOpen ? WAVE.openS > 1.15 : WAVE.openS > 1.3;
+  flipStep(best, now);
+  // with both hands up the hands are playing with the cards; spreading them apart is not a wave
+  if (!WAVE.isOpen || valid.length > 1){
+    if (!WAVE.closedSince) WAVE.closedSince = now;
+    if (valid.length > 1 || now - WAVE.closedSince > WAVE_CLOSED) resetWave();
+    return true;
+  }
+  WAVE.closedSince = 0;
+  WAVE.xs.push(best.x); WAVE.ts.push(now);
+  while (WAVE.ts.length && now - WAVE.ts[0] > WAVE_WIN){ WAVE.ts.shift(); WAVE.xs.shift(); }
+  WAVE.count = countTurns(WAVE.xs, Math.max(.025, best.size * .45));
+  if (WAVE.count >= 2 && now > WAVE.cool && S.wave && started){
+    WAVE.cool = now + 1400; resetWave(); STATE.waves++; FLIP.cool = Math.max(FLIP.cool, now + 700);
+    setMode(!MODE.on);
+  }
+  return true;
+}
+function drawHandBadge(now){
+  const el = $('hand');
+  const seen = WAVE.seen && now - WAVE.lastObs < WAVE_GAP;
+  el.className = !hands && !HANDS_EXTERNAL ? 'off' : seen ? (WAVE.isOpen ? 'open' : 'seen') : '';
+  el.dataset.n = seen && WAVE.isOpen ? Math.min(2, WAVE.count) : 0;
+  el.classList.toggle('flip', now - FLIP.flashT < 500);
+}
 
+/* ---------- switching ---------- */
+const MODE = { on:false, X:0 };
+function setMode(on){
+  if (on === MODE.on) return;
+  MODE.on = on;
+  $('mode').textContent = on ? '◂ カメラ' : '▸ GLITCH';
+  $('info').classList.toggle('show', on);
+  sweepSnd(on);
+  if (on){ burst = 1; showLabel(); }
+}
+function showLabel(){
+  const l = $('label'); l.innerHTML = '';
+  l.append(LAYOUT_JA[LAYOUTS[S.layout]]);
+  const sm = document.createElement('small'); sm.textContent = LAYOUTS[S.layout] + ' · ' + SETS[S.set].name; l.append(sm);
+  l.classList.remove('on'); void l.offsetWidth; l.classList.add('on');
+}
+function setLayout(i){ prevLayout = S.layout; S.layout = ((i % LAYOUTS.length) + LAYOUTS.length) % LAYOUTS.length; layoutT = 0; }
+function setSet(i){ S.set = ((i % SETS.length) + SETS.length) % SETS.length; $('sSet').value = S.set; }
+function spawnParticles(x, y, color, n){
+  const u = canvas.width / innerWidth;
+  for (let i = 0; i < n; i++){ const a = Math.random() * Math.PI * 2, v = (2 + Math.random() * 6) * u;
+    particles.push({ x, y, vx:Math.cos(a) * v, vy:Math.sin(a) * v - 2 * u, size:(3 + Math.random() * 8) * u, color, rot:Math.random() * 3, vrot:(Math.random() - .5) * .3, life:1 }); }
+  if (particles.length > 300) particles.splice(0, particles.length - 300);
+}
+function onFlip(x, y){
+  setSet(S.set + 1); setLayout(S.layout + 1);
+  burst = 1; stinger();
+  for (let i = 0; i < 4; i++) pushPanel();
+  const set = SETS[S.set];
+  for (let i = 0; i < 3; i++) spawnParticles(x, y, set.pal[i % set.pal.length][0], 8);
+  showLabel();
+}
+function randomize(){
+  let L = S.layout; while (L === S.layout) L = Math.random() * LAYOUTS.length | 0;
+  setSet(Math.random() * SETS.length | 0); setLayout(L);
+  S.col = Math.random() < .5 ? 0 : 1 + (Math.random() * 2 | 0); $('sCol').value = S.col;
+  S.k = +(.2 + Math.random() * .8).toFixed(2); $('sK').value = S.k;
+  panels.length = 0; for (let i = 0; i < 10; i++) pushPanel();
+  burst = 1; stinger(); STATE.randoms++;
+  spawnParticles(canvas.width / 2, canvas.height / 2, SETS[S.set].pal[0][0], 20);
+  showLabel();
+}
+
+/* ---------- start, buttons ---------- */
+SETS.forEach((s, i) => { const o = document.createElement('option'); o.value = i; o.textContent = s.name; $('sSet').appendChild(o); });
+$('go').onclick = async () => {
+  $('err').textContent = '';
+  ensureAudio();
+  try{ await startCam(); }catch(e){ camError(e); return; }
+  $('start').style.display = 'none';
+  ['gear','flip','bar','rec','rand','shoot','lay','mode'].forEach(id => $(id).classList.add('show'));
+  if (!started){ started = true; initModels(); requestAnimationFrame(loop); }
+};
+$('flip').onclick = async () => {
+  const prev = facing; facing = facing === 'user' ? 'environment' : 'user';
+  try { await startCam(); } catch(e){ facing = prev; camError(e); }
+};
+$('gear').onclick = () => $('panel').classList.toggle('hide');
+$('sK').oninput = e => { S.k = +e.target.value; };
+$('sCol').onchange = e => { S.col = +e.target.value; };
+$('sSet').onchange = e => { S.set = +e.target.value; burst = .6; };
+$('sSnd').onchange = e => { S.snd = e.target.checked; };
+$('sWave').onchange = e => { S.wave = e.target.checked; };
+$('sFlip').onchange = e => { S.flip = e.target.checked; };
+$('sGhost').onchange = e => { S.ghost = e.target.checked; };
+$('clear').onclick = () => { panels.length = 0; particles.length = 0; pctx.clearRect(0, 0, pc.width, pc.height); };
+$('mode').onclick = () => setMode(!MODE.on);
+$('rand').onclick = () => { randomize(); if (!MODE.on) setMode(true); };
+$('lay').onclick = () => { setLayout(S.layout + 1); burst = .5; showLabel(); if (!MODE.on) setMode(true); };
+$('shoot').onclick = () => {
+  try{ canvas.toBlob(b => { if (!b) return; const a = document.createElement('a'); a.href = URL.createObjectURL(b);
+    a.download = 'hand-glitch-' + Date.now() + '.png'; a.click(); }, 'image/png'); }
+  catch(e){ setStatus('保存できませんでした。'); }
+};
+let rec = null, chunks = [];
+$('rec').onclick = () => {
+  if (rec && rec.state === 'recording'){ rec.stop(); return; }
+  try{
+    ensureAudio();
+    const tracks = [...canvas.captureStream(30).getVideoTracks()];
+    if (recDest) tracks.push(...recDest.stream.getAudioTracks());
+    const mime = ['video/mp4;codecs=avc1','video/webm;codecs=vp9,opus','video/webm'].find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || '';
+    rec = new MediaRecorder(new MediaStream(tracks), mime ? { mimeType:mime } : {});
+    chunks = [];
+    rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+    rec.onstop = () => {
+      $('rec').classList.remove('on'); $('rec').textContent = '● REC';
+      const ext = (rec.mimeType || '').includes('mp4') ? 'mp4' : 'webm';
+      const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(chunks, { type:rec.mimeType || 'video/webm' }));
+      a.download = 'hand-glitch.' + ext; a.click();
+    };
+    rec.start(); $('rec').classList.add('on'); $('rec').textContent = '■ STOP';
+  }catch(e){ setStatus('録画を開始できませんでした。'); }
+};
+addEventListener('keydown', e => {
+  if (!started || /INPUT|SELECT/.test(document.activeElement.tagName)) return;
+  if (e.key === ' ' || e.key === 'Enter'){ e.preventDefault(); setMode(!MODE.on); }
+  if (e.key === 'ArrowRight' && MODE.on) onFlip(canvas.width / 2, canvas.height / 2);
+});
+canvas.addEventListener('pointerdown', e => {
+  if (!started || !MODE.on) return;
+  const u = canvas.width / innerWidth; onFlip(e.clientX * u, e.clientY * u);
+});
+
+/* ---------- render ---------- */
+const EA = { x:0, y:0, init:false }, EB = { x:0, y:0 };   // the two ends the cards hang between (smoothed)
+let lastT = 0, lastSpawn = 0, ghostFlip = 0, spreadT = 0, pairOn = false, ghostOn = false;
+function loop(now){
   requestAnimationFrame(loop);
+  const dtms = lastT ? Math.min(100, now - lastT) : 16; lastT = now; const dt = dtms / 1000;
+  if (video.videoWidth && (video.videoWidth !== vidW || video.videoHeight !== vidH)){ vidW = video.videoWidth; vidH = video.videoHeight; }
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  let W = Math.round(innerWidth * dpr), H = Math.round(innerHeight * dpr);
+  const kk = Math.min(1, 1500 / Math.max(W, H)); W = Math.round(W * kk); H = Math.round(H * kk);
+  if (canvas.width !== W || canvas.height !== H){ canvas.width = W; canvas.height = H; pc.width = W; pc.height = H; EA.init = false; }
+  const u = W / innerWidth;
+  fitCover(W, H);
+  detect(now);
+  if (now - handsT > 300) HANDS = [];
+  drawHandBadge(now);
+  if (video.readyState < 2) return;
+  STATE.frames++;
+  grab(now);
+  MODE.X = MODE.on ? Math.min(1, MODE.X + dt / .6) : Math.max(0, MODE.X - dt / .45);
+  burst = Math.max(0, burst - dt / .32);
+  layoutT = Math.min(1, layoutT + dt / .7);
+
+  // the two ends: real hands, or a pair of ghost hands breathing in the middle when none are seen
+  const diag = Math.hypot(W, H);
+  let ax, ay, bx, by;
+  const two = HANDS.length === 2;
+  ghostOn = !two && !HANDS.length && S.ghost && now - handsT > 1200;
+  if (two){ [ax, ay] = HANDS[0].palm; [bx, by] = HANDS[1].palm; }
+  else if (ghostOn){
+    const t = now / 1000, r = diag * (.16 + .13 * (.5 + .5 * Math.sin(t * .9))), a = Math.sin(t * .23) * .5;
+    ax = W / 2 - Math.cos(a) * r; ay = H * .46 - Math.sin(a) * r; bx = W / 2 + Math.cos(a) * r; by = H * .46 + Math.sin(a) * r;
+    if (MODE.on && now > ghostFlip){ if (ghostFlip) onFlip(W / 2, H * .46); ghostFlip = now + 7000; }
+  }
+  pairOn = two || ghostOn;
+  if (pairOn){
+    if (!EA.init){ EA.x = ax; EA.y = ay; EB.x = bx; EB.y = by; EA.init = true; }
+    const kf = 1 - Math.pow(two ? .02 : .2, dt);
+    EA.x += (ax - EA.x) * kf; EA.y += (ay - EA.y) * kf; EB.x += (bx - EB.x) * kf; EB.y += (by - EB.y) * kf;
+  }
+  if (!ghostOn) ghostFlip = 0;
+
+  // cards are born only while a pair is up; without one they fade fast
+  if (MODE.on && pairOn && now - lastSpawn > 140 - 110 * S.k){ lastSpawn = now; pushPanel(); blip((Math.random() - .5) * 1.4); }
+  const decay = pairOn ? .2 : 1.2;
+  for (const p of panels) p.life -= dt * decay;
+  for (let i = panels.length - 1; i >= 0; i--) if (panels[i].life <= 0) panels.splice(i, 1);
+  for (const q of particles){ q.x += q.vx * dt * 60; q.y += q.vy * dt * 60; q.vy += .25 * u * dt * 60; q.rot += q.vrot; q.life -= dt / .9; }
+  for (let i = particles.length - 1; i >= 0; i--) if (particles[i].life <= 0) particles.splice(i, 1);
+
+  if (MODE.X > 0) drawCards(now, W, H, u, diag);
+
+  // compose: camera → (inside the sweep) grade + cards + skeleton
+  drawCam(ctx, W, H);
+  if (MODE.X > 0){
+    const edge = MODE.X * W;
+    ctx.save();
+    if (MODE.X < 1){ ctx.beginPath(); ctx.rect(0, 0, edge, H); ctx.clip(); }
+    grade(ctx, W, H);
+    ctx.drawImage(pc, 0, 0);
+    drawSkeleton(ctx, u);
+    ctx.restore();
+    if (MODE.X < 1) sweepEdge(ctx, edge, W, H, u);
+    if (burst > 0) glitchAll(ctx, W, H, u, burst);
+  }
+  updateInfo();
+}
+function grade(c, W, H){
+  if (S.col >= 1){ c.globalCompositeOperation = 'saturation'; c.fillStyle = '#808080'; c.fillRect(0, 0, W, H); }
+  if (S.col === 2){ c.globalCompositeOperation = 'color'; c.globalAlpha = .75; c.fillStyle = '#a8763e'; c.fillRect(0, 0, W, H); c.globalAlpha = 1; }
+  c.globalCompositeOperation = 'source-over';
+  // settle the picture so the cards lead; heavier while a pair is up
+  c.fillStyle = 'rgba(0,0,0,' + (pairOn ? .26 : .12) + ')'; c.fillRect(0, 0, W, H);
+  const g = c.createRadialGradient(W / 2, H / 2, Math.min(W, H) * .3, W / 2, H / 2, Math.hypot(W, H) * .6);
+  g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(1, 'rgba(0,0,0,.6)'); c.fillStyle = g; c.fillRect(0, 0, W, H);
+}
+function drawCards(now, W, H, u, diag){
+  const c = pctx;
+  c.save(); c.globalCompositeOperation = 'destination-out';
+  c.fillStyle = 'rgba(0,0,0,' + (1 - Math.pow(.68, Math.min(6, (now - (drawCards.t || now)) / 16.7 || 1))) + ')';
+  c.fillRect(0, 0, W, H); c.restore(); drawCards.t = now;
+  if (!pairOn){ spreadT = 0; return; }
+  const lx = EA.x, ly = EA.y, rx = EB.x, ry = EB.y, dx = rx - lx, dy = ry - ly;
+  const distance = Math.max(1, Math.hypot(dx, dy)), angle = Math.atan2(dy, dx), cx = (lx + rx) / 2, cy = (ly + ry) / 2;
+  let st = (distance / diag - .25) / .3; st = Math.max(0, Math.min(1, st)); spreadT = st * st * (3 - 2 * st);
+  const n = panels.length, lb = layoutT * layoutT * (3 - 2 * layoutT);
+  const cc = { lx, ly, dx, dy, distance, angle, cx, cy, now };
+  const name = LAYOUTS[S.layout], pname = LAYOUTS[prevLayout];
+  const idx = [...Array(n).keys()]; if (name === 'STACK3D' || pname === 'STACK3D') idx.reverse();
+  const rgbP = .03 + .25 * S.k;
+  for (const i of idx){
+    const p = panels[i];
+    const orR = distance * .18 + (20 + (i % 5) * 8) * u, orA = p.seed * 6.283 + now * (.0006 + (i % 7) * .00008);
+    const clX = cx + Math.cos(orA) * orR * Math.cos(i * .7), clY = cy + Math.sin(orA) * orR * .6, clR = orA * .5 + p.rotation;
+    const clW = distance * (.35 + Math.sin(p.seed * 17) * .15) * p.aspect, clH = distance * (.45 + Math.cos(p.seed * 23) * .15);
+    const a = computeLayout(name, i, n, p, cc), b = computeLayout(pname, i, n, p, cc);
+    const LX = b.x + (a.x - b.x) * lb, LY = b.y + (a.y - b.y) * lb, LR = lerpAngle(b.rot, a.rot, lb), LW = b.w + (a.w - b.w) * lb, LH = b.h + (a.h - b.h) * lb;
+    const tx = clX + (LX - clX) * spreadT, ty = clY + (LY - clY) * spreadT, tr = lerpAngle(clR, LR, spreadT);
+    const tw = clW + (LW - clW) * spreadT, th = clH + (LH - clH) * spreadT;
+    if (p.px === null){ p.px = tx; p.py = ty; p.prot = tr; p.pw = tw; p.ph = th; }
+    else { const k = .22; p.px += (tx - p.px) * k; p.py += (ty - p.py) * k; p.prot = lerpAngle(p.prot, tr, k); p.pw += (tw - p.pw) * k; p.ph += (th - p.ph) * k; }
+    const w = Math.max(2, p.pw), h = Math.max(2, p.ph), al = Math.max(0, Math.min(1, p.life));
+    c.save(); c.translate(p.px, p.py); c.rotate(p.prot); c.globalAlpha = al;
+    c.fillStyle = 'rgba(0,0,0,.4)'; c.fillRect(-w / 2 + 3 * u, -h / 2 + 5 * u, w, h);
+    if (p.type === 'camera'){
+      const sx = p.cropX * camC.width, sy = p.cropY * camC.height;
+      const sw = Math.min(p.cropW * camC.width, camC.width - sx), sh = Math.min(p.cropH * camC.height, camC.height - sy);
+      c.drawImage(camC, sx, sy, sw, sh, -w / 2, -h / 2, w, h);
+      if (p.tint < .4){ c.globalCompositeOperation = 'overlay'; c.globalAlpha = al * .5; c.fillStyle = p.color; c.fillRect(-w / 2, -h / 2, w, h); }
+      else if (p.tint < .6){ c.fillStyle = 'rgba(0,0,0,.35)'; for (let y = -h / 2; y < h / 2; y += 4 * u) c.fillRect(-w / 2, y, w, 1.5 * u); }
+      else if (p.tint < .75){ c.globalCompositeOperation = 'difference'; c.fillStyle = p.color; c.fillRect(-w / 2, -h / 2, w, h); }
+      c.globalCompositeOperation = 'source-over'; c.globalAlpha = al;
+    } else c.drawImage(p.tex, -w / 2, -h / 2, w, h);
+    c.strokeStyle = 'rgba(255,255,255,.9)'; c.lineWidth = 1.5 * u; c.strokeRect(-w / 2, -h / 2, w, h);
+    c.restore();
+    if (Math.random() < rgbP){
+      c.save(); c.globalCompositeOperation = 'screen'; c.globalAlpha = .3;
+      c.translate(p.px + (Math.random() - .5) * 10 * u, p.py); c.rotate(p.prot);
+      c.fillStyle = Math.random() < .5 ? '#ff0044' : '#00d4ff'; c.fillRect(-w / 2, -h / 2, w, h); c.restore();
+    }
+  }
+  // the thread between the two hands
+  c.save();
+  c.strokeStyle = 'rgba(255,255,255,.25)'; c.lineWidth = 4 * u; c.beginPath(); c.moveTo(lx, ly); c.lineTo(rx, ry); c.stroke();
+  c.strokeStyle = 'rgba(255,255,255,.9)'; c.lineWidth = 1.2 * u; c.beginPath(); c.moveTo(lx, ly); c.lineTo(rx, ry); c.stroke();
+  c.fillStyle = '#fff'; for (const [x, y] of [[lx, ly], [rx, ry]]){ c.beginPath(); c.arc(x, y, 5 * u, 0, Math.PI * 2); c.fill(); }
+  c.restore();
+}
+function drawSkeleton(c, u){
+  for (const h of HANDS){
+    const P = h.lm.map(toScr);
+    c.strokeStyle = '#00ff66'; c.lineWidth = 2 * u; c.beginPath();
+    for (const [a, b] of HAND_CONNECTIONS){ c.moveTo(P[a][0], P[a][1]); c.lineTo(P[b][0], P[b][1]); }
+    c.stroke();
+    c.fillStyle = '#ff2244';
+    for (const q of P){ c.beginPath(); c.arc(q[0], q[1], 3.5 * u, 0, Math.PI * 2); c.fill(); }
+  }
+  for (const q of particles){
+    c.save(); c.translate(q.x, q.y); c.rotate(q.rot); c.globalAlpha = Math.max(0, q.life);
+    c.fillStyle = q.color; c.fillRect(-q.size / 2, -q.size / 2, q.size, q.size); c.restore();
+  }
+}
+// the switch: a band of displaced slices crossing the frame, split into red and cyan at its edge
+function sweepEdge(c, edge, W, H, u){
+  const band = 90 * u;
+  for (let i = 0; i < 14; i++){
+    const y = Math.random() * H, h = (6 + Math.random() * 40) * u, off = (Math.random() - .5) * 120 * u;
+    const x0 = Math.max(0, edge - band * Math.random()), w = band * (.4 + Math.random());
+    c.drawImage(canvas, x0, y, w, h, x0 + off, y, w, h);
+  }
+  c.save(); c.globalCompositeOperation = 'screen';
+  c.fillStyle = '#ff2244'; c.fillRect(edge - 6 * u, 0, 3 * u, H);
+  c.fillStyle = '#00d4ff'; c.fillRect(edge + 3 * u, 0, 3 * u, H);
+  c.fillStyle = 'rgba(255,255,255,.9)'; c.fillRect(edge - 1 * u, 0, 2 * u, H);
+  c.restore();
+}
+function glitchAll(c, W, H, u, b){
+  for (let s = 0; s < 7; s++){
+    if (Math.random() > b) continue;
+    const y = Math.random() * H, h = (20 + Math.random() * 60) * u, off = (Math.random() - .5) * 70 * u * b;
+    c.drawImage(canvas, 0, y, W, h, off, y, W, h);
+  }
+  c.save(); c.globalCompositeOperation = 'screen'; c.globalAlpha = .22 * b;
+  c.fillStyle = '#ff0033'; c.fillRect(-8 * u * b, 0, W, H);
+  c.fillStyle = '#0033ff'; c.fillRect(8 * u * b, 0, W, H); c.restore();
+}
+let infoTxt = '';
+function updateInfo(){
+  let t;
+  if (HANDS.length === 2) t = (spreadT < .2 ? '塊' : spreadT < .8 ? '展開中' : LAYOUT_JA[LAYOUTS[S.layout]]) + ' · ' + SETS[S.set].name + ' · ' + panels.length;
+  else if (HANDS.length === 1) t = 'もう片方の手も';
+  else if (ghostOn) t = '幻の両手 · ' + LAYOUT_JA[LAYOUTS[S.layout]] + ' · ' + SETS[S.set].name;
+  else t = '両手をかざして';
+  if (t !== infoTxt){ infoTxt = t; $('info').textContent = t; }
 }
 
-// ============================================================
-// UI
-// ============================================================
-snapBtn.addEventListener('click', () => {
-  const dpr = window.devicePixelRatio || 1;
-  const W = CW * dpr, H = CH * dpr;
-  const out = document.createElement('canvas');
-  out.width = W; out.height = H;
-  const ctx = out.getContext('2d');
-  ctx.save();
-  ctx.filter = video.style.filter || 'none';
-  ctx.translate(W, 0);
-  ctx.scale(-1, 1);
-  const vw = video.videoWidth, vh = video.videoHeight;
-  const scale = Math.max(W / vw, H / vh);
-  const dw = vw * scale, dh = vh * scale;
-  ctx.drawImage(video, (W - dw) / 2, (H - dh) / 2, dw, dh);
-  ctx.restore();
-  ctx.drawImage(panelsCanvas, 0, 0);
-  ctx.drawImage(overlayCanvas, 0, 0);
-  out.toBlob(blob => {
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `hand_glitch_${Date.now()}.png`;
-    a.click();
-  }, 'image/png');
-});
-
-clearBtn.addEventListener('click', () => {
-  panels.length = 0;
-  panelCache.clear();
-});
-
-layoutBtn.addEventListener('click', () => {
-  prevLayout = currentLayout;
-  currentLayout = (currentLayout + 1) % LAYOUTS.length;
-  layoutTransition = 0;
-  layoutBtn.textContent = LAYOUT_NAMES[LAYOUTS[currentLayout]];
-});
-
-modeBtn.addEventListener('click', () => {
-  mode = (mode + 1) % 3;
-  modeBtn.textContent = `モード: ${modeNames[mode]}`;
-});
-
-muteBtn.addEventListener('click', () => {
-  muted = !muted;
-  muteBtn.textContent = muted ? '🔇 音OFF' : '🔊 音ON';
-});
-
-colorModeBtn.addEventListener('click', () => {
-  colorMode = (colorMode + 1) % colorModeFilters.length;
-  colorModeBtn.textContent = `🎨 ${colorModeNames[colorMode]}`;
-  updateVideoFilter(!!(leftHand && rightHand));
-});
-
-startBtn.addEventListener('click', async () => {
-  startBtn.textContent = '読み込み中...';
-  try {
-    initAudio();
-    if (audioCtx.state === 'suspended') await audioCtx.resume();
-    await setupCamera();
-    await setupHandLandmarker();
-    startBtn.classList.add('hidden');
-    running = true;
-    lastTime = performance.now();
-    loop();
-  } catch (e) {
-    console.error(e);
-    showErr('初期化に失敗: ' + e.message);
-    startBtn.innerHTML = '<div class="title">HAND//GLITCH</div>🖐 タップして開始';
-  }
-});
+window.__HANDGLITCH = {
+  ingestHands:(list, now) => { HANDS_EXTERNAL = true; return ingestHands(list, now); },
+  mode:on => setMode(!!on), random:randomize, flip:() => onFlip(canvas.width / 2, canvas.height / 2),
+  layout:i => { setLayout(i); showLabel(); }, set:setSet, col:i => { S.col = i; $('sCol').value = i; },
+  ghost:on => { S.ghost = !!on; $('sGhost').checked = !!on; },
+  state:() => ({ mode:MODE.on, X:MODE.X, layout:LAYOUTS[S.layout], set:SETS[S.set].name, col:S.col, k:S.k, panels:panels.length,
+    hands:HANDS.length, pair:pairOn, ghost:ghostOn, spread:spreadT, ...STATE })
+};
 </script>
 </body>
 </html>
