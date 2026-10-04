@@ -43,6 +43,11 @@
             で倍率をかけられる）だけが動きの記録になる。イージングは
             一切かけていない ── 記録と再生だけが遅れを作る。
 
+  SWITCH    はじめは素のカメラ。「▸ ZANZOU」で線画が上から斜線の帯を先頭に
+            走査するように塗り替わり、「◂ カメラ」で戻る（2026-10-04 追加）。
+  RANDOM    🎲 で残影の三色（色相をずらした組）・遅れ・線の細かさ・コントラスト・
+            ハッチの角度をランダムに組み直す。
+
   SIGNATURE  白黒の「今」が有彩色の「少し前」を踏んで進む。止まれば
             3枚の残影が現在の輪郭にぴったり重なって消え、動くほど
             3色が体の後ろに尾を引く。
@@ -79,7 +84,7 @@ html,body{margin:0;height:100%;background:#000;overflow:hidden;color:#fff;
 
 #status{position:fixed;left:12px;top:calc(env(safe-area-inset-top) + 10px);z-index:10;font-size:11px;
   color:rgba(255,255,255,.85);text-shadow:0 1px 3px #000;pointer-events:none;line-height:1.5;max-width:70vw}
-#panel{position:fixed;left:10px;right:10px;bottom:calc(env(safe-area-inset-bottom) + 10px);z-index:10;
+#panel{position:fixed;left:10px;right:10px;bottom:calc(env(safe-area-inset-bottom) + 66px);z-index:10;
   background:var(--glass);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
   border:1px solid rgba(255,255,255,.12);border-radius:18px;padding:12px 14px;display:flex;flex-direction:column;gap:10px;
   transition:opacity .2s,transform .2s}
@@ -98,6 +103,13 @@ input[type=range]{flex:1;accent-color:var(--acc);height:22px}
 #tog.off{opacity:.45;background:rgba(0,0,0,.25)}
 #flip{top:calc(env(safe-area-inset-top) + 46px)}
 #tog:active,#flip:active{transform:scale(.96)}
+#dock{position:fixed;left:0;right:0;bottom:calc(env(safe-area-inset-bottom) + 14px);z-index:11;display:none;justify-content:center;gap:10px;pointer-events:none}
+#dock.show{display:flex}
+#dock button{pointer-events:auto;appearance:none;border:1px solid rgba(255,255,255,.3);background:var(--glass);
+  backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);color:#fff;border-radius:999px;padding:11px 20px;font-size:13px;font-weight:700;letter-spacing:.08em}
+#dock button:active{transform:scale(.96)}
+#dock #mode{background:#fff;color:#000;border-color:#fff}
+body.on #dock #mode{background:var(--glass);color:#fff;border-color:rgba(255,255,255,.3)}
 #hint{position:fixed;left:0;right:0;top:calc(env(safe-area-inset-top) + 34px);text-align:center;z-index:9;
   font-size:11px;color:rgba(255,255,255,.7);text-shadow:0 1px 3px #000;pointer-events:none;transition:opacity .6s}
 </style>
@@ -109,6 +121,7 @@ input[type=range]{flex:1;accent-color:var(--acc);height:22px}
 <button id="flip" style="display:none">⟲ カメラ</button>
 <div id="status"></div>
 <div id="hint"></div>
+<div id="dock"><button id="mode">▸ ZANZOU</button><button id="rand">🎲 ランダム</button></div>
 
 <div id="panel" class="hide">
   <div class="chips" id="modes">
@@ -129,7 +142,7 @@ input[type=range]{flex:1;accent-color:var(--acc);height:22px}
 <div id="start">
   <h1>ZANZOU</h1>
   <div class="sw"><i style="background:#ffb20a"></i><i style="background:#ff1f99"></i><i style="background:#1c21a0"></i></div>
-  <p>人物だけを線画ハッチにして、<br>動いた跡が色つきで遅れてついてくる。<br>右上の「調整」でパネル、「⟲ カメラ」で前面/背面を切替。</p>
+  <p>まずは、いつものカメラ。<br>下の「▸ ZANZOU」で、人物だけが線画ハッチになり<br>動いた跡が色つきで遅れてついてくる。<br>🎲 で配色と線がランダムに。右上の「調整」でパネル。</p>
   <button id="go">はじめる</button>
   <div id="err"></div>
 </div>
@@ -148,7 +161,10 @@ const MODEL_URL= 'https://storage.googleapis.com/mediapipe-models/image_segmente
 const $ = s => document.querySelector(s);
 const canvas = $('#gl'), video = $('#cam'), statusEl = $('#status'), hintEl = $('#hint');
 
-const S = { mode:0, delay:1, lines:170, con:1.5, pal:0, facing:'user', invert:false };
+const S = { mode:0, delay:1, lines:170, con:1.5, pal:0, facing:'user', invert:false, ang:0.17, custom:null };
+// plain camera ⇄ ZANZOU (2026-10-04): start on the camera, the button sweeps the drawing in
+const MODE = { on:false, X:0 };
+let lastFrameT = 0;
 
 /* ---------- audio: a small, real pen-tick, not a soundtrack ----------
    This piece was silent. House convention wants AudioContext created/
@@ -192,7 +208,7 @@ precision highp float;
 in vec2 vUv; out vec4 outC;
 uniform sampler2D uVid,uM0,uM1,uM2,uM3;
 uniform vec2  uScale,uRes;
-uniform float uMirror,uMode,uLines,uCon,uAng;
+uniform float uMirror,uMode,uLines,uCon,uAng,uReveal;
 uniform vec3  uC1,uC2,uC3;
 
 // 斜め平行線。t=太さ(0..1)。t=0で無し / t=1でベタ
@@ -240,7 +256,15 @@ void main(){
   vec3 person = (uMode>.5 && uMode<1.5) ? cam : hatch;   // mode1 は素のカメラ
   col = mix(col, person, m0);
 
-  outC = vec4(col,1.);
+  // the switch: the drawing sweeps down over the plain camera, led by a hatched band
+  float front = uReveal * 1.25 - .12;
+  float yTop = vUv.y;                                 // 1 at the top
+  float d = (1. - yTop) - front;                      // < 0 : already drawn
+  float on = 1. - smoothstep(-.02, .0, d);
+  float band = (1. - smoothstep(0., .1, abs(d))) * step(.001, uReveal) * step(uReveal, .999);
+  vec3 res = mix(cam, col, on);
+  res = mix(res, vec3(.98) - .95 * ink(fc, uAng + .6, freq * .7, .5), band * .85);
+  outC = vec4(res,1.);
 }`;
 
 function sh(type, src){
@@ -263,7 +287,7 @@ gl.enableVertexAttribArray(loc);
 gl.vertexAttribPointer(loc,2,gl.FLOAT,false,0,0);
 
 const U = {};
-['uVid','uM0','uM1','uM2','uM3','uScale','uRes','uMirror','uMode','uLines','uCon','uAng','uC1','uC2','uC3']
+['uVid','uM0','uM1','uM2','uM3','uScale','uRes','uMirror','uMode','uLines','uCon','uAng','uC1','uC2','uC3','uReveal']
   .forEach(n => U[n] = gl.getUniformLocation(prog,n));
 gl.uniform1i(U.uVid,0); gl.uniform1i(U.uM0,1); gl.uniform1i(U.uM1,2); gl.uniform1i(U.uM2,3); gl.uniform1i(U.uM3,4);
 
@@ -440,6 +464,8 @@ function frame(){
   if(!running) return;
   resize();
   const now = performance.now();
+  const dtm = lastFrameT ? Math.min(.1, (now - lastFrameT) / 1000) : 1 / 60; lastFrameT = now;
+  MODE.X = MODE.on ? Math.min(1, MODE.X + dtm / 1.1) : Math.max(0, MODE.X - dtm / .7);
 
   if(video.readyState >= 2 && video.videoWidth){
     if(video.videoWidth !== vw || video.videoHeight !== vh){
@@ -474,8 +500,9 @@ function draw(now){
   gl.uniform1f(U.uMode, S.mode);
   gl.uniform1f(U.uLines, S.lines);
   gl.uniform1f(U.uCon, S.con);
-  gl.uniform1f(U.uAng, 0.17);
-  const P = PALETTES[S.pal];
+  gl.uniform1f(U.uAng, S.ang);
+  gl.uniform1f(U.uReveal, MODE.X);
+  const P = S.pal < 0 ? S.custom : PALETTES[S.pal];
   gl.uniform3fv(U.uC1, P[0]); gl.uniform3fv(U.uC2, P[1]); gl.uniform3fv(U.uC3, P[2]);
 
   const cur = head >= 0 ? ring[head] : blankTex;
@@ -501,7 +528,7 @@ document.querySelectorAll('#modes button').forEach(b => b.onclick = () => {
 $('#sDelay').oninput = e => S.delay = +e.target.value;
 $('#sLines').oninput = e => S.lines = +e.target.value;
 $('#sCon').oninput   = e => S.con   = +e.target.value;
-$('#bPal').onclick   = () => { S.pal = (S.pal+1) % PALETTES.length; playClick(700); };
+$('#bPal').onclick   = () => { S.pal = (Math.max(-1, S.pal)+1) % PALETTES.length; playClick(700); };
 $('#bInv').onclick   = () => { S.invert = !S.invert; hint(S.invert ? 'マスク反転 ON' : 'マスク反転 OFF'); playClick(300); };
 async function flipCamera(){
   S.facing = S.facing==='user' ? 'environment' : 'user';
@@ -525,6 +552,31 @@ function showCamError(e){
   $('#err').textContent = 'カメラを起動できませんでした：'+msg+'\nHTTPS または localhost で開き、カメラの使用を許可してください。';
   $('#err').style.whiteSpace = 'pre-line';
 }
+function setMode(on){
+  MODE.on = on; document.body.classList.toggle('on', on);
+  $('#mode').textContent = on ? '◂ カメラ' : '▸ ZANZOU';
+  playClick(on ? 880 : 520);
+}
+$('#mode').onclick = e => { e.stopPropagation(); setMode(!MODE.on); };
+addEventListener('keydown', e => { if (running && (e.key === ' ' || e.key === 'Enter') && document.activeElement.tagName !== 'INPUT'){ e.preventDefault(); setMode(!MODE.on); } });
+// 🎲: three random trail colours, and random delay / line density / contrast / hatch angle
+function hsv(h, s, v){ const f = n => { const k = (n + h * 6) % 6; return v - v * s * Math.max(0, Math.min(k, 4 - k, 1)); }; return [f(5), f(3), f(1)]; }
+const RAND = { n:0 };
+function randomize(){
+  const h = Math.random(), step = (Math.random() < .5 ? 1 : -1) * (.12 + Math.random() * .22);
+  const sat = Math.random() < .2 ? .45 : .85 + Math.random() * .15;
+  S.custom = [hsv(h, sat, .55 + Math.random() * .3), hsv((h + step + 1) % 1, sat, .95), hsv((h + step * 2 + 1) % 1, sat, 1)];
+  S.pal = -1;
+  S.delay = +(.5 + Math.random() * 1.6).toFixed(2); S.lines = Math.round(100 + Math.random() * 180); S.con = +(1.1 + Math.random() * 1.4).toFixed(2);
+  S.ang = (Math.random() - .5) * 1.4;
+  $('#sDelay').value = S.delay; $('#sLines').value = S.lines; $('#sCon').value = S.con;
+  const c = S.custom.map(x => 'rgb(' + x.map(v => Math.round(v * 255)).join(',') + ')');
+  document.documentElement.style.setProperty('--acc', c[1]);
+  RAND.n++;
+  hint('ランダム：遅れ ×' + S.delay.toFixed(2) + '・線 ' + S.lines + '・角度 ' + Math.round(S.ang * 57.3) + '°');
+  playClick(990);
+}
+$('#rand').onclick = e => { e.stopPropagation(); randomize(); };
 $('#go').onclick = async () => {
   $('#err').textContent = '';
   ensureAudio();
@@ -537,11 +589,18 @@ $('#go').onclick = async () => {
   $('#start').style.display = 'none';
   $('#tog').style.display = '';
   $('#flip').style.display = '';
-  setPanel(true);
+  $('#dock').classList.add('show');
+  setPanel(false);
+  hint('下の「▸ ZANZOU」で線画に。🎲 で色と線がランダムに');
   running = true;
   initSeg();
 };
 
+// test hook (used by the local verification harness)
+window.__ZANZOU = {
+  mode(c){ setMode(!!c); }, random(){ randomize(); return { custom:S.custom, delay:S.delay, lines:S.lines, con:S.con, ang:S.ang }; },
+  view: () => ({ on:MODE.on, X:MODE.X, pal:S.pal, randoms:RAND.n, running }),
+};
 requestAnimationFrame(frame);
 </script>
 </body>

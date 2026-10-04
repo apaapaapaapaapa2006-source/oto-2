@@ -23,6 +23,10 @@
              焼き付いた瞬間だけ分身が白く閃いて、2.8 秒かけて沈む。画面全体の
              フラッシュや揺れは無い。
   SIGNATURE  動きの軌跡が、そのまま分身の列になる。
+  SWITCH     はじめは素のカメラ。「▸ RENSHA」で部屋が暗転し、ストロボが一発焚かれて
+             闇のスタジオになる。「◂ CAMERA」で元に戻る（2026-10-04 追加）。
+  RANDOM     🎲 で分身の色（焼き付いた瞬間の色と沈んでいく色の組）・連写の速さ・残る長さ・
+             明るさをランダムに組み直す。
   TECH       64×48 に縮めた映像の輝度差（人物マスクの内側だけ）で動きの量を
              測り、量に比例した「シャッター予算」が溜まるたびに半解像度の
              人物スナップショットを 1 枚焼く（固定プール 14 枚、使い回し）。
@@ -62,6 +66,15 @@ html,body{margin:0;height:100%;background:var(--bg);overflow:hidden;color:var(--
 #bar #shoot{position:relative;width:42px;height:42px;border-radius:50%;border:1px solid var(--fg);padding:0}
 #shoot::after{content:"";position:absolute;inset:6px;border-radius:50%;background:var(--fg);opacity:.8}
 #rec.on{opacity:1;color:#e08080}
+#rand{font-size:11px}
+#mode{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom) + 70px);z-index:13;display:none;
+  appearance:none;border:1px solid rgba(255,255,255,.45);background:rgba(0,0,0,.35);color:#fff;
+  font:400 10px "Red Hat Mono",monospace;letter-spacing:.42em;padding:13px 22px 13px 28px;cursor:pointer;
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
+#mode.show{display:block}
+#toast{position:fixed;left:0;right:0;top:calc(env(safe-area-inset-top) + 56px);z-index:11;text-align:center;pointer-events:none;
+  font:400 10px/2 "Red Hat Mono",monospace;letter-spacing:.3em;color:var(--fg);opacity:0;transition:opacity .4s;white-space:pre}
+#toast.on{opacity:.9}
 #hud{position:fixed;left:14px;top:calc(env(safe-area-inset-top) + 14px);z-index:11;font:400 9px/2 "Red Hat Mono",monospace;letter-spacing:.3em;
   color:var(--dim);pointer-events:none;display:none;white-space:pre}
 #hud.show{display:block}
@@ -89,14 +102,17 @@ html,body{margin:0;height:100%;background:var(--bg);overflow:hidden;color:var(--
 <div id="bar">
   <button id="rec" class="btn">● REC</button>
   <button id="shoot" class="btn" aria-label="撮る"></button>
-  <span class="btn show" style="visibility:hidden">● REC</span>
+  <button id="rand" class="btn" aria-label="ランダム">🎲 RANDOM</button>
 </div>
+<button id="mode">▸ RENSHA</button>
+<div id="toast"></div>
 
 <div id="panel" class="hide">
   <div class="chips" id="pals">
     <button data-p="0" class="on">SILVER</button>
     <button data-p="1">VIOLET</button>
     <button data-p="2">EMBER</button>
+    <button data-p="3">RANDOM</button>
   </div>
   <label><span>連写の速さ</span><input type="range" id="sRate" min="0.3" max="2" step="0.05" value="1"></label>
   <label><span>残る長さ</span><input type="range" id="sLife" min="0.8" max="6" step="0.1" value="2.8"></label>
@@ -106,7 +122,7 @@ html,body{margin:0;height:100%;background:var(--bg);overflow:hidden;color:var(--
 <div id="start">
   <div class="row"><i style="height:40%;opacity:.25"></i><i style="height:55%;opacity:.4"></i><i style="height:70%;opacity:.6"></i><i style="height:85%;opacity:.8"></i><i style="height:100%"></i></div>
   <h1>RENSHA</h1>
-  <p>Move, and the strobe keeps you.<small>動いたぶんだけ、分身が焼き付く。</small></p>
+  <p>Move, and the strobe keeps you.<small>まずは、いつものカメラ。ボタンを押すとストロボが光って<br>動いたぶんだけ、分身が焼き付く。🎲 で色と連写がランダムに。</small></p>
   <button id="go">START</button>
   <div id="err"></div>
 </div>
@@ -125,10 +141,12 @@ const $ = id => document.getElementById(id);
 const cv = $('stage'), ctx = cv.getContext('2d'), video = $('cam');
 
 const PALS = [
-  { name:'SILVER', old:[59,90,122],  acc:'#7fa3c7' },
-  { name:'VIOLET', old:[74,47,120],  acc:'#a58bd6' },
-  { name:'EMBER',  old:[122,42,24],  acc:'#d08a6a' },
+  { name:'SILVER', neu:[242,244,246], old:[59,90,122],  acc:'#7fa3c7' },
+  { name:'VIOLET', neu:[242,244,246], old:[74,47,120],  acc:'#a58bd6' },
+  { name:'EMBER',  neu:[242,244,246], old:[122,42,24],  acc:'#d08a6a' },
+  { name:'RANDOM', neu:[242,244,246], old:[90,90,90],   acc:'#ffffff' },     // filled by 🎲
 ];
+function hsv(h, s, v){ const f = n => { const k = (n + h * 6) % 6; return v - v * s * Math.max(0, Math.min(k, 4 - k, 1)); }; return [f(5), f(3), f(1)].map(x => Math.round(x * 255)); }
 const S = { pal:0, rate:1, life:2.8, glow:.9 };
 const POOL = 14;
 
@@ -243,7 +261,7 @@ function stamp(now){
   const bw = Math.max(64, Math.round(W/2)), bh = Math.max(64, Math.round(H/2));
   if (bakePerson(c.ctx, c, bw, bh, true)){ c.born = now; c.live = true; shutter(); STATS.stamps++; }
 }
-const STATS = { stamps:0 };
+const STATS = { stamps:0, randoms:0 };
 
 /* ---------- audio: a soft strobe tick per stamp ---------- */
 let actx = null, bus = null, recDest = null, lastTick = 0;
@@ -254,13 +272,13 @@ function ensureAudio(){
   recDest = actx.createMediaStreamDestination(); bus.connect(recDest);
   actx.resume().catch(()=>{});
 }
-function shutter(){
+function shutter(big){
   if (!actx || actx.state !== 'running') return;
-  const t = actx.currentTime; if (t - lastTick < .05) return; lastTick = t;
+  const t = actx.currentTime; if (!big && t - lastTick < .05) return; lastTick = t;
   const o = actx.createOscillator(), g = actx.createGain(), f = actx.createBiquadFilter();
   o.type = 'triangle'; o.frequency.setValueAtTime(1900 + Math.random()*300, t); o.frequency.exponentialRampToValueAtTime(700, t + .06);
   f.type = 'highpass'; f.frequency.value = 500;
-  g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime(.5, t + .003); g.gain.exponentialRampToValueAtTime(.0001, t + .08);
+  g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime(big ? 1 : .5, t + .003); g.gain.exponentialRampToValueAtTime(.0001, t + .08);
   o.connect(f); f.connect(g); g.connect(bus); o.start(t); o.stop(t + .09);
 }
 
@@ -320,7 +338,8 @@ $('go').onclick = async () => {
   ensureAudio();
   try { await startCam(); } catch(e){ camError(e); return; }
   $('start').style.display = 'none';
-  ['gear','flip','bar','rec','shoot','hud'].forEach(id => $(id).classList.add('show'));
+  ['gear','flip','bar','rec','shoot','rand','hud','mode'].forEach(id => $(id).classList.add('show'));
+  setMode(false);
   if (!started){ started = true; initModel(); requestAnimationFrame(loop); }
 };
 $('flip').onclick = async () => {
@@ -332,7 +351,33 @@ function setPal(i){
   S.pal = i; [...$('pals').children].forEach(x => x.classList.toggle('on', +x.dataset.p === i));
   document.documentElement.style.setProperty('--acc', PALS[i].acc);
 }
-$('pals').onclick = e => { const b = e.target.closest('button'); if (b) setPal(+b.dataset.p); };
+$('pals').onclick = e => { const b = e.target.closest('button'); if (b){ if (+b.dataset.p === 3) randomize(); else setPal(+b.dataset.p); } };
+const smoothstep = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+// plain camera ⇄ RENSHA
+const MODE = { on:false, X:0, flashed:false };
+function setMode(on){
+  MODE.on = on; MODE.flashed = false;
+  $('mode').textContent = on ? '◂ CAMERA' : '▸ RENSHA';
+  if (!on) clones.forEach(c => c.live = false);
+}
+$('mode').onclick = () => setMode(!MODE.on);
+addEventListener('keydown', e => { if (started && (e.key === ' ' || e.key === 'Enter') && document.activeElement.tagName !== 'INPUT'){ e.preventDefault(); setMode(!MODE.on); } });
+// 🎲: a random colour pair for the clones and random strobe settings
+let toastT = 0;
+function randomize(){
+  const h = Math.random(), pastel = Math.random() < .2;
+  const neu = Math.random() < .45 ? [242, 244, 246] : hsv((h + .4 + Math.random() * .2) % 1, pastel ? .25 : .45, 1);
+  const old = hsv(h, pastel ? .45 : .8 + Math.random() * .2, .45 + Math.random() * .35);
+  PALS[3].neu = neu; PALS[3].old = old;
+  PALS[3].acc = 'rgb(' + hsv(h, .55, 1).join(',') + ')';
+  S.rate = +(.5 + Math.random() * 1.4).toFixed(2); S.life = +(1.4 + Math.random() * 3.8).toFixed(1); S.glow = +(.6 + Math.random() * .55).toFixed(2);
+  $('sRate').value = S.rate; $('sLife').value = S.life; $('sGlow').value = S.glow;
+  setPal(3); STATS.randoms++;
+  const tt = $('toast'); tt.textContent = 'RANDOM  ·  RATE ' + S.rate.toFixed(2) + '  ·  LIFE ' + S.life.toFixed(1) + 's';
+  tt.classList.add('on'); clearTimeout(toastT); toastT = setTimeout(() => tt.classList.remove('on'), 1600);
+  shutter(true);
+}
+$('rand').onclick = randomize;
 [['sRate','rate'],['sLife','life'],['sGlow','glow']].forEach(([id,k]) => { $(id).oninput = e => { S[k] = +e.target.value; }; });
 
 $('shoot').onclick = () => {
@@ -366,6 +411,7 @@ let lastT = 0, hudT = 0, lastStamp = -1e9;
 function loop(now){
   requestAnimationFrame(loop);
   const dt = lastT ? Math.min(.1, (now - lastT)/1000) : 1/60; lastT = now;
+  MODE.X = MODE.on ? Math.min(1, MODE.X + dt / .9) : Math.max(0, MODE.X - dt / .6);
   if (video.videoWidth){ vidW = video.videoWidth; vidH = video.videoHeight; }
   const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
   let w = Math.round(innerWidth*dpr), h = Math.round(innerHeight*dpr);
@@ -380,7 +426,7 @@ function loop(now){
   const e = measureMotion();
   MOTION.energy += (e - MOTION.energy) * Math.min(1, dt*12);
   const personOK = whole() || M.present;
-  if (personOK && MOTION.energy > .045){
+  if (MODE.on && MODE.X > .6 && personOK && MOTION.energy > .045){
     MOTION.budget += MOTION.energy * dt * 26 * S.rate;
     if (MOTION.budget >= 1 && now - lastStamp > 55){ MOTION.budget = 0; lastStamp = now; stamp(now); }
   } else MOTION.budget = Math.max(0, MOTION.budget - dt*2);
@@ -400,7 +446,7 @@ function loop(now){
     if (age >= 1){ c.live = false; continue; }
     const flash = Math.max(0, 1 - (now - c.born)/140);          // the strobe: a brief white burn at birth
     const ta = Math.min(1, age*1.6);
-    const r = 242 + (pal.old[0] - 242)*ta, g = 244 + (pal.old[1] - 244)*ta, b = 246 + (pal.old[2] - 246)*ta;
+    const nu = pal.neu, r = nu[0] + (pal.old[0] - nu[0])*ta, g = nu[1] + (pal.old[1] - nu[1])*ta, b = nu[2] + (pal.old[2] - nu[2])*ta;
     if (scratch.width !== c.cv.width || scratch.height !== c.cv.height){ scratch.width = c.cv.width; scratch.height = c.cv.height; }
     sctx.globalCompositeOperation = 'copy'; sctx.drawImage(c.cv, 0, 0);
     sctx.globalCompositeOperation = 'source-atop'; sctx.fillStyle = `rgb(${r|0},${g|0},${b|0})`;
@@ -427,6 +473,20 @@ function loop(now){
   vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,0,0,.55)');
   ctx.fillStyle = vg; ctx.fillRect(0, 0, W, H);
 
+  // the switch: plain camera ⇄ the dark strobe studio, with one strobe flash in between
+  const camA = 1 - smoothstep(.05, .45, MODE.X);
+  if (camA > 0){
+    const sa2 = W/H, va2 = vidW/vidH; let dw, dh; if (sa2 < va2){ dh = H; dw = H*va2; } else { dw = W; dh = W/va2; }
+    ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = camA;
+    ctx.save(); if (mirror){ ctx.translate(W, 0); ctx.scale(-1, 1); }
+    try { ctx.drawImage(video, (W - dw)/2, (H - dh)/2, dw, dh); } catch(e){}
+    ctx.restore(); ctx.globalAlpha = 1;
+  }
+  const flash = MODE.on ? Math.exp(-Math.pow((MODE.X - .42) / .07, 2)) : 0;
+  if (flash > .01){ ctx.globalCompositeOperation = 'source-over'; ctx.fillStyle = 'rgba(255,255,255,' + (flash * .92).toFixed(3) + ')'; ctx.fillRect(0, 0, W, H); }
+  if (MODE.on && !MODE.flashed && MODE.X > .42){ MODE.flashed = true; shutter(true); }
+  $('hud').style.visibility = MODE.X >= 1 ? 'visible' : 'hidden';
+
   hudT += dt;
   if (hudT > .2){ hudT = 0;
     const n = order.filter(c => c.live).length;
@@ -437,6 +497,9 @@ function loop(now){
 window.__RENSHA = {
   ingestMask(d, w, h){ if (!M.external) setStatus(''); M.external = true; fallback = false; ingestMask(d, w, h); },
   palette(i){ setPal(i); },
+  mode(c){ setMode(!!c); },
+  random(){ randomize(); return { pal:PALS[3], rate:S.rate, life:S.life, glow:S.glow }; },
+  view: () => ({ on:MODE.on, X:MODE.X }),
   state: () => ({ present:M.present, cover:M.cover, energy:MOTION.energy, clones:clones.filter(c => c.live).length, stamps:STATS.stamps, fallback }),
 };
 </script>
