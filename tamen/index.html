@@ -1,0 +1,607 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="description" content="映った人がキュビスムの肖像画になる。顔と体は黄土・青灰・木炭の面に切り分けられ、面のひとつひとつが少しずつ違う瞬間のあなたを描くので、首を振ると正面と横顔が一枚に同居する。止まれば面はひとつの顔にまとまる。">
+<meta name="theme-color" content="#e6dccb">
+<title>TAMEN ─ 首を振ると、正面と横顔が一枚になる</title>
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  TAMEN 多面 ─ 首を振ると、正面と横顔が一枚になる      ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  MOOD       美術館の一室に掛かった、1910年代パリの分析的キュビスム。いまの
+             あなたが木炭の線で区切られた面に分けられ、面ごとに黄土・青灰・
+             木炭・骨色の平たい階調で塗られる。面はそれぞれ少し前の別の瞬間
+             を描いているので、首を振ったり体を傾けると正面と横顔、右肩と
+             左肩が一枚に組み上がる。止まると面は「いま」にそろい、静かな
+             一枚の肖像に戻る。
+  PALETTE    PARIS   骨 #e6dccb／黄土 #b8873a／青灰 #56646c／木炭 #1f1d1a
+             GUITARE 生成り #ece2cf／酸化赤 #7a2e22／黄土 #c49646／黒 #191714
+             FUSAIN  紙 #e9e6df／灰 #8d8a84／木炭 #1b1a19（差し色なし）
+             各面は 3 段の平塗り（暗・中・明）。原色は使わない。
+  TYPE       Antic Didone（題字、字間を開けた大文字）・Cutive Mono（HUD／ラベル）
+  MOTION     面の配置は顔と体の位置に追従し、ゆっくり呼吸する。崩れは動きの
+             量で 0.15 秒で立ち上がり 1.4 秒かけてほどける。切り替えは顔から
+             外へ、面が一枚ずつ塗られていくワイプ。
+  SIGNATURE  同じ顔の、別々の瞬間が、ひとつの絵の中で隣り合うこと。
+  TECH       WebGL2。映像は 30fps で 2D 配列テクスチャ（48 層のリング）に、
+             人物マスクも同じ層番号で別の配列に積む。フラグメントシェーダが
+             最近傍の種点でボロノイの面を決め、面ごとの遅れ（層）・拡大・
+             ずらしで過去の映像を読み、明るさを 3 段に量子化して面の色へ写す。
+             面の境は二番目に近い種点との距離差で木炭の線にする。
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Antic+Didone&family=Cutive+Mono&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#e6dccb;--fg:#1f1d1a;--dim:rgba(31,29,26,.58);--line:rgba(31,29,26,.25);--acc:#b8873a}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none}
+html,body{margin:0;height:100%;background:var(--bg);overflow:hidden;color:var(--fg);
+  font-family:"Antic Didone","Hiragino Mincho ProN","Yu Mincho",serif}
+#gl{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+#cam{position:fixed;left:0;top:0;width:2px;height:2px;opacity:.01;pointer-events:none}
+
+#start{position:fixed;inset:0;z-index:30;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;
+  padding:28px;text-align:center;background:var(--bg)}
+#start svg{width:min(56vw,230px);height:auto}
+#start .t{font:12px "Cutive Mono",monospace;letter-spacing:.45em;margin-right:-.45em;color:var(--dim)}
+#start h1{margin:0;font-weight:400;font-size:min(17vw,104px);line-height:1;letter-spacing:.2em;margin-right:-.2em}
+#start p{margin:0;font-size:15px;line-height:2.1;color:var(--dim);letter-spacing:.08em;font-family:"Hiragino Mincho ProN","Yu Mincho",serif}
+#go{appearance:none;border:1px solid var(--fg);background:transparent;color:var(--fg);font:13px "Cutive Mono",monospace;
+  letter-spacing:.45em;padding:14px 30px 14px 36px;cursor:pointer;transition:background .3s,color .3s}
+#go:hover{background:var(--fg);color:var(--bg)}
+#err{font:12px/1.8 "Hiragino Sans","Noto Sans JP",sans-serif;max-width:340px;min-height:1em;white-space:pre-line;color:#7a2e22}
+
+.btn{position:fixed;z-index:12;appearance:none;border:0;background:transparent;color:var(--fg);font:12px "Cutive Mono","Hiragino Sans",monospace;
+  letter-spacing:.22em;padding:10px 8px;display:none;cursor:pointer;opacity:.7;transition:opacity .3s}
+.btn.show{display:block}
+.btn:hover{opacity:1}
+#gear{right:10px;top:calc(env(safe-area-inset-top) + 6px);font-size:15px;letter-spacing:0}
+#flip{right:10px;top:calc(env(safe-area-inset-top) + 40px);letter-spacing:.08em;font-family:"Hiragino Sans","Noto Sans JP",sans-serif;font-size:11px}
+#bar{position:fixed;left:0;right:0;bottom:calc(env(safe-area-inset-bottom) + 10px);z-index:12;display:none;justify-content:center;align-items:center;gap:24px}
+#bar.show{display:flex}
+#bar .btn{position:static;display:block;background:var(--bg);opacity:.86}
+#bar #shoot{position:relative;width:42px;height:42px;border-radius:50%;border:1px solid var(--fg);padding:0}
+#shoot::after{content:"";position:absolute;inset:6px;border-radius:50%;background:var(--fg)}
+#rec.on{opacity:1;color:#7a2e22}
+#mode{min-width:92px}
+#hud{position:fixed;left:14px;top:calc(env(safe-area-inset-top) + 14px);z-index:11;font:11px "Cutive Mono",monospace;letter-spacing:.24em;color:var(--fg);
+  pointer-events:none;display:none;line-height:1.8;white-space:pre;background:var(--bg);padding:4px 8px;opacity:.85}
+#hud.show{display:block}
+#status{position:fixed;left:14px;bottom:calc(env(safe-area-inset-bottom) + 66px);z-index:11;font:12px/1.7 "Hiragino Sans","Noto Sans JP",sans-serif;
+  color:var(--fg);pointer-events:none;max-width:72vw;white-space:pre-line}
+
+#panel{position:fixed;right:10px;top:calc(env(safe-area-inset-top) + 78px);z-index:12;width:min(272px,calc(100vw - 20px));
+  background:var(--bg);border:1px solid var(--fg);padding:14px 16px;display:flex;flex-direction:column;gap:13px;transition:opacity .25s}
+#panel.hide{opacity:0;pointer-events:none}
+.chips{display:flex;border:1px solid var(--fg)}
+.chips button{flex:1;appearance:none;border:0;background:transparent;color:var(--fg);padding:8px 2px;font:11px "Cutive Mono",monospace;
+  letter-spacing:.14em;cursor:pointer;opacity:.6}
+.chips button.on{opacity:1;background:var(--fg);color:var(--bg)}
+#panel label{display:flex;align-items:center;gap:10px;font:11px "Hiragino Sans","Noto Sans JP",sans-serif;letter-spacing:.04em}
+#panel label span{width:74px;flex:none;color:var(--dim)}
+#panel input[type=range]{flex:1;accent-color:#1f1d1a}
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<video id="cam" playsinline muted autoplay></video>
+<div id="hud"></div>
+<div id="status"></div>
+<button id="gear" class="btn" aria-label="調整">⚙</button>
+<button id="flip" class="btn">⟲ カメラ</button>
+<div id="bar">
+  <button id="rec" class="btn">● REC</button>
+  <button id="shoot" class="btn" aria-label="撮る"></button>
+  <button id="mode" class="btn">▸ TAMEN</button>
+</div>
+
+<div id="panel" class="hide">
+  <div class="chips" id="pals">
+    <button data-p="0" class="on">PARIS</button>
+    <button data-p="1">GUITARE</button>
+    <button data-p="2">FUSAIN</button>
+  </div>
+  <label><span>面の数</span><input type="range" id="sCount" min="0" max="1" step="0.01" value="0.5"></label>
+  <label><span>崩れ方</span><input type="range" id="sBreak" min="0" max="1" step="0.01" value="0.6"></label>
+  <label><span>時間の幅</span><input type="range" id="sSpan" min="0" max="1" step="0.01" value="0.65"></label>
+  <label><span>線</span><input type="range" id="sLine" min="0" max="1" step="0.01" value="0.55"></label>
+</div>
+
+<div id="start">
+  <svg viewBox="0 0 120 150" aria-hidden="true">
+    <polygon points="60,6 102,40 88,96 34,104 18,44" fill="#b8873a"/>
+    <polygon points="60,6 102,40 66,62" fill="#56646c"/>
+    <polygon points="18,44 66,62 34,104" fill="#1f1d1a"/>
+    <polygon points="66,62 102,40 88,96" fill="#d9ccb3"/>
+    <polygon points="34,104 88,96 104,146 14,146" fill="#56646c"/>
+    <g fill="none" stroke="#1f1d1a" stroke-width="2.2"><polyline points="60,6 102,40 88,96 34,104 18,44 60,6"/><polyline points="60,6 66,62 102,40"/><polyline points="18,44 66,62 88,96"/><polyline points="66,62 34,104"/><polyline points="34,104 14,146"/><polyline points="88,96 104,146"/></g>
+    <circle cx="48" cy="50" r="4" fill="#1f1d1a"/><circle cx="80" cy="56" r="3" fill="#e6dccb"/>
+  </svg>
+  <div class="t">PORTRAIT · CUBISME</div>
+  <h1>TAMEN</h1>
+  <p>あなたが、いくつもの面に切り分けられる。<br>首を振ると、正面と横顔が一枚になる。</p>
+  <button id="go">POSER</button>
+  <div id="err"></div>
+</div>
+
+<script>
+'use strict';
+/* =====================================================================
+   TAMEN — a live cubist portrait. Every Voronoi facet reads the camera
+   from its own moment in a 48-frame ring (plus its own zoom and shift),
+   flattened to three tones of its own palette. Movement widens the time
+   spread, so a head turn puts front and profile side by side.
+   ===================================================================== */
+const VISION_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs';
+const WASM_URL   = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm';
+const SEG_MODEL  = 'https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite';
+
+const $ = id => document.getElementById(id);
+const canvas = $('gl'), video = $('cam');
+const S = { pal:0, count:0.5, brk:0.6, span:0.65, line:0.55 };
+const NL = 48;                      // ring layers (~1.6 s at 30 fps)
+const MAXF = 48;                    // facets (uniform array size)
+
+const hx = h => [parseInt(h.slice(1,3),16)/255, parseInt(h.slice(3,5),16)/255, parseInt(h.slice(5,7),16)/255];
+// each palette: paper, ink, and four three-step ramps (dark, mid, light) the facets cycle through
+const PALS = [
+  { name:'PARIS',   css:['#e6dccb','#1f1d1a','#b8873a'], paper:'#e6dccb', ink:'#1f1d1a',
+    ramps:[['#1f1d1a','#b8873a','#ecdcb8'], ['#1f1d1a','#56646c','#c9cfcc'], ['#3a2c1c','#9a7a4e','#e6dccb'], ['#22262a','#7d7466','#d9ccb3']],
+    bg:['#6d6252','#7c705c','#5d5d58','#857762','#6a5d4a'] },
+  { name:'GUITARE', css:['#ece2cf','#191714','#7a2e22'], paper:'#ece2cf', ink:'#191714',
+    ramps:[['#191714','#7a2e22','#e2b9a0'], ['#191714','#c49646','#efe0bc'], ['#2a2420','#6d665a','#ece2cf'], ['#191714','#3c4a52','#cfc6b4']],
+    bg:['#4a2a22','#5c3a2a','#3e3a34','#6b4a2e','#55302a'] },
+  { name:'FUSAIN',  css:['#e9e6df','#1b1a19','#8d8a84'], paper:'#e9e6df', ink:'#1b1a19',
+    ramps:[['#1b1a19','#6f6c67','#e9e6df'], ['#1b1a19','#8d8a84','#d6d2ca'], ['#2b2a28','#a8a49c','#f2efe9'], ['#121211','#55524e','#c4c0b8']],
+    bg:['#55524e','#62605b','#4a4845','#6d6a65','#5a5753'] },
+];
+let RAMP = new Float32Array(12*3), BGC = new Float32Array(5*3), PAPER = [0,0,0], INK = [0,0,0];
+function loadPal(){
+  const P = PALS[S.pal];
+  P.ramps.forEach((r, i) => r.forEach((c, j) => RAMP.set(hx(c), (i*3 + j)*3)));
+  P.bg.forEach((c, i) => BGC.set(hx(c), i*3));
+  PAPER = hx(P.paper); INK = hx(P.ink);
+}
+loadPal();
+
+/* ---------- GL ---------- */
+const gl = canvas.getContext('webgl2', { antialias:false, alpha:false, preserveDrawingBuffer:true, powerPreference:'high-performance' });
+const VS = `#version 300 es
+in vec2 p; out vec2 uv; void main(){ uv = p*.5+.5; gl_Position = vec4(p,0.,1.); }`;
+const FS = `#version 300 es
+precision highp float; precision highp sampler2DArray;
+in vec2 uv; out vec4 o;
+uniform sampler2DArray uHist, uMHist;
+uniform sampler2D uVid;
+uniform vec2 uScale, uRes; uniform float uMirror, uMix, uReveal, uT, uLine, uHas, uN;
+uniform vec2 uHead; uniform float uHeadR;
+uniform vec2 uSeed[${MAXF}];           // facet seeds, screen px
+uniform vec4 uP[${MAXF}];              // layer, zoom, shift.x, shift.y (shift in px)
+uniform vec4 uQ[${MAXF}];              // ramp index, shade angle, hatch, bg colour index
+uniform vec3 uRamp[12]; uniform vec3 uBg[5]; uniform vec3 uPaper, uInk;
+uniform vec4 uLn[6];                   // scaffold lines: point (px), angle, length factor
+float h21(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233))) * 43758.5453); }
+vec2 toVid(vec2 px){                   // screen px (y down) → video uv
+  vec2 s = px / uRes;
+  vec2 v = (s - .5) * uScale + .5;
+  if (uMirror > .5) v.x = 1. - v.x;
+  return v;
+}
+void main(){
+  vec2 px = vec2(uv.x, 1. - uv.y) * uRes;
+  // nearest and second nearest seed
+  float d1 = 1e9, d2 = 1e9; int i1 = 0;
+  for (int i = 0; i < ${MAXF}; i++){
+    if (float(i) >= uN) break;
+    vec2 q = px - uSeed[i]; float d = dot(q, q);
+    if (d < d1){ d2 = d1; d1 = d; i1 = i; } else if (d < d2){ d2 = d; }
+  }
+  vec4 P = uP[i1], Q = uQ[i1]; vec2 sd = uSeed[i1];
+  // this facet's own view: zoom about its seed, shifted, from its own moment
+  vec2 spx = sd + (px - sd) / P.y + P.zw;
+  vec2 v = toVid(spx);
+  vec3 cam = texture(uHist, vec3(v, P.x)).rgb;
+  float m = uHas > .5 ? texture(uMHist, vec3(v, P.x)).r : 0.;
+  // flat planes: a gentle linear shade across the facet (cubist passage)
+  vec2 sdir = vec2(cos(Q.y), sin(Q.y));
+  float sh = clamp(.5 + dot(px - sd, sdir) / (uHeadR*2.2), 0., 1.);
+  float shade = mix(.84, 1.08, sh);
+  // person: luminance → three flat steps of this facet's ramp
+  float l = dot(cam, vec3(.299,.587,.114));
+  l = clamp((l - .1) / .75, 0., 1.) * shade;
+  int r = int(Q.x) * 3;
+  float a = smoothstep(.30, .345, l), b = smoothstep(.62, .665, l);
+  vec3 fig = mix(mix(uRamp[r], uRamp[r+1], a), uRamp[r+2], b);
+  // background plane
+  int bi = int(Q.w);
+  vec3 bg = uBg[bi] * mix(.9, 1.04, sh);
+  float inside = smoothstep(.42, .58, m);
+  vec3 c = mix(bg, fig, inside);
+  // each facet draws its own (delayed) contour of the figure in charcoal
+  float mw = max(fwidth(m), 1e-4);
+  float cl = (1. - smoothstep(.0, 1.3, abs(m - .5)/mw)) * uHas;
+  c = mix(c, uInk, cl * .85);
+  // papier collé: a few facets carry fine diagonal hatching
+  if (Q.z > .5){
+    float hl = abs(fract(dot(px, vec2(.7071, .7071)) / (uRes.y*.0105)) - .5);
+    c = mix(c, uInk, (1. - smoothstep(.06, .14, hl)) * .38);
+  }
+  // charcoal facet edges (difference to the second seed, in px)
+  float e = (sqrt(d2) - sqrt(d1));
+  float lw = (.6 + 2.6*uLine) * uRes.y / 900.;
+  float edge = 1. - smoothstep(lw*.5, lw*.5 + 1.2, e);
+  // edges fade out far from the figure so the background stays quiet
+  float near = 1. - smoothstep(uHeadR*4.5, uHeadR*9., length(px - uHead));
+  c = mix(c, uInk, edge * mix(.35, .95, max(near, inside)));
+  // analytic scaffolding: long straight charcoal lines through the head, fading at their ends
+  for (int k = 0; k < 6; k++){
+    vec4 L = uLn[k]; vec2 dir = vec2(cos(L.z), sin(L.z));
+    vec2 rel = px - L.xy; float along = dot(rel, dir), across = abs(dot(rel, vec2(-dir.y, dir.x)));
+    float reach = uHeadR * L.w;
+    float lk = (1. - smoothstep(lw*.35, lw*.35 + 1., across)) * (1. - smoothstep(reach*.6, reach, abs(along)));
+    c = mix(c, uInk, lk * .55);
+  }
+  // paper tooth + vignette
+  float g = h21(floor(px/1.3)) - .5;
+  c += g * .045;
+  vec2 q = uv - .5; q.x *= uRes.x/uRes.y;
+  c *= 1. - .16*smoothstep(.5, 1.15, length(q));
+  // reveal: the painting spreads out from the face
+  float rr = length(px - uHead) / max(uRes.x, uRes.y);
+  float rev = 1. - smoothstep(uReveal*1.25 - .08, uReveal*1.25, rr);
+  vec3 live = texture(uVid, toVid(px)).rgb;
+  o = vec4(mix(live, c, rev * uMix), 1.);
+}`;
+function sh(type, src){ const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s; }
+let PG, U = {}, texHist, texMHist, texVid, histW = 0, histH = 0, mhW = 0, mhH = 0;
+const hc = document.createElement('canvas'), hctx = hc.getContext('2d', { alpha:false });
+function initGL(){
+  PG = gl.createProgram(); gl.attachShader(PG, sh(gl.VERTEX_SHADER, VS)); gl.attachShader(PG, sh(gl.FRAGMENT_SHADER, FS));
+  gl.bindAttribLocation(PG, 0, 'p'); gl.linkProgram(PG);
+  if (!gl.getProgramParameter(PG, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(PG));
+  const n = gl.getProgramParameter(PG, gl.ACTIVE_UNIFORMS);
+  for (let i = 0; i < n; i++){ const u = gl.getActiveUniform(PG, i); U[u.name.replace(/\[0\]$/, '')] = gl.getUniformLocation(PG, u.name); }
+  const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+  texVid = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, texVid); texParams(gl.TEXTURE_2D);
+}
+function texParams(t){ gl.texParameteri(t, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(t, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(t, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(t, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE); }
+function ensureHist(){
+  const w = 480, h = Math.max(120, Math.round(480*vidH/vidW));
+  if (w === histW && h === histH) return;
+  histW = w; histH = h; hc.width = w; hc.height = h;
+  if (texHist) gl.deleteTexture(texHist);
+  texHist = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D_ARRAY, texHist); texParams(gl.TEXTURE_2D_ARRAY);
+  gl.texStorage3D(gl.TEXTURE_2D_ARRAY, 1, gl.RGBA8, w, h, NL);
+  RING.filled = 0;
+}
+function ensureMHist(w, h){
+  if (w === mhW && h === mhH && texMHist) return;
+  mhW = w; mhH = h;
+  if (texMHist) gl.deleteTexture(texMHist);
+  texMHist = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D_ARRAY, texMHist); texParams(gl.TEXTURE_2D_ARRAY);
+  gl.texStorage3D(gl.TEXTURE_2D_ARRAY, 1, gl.R8, w, h, NL);
+  const z = new Uint8Array(w*h*NL); gl.texSubImage3D(gl.TEXTURE_2D_ARRAY, 0, 0, 0, 0, w, h, NL, gl.RED, gl.UNSIGNED_BYTE, z);
+}
+const RING = { head:-1, filled:0, acc:0 };
+function pushFrame(){
+  ensureHist();
+  hctx.drawImage(video, 0, 0, histW, histH);
+  RING.head = (RING.head + 1) % NL; RING.filled = Math.min(NL, RING.filled + 1);
+  gl.bindTexture(gl.TEXTURE_2D_ARRAY, texHist);
+  gl.texSubImage3D(gl.TEXTURE_2D_ARRAY, 0, 0, 0, RING.head, histW, histH, 1, gl.RGBA, gl.UNSIGNED_BYTE, hc);
+  if (M.w){
+    ensureMHist(M.w, M.h);
+    gl.bindTexture(gl.TEXTURE_2D_ARRAY, texMHist);
+    if (!M.present) M.u8.fill(0);
+    gl.texSubImage3D(gl.TEXTURE_2D_ARRAY, 0, 0, 0, RING.head, M.w, M.h, 1, gl.RED, gl.UNSIGNED_BYTE, M.u8);
+  }
+}
+
+/* ---------- mask (video space) + head estimate + motion energy ---------- */
+const M = { w:0, h:0, f:null, u8:null, prev:null, present:false, cover:0, has:false, external:false,
+            head:{ x:.5, y:.3, r:.1 }, body:{ x:.5, y:.6, top:.2 }, diff:0 };
+function ingestMask(data, w, h){
+  if (!data || !(w > 0) || !(h > 0) || data.length < w*h) return;
+  w |= 0; h |= 0;
+  if (M.w !== w || M.h !== h){ M.w = w; M.h = h; M.f = new Float32Array(w*h); M.u8 = new Uint8Array(w*h); M.prev = new Float32Array(w*h); }
+  const F = M.f, Pv = M.prev, n = w*h; let on = 0, sx = 0, sy = 0, top = -1, diff = 0;
+  for (let i = 0; i < n; i++){
+    let m = +data[i]; if (!(m >= 0)) m = 0; else if (m > 1) m = 1;
+    const f = F[i]*.3 + m*.7; diff += Math.abs(f - Pv[i]); Pv[i] = f; F[i] = f; M.u8[i] = f*255 | 0;
+  }
+  for (let y = 0; y < h; y += 2) for (let x = 0; x < w; x += 2) if (F[y*w + x] > .5){ on++; sx += x; sy += y; if (top < 0) top = y; }
+  M.cover = on / Math.ceil(w/2) / Math.ceil(h/2);
+  const was = M.present;
+  M.present = M.cover > .01 && top >= 0;
+  M.diff = was && M.present ? diff / n : 0;           // no spike when the person (re)appears
+  if (M.present){
+    const band = Math.max(4, Math.round(h*.18)); let hxs = 0, hcn = 0, minX = w, maxX = 0;
+    for (let y = top; y < Math.min(h, top + band); y++) for (let x = 0; x < w; x++) if (F[y*w + x] > .5){ hxs += x; hcn++; if (x < minX) minX = x; if (x > maxX) maxX = x; }
+    if (hcn > 0){ M.head.x = (hxs/hcn + .5)/w; M.head.y = (top + band*.62)/h; M.head.r = Math.max(.03, (maxX - minX + 1)/w*.5); }
+    M.body.x = (sx/on + .5)/w; M.body.y = (sy/on + .5)/h; M.body.top = top/h;
+  }
+  M.has = true;
+}
+
+/* ---------- MediaPipe (dynamic import) ---------- */
+let segmenter = null, lastTs = 0, lastVT = -1;
+async function initModel(){
+  try{
+    const vision = await import(VISION_URL);
+    const fs = await vision.FilesetResolver.forVisionTasks(WASM_URL);
+    const opts = d => ({ baseOptions:{ modelAssetPath:SEG_MODEL, delegate:d }, runningMode:'VIDEO', outputConfidenceMasks:true, outputCategoryMask:false });
+    try { segmenter = await vision.ImageSegmenter.createFromOptions(fs, opts('GPU')); }
+    catch(e){ segmenter = await vision.ImageSegmenter.createFromOptions(fs, opts('CPU')); }
+    setStatus('');
+  }catch(e){
+    if (M.external) return;
+    setStatus('人物検出モデルを読み込めませんでした（ネット接続を確認）。\n画面全体を面に分けて続けます。');
+  }
+}
+function segment(now){
+  if (!segmenter || video.readyState < 2) return;
+  const vt = video.currentTime; if (vt === lastVT) return; lastVT = vt;
+  try{
+    const ts = Math.max(lastTs + 1, Math.round(now)); lastTs = ts;
+    segmenter.segmentForVideo(video, ts, res => {
+      const ms = res && res.confidenceMasks;
+      if (!ms || !ms.length) return;
+      const mk = ms[ms.length - 1];
+      ingestMask(mk.getAsFloat32Array(), mk.width, mk.height);
+    });
+  }catch(e){}
+}
+
+/* ---------- camera ---------- */
+let stream = null, facing = 'user', mirror = true, started = false, vidW = 1280, vidH = 720;
+function setStatus(t){ $('status').textContent = t || ''; }
+function camError(e){
+  const msg = (e && (e.message || e.name)) ? (e.message || e.name) : String(e || 'unknown');
+  const text = 'カメラを起動できませんでした：' + msg + '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+  $('err').textContent = text;
+  if (started) setStatus(text);
+}
+async function startCam(){
+  const md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) throw new Error('getUserMedia is unavailable');
+  const s = await md.getUserMedia({ video:{ facingMode:{ ideal:facing }, width:{ ideal:1280 }, height:{ ideal:720 } }, audio:false });
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = s; mirror = facing === 'user';
+  video.srcObject = s;
+  await new Promise(r => { if (video.readyState >= 1) r(); else video.onloadedmetadata = () => r(); });
+  await video.play().catch(()=>{});
+  vidW = video.videoWidth || 1280; vidH = video.videoHeight || 720;
+}
+
+/* ---------- audio: charcoal on paper (AudioContext opens on the start button) ---------- */
+let actx = null, bus = null, recDest = null;
+function ensureAudio(){
+  if (actx){ if (actx.state === 'suspended') actx.resume().catch(()=>{}); return; }
+  const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+  actx = new AC(); bus = actx.createGain(); bus.gain.value = .5; bus.connect(actx.destination);
+  recDest = actx.createMediaStreamDestination(); bus.connect(recDest);
+  actx.resume().catch(()=>{});
+}
+function strokes(n, dur){
+  if (!actx || actx.state !== 'running') return;
+  const t0 = actx.currentTime;
+  for (let k = 0; k < n; k++){
+    const t = t0 + k*dur/n + Math.random()*.05, len = actx.sampleRate*(.07 + Math.random()*.08) | 0;
+    const b = actx.createBuffer(1, len, actx.sampleRate), d = b.getChannelData(0);
+    for (let i = 0; i < len; i++){ const env = Math.sin(Math.PI*i/len); d[i] = (Math.random()*2 - 1) * env * env; }
+    const s = actx.createBufferSource(); s.buffer = b;
+    const f = actx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 1800 + Math.random()*2600; f.Q.value = .9;
+    const g = actx.createGain(); g.gain.value = .25 + Math.random()*.2;
+    s.connect(f); f.connect(g); g.connect(bus); s.start(t);
+  }
+}
+
+/* ---------- mode: plain camera ⇄ TAMEN ---------- */
+const MODE = { on:false, t:9 };
+function setMode(on){
+  if (on === MODE.on) return;
+  MODE.on = on; MODE.t = 0;
+  $('mode').textContent = on ? '◂ CAMERA' : '▸ TAMEN';
+  strokes(on ? 9 : 4, on ? 1.1 : .4);
+}
+$('mode').onclick = () => setMode(!MODE.on);
+addEventListener('keydown', e => { if (started && (e.key === ' ' || e.key === 'Enter') && document.activeElement.tagName !== 'INPUT'){ e.preventDefault(); setMode(!MODE.on); } });
+$('go').onclick = async () => {
+  $('err').textContent = '';
+  ensureAudio();
+  try{
+    if (!gl) throw new Error('WebGL2 に未対応のブラウザです');
+    if (!PG) initGL();
+    await startCam();
+  }catch(e){ camError(e); return; }
+  $('start').style.display = 'none';
+  ['gear','flip','bar','rec','shoot','mode','hud'].forEach(id => $(id).classList.add('show'));
+  if (!started){ started = true; initModel(); requestAnimationFrame(loop); }
+  MODE.on = false; MODE.t = 9; setTimeout(() => setMode(true), 1400);
+};
+$('flip').onclick = async () => {
+  const prev = facing; facing = facing === 'user' ? 'environment' : 'user';
+  try { await startCam(); RING.filled = 0; } catch(e){ facing = prev; camError(e); }
+};
+$('gear').onclick = () => $('panel').classList.toggle('hide');
+function setPal(i){
+  S.pal = i; loadPal(); const p = PALS[i], r = document.documentElement.style;
+  r.setProperty('--bg', p.css[0]); r.setProperty('--fg', p.css[1]); r.setProperty('--acc', p.css[2]);
+  [...$('pals').children].forEach(x => x.classList.toggle('on', +x.dataset.p === i));
+}
+$('pals').onclick = e => { const b = e.target.closest('button'); if (b) setPal(+b.dataset.p); };
+[['sCount','count'],['sBreak','brk'],['sSpan','span'],['sLine','line']].forEach(([id,k]) => { $(id).oninput = e => { S[k] = +e.target.value; buildFacets(); }; });
+
+$('shoot').onclick = () => {
+  strokes(2, .1);
+  try{
+    canvas.toBlob(b => { if (!b) return; const a = document.createElement('a'); a.href = URL.createObjectURL(b);
+      a.download = 'tamen-' + Date.now() + '.png'; a.click(); }, 'image/png');
+  }catch(e){ setStatus('保存できませんでした。'); }
+};
+let rec = null, chunks = [];
+$('rec').onclick = () => {
+  if (rec && rec.state === 'recording'){ rec.stop(); return; }
+  try{
+    ensureAudio();
+    const tracks = [...canvas.captureStream(30).getVideoTracks()];
+    if (recDest) tracks.push(...recDest.stream.getAudioTracks());
+    const mime = ['video/mp4;codecs=avc1','video/webm;codecs=vp9,opus','video/webm'].find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || '';
+    rec = new MediaRecorder(new MediaStream(tracks), mime ? { mimeType:mime } : {});
+    chunks = [];
+    rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+    rec.onstop = () => {
+      $('rec').classList.remove('on'); $('rec').textContent = '● REC';
+      const ext = (rec.mimeType || '').includes('mp4') ? 'mp4' : 'webm';
+      const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(chunks, { type:rec.mimeType || 'video/webm' }));
+      a.download = 'tamen.' + ext; a.click();
+    };
+    rec.start(); $('rec').classList.add('on'); $('rec').textContent = '■ STOP';
+  }catch(e){ setStatus('録画を開始できませんでした。'); }
+};
+
+/* ---------- facets ----------
+   Layout in units of the head radius around the face, a looser ring over the
+   shoulders, and a sparse jittered grid for the room. Each facet keeps a fixed
+   random "temperament": how far back in time it may slip, its zoom, its shift. */
+let rnd = 7;
+const rand = () => (rnd = (rnd*16807) % 2147483647) / 2147483647;
+const FAC = [];                                       // { kind, ox, oy, lag, zoom, sx, sy, ramp, ang, hatch, bg }
+function buildFacets(){
+  rnd = 7; FAC.length = 0;
+  const nFace = 7 + Math.round(S.count*7), nBody = 5 + Math.round(S.count*6), nBg = 8 + Math.round(S.count*10);
+  const lagOf = k => k === 0 ? 0 : .25 + .75*rand();
+  for (let i = 0; i < nFace; i++){
+    const a = i === 0 ? 0 : (i/(nFace - 1))*Math.PI*2 + rand()*.5, d = i === 0 ? 0 : .55 + rand()*.75;
+    FAC.push({ kind:0, ox:Math.cos(a)*d, oy:Math.sin(a)*d*1.2 - .05, lag:lagOf(i), zoom:1 + (rand() - .35)*.22,
+               sx:(rand() - .5), sy:(rand() - .5), ramp:i % 4, ang:rand()*6.28, hatch:0, bg:i % 5 });
+  }
+  for (let i = 0; i < nBody; i++){
+    const t = (i + .5)/nBody;
+    FAC.push({ kind:1, ox:(t - .5)*7 + (rand() - .5)*1.2, oy:2.6 + rand()*3.2, lag:.2 + .8*rand(), zoom:1 + (rand() - .4)*.18,
+               sx:(rand() - .5), sy:(rand() - .5), ramp:(i + 1) % 4, ang:rand()*6.28, hatch:(i % 4 === 2) ? 1 : 0, bg:(i + 2) % 5 });
+  }
+  const cols = Math.max(3, Math.round(Math.sqrt(nBg*1.6))), rows = Math.max(2, Math.ceil(nBg/cols));
+  for (let j = 0; j < rows; j++) for (let i = 0; i < cols; i++){
+    if (FAC.length >= MAXF) break;
+    FAC.push({ kind:2, gx:(i + .2 + rand()*.6)/cols, gy:(j + .2 + rand()*.6)/rows, lag:.5*rand(), zoom:1, sx:0, sy:0,
+               ramp:(i + j) % 4, ang:rand()*6.28, hatch:((i*7 + j*3) % 9 === 4) ? 1 : 0, bg:(i*2 + j) % 5 });
+  }
+}
+buildFacets();
+const SEED = new Float32Array(MAXF*2), PU = new Float32Array(MAXF*4), QU = new Float32Array(MAXF*4);
+const LN = new Float32Array(6*4), LNA = [0.35, 1.9, 2.6, 0.95, 1.35, 2.25], LNL = [4, 3.4, 4.6, 3, 5, 3.6], LNO = [[-.6,.2],[.5,-.4],[.2,.9],[-.3,-.7],[.8,.4],[-.9,1.6]];
+
+/* ---------- smoothed tracking ---------- */
+const TR = { hx:.5, hy:.35, hr:.12, bx:.5, by:.65, energy:0, vx:0, lastHx:null };
+let W = 2, H = 2, SX = 1, SY = 1;
+function vid2scr(u, v){ if (mirror) u = 1 - u; return [((u - .5)/SX + .5)*W, ((v - .5)/SY + .5)*H]; }
+function track(dt){
+  const k = 1 - Math.exp(-dt/.18);
+  let raw = 0;
+  if (M.present){
+    const [hx_, hy_] = vid2scr(M.head.x, M.head.y), [bx_, by_] = vid2scr(M.body.x, M.body.y);
+    const hr_ = M.head.r*W/SX;
+    if (isFinite(hx_) && isFinite(hy_) && isFinite(hr_)){
+      const nx = hx_/W, ny = hy_/H;
+      if (TR.lastHx !== null && dt > 0) TR.vx = Math.hypot(nx - TR.lastHx[0], ny - TR.lastHx[1]) / dt;
+      TR.lastHx = [nx, ny];
+      TR.hx += (nx - TR.hx)*k; TR.hy += (ny - TR.hy)*k;
+      TR.hr += (Math.min(.35, Math.max(.04, hr_/Math.min(W, H))) - TR.hr)*k;
+      TR.bx += (bx_/W - TR.bx)*k; TR.by += (by_/H - TR.by)*k;
+    }
+    raw = Math.min(1, M.diff*28 + TR.vx*1.6);
+  } else { TR.lastHx = null; TR.vx = 0; }          // lost: no velocity carried over
+  // fast attack, slow release
+  const tau = raw > TR.energy ? .15 : 1.4;
+  TR.energy += (raw - TR.energy)*(1 - Math.exp(-dt/tau));
+  if (!(TR.energy >= 0)) TR.energy = 0;
+}
+
+/* ---------- render ---------- */
+let lastT = 0, hudT = 0, tSec = 0;
+function loop(now){
+  requestAnimationFrame(loop);
+  const rdt = lastT ? Math.min(.5, Math.max(0, (now - lastT)/1000)) : 1/60, dt = Math.min(.1, rdt); lastT = now; tSec += dt;
+  MODE.t += dt;
+  if (video.videoWidth && (video.videoWidth !== vidW || video.videoHeight !== vidH)){ vidW = video.videoWidth; vidH = video.videoHeight; }
+  const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+  W = Math.round(innerWidth*dpr); H = Math.round(innerHeight*dpr);
+  const kk = Math.min(1, 1500/Math.max(W, H)); W = Math.round(W*kk); H = Math.round(H*kk);
+  if (canvas.width !== W || canvas.height !== H){ canvas.width = W; canvas.height = H; }
+  if (!M.external) segment(now);
+  if (video.readyState < 2) return;
+  const sa = W/H, va = vidW/vidH; SX = sa < va ? sa/va : 1; SY = sa < va ? 1 : va/sa;
+  RING.acc += dt;
+  if (RING.acc >= 1/30 || RING.head < 0){ RING.acc = Math.min(RING.acc - 1/30, 1/30); if (RING.acc < 0) RING.acc = 0; pushFrame(); }
+  gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, texVid);
+  try { gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video); } catch(e){ return; }
+  track(rdt);                                          // smoothing follows wall-clock time, not frame count
+
+  // facet uniforms
+  const short = Math.min(W, H), R = TR.hr*short, hxp = TR.hx*W, hyp = TR.hy*H;
+  const E = TR.energy, brk = S.brk, avail = Math.max(1, RING.filled) - 1;
+  const span = Math.min(avail, Math.round(NL*(.2 + .8*S.span)) - 1);
+  for (let i = 0; i < FAC.length; i++){
+    const f = FAC[i]; let x, y;
+    const br = Math.sin(tSec*.4 + i*1.7)*.06;         // slow breathing of the layout
+    if (f.kind === 0){ x = hxp + (f.ox + br)*R; y = hyp + (f.oy - br)*R; }
+    else if (f.kind === 1){ x = TR.bx*W + (f.ox + br)*R; y = hyp + (f.oy + br)*R; }
+    else { x = f.gx*W + br*R; y = f.gy*H - br*R; }
+    SEED[i*2] = x; SEED[i*2 + 1] = y;
+    // time slip grows with movement; a little always stays so stillness is still a painting
+    const lag = Math.round(f.lag * span * Math.min(1, .08 + E*1.25));
+    const layer = ((RING.head - Math.min(lag, avail)) % NL + NL) % NL;
+    const dis = (.12 + .88*Math.min(1, E*1.4)) * brk;
+    PU[i*4] = layer; PU[i*4 + 1] = 1 + (f.zoom - 1)*(.4 + brk);
+    PU[i*4 + 2] = f.sx*R*.55*dis; PU[i*4 + 3] = f.sy*R*.55*dis;
+    QU[i*4] = f.ramp; QU[i*4 + 1] = f.ang; QU[i*4 + 2] = f.hatch; QU[i*4 + 3] = f.bg;
+  }
+
+  for (let k = 0; k < 6; k++){
+    LN[k*4] = hxp + LNO[k][0]*R; LN[k*4 + 1] = hyp + LNO[k][1]*R;
+    LN[k*4 + 2] = LNA[k] + Math.sin(tSec*.21 + k)*.04 + (k % 2 ? 1 : -1)*E*.25*brk; LN[k*4 + 3] = LNL[k];
+  }
+  // switch choreography: painting spreads from the face outward / recedes back into it
+  let mix = 1, reveal;
+  if (MODE.on) reveal = Math.min(1, MODE.t/1.2);
+  else reveal = Math.max(0, 1 - MODE.t/.45);
+  reveal = reveal*reveal*(3 - 2*reveal);
+
+  gl.viewport(0, 0, W, H); gl.useProgram(PG);
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D_ARRAY, texHist);
+  gl.activeTexture(gl.TEXTURE1); if (texMHist) gl.bindTexture(gl.TEXTURE_2D_ARRAY, texMHist);
+  gl.uniform1i(U.uHist, 0); gl.uniform1i(U.uMHist, 1); gl.uniform1i(U.uVid, 2);
+  gl.uniform2f(U.uScale, SX, SY); gl.uniform2f(U.uRes, W, H); gl.uniform1f(U.uMirror, mirror ? 1 : 0);
+  gl.uniform1f(U.uMix, mix); gl.uniform1f(U.uReveal, reveal); gl.uniform1f(U.uT, tSec); gl.uniform1f(U.uLine, S.line);
+  gl.uniform1f(U.uHas, texMHist && M.present ? 1 : 0); gl.uniform1f(U.uN, FAC.length);
+  gl.uniform2f(U.uHead, hxp, hyp); gl.uniform1f(U.uHeadR, R);
+  gl.uniform2fv(U.uSeed, SEED); gl.uniform4fv(U.uLn, LN); gl.uniform4fv(U.uP, PU); gl.uniform4fv(U.uQ, QU);
+  gl.uniform3fv(U.uRamp, RAMP); gl.uniform3fv(U.uBg, BGC); gl.uniform3fv(U.uPaper, PAPER); gl.uniform3fv(U.uInk, INK);
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+  hudT += dt;
+  if (hudT > .25){ hudT = 0;
+    $('hud').textContent = MODE.on ? 'TAMEN · ' + PALS[S.pal].name + '\n' + FAC.length + ' PLANS · ' + (M.present ? (Math.round(E*span/30*10)/10).toFixed(1) + ' S' : '—') : 'CAMERA'; }
+}
+
+/* ---------- test hook (used by the local verification harness) ---------- */
+window.__TAMEN = {
+  ingestMask(d, w, h){ if (!M.external) setStatus(''); M.external = true; ingestMask(d, w, h); },
+  mode(on){ setMode(!!on); if (on) MODE.t = 9; },
+  palette(i){ setPal(i); },
+  set(k, v){ S[k] = v; buildFacets(); },
+  state: () => ({ on:MODE.on, present:M.present, energy:TR.energy, head:[TR.hx, TR.hy, TR.hr], facets:FAC.length,
+                  filled:RING.filled, layers:Array.from(PU.filter((_, i) => i % 4 === 0).slice(0, FAC.length)) }),
+};
+</script>
+</body>
+</html>
