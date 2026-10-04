@@ -1,0 +1,851 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="description" content="指先に虹のレーザーの糸がかかる、本当に技がとれるあやとり。本物の手順どおりに指で糸をとり、指を曲げてはずすと、基本の形・やり・はしごができあがる。">
+<meta name="theme-color" content="#000000">
+<title>AYATORI ─ 指で本当に技をとる虹のあやとり</title>
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  AYATORI ─ 指で本当に技をとる虹のあやとり   ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  MOOD       暗いライブハウスでレーザーを指にかけて遊んでいる感じ。映像は沈み、
+             指先から指先へ張った糸だけが虹色に発光して、はじくと震える。
+  PALETTE    地は沈めたカメラ映像と #000。糸は色相が糸に沿って流れる虹
+             （白金・ネオンにも切り替え）。とるべき糸は白く脈打つ。
+  TYPE       Zen Maru Gothic（手順の日本語）＋ Space Grotesk（技の名前・計器）。
+  MOTION     糸をとると、とられた糸が指先へ折れて、弦のように震えて鳴る。
+             指をはずすと糸はゆっくり張り直る。技ができると光が一周して名前が出る。
+  TECH       糸は「どの指からどの指へ順に渡っているか」の輪（指の並び）として持つ。
+             糸をとる＝その糸の区間へ指を差し込む、はずす＝その指を輪から抜く。
+             手順はすべて本物の技の順番のままで、指先の位置はカメラの手から毎フレーム取る。
+             手が見えないときは画面の中の手で、ボタンひとつずつ進められる。
+             手の検出は MediaPipe HandLandmarker（動的 import）。
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Zen+Maru+Gothic:wght@500;700&display=swap" rel="stylesheet">
+<style>
+:root{--acc:#7cf7ff}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none}
+html,body{margin:0;height:100%;background:#000;overflow:hidden;color:#fff;font-family:"Zen Maru Gothic","Hiragino Sans",sans-serif}
+#c{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+#start{position:fixed;inset:0;z-index:30;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;padding:28px;text-align:center;
+  background:radial-gradient(ellipse at 50% 40%,#140a22,#000 72%)}
+#start .t{font:500 10px "Space Grotesk",sans-serif;letter-spacing:.5em;margin-right:-.5em;color:#777}
+#start h1{margin:0;font:700 min(13vw,78px)/1 "Space Grotesk",sans-serif;letter-spacing:.08em;
+  background:linear-gradient(90deg,#ff4d6d,#ffb84d,#f6ff6b,#4dffb8,#4dc3ff,#b36bff,#ff4d6d);background-size:300% auto;-webkit-background-clip:text;background-clip:text;color:transparent;animation:sh 7s linear infinite}
+@keyframes sh{to{background-position:300% center}}
+#start p{margin:0;font:13px/2 "Zen Maru Gothic",sans-serif;color:#aaa;letter-spacing:.05em}
+#start svg{width:min(280px,70vw);height:auto;opacity:.9}
+#go{appearance:none;border:0;border-radius:40px;background:linear-gradient(90deg,#4dffb8,#4dc3ff,#b36bff);color:#000;font:700 13px "Space Grotesk",sans-serif;letter-spacing:.35em;
+  padding:15px 40px 15px 46px;cursor:pointer;box-shadow:0 0 30px rgba(110,180,255,.45)}
+#go:active{transform:scale(.97)}
+#err{font:12px/1.8 "Zen Maru Gothic",sans-serif;max-width:340px;min-height:1em;white-space:pre-line;color:#ff7b8b}
+
+.btn{position:fixed;z-index:12;appearance:none;border:0;background:rgba(0,0,0,.45);color:#fff;font:500 11px "Zen Maru Gothic","Hiragino Sans",sans-serif;
+  letter-spacing:.08em;padding:9px 12px;display:none;cursor:pointer;border-radius:20px;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
+.btn.show{display:block}
+#gear{right:10px;top:calc(env(safe-area-inset-top) + 12px);font-size:14px;letter-spacing:0}
+#flip{right:10px;top:calc(env(safe-area-inset-top) + 52px)}
+#tech{position:fixed;left:0;right:0;top:calc(env(safe-area-inset-top) + 12px);z-index:13;display:none;justify-content:center;gap:6px;padding:0 56px}
+#tech.show{display:flex}
+#tech button{appearance:none;border:1px solid rgba(255,255,255,.2);background:rgba(0,0,0,.45);color:#fff;border-radius:16px;font:700 12px "Zen Maru Gothic",sans-serif;
+  padding:7px 13px;cursor:pointer;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);opacity:.8}
+#tech button.on{background:#fff;color:#000;opacity:1}
+#card{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom) + 76px);z-index:12;width:min(560px,calc(100vw - 24px));
+  display:none;background:rgba(6,4,14,.62);border:1px solid rgba(255,255,255,.12);border-radius:16px;padding:12px 14px 12px 16px;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
+#card.show{display:block}
+#card .row{display:flex;align-items:center;gap:10px}
+#card .n{font:700 11px "Space Grotesk",sans-serif;letter-spacing:.2em;color:var(--acc);white-space:nowrap}
+#card .bar{flex:1;height:3px;border-radius:2px;background:rgba(255,255,255,.12);overflow:hidden}
+#card .bar b{display:block;height:100%;width:0;background:linear-gradient(90deg,#4dffb8,#4dc3ff,#b36bff);transition:width .4s}
+#card .txt{font:700 min(4.6vw,19px)/1.55 "Zen Maru Gothic",sans-serif;margin:8px 0 4px;letter-spacing:.03em}
+#card .sub{font:12px/1.6 "Zen Maru Gothic",sans-serif;color:#aab}
+#card .ctl{display:flex;gap:8px;margin-top:9px}
+#card .ctl button{appearance:none;border:1px solid rgba(255,255,255,.22);background:rgba(255,255,255,.06);color:#fff;border-radius:14px;font:500 12px "Zen Maru Gothic",sans-serif;padding:7px 12px;cursor:pointer}
+#card .ctl button.main{background:#fff;color:#000;border-color:#fff;font-weight:700}
+#card .ctl .sp{flex:1}
+#card .ctl button{white-space:nowrap}
+@media (max-width:440px){#card .ctl{gap:5px}#card .ctl button{padding:6px 8px;font-size:11px}}
+#bar{position:fixed;left:0;right:0;bottom:calc(env(safe-area-inset-bottom) + 12px);z-index:12;display:none;justify-content:center;align-items:center;gap:16px}
+#bar.show{display:flex}
+#bar .btn{position:static;display:block}
+#bar #shoot{width:50px;height:50px;border-radius:50%;border:3px solid #fff;padding:0;background:rgba(255,255,255,.12)}
+#rec.on{background:#e8263a}
+#mode{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom) + 80px);z-index:13;display:none;appearance:none;border:0;border-radius:26px;
+  background:linear-gradient(90deg,#4dffb8,#4dc3ff,#b36bff);color:#000;font:700 13px "Zen Maru Gothic",sans-serif;letter-spacing:.12em;padding:12px 26px;cursor:pointer;box-shadow:0 0 24px rgba(110,180,255,.4)}
+#mode.show{display:block}
+#mode.small{bottom:auto;top:calc(env(safe-area-inset-top) + 52px);left:12px;transform:none;padding:8px 13px;font-size:11px;background:rgba(0,0,0,.45);color:#fff;box-shadow:none}
+#done{position:fixed;left:0;right:0;top:30%;z-index:11;text-align:center;pointer-events:none;opacity:0}
+#done .a{font:700 11px "Space Grotesk",sans-serif;letter-spacing:.6em;color:#fff;margin-right:-.6em}
+#done .b{font:700 min(15vw,84px)/1.1 "Zen Maru Gothic",sans-serif;letter-spacing:.1em;margin-top:8px;
+  background:linear-gradient(90deg,#ff4d6d,#ffb84d,#f6ff6b,#4dffb8,#4dc3ff,#b36bff);-webkit-background-clip:text;background-clip:text;color:transparent;filter:drop-shadow(0 0 18px rgba(140,200,255,.6))}
+#done.on{animation:dn 3.2s ease-out forwards}
+@keyframes dn{0%{opacity:0;transform:scale(.8)}12%{opacity:1;transform:scale(1.04)}22%{transform:scale(1)}80%{opacity:1}100%{opacity:0}}
+#hand{position:fixed;left:12px;top:calc(env(safe-area-inset-top) + 12px);z-index:12;display:none;gap:6px;font:700 11px "Space Grotesk",sans-serif;letter-spacing:.1em;pointer-events:none}
+#hand.show{display:flex}
+#hand i{font-style:normal;padding:5px 9px;border-radius:12px;background:rgba(0,0,0,.45);opacity:.4}
+#hand i.on{opacity:1;background:rgba(77,195,255,.35)}
+#status{position:fixed;left:14px;right:14px;bottom:calc(env(safe-area-inset-bottom) + 236px);z-index:11;font:11px/1.7 "Zen Maru Gothic",sans-serif;
+  color:#fff;pointer-events:none;white-space:pre-line;text-shadow:0 1px 4px rgba(0,0,0,.8);text-align:center}
+#panel{position:fixed;right:10px;top:calc(env(safe-area-inset-top) + 92px);z-index:14;width:min(280px,calc(100vw - 20px));
+  background:rgba(10,8,18,.9);border:1px solid #2a2a3a;border-radius:10px;padding:14px 16px;display:flex;flex-direction:column;gap:12px;transition:opacity .25s}
+#panel.hide{opacity:0;pointer-events:none}
+#panel label{display:flex;align-items:center;gap:10px;font:12px "Zen Maru Gothic",sans-serif}
+#panel label span{width:90px;flex:none;color:#aab}
+#panel input[type=range]{flex:1;accent-color:var(--acc)}
+#panel select{flex:1;background:#111;color:#fff;border:1px solid #333;border-radius:4px;font:12px "Zen Maru Gothic",sans-serif;padding:4px}
+#panel .note{font:11px/1.8 "Zen Maru Gothic",sans-serif;color:#99a}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<video id="v" playsinline muted autoplay style="display:none"></video>
+<div id="done"><div class="a">COMPLETE</div><div class="b" id="doneName"></div></div>
+<div id="hand"><i id="hL">L ✋</i><i id="hR">✋ R</i></div>
+<div id="status"></div>
+<div id="tech"></div>
+<button id="gear" class="btn" aria-label="調整">⚙</button>
+<button id="flip" class="btn">⟲ カメラ</button>
+<button id="mode">▸ あやとり</button>
+<div id="card">
+  <div class="row"><span class="n" id="cardN">STEP 1 / 3</span><span class="bar"><b id="cardBar"></b></span></div>
+  <div class="txt" id="cardTxt"></div>
+  <div class="sub" id="cardSub"></div>
+  <div class="ctl"><button id="back">◀ もどる</button><button id="reset">はじめから</button><span class="sp"></span><button id="auto">おまかせ</button><button id="next" class="main">つぎ ▶</button></div>
+</div>
+<div id="bar">
+  <button id="rec" class="btn">● REC</button>
+  <button id="rand" class="btn">🎲 いろ</button>
+  <button id="shoot" class="btn" aria-label="撮る"></button>
+</div>
+<div id="panel" class="hide">
+  <label><span>糸の色</span><select id="sPal"><option value="0">虹</option><option value="1">ネオン</option><option value="2">白金</option><option value="3">夕焼け</option></select></label>
+  <label><span>糸の太さ</span><input type="range" id="sW" min="0" max="1" step="0.01" value="0.5"></label>
+  <label><span>光の強さ</span><input type="range" id="sGlow" min="0" max="1" step="0.01" value="0.6"></label>
+  <label><span>映像の明るさ</span><input type="range" id="sDim" min="0" max="1" step="0.01" value="0.45"></label>
+  <label><span>音</span><input type="checkbox" id="sSnd" checked></label>
+  <div class="note">光っている糸に、言われた指の先を近づけると糸がとれる。<br>指をぎゅっと曲げると、その指の糸がはずれる。<br>手が映らなくても「つぎ ▶」で一手ずつ進められる。「おまかせ」で最後まで自動。<br>「じゆう」では、どの指でどの糸をとってもいい。</div>
+</div>
+<div id="start">
+  <div class="t">REAL STRING FIGURES · LASER</div>
+  <h1>AYATORI</h1>
+  <svg viewBox="0 0 280 120" aria-hidden="true"><defs><linearGradient id="g" x1="0" x2="1"><stop offset="0" stop-color="#ff4d6d"/><stop offset=".25" stop-color="#ffb84d"/><stop offset=".5" stop-color="#4dffb8"/><stop offset=".75" stop-color="#4dc3ff"/><stop offset="1" stop-color="#b36bff"/></linearGradient></defs>
+    <g fill="none" stroke="url(#g)" stroke-width="2"><path d="M30 20H250M30 100H250"/><path d="M30 20L65 100L100 20L135 100L170 20L205 100L250 20"/><path d="M30 100L65 20L100 100L135 20L170 100L205 20L250 100"/></g>
+    <g fill="#fff"><circle cx="30" cy="20" r="4"/><circle cx="30" cy="100" r="4"/><circle cx="250" cy="20" r="4"/><circle cx="250" cy="100" r="4"/></g></svg>
+  <p>本物の手順で、本物の技を。<br>光っている糸に指先を近づけてとり、指を曲げてはずす。<br>手のひらをカメラに向けて、両手を画面に入れてね。</p>
+  <button id="go">START</button>
+  <div id="err"></div>
+</div>
+
+<script>
+'use strict';
+const $ = id => document.getElementById(id);
+const VISION_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs';
+const WASM_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm';
+const HAND_MODEL = 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task';
+const canvas = $('c'), ctx = canvas.getContext('2d'), video = $('v');
+const S = { pal:0, w:.5, glow:.6, dim:.45, snd:true };
+const STATE = { frames:0, picks:0, releases:0, completes:0, steps:0 };
+const FNAME = { 1:'親指', 2:'人差し指', 3:'中指', 4:'薬指', 5:'小指' };
+const SIDE = { L:'左', R:'右' };
+const TIP = { 1:4, 2:8, 3:12, 4:16, 5:20 }, DIP = { 1:3, 2:7, 3:11, 4:15, 5:19 }, MCP = { 1:2, 2:5, 3:9, 4:13, 5:17 };
+
+/* ---------- camera ---------- */
+let stream = null, facing = 'user', mirror = true, started = false, vidW = 1280, vidH = 720;
+function setStatus(t){ $('status').textContent = t || ''; }
+function camError(e){
+  const msg = (e && (e.message || e.name)) ? (e.message || e.name) : String(e || 'unknown');
+  const text = 'カメラを起動できませんでした：' + msg + '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+  $('err').textContent = text;
+  if (started) setStatus(text);
+}
+async function startCam(){
+  const md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) throw new Error('getUserMedia is unavailable');
+  const s = await md.getUserMedia({ video:{ facingMode:{ ideal:facing }, width:{ ideal:1280 }, height:{ ideal:720 } }, audio:false });
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = s; mirror = facing === 'user';
+  video.srcObject = s;
+  await new Promise(r => { if (video.readyState >= 1) r(); else video.onloadedmetadata = () => r(); });
+  await video.play().catch(()=>{});
+  vidW = video.videoWidth || 1280; vidH = video.videoHeight || 720;
+}
+const COV = { s:1, ox:0, oy:0 };
+function fitCover(W, H){ const s = Math.max(W / vidW, H / vidH); COV.s = s; COV.ox = (W - vidW * s) / 2; COV.oy = (H - vidH * s) / 2; }
+function toScr(p){ const x = COV.ox + p.x * vidW * COV.s, y = COV.oy + p.y * vidH * COV.s; return [mirror ? canvas.width - x : x, y]; }
+
+/* ---------- audio ---------- */
+let actx = null, bus = null, recDest = null, verb = null;
+function ensureAudio(){
+  if (actx){ if (actx.state === 'suspended') actx.resume().catch(()=>{}); return; }
+  const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+  actx = new AC(); bus = actx.createGain(); bus.gain.value = .55; bus.connect(actx.destination);
+  recDest = actx.createMediaStreamDestination(); bus.connect(recDest);
+  // a short shimmering room
+  verb = actx.createConvolver(); const n = actx.sampleRate * 1.6, b = actx.createBuffer(2, n, actx.sampleRate);
+  for (let c = 0; c < 2; c++){ const d = b.getChannelData(c); for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / n, 3); }
+  verb.buffer = b; const vg = actx.createGain(); vg.gain.value = .35; verb.connect(vg); vg.connect(bus);
+  actx.resume().catch(()=>{});
+}
+const audioOk = () => actx && actx.state === 'running' && S.snd;
+const PENTA = [0, 2, 4, 7, 9];
+function pluck(len, pan){
+  if (!audioOk()) return;
+  const t = actx.currentTime;
+  // longer string, lower note (pentatonic so it never clashes)
+  const k = Math.max(0, Math.min(14, Math.round(14 - len / (Math.min(canvas.width, canvas.height) * .09))));
+  const f = 220 * Math.pow(2, (PENTA[k % 5] + 12 * Math.floor(k / 5)) / 12);
+  const g = actx.createGain(); g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime(.16, t + .006); g.gain.exponentialRampToValueAtTime(.0001, t + 1.4);
+  const pn = actx.createStereoPanner ? actx.createStereoPanner() : null;
+  const out = pn || bus; if (pn){ pn.pan.value = Math.max(-1, Math.min(1, pan)); pn.connect(bus); pn.connect(verb); } else g.connect(verb);
+  g.connect(out);
+  const lp = actx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.setValueAtTime(f * 9, t); lp.frequency.exponentialRampToValueAtTime(f * 1.5, t + .8); lp.connect(g);
+  for (const [m, a, ty] of [[1, .6, 'sawtooth'], [2.003, .25, 'triangle'], [.5, .2, 'sine']]){
+    const o = actx.createOscillator(), og = actx.createGain(); o.type = ty; o.frequency.value = f * m; og.gain.value = a;
+    o.connect(og); og.connect(lp); o.start(t); o.stop(t + 1.5);
+  }
+}
+function slide(){
+  if (!audioOk()) return;
+  const t = actx.currentTime, o = actx.createOscillator(), g = actx.createGain(); o.type = 'sine';
+  o.frequency.setValueAtTime(660, t); o.frequency.exponentialRampToValueAtTime(220, t + .35);
+  g.gain.setValueAtTime(.08, t); g.gain.exponentialRampToValueAtTime(.0001, t + .45); o.connect(g); g.connect(bus); g.connect(verb); o.start(t); o.stop(t + .5);
+}
+function fanfare(){
+  if (!audioOk()) return;
+  const t = actx.currentTime;
+  [0, 4, 7, 12, 16, 19, 24].forEach((s, i) => {
+    const o = actx.createOscillator(), g = actx.createGain(); o.type = 'triangle'; o.frequency.value = 330 * Math.pow(2, s / 12);
+    g.gain.setValueAtTime(.0001, t + i * .07); g.gain.exponentialRampToValueAtTime(.08, t + i * .07 + .01); g.gain.exponentialRampToValueAtTime(.0001, t + i * .07 + 1.6);
+    o.connect(g); g.connect(bus); g.connect(verb); o.start(t + i * .07); o.stop(t + i * .07 + 1.7);
+  });
+}
+
+/* ---------- hands ---------- */
+let hands = null, HANDS_EXTERNAL = false, lastTs = 0, lastVT = -1;
+const HAND = { L:{ seen:0, P:null, fold:{}, foldT:{} }, R:{ seen:0, P:null, fold:{}, foldT:{} } };
+async function initModels(){
+  try{
+    const vision = await import(VISION_URL);
+    const fs = await vision.FilesetResolver.forVisionTasks(WASM_URL);
+    const ho = d => ({ baseOptions:{ modelAssetPath:HAND_MODEL, delegate:d }, runningMode:'VIDEO', numHands:2,
+      minHandDetectionConfidence:.5, minHandPresenceConfidence:.5, minTrackingConfidence:.5 });
+    try { hands = await vision.HandLandmarker.createFromOptions(fs, ho('GPU')); } catch(e){ hands = await vision.HandLandmarker.createFromOptions(fs, ho('CPU')); }
+    setStatus('');
+  }catch(e){
+    if (HANDS_EXTERNAL) return;
+    setStatus('手の検出モデルを読み込めませんでした（ネット接続を確認）。\n「つぎ ▶」で一手ずつ進められます。');
+  }
+}
+function detect(now){
+  if (!hands || HANDS_EXTERNAL || video.readyState < 2) return;
+  const vt = video.currentTime; if (vt === lastVT) return; lastVT = vt;
+  const ts = Math.max(lastTs + 1, Math.round(now)); lastTs = ts;
+  try{ const r = hands.detectForVideo(video, ts); ingestHands(r && r.landmarks ? r.landmarks : [], now); }catch(e){}
+}
+function validHand(lm){
+  if (!Array.isArray(lm) || lm.length < 21) return false;
+  for (let i = 0; i < 21; i++){ const p = lm[i]; if (!p || !Number.isFinite(p.x) || !Number.isFinite(p.y)) return false; }
+  return true;
+}
+// screen-left hand is "L" (with the front camera mirrored, that is the player's own left hand)
+function ingestHands(list, now){
+  now = now == null ? performance.now() : now;
+  if (!Array.isArray(list)) return false;
+  const v = list.filter(validHand).slice(0, 2).map(lm => lm.map(toScr));
+  if (!v.length) return false;
+  v.sort((a, b) => a[0][0] - b[0][0]);
+  let assign;
+  if (v.length === 2) assign = [['L', v[0]], ['R', v[1]]];
+  else assign = [[v[0][0][0] < canvas.width / 2 ? 'L' : 'R', v[0]]];
+  for (const [k, P] of assign){
+    const H = HAND[k];
+    // smooth a little so a laser line does not shiver with landmark noise
+    if (H.P && now - H.seen < 300) for (let i = 0; i < 21; i++){ H.P[i][0] += (P[i][0] - H.P[i][0]) * .6; H.P[i][1] += (P[i][1] - H.P[i][1]) * .6; }
+    else H.P = P.map(q => q.slice());
+    H.seen = now;
+    const d = (a, b) => Math.hypot(H.P[a][0] - H.P[b][0], H.P[a][1] - H.P[b][1]);
+    const palm = Math.max(1, d(0, 9));
+    for (let f = 2; f <= 5; f++){
+      const r = d(TIP[f], 0) / Math.max(1, d(MCP[f], 0));      // ~1.9 straight, < 1.15 curled
+      setFold(H, f, H.fold[f] ? r < 1.4 : r < 1.2, now);
+    }
+    const rt = d(4, 9) / palm;                                    // thumb tip tucked against the middle-finger base
+    setFold(H, 1, H.fold[1] ? rt < .62 : rt < .5, now);
+  }
+  return true;
+}
+function setFold(H, f, on, now){
+  if (on !== !!H.fold[f]){ H.fold[f] = on; H.foldT[f] = now; }
+}
+const handSeen = (k, now) => HAND[k].P && (now || performance.now()) - HAND[k].seen < 400;
+const folded = (k, f, now) => handSeen(k, now) && HAND[k].fold[f] && (now || performance.now()) - HAND[k].foldT[f] > 120;
+
+/* ---------- the string: a ring of finger stops ---------- */
+// cycle: [{f:'L1', lab:'L1', k:serial}] — the string runs from each stop to the next and back to the first.
+let cycle = [], serial = 0, figure = null;      // figure: null (straight), 'spear', 'ladder'
+let twist = {};                                   // finger -> half-turns given to its loop
+const vib = [];                                   // plucked strings ringing: {a,b,t,amp}
+const anim = {};                                  // finger -> {x,y,t,dur} virtual reach (auto play)
+function ent(lab){ return { f:lab.slice(0, 2), lab, k:serial++ }; }
+function setCycle(labs){ cycle = labs.map(ent); }
+function idxOf(lab){ return cycle.findIndex(e => e.lab === lab); }
+function segBetween(a, b){
+  const n = cycle.length;
+  for (let i = 0; i < n; i++){ const p = cycle[i].lab, q = cycle[(i + 1) % n].lab; if ((p === a && q === b) || (p === b && q === a)) return i; }
+  return -1;
+}
+function insertAt(i, lab){ cycle.splice(i + 1, 0, ent(lab)); }
+function removeLabs(labs){ cycle = cycle.filter(e => !labs.includes(e.lab)); }
+
+/* finger positions: real hands when seen, the on-screen pair of hands otherwise */
+function virtualPos(f){
+  const W = canvas.width, H = canvas.height, m = Math.min(W, H), sd = f[0] === 'L' ? -1 : 1, k = +f[1];
+  const cx = W / 2 + sd * Math.min(W * .3, m * .42), cy = H * .44;
+  let y = cy + (k - 3) * m * .085, x = cx + sd * (k === 1 || k === 5 ? -m * .035 : 0) + sd * Math.abs(k - 3) * m * .012;
+  // palms turned away for the ladder: the index fingers go up, the thumbs come down, and the figure opens
+  if (figure === 'ladder' && (k === 1 || k === 2)){
+    const g = Math.min(1, (performance.now() - figT) / 1200), e = g * g * (3 - 2 * g);
+    const ty = cy + (k === 1 ? .17 : -.17) * m, tx = cx - sd * m * .05;
+    y += (ty - y) * e; x += (tx - x) * e;
+  }
+  return [x, y];
+}
+function fingerPos(f, now){
+  const side = f[0], k = +f[1];
+  let p;
+  if (handSeen(side, now)){ const P = HAND[side].P, a = P[DIP[k]], b = P[TIP[k]]; p = [a[0] + (b[0] - a[0]) * .85, a[1] + (b[1] - a[1]) * .85]; }
+  else p = virtualPos(f);
+  const A = anim[f];
+  if (A){ const u = Math.min(1, (now - A.t0) / A.dur), e = Math.sin(Math.PI * u); p = [p[0] + (A.x - p[0]) * e, p[1] + (A.y - p[1]) * e]; }
+  return p;
+}
+// a stop sits a little apart from other loops on the same finger
+function stopPos(i, now){
+  const e = cycle[i], p = fingerPos(e.f, now);
+  const same = cycle.filter(q => q.f === e.f).sort((a, b) => a.k - b.k);
+  const lv = same.indexOf(e); if (lv <= 0) return p;
+  const m = Math.min(canvas.width, canvas.height) * .012;
+  return [p[0], p[1] + lv * m];
+}
+
+/* ---------- techniques ---------- */
+// each step: { t:text, s:sub, acts:[ {k:'pick', f:'R2', lab:'R2', seg:['L1','L5']} | {k:'rel', f:'L1', labs:['L1']} | {k:'twist', f:'R2'} | {k:'dip', f:'L2', near:'L1b'} | {k:'open'} ], after:fn }
+const POS1 = ['L1', 'L5', 'R5', 'R1'];
+const open0 = { t:'両手の親指と小指に、糸をかける', s:'両手を開いて、手のひらをカメラに見せる', acts:[{ k:'open' }] };
+const TECH = {
+  kihon:{ name:'基本の形', en:'OPENING', steps:[
+    open0,
+    { t:'右の中指で、左の手のひらの糸をとる', s:'右の中指の先を、光っている糸に近づける', acts:[{ k:'pick', f:'R3', lab:'R3', seg:['L1','L5'] }] },
+    { t:'左の中指で、右の中指の輪の間から、右の手のひらの糸をとる', s:'左の中指の先を、光っている糸に近づける', acts:[{ k:'pick', f:'L3', lab:'L3', seg:['R5','R1'] }] },
+  ] },
+  yari:{ name:'やり', en:'FISH SPEAR', steps:[
+    open0,
+    { t:'右の人差し指で、左の手のひらの糸をとる', s:'右の人差し指の先を、光っている糸に近づける', acts:[{ k:'pick', f:'R2', lab:'R2', seg:['L1','L5'] }] },
+    { t:'右の人差し指をくるっと回して、輪を2回ねじる', s:'人差し指の先で、小さな円を2回えがく', acts:[{ k:'twist', f:'R2' }] },
+    { t:'左の人差し指で、右の人差し指の輪の間から、右の手のひらの糸をとる', s:'左の人差し指の先を、光っている糸に近づける', acts:[{ k:'pick', f:'L2', lab:'L2', seg:['R5','R1'] }] },
+    { t:'右の親指と小指の糸をはずして、そっと引く', s:'右の親指と小指を、ぎゅっと曲げる', acts:[{ k:'rel', f:'R1', labs:['R1'] }, { k:'rel', f:'R5', labs:['R5'] }], fig:'spear' },
+  ] },
+  hashigo:{ name:'はしご', en:"JACOB'S LADDER", steps:[
+    open0,
+    { t:'右の人差し指で、左の手のひらの糸をとる', s:'右の人差し指の先を、光っている糸に近づける', acts:[{ k:'pick', f:'R2', lab:'R2', seg:['L1','L5'] }] },
+    { t:'左の人差し指で、右の人差し指の輪の間から、右の手のひらの糸をとる', s:'左の人差し指の先を、光っている糸に近づける', acts:[{ k:'pick', f:'L2', lab:'L2', seg:['R5','R1'] }] },
+    { t:'両方の親指の糸をはずす', s:'両方の親指を、ぎゅっと曲げる', acts:[{ k:'rel', f:'L1', labs:['L1'] }, { k:'rel', f:'R1', labs:['R1'] }] },
+    { t:'親指で、ぜんぶの糸の下をくぐって、小指の向こうの糸をとる', s:'両方の親指の先を、光っている糸に近づける', acts:[{ k:'pick', f:'L1', lab:'L1', seg:['L5','R5'] }, { k:'pick', f:'R1', lab:'R1', seg:['L1','R5'] }] },
+    { t:'親指で、人差し指の手前の糸をこえて、人差し指の向こうの糸をとる', s:'両方の親指の先を、光っている糸に近づける', acts:[{ k:'pick', f:'L1', lab:'L1b', seg:['R5','L2'] }, { k:'pick', f:'R1', lab:'R1b', seg:['R2','L5'] }] },
+    { t:'両方の小指の糸をはずす', s:'両方の小指を、ぎゅっと曲げる', acts:[{ k:'rel', f:'L5', labs:['L5'] }, { k:'rel', f:'R5', labs:['R5'] }] },
+    { t:'小指で、人差し指の糸をこえて、親指の向こうの糸をとる', s:'両方の小指の先を、光っている糸に近づける', acts:[{ k:'pick', f:'L5', lab:'L5', seg:['L1','R1'] }, { k:'pick', f:'R5', lab:'R5', seg:['L5','R1'] }] },
+    { t:'両方の親指の糸を、ぜんぶはずす', s:'両方の親指を、ぎゅっと曲げる', acts:[{ k:'rel', f:'L1', labs:['L1','L1b'] }, { k:'rel', f:'R1', labs:['R1','R1b'] }] },
+    { t:'親指で、人差し指の糸をこえて、小指の手前の糸をとる', s:'両方の親指の先を、光っている糸に近づける', acts:[{ k:'pick', f:'L1', lab:'L1', seg:['L5','R5'] }, { k:'pick', f:'R1', lab:'R1', seg:['L1','R5'] }] },
+    { t:'人差し指の手前の糸を、親指にかける', s:'両方の親指の先を、光っている糸に近づける', acts:[{ k:'pick', f:'L1', lab:'L1b', seg:['L2','R2'] }, { k:'pick', f:'R1', lab:'R1b', seg:['L1b','R2'] }] },
+    { t:'親指の下の輪を、上の輪をこえてはずす（ナバホどり）', s:'両方の親指を、ぎゅっと曲げる', acts:[{ k:'rel', f:'L1', labs:['L1'] }, { k:'rel', f:'R1', labs:['R1'] }] },
+    { t:'人差し指を、親指のそばの三角に上から入れる', s:'両方の人差し指の先を、光っている点に近づける', acts:[{ k:'dip', f:'L2', near:'L1b' }, { k:'dip', f:'R2', near:'R1b' }] },
+    { t:'小指の糸をはずして、手のひらを向こうへ向ける', s:'両方の小指を、ぎゅっと曲げる', acts:[{ k:'rel', f:'L5', labs:['L5'] }, { k:'rel', f:'R5', labs:['R5'] }], fig:'ladder' },
+  ] },
+  free:{ name:'じゆう', en:'FREE', steps:[] },
+};
+const TECH_ORDER = ['kihon', 'yari', 'hashigo', 'free'];
+let T = 'hashigo', step = 0, pending = [], doneActs = [], history = [];
+const twistTrack = { pts:[], turn:0 };
+
+function snapshot(){ return { cycle:cycle.map(e => ({ ...e })), figure, twist:{ ...twist }, step, serial }; }
+function restore(s){ cycle = s.cycle.map(e => ({ ...e })); figure = s.figure; twist = { ...s.twist }; step = s.step; serial = s.serial; }
+function setTech(name){
+  T = name; history = []; figure = null; twist = {}; cycle = []; step = 0; vib.length = 0;
+  [...$('tech').children].forEach(b => b.classList.toggle('on', b.dataset.t === name));
+  if (name === 'free'){ setCycle(POS1); }
+  beginStep();
+}
+function beginStep(){
+  const tech = TECH[T];
+  doneActs = [];
+  pending = tech.steps[step] ? tech.steps[step].acts.slice() : [];
+  twistTrack.pts.length = 0; twistTrack.turn = 0;
+  updateCard();
+}
+function updateCard(){
+  const tech = TECH[T], n = tech.steps.length;
+  if (T === 'free'){
+    $('cardN').textContent = 'FREE · じゆう'; $('cardBar').style.width = '100%';
+    $('cardTxt').textContent = 'どの指で、どの糸をとってもいい';
+    $('cardSub').textContent = '指先を糸に近づけるととれる。指を曲げるとはずれる。';
+    $('next').style.display = 'none'; $('auto').style.display = 'none'; $('back').style.display = 'none'; return;
+  }
+  $('next').style.display = ''; $('auto').style.display = ''; $('back').style.display = '';
+  if (step >= n){
+    $('cardN').textContent = tech.en + ' · かんせい'; $('cardBar').style.width = '100%';
+    $('cardTxt').textContent = '「' + tech.name + '」ができた！';
+    $('cardSub').textContent = '両手を動かすと、形がついてくる。べつの技もやってみよう。';
+    $('next').textContent = 'もう一回'; return;
+  }
+  $('next').textContent = 'つぎ ▶';
+  $('cardN').textContent = 'STEP ' + (step + 1) + ' / ' + n;
+  $('cardBar').style.width = (step / n * 100) + '%';
+  $('cardTxt').textContent = tech.steps[step].t;
+  const left = pending.length < tech.steps[step].acts.length ? '　（あと ' + pending.length + ' つ）' : '';
+  $('cardSub').textContent = tech.steps[step].s + left;
+}
+// apply one action to the string
+function apply(a, now){
+  if (a.k === 'open'){ setCycle(POS1); burstAll(now); pluck(canvas.width * .4, 0); }
+  else if (a.k === 'pick'){
+    const i = segBetween(a.seg[0], a.seg[1]); if (i < 0) return false;
+    const p = stopPos(i, now), q = stopPos((i + 1) % cycle.length, now);
+    insertAt(i, a.lab); STATE.picks++;
+    const L = Math.hypot(q[0] - p[0], q[1] - p[1]);
+    ring(a.lab, now, 1); pluck(L, (fingerPos(a.f, now)[0] / canvas.width) * 2 - 1);
+    sparks(fingerPos(a.f, now), 26);
+  }
+  else if (a.k === 'rel'){ removeLabs(a.labs); STATE.releases++; slide(); for (const e of cycle) ring(e.lab, now, .35); }
+  else if (a.k === 'twist'){ twist[a.f] = (twist[a.f] || 0) + 2; pluck(canvas.width * .15, .5); sparks(fingerPos(a.f, now), 18); }
+  else if (a.k === 'dip'){ sparks(fingerPos(a.f, now), 14); pluck(canvas.width * .1, a.f[0] === 'L' ? -.6 : .6); }
+  return true;
+}
+function actDone(a, now){
+  history.push(snapshot());
+  apply(a, now);
+  pending = pending.filter(x => x !== a); doneActs.push(a);
+  if (!pending.length) finishStep(now); else updateCard();
+}
+function finishStep(now){
+  const st = TECH[T].steps[step];
+  if (st && st.fig){ figure = st.fig; figT = now; }
+  step++; STATE.steps++;
+  if (step >= TECH[T].steps.length){ complete(now); }
+  beginStep();
+}
+let figT = 0;
+function complete(now){
+  STATE.completes++;
+  $('doneName').textContent = TECH[T].name;
+  const d = $('done'); d.classList.remove('on'); void d.offsetWidth; d.classList.add('on');
+  fanfare(); flashT = now;
+  for (const e of cycle) sparks(fingerPos(e.f, now), 20);
+}
+// the next pending action done for you (button, or auto play): the finger reaches over first
+function autoAct(now){
+  if (T === 'free') return;
+  if (step >= TECH[T].steps.length){ setTech(T); return; }
+  const a = pending[0]; if (!a) return;
+  if (a.k === 'pick'){
+    const i = segBetween(a.seg[0], a.seg[1]); if (i < 0){ actDone(a, now); return; }
+    const p = stopPos(i, now), q = stopPos((i + 1) % cycle.length, now);
+    anim[a.f] = { x:(p[0] + q[0]) / 2, y:(p[1] + q[1]) / 2, t0:now, dur:900 };
+    reachQ.push({ a, at:now + 420 });
+  } else if (a.k === 'dip'){
+    const t = dipTarget(a, now); anim[a.f] = { x:t[0], y:t[1], t0:now, dur:700 }; reachQ.push({ a, at:now + 350 });
+  } else actDone(a, now);
+}
+const reachQ = [];
+let autoOn = false, autoNext = 0;
+
+/* gesture → action */
+function dipTarget(a, now){
+  const i = idxOf(a.near); if (i < 0) return fingerPos(a.f, now);
+  const t = fingerPos(a.near.slice(0, 2), now), ix = fingerPos(a.f, now);
+  return [t[0] + (ix[0] - t[0]) * .35 + (canvas.width / 2 - t[0]) * .12, t[1] + (ix[1] - t[1]) * .35];
+}
+function distSeg(p, a, b){
+  const dx = b[0] - a[0], dy = b[1] - a[1], l2 = dx * dx + dy * dy || 1;
+  const u = Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / l2));
+  return [Math.hypot(p[0] - a[0] - dx * u, p[1] - a[1] - dy * u), u];
+}
+const nearT = {};
+function checkGestures(now){
+  const m = Math.min(canvas.width, canvas.height), thr = m * .045;
+  if (T === 'free'){ freeGestures(now, thr); return; }
+  for (const a of pending.slice()){
+    if (a.k === 'open'){
+      if (handSeen('L', now) && handSeen('R', now)){ nearT.open = nearT.open || now; if (now - nearT.open > 500){ nearT.open = 0; actDone(a, now); } }
+      else nearT.open = 0;
+      continue;
+    }
+    const side = a.f[0], k = +a.f[1];
+    if (!handSeen(side, now)) continue;
+    if (a.k === 'pick'){
+      const i = segBetween(a.seg[0], a.seg[1]); if (i < 0) continue;
+      const tip = fingerPos(a.f, now), [d, u] = distSeg(tip, stopPos(i, now), stopPos((i + 1) % cycle.length, now));
+      if (d < thr && u > .04 && u < .96){ nearT[a.f] = (nearT[a.f] || 0) + 1; if (nearT[a.f] >= 2){ nearT[a.f] = 0; actDone(a, now); } }
+      else nearT[a.f] = 0;
+    } else if (a.k === 'rel'){
+      if (folded(side, k, now)) actDone(a, now);
+    } else if (a.k === 'dip'){
+      const t = dipTarget(a, now), tip = fingerPos(a.f, now);
+      if (Math.hypot(tip[0] - t[0], tip[1] - t[1]) < thr * 1.3) actDone(a, now);
+    } else if (a.k === 'twist'){
+      const tip = fingerPos(a.f, now), P = twistTrack.pts; P.push([tip[0], tip[1], now]);
+      while (P.length && now - P[0][2] > 2500) P.shift();
+      // total turning of the fingertip's path: two little circles ≈ 4π
+      let turn = 0;
+      for (let j = 2; j < P.length; j++){
+        const a1 = Math.atan2(P[j-1][1] - P[j-2][1], P[j-1][0] - P[j-2][0]), a2 = Math.atan2(P[j][1] - P[j-1][1], P[j][0] - P[j-1][0]);
+        if (Math.hypot(P[j][0] - P[j-1][0], P[j][1] - P[j-1][1]) < m * .003) continue;
+        let d = a2 - a1; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI; turn += d;
+      }
+      twistTrack.turn = turn;
+      if (Math.abs(turn) > Math.PI * 3.4){ P.length = 0; actDone(a, now); }
+    }
+  }
+}
+// free play: any extended fingertip touching a string (that is not already its own) takes it; a curled finger lets go
+const freeCool = {};
+function freeGestures(now, thr){
+  for (const side of ['L', 'R']){
+    if (!handSeen(side, now)) continue;
+    for (let k = 1; k <= 5; k++){
+      const f = side + k;
+      if (folded(side, k, now)){
+        if (cycle.some(e => e.f === f) && cycle.filter(e => e.f !== f).length >= 3){ removeLabs(cycle.filter(e => e.f === f).map(e => e.lab)); STATE.releases++; slide(); freeCool[f] = now + 700; }
+        continue;
+      }
+      if ((freeCool[f] || 0) > now || cycle.filter(e => e.f === f).length >= 2 || cycle.length >= 22) continue;
+      const tip = fingerPos(f, now);
+      let best = -1, bd = thr * .8, bu = 0;
+      for (let i = 0; i < cycle.length; i++){
+        const A = cycle[i], B = cycle[(i + 1) % cycle.length]; if (A.f === f || B.f === f) continue;
+        if (A.f[0] === side && B.f[0] === side) continue;      // a string across this hand's own palm lies under these fingers
+        const [d, u] = distSeg(tip, stopPos(i, now), stopPos((i + 1) % cycle.length, now));
+        if (d < bd && u > .1 && u < .9){ bd = d; best = i; bu = u; }
+      }
+      if (best >= 0){
+        nearT[f] = (nearT[f] || 0) + 1;
+        if (nearT[f] >= 3){
+          nearT[f] = 0; const p = stopPos(best, now), q = stopPos((best + 1) % cycle.length, now);
+          const lab = f + (cycle.some(e => e.lab === f) ? 'b' : '');
+          insertAt(best, lab); STATE.picks++; freeCool[f] = now + 900;
+          ring(lab, now, 1); pluck(Math.hypot(q[0] - p[0], q[1] - p[1]), tip[0] / canvas.width * 2 - 1); sparks(tip, 22);
+        }
+      } else nearT[f] = 0;
+    }
+  }
+}
+
+/* ---------- effects ---------- */
+const parts = [];
+function sparks(p, n){
+  const m = Math.min(canvas.width, canvas.height);
+  for (let i = 0; i < n; i++){ const a = Math.random() * 6.283, v = (.15 + Math.random() * .6) * m * .012;
+    parts.push({ x:p[0], y:p[1], vx:Math.cos(a) * v, vy:Math.sin(a) * v, life:1, h:Math.random() * 360, r:(1 + Math.random() * 2) * m * .002 }); }
+  if (parts.length > 500) parts.splice(0, parts.length - 500);
+}
+function burstAll(now){ for (const e of cycle) sparks(fingerPos(e.f, now), 16); }
+// a plucked string rings: both strings that meet at this stop vibrate
+function ring(lab, now, amp){ vib.push({ lab, t0:now, amp }); if (vib.length > 40) vib.shift(); }
+let flashT = -1e9;
+
+/* ---------- drawing ---------- */
+const PALS = [
+  (u, t) => `hsl(${(u * 300 + t * 40) % 360},100%,62%)`,
+  (u, t) => ['#ff2bd6', '#00f0ff', '#7cff3c', '#ffe600'][Math.floor((u * 4 + t * .5) % 4)],
+  (u, t) => `hsl(${42 + Math.sin(u * 6 + t) * 12},${30 + 30 * Math.sin(u * 9 - t * 2)}%,${72 + 10 * Math.sin(u * 7 + t)}%)`,
+  (u, t) => `hsl(${(340 + u * 70 + Math.sin(t) * 15) % 360},100%,62%)`,
+];
+function strokeLine(pts, col, wMul, aMul){
+  const m = Math.min(canvas.width, canvas.height), base = m * (.0022 + .003 * S.w) * wMul;
+  const gl = .25 + S.glow;
+  ctx.strokeStyle = col;
+  ctx.globalAlpha = .1 * gl * aMul; ctx.lineWidth = base * 7; poly(pts);
+  ctx.globalAlpha = .28 * gl * aMul; ctx.lineWidth = base * 2.8; poly(pts);
+  ctx.globalAlpha = .95 * aMul; ctx.lineWidth = base; poly(pts);
+  ctx.strokeStyle = '#fff'; ctx.globalAlpha = .55 * aMul; ctx.lineWidth = base * .4; poly(pts);
+  ctx.globalAlpha = 1;
+}
+function poly(pts){ ctx.beginPath(); ctx.moveTo(pts[0][0], pts[0][1]); for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]); ctx.stroke(); }
+// a straight string from a to b, vibrating if plucked recently
+function strand(a, b, labA, labB, u0, u1, now, hi){
+  const t = now / 1000, m = Math.min(canvas.width, canvas.height);
+  let amp = 0, ph = 0;
+  for (const v of vib){ if (v.lab !== labA && v.lab !== labB) continue; const age = (now - v.t0) / 1000; if (age > 1.6) continue; amp += v.amp * Math.exp(-age * 3.2) * m * .018; ph = age; }
+  const dx = b[0] - a[0], dy = b[1] - a[1], L = Math.hypot(dx, dy) || 1, nx = -dy / L, ny = dx / L;
+  const n = amp > .3 ? 18 : 1, pts = [];
+  for (let i = 0; i <= n; i++){ const s = i / n, off = amp * Math.sin(Math.PI * s) * Math.sin(ph * 70 + s * 2); pts.push([a[0] + dx * s + nx * off, a[1] + dy * s + ny * off]); }
+  const col = PALS[S.pal]((u0 + u1) / 2, t);
+  strokeLine(pts, col, hi ? 1.5 : 1, 1);
+  if (hi){ // the string to take: a white pulse running along it
+    const pu = (t * .9) % 1, q = [a[0] + dx * pu, a[1] + dy * pu];
+    ctx.globalCompositeOperation = 'lighter';
+    const g = ctx.createRadialGradient(q[0], q[1], 0, q[0], q[1], m * .04); g.addColorStop(0, 'rgba(255,255,255,.9)'); g.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(q[0], q[1], m * .04, 0, 7); ctx.fill();
+    strokeLine(pts, `rgba(255,255,255,${.35 + .35 * Math.sin(t * 8)})`, 2.2, .8);
+  }
+}
+function twistedStrands(R, A, B, n, now, u){
+  // the two strands leaving R are wound round each other for the first stretch
+  const m = Math.min(canvas.width, canvas.height), t = now / 1000;
+  const mid = [(A[0] + B[0]) / 2, (A[1] + B[1]) / 2];
+  const X = [R[0] + (mid[0] - R[0]) * .3, R[1] + (mid[1] - R[1]) * .3];
+  const dx = X[0] - R[0], dy = X[1] - R[1], L = Math.hypot(dx, dy) || 1, nx = -dy / L, ny = dx / L, w = m * .012;
+  for (const sg of [1, -1]){
+    const pts = [];
+    for (let i = 0; i <= 30; i++){ const s = i / 30, off = sg * w * Math.sin(s * Math.PI * n) * Math.sin(Math.PI * Math.min(1, s * 3)); pts.push([R[0] + dx * s + nx * off, R[1] + dy * s + ny * off]); }
+    pts.push(sg > 0 ? A : B);
+    strokeLine(pts, PALS[S.pal](u + (sg > 0 ? 0 : .1), t), 1, 1);
+  }
+}
+function drawString(now){
+  const n = cycle.length; if (!n) return;
+  const P = []; for (let i = 0; i < n; i++) P.push(stopPos(i, now));
+  ctx.globalCompositeOperation = 'lighter'; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  const hiSeg = new Set();
+  if (T !== 'free') for (const a of pending) if (a.k === 'pick'){ const i = segBetween(a.seg[0], a.seg[1]); if (i >= 0) hiSeg.add(i); }
+  const fa = figure ? Math.min(1, (now - figT) / 900) : 0;
+  if (figure && fa > 0) drawFigure(figure, now, fa);
+  const sa = figure ? 1 - fa : 1;
+  if (sa > 0){
+    ctx.globalAlpha = sa;
+    const tw = {}; for (const f in twist) if (twist[f]) tw[f] = twist[f];
+    for (let i = 0; i < n; i++){
+      const j = (i + 1) % n;
+      const ef = cycle[i].f, eg = cycle[j].f;
+      // twisted loop: its two strands are drawn together
+      if (tw[eg] && cycle[(j + 1) % n] && cycle[j].lab === eg){ const k = (j + 1) % n; twistedStrands(P[j], P[i], P[k], tw[eg], now, i / n); i++; continue; }
+      strand(P[i], P[j], cycle[i].lab, cycle[j].lab, i / n, (i + 1) / n, now, hiSeg.has(i));
+    }
+    ctx.globalAlpha = 1;
+  }
+  // finger stops
+  const m = Math.min(canvas.width, canvas.height);
+  for (let i = 0; i < n; i++){
+    const g = ctx.createRadialGradient(P[i][0], P[i][1], 0, P[i][0], P[i][1], m * .022);
+    g.addColorStop(0, 'rgba(255,255,255,.95)'); g.addColorStop(.3, PALS[S.pal](i / n, now / 1000)); g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g; ctx.globalAlpha = .9; ctx.beginPath(); ctx.arc(P[i][0], P[i][1], m * .022, 0, 7); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+// figures held on the fingers whose strings catch on each other
+function drawFigure(fig, now, a){
+  const t = now / 1000, m = Math.min(canvas.width, canvas.height);
+  ctx.globalAlpha = a;
+  if (fig === 'spear'){
+    const L1 = fingerPos('L1', now), L2 = fingerPos('L2', now), L5 = fingerPos('L5', now), R2 = fingerPos('R2', now);
+    const C = [(L1[0] + L2[0] + L5[0]) / 3, (L1[1] + L2[1] + L5[1]) / 3];
+    const K = [C[0] + (R2[0] - C[0]) * .3, C[1] + (R2[1] - C[1]) * .3];
+    // the shaft: the twisted right-index loop, wound all the way to the spearhead
+    const dx = K[0] - R2[0], dy = K[1] - R2[1], L = Math.hypot(dx, dy) || 1, nx = -dy / L, ny = dx / L, w = m * .009;
+    for (const sg of [1, -1]){ const pts = []; for (let i = 0; i <= 60; i++){ const s = i / 60; pts.push([R2[0] + dx * s + nx * sg * w * Math.sin(s * Math.PI * 7), R2[1] + dy * s + ny * sg * w * Math.sin(s * Math.PI * 7)]); }
+      strokeLine(pts, PALS[S.pal](sg > 0 ? .1 : .2, t), 1.1, 1); }
+    // the head: the left-index loop caught round the end of the shaft, and the prongs to the left hand
+    const off = m * .006;
+    strokeLine([[K[0], K[1] - off], L2], PALS[S.pal](.4, t), 1, 1);
+    strokeLine([[K[0], K[1] + off], L2], PALS[S.pal](.5, t), 1, 1);
+    strokeLine([K, L1], PALS[S.pal](.65, t), 1, 1);
+    strokeLine([K, L5], PALS[S.pal](.8, t), 1, 1);
+    glowDot(K, m * .03, t);
+  } else if (fig === 'ladder'){
+    const L1 = fingerPos('L1', now), L2 = fingerPos('L2', now), R1 = fingerPos('R1', now), R2 = fingerPos('R2', now);
+    const T_ = u => [L2[0] + (R2[0] - L2[0]) * u, L2[1] + (R2[1] - L2[1]) * u], B_ = u => [L1[0] + (R1[0] - L1[0]) * u, L1[1] + (R1[1] - L1[1]) * u];
+    // grow outward from the middle as the hands turn
+    const g = Math.min(1, (now - figT) / 1400), half = .5 * (g * g * (3 - 2 * g));
+    const clip = u => .5 + Math.max(-half, Math.min(half, u - .5));
+    const line = (f, u0, u1, h) => strokeLine([f(clip(u0)), f(clip(u1))], PALS[S.pal](h, t), 1, 1);
+    line(T_, 0, 1, .05); line(B_, 0, 1, .95);
+    // two zig-zags half a step apart: where they cross, the diamonds of the ladder
+    const U = [0, .25, .5, .75, 1];
+    for (let z = 0; z < 2; z++){
+      for (let k = 0; k < 4; k++){
+        const ua = clip(U[k]), ub = clip(U[k + 1]); if (ub - ua < 1e-3) continue;
+        const up = (k + z) % 2 === 0;
+        const A = up ? T_(ua) : B_(ua), B = up ? B_(ub) : T_(ub);
+        strokeLine([A, B], PALS[S.pal]((k + .5) / 4 + z * .05, t), 1, 1);
+      }
+    }
+    for (const u of [.25, .5, .75]){ if (Math.abs(u - .5) <= half + 1e-3){ glowDot(T_(u), m * .016, t); glowDot(B_(u), m * .016, t); } }
+  }
+  ctx.globalAlpha = 1;
+}
+function glowDot(p, r, t){
+  const g = ctx.createRadialGradient(p[0], p[1], 0, p[0], p[1], r); g.addColorStop(0, 'rgba(255,255,255,.9)'); g.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(p[0], p[1], r, 0, 7); ctx.fill();
+}
+function drawTargets(now){
+  if (T === 'free') return;
+  const m = Math.min(canvas.width, canvas.height), t = now / 1000;
+  ctx.globalCompositeOperation = 'lighter';
+  for (const a of pending){
+    if (a.k === 'pick' || a.k === 'dip' || a.k === 'twist' || a.k === 'rel'){
+      const p = fingerPos(a.f, now);
+      // the finger that should act: a ring around its tip
+      ctx.strokeStyle = `rgba(255,255,255,${.5 + .4 * Math.sin(t * 6)})`; ctx.lineWidth = m * .004;
+      ctx.beginPath(); ctx.arc(p[0], p[1], m * (.035 + .006 * Math.sin(t * 6)), 0, 7); ctx.stroke();
+      if (a.k === 'rel'){ ctx.beginPath(); ctx.moveTo(p[0] - m * .02, p[1] - m * .02); ctx.lineTo(p[0] + m * .02, p[1] + m * .02); ctx.stroke(); }
+      if (a.k === 'twist'){ ctx.beginPath(); ctx.arc(p[0], p[1], m * .06, t * 4, t * 4 + 4.5); ctx.stroke(); }
+    }
+    if (a.k === 'dip'){ const q = dipTarget(a, now); glowDot(q, m * (.03 + .008 * Math.sin(t * 7)), t); }
+  }
+}
+function drawParts(dt){
+  ctx.globalCompositeOperation = 'lighter';
+  for (const p of parts){ p.x += p.vx * dt * 60; p.y += p.vy * dt * 60; p.vx *= .96; p.vy *= .96; p.life -= dt * 1.1;
+    ctx.globalAlpha = Math.max(0, p.life); ctx.fillStyle = `hsl(${p.h},100%,70%)`; ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, 7); ctx.fill(); }
+  for (let i = parts.length - 1; i >= 0; i--) if (parts[i].life <= 0) parts.splice(i, 1);
+  ctx.globalAlpha = 1;
+}
+function drawHands(now){
+  // faint outline of the hands the string is on, so the figure reads as "on the fingers"
+  const m = Math.min(canvas.width, canvas.height);
+  ctx.globalCompositeOperation = 'lighter'; ctx.lineCap = 'round';
+  for (const side of ['L', 'R']){
+    ctx.strokeStyle = 'rgba(180,200,255,.18)'; ctx.lineWidth = m * .004;
+    if (handSeen(side, now)){
+      const P = HAND[side].P;
+      for (const ch of [[0,1,2,3,4],[0,5,6,7,8],[5,9,10,11,12],[9,13,14,15,16],[13,17,18,19,20],[0,17]]){ ctx.beginPath(); ctx.moveTo(P[ch[0]][0], P[ch[0]][1]); for (let i = 1; i < ch.length; i++) ctx.lineTo(P[ch[i]][0], P[ch[i]][1]); ctx.stroke(); }
+    } else {
+      const sd = side === 'L' ? -1 : 1, base = virtualPos(side + 3);
+      const palm = [base[0] + sd * m * .14, base[1]];
+      for (let k = 1; k <= 5; k++){ const p = fingerPos(side + k, now); ctx.beginPath(); ctx.moveTo(palm[0], palm[1] + (k - 3) * m * .03); ctx.lineTo(p[0], p[1]); ctx.stroke(); }
+    }
+  }
+}
+
+/* ---------- switching ---------- */
+const MODE = { on:false, X:0 };
+function setMode(on){
+  if (on === MODE.on) return;
+  MODE.on = on;
+  $('mode').textContent = on ? '◂ カメラ' : '▸ あやとり';
+  $('mode').classList.toggle('small', on);
+  $('card').classList.toggle('show', on); $('tech').classList.toggle('show', on); $('hand').classList.toggle('show', on);
+  if (on){ ensureAudio(); slide(); if (!cycle.length && T === 'free') setCycle(POS1); }
+}
+
+/* ---------- UI ---------- */
+TECH_ORDER.forEach(k => { const b = document.createElement('button'); b.textContent = TECH[k].name; b.dataset.t = k; b.onclick = () => { setTech(k); }; $('tech').appendChild(b); });
+$('go').onclick = async () => {
+  $('err').textContent = '';
+  ensureAudio();
+  try{ await startCam(); }catch(e){ camError(e); return; }
+  $('start').style.display = 'none';
+  ['gear','flip','bar','rec','rand','shoot','mode'].forEach(id => $(id).classList.add('show'));
+  if (!started){ started = true; setTech(T); initModels(); requestAnimationFrame(loop); }
+};
+$('flip').onclick = async () => { const prev = facing; facing = facing === 'user' ? 'environment' : 'user'; try { await startCam(); } catch(e){ facing = prev; camError(e); } };
+$('gear').onclick = () => $('panel').classList.toggle('hide');
+$('sPal').onchange = e => { S.pal = +e.target.value; };
+$('sW').oninput = e => { S.w = +e.target.value; };
+$('sGlow').oninput = e => { S.glow = +e.target.value; };
+$('sDim').oninput = e => { S.dim = +e.target.value; };
+$('sSnd').onchange = e => { S.snd = e.target.checked; };
+$('rand').onclick = () => { S.pal = (S.pal + 1 + (Math.random() * 3 | 0)) % PALS.length; $('sPal').value = S.pal; burstAll(performance.now()); };
+$('mode').onclick = () => setMode(!MODE.on);
+$('next').onclick = () => { ensureAudio(); autoOn = false; $('auto').textContent = 'おまかせ'; autoAct(performance.now()); };
+$('auto').onclick = () => { ensureAudio(); autoOn = !autoOn; $('auto').textContent = autoOn ? '■ とめる' : 'おまかせ'; autoNext = 0; };
+$('back').onclick = () => { if (!history.length) return; const s = history.pop(); restore(s); beginStep(); slide(); };
+$('reset').onclick = () => setTech(T);
+$('shoot').onclick = () => {
+  try{ canvas.toBlob(b => { if (!b) return; const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = 'ayatori-' + Date.now() + '.png'; a.click(); }, 'image/png'); }
+  catch(e){ setStatus('保存できませんでした。'); }
+};
+let rec = null, chunks = [];
+$('rec').onclick = () => {
+  if (rec && rec.state === 'recording'){ rec.stop(); return; }
+  try{
+    ensureAudio();
+    const tracks = [...canvas.captureStream(30).getVideoTracks()];
+    if (recDest) tracks.push(...recDest.stream.getAudioTracks());
+    const mime = ['video/mp4;codecs=avc1','video/webm;codecs=vp9,opus','video/webm'].find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || '';
+    rec = new MediaRecorder(new MediaStream(tracks), mime ? { mimeType:mime } : {});
+    chunks = [];
+    rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+    rec.onstop = () => {
+      $('rec').classList.remove('on'); $('rec').textContent = '● REC';
+      const ext = (rec.mimeType || '').includes('mp4') ? 'mp4' : 'webm';
+      const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(chunks, { type:rec.mimeType || 'video/webm' })); a.download = 'ayatori.' + ext; a.click();
+    };
+    rec.start(); $('rec').classList.add('on'); $('rec').textContent = '■ STOP';
+  }catch(e){ setStatus('録画を開始できませんでした。'); }
+};
+addEventListener('keydown', e => {
+  if (!started || /INPUT|SELECT/.test(document.activeElement.tagName)) return;
+  if (e.key === 'Enter'){ e.preventDefault(); setMode(!MODE.on); }
+  if ((e.key === ' ' || e.key === 'ArrowRight') && MODE.on){ e.preventDefault(); autoAct(performance.now()); }
+  if (e.key === 'ArrowLeft' && MODE.on) $('back').onclick();
+});
+
+/* ---------- loop ---------- */
+let lastT = 0;
+function loop(now){
+  requestAnimationFrame(loop);
+  const dt = lastT ? Math.min(.1, (now - lastT) / 1000) : 1 / 60; lastT = now;
+  if (video.videoWidth && (video.videoWidth !== vidW || video.videoHeight !== vidH)){ vidW = video.videoWidth; vidH = video.videoHeight; }
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  let W = Math.round(innerWidth * dpr), H = Math.round(innerHeight * dpr);
+  const kk = Math.min(1, 1600 / Math.max(W, H)); W = Math.round(W * kk); H = Math.round(H * kk);
+  if (canvas.width !== W || canvas.height !== H){ canvas.width = W; canvas.height = H; }
+  fitCover(W, H);
+  detect(now);
+  $('hL').classList.toggle('on', handSeen('L', now)); $('hR').classList.toggle('on', handSeen('R', now));
+  if (video.readyState < 2) return;
+  STATE.frames++;
+  MODE.X = MODE.on ? Math.min(1, MODE.X + dt / .7) : Math.max(0, MODE.X - dt / .5);
+
+  // queued reaches (auto play) land when the finger arrives
+  for (let i = reachQ.length - 1; i >= 0; i--) if (now >= reachQ[i].at){ const r = reachQ.splice(i, 1)[0]; if (pending.includes(r.a)) actDone(r.a, now); }
+  for (const f in anim) if (now - anim[f].t0 > anim[f].dur) delete anim[f];
+  if (MODE.on){
+    checkGestures(now);
+    if (autoOn && !reachQ.length && now > autoNext){
+      if (step >= (TECH[T].steps.length || 0)){ autoOn = false; $('auto').textContent = 'おまかせ'; }
+      else { autoAct(now); autoNext = now + 1250; }
+    }
+  }
+
+  // camera
+  ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
+  ctx.save(); if (mirror){ ctx.translate(W, 0); ctx.scale(-1, 1); }
+  ctx.drawImage(video, COV.ox, COV.oy, vidW * COV.s, vidH * COV.s); ctx.restore();
+  if (MODE.X > 0){
+    const edge = MODE.X * W;
+    ctx.save(); ctx.beginPath(); ctx.rect(0, 0, edge, H); ctx.clip();
+    ctx.fillStyle = `rgba(4,2,10,${1 - S.dim * .9})`; ctx.fillRect(0, 0, W, H);
+    const fl = Math.max(0, 1 - (now - flashT) / 900);
+    if (fl > 0){ ctx.globalCompositeOperation = 'lighter'; ctx.fillStyle = `rgba(140,160,255,${fl * .35})`; ctx.fillRect(0, 0, W, H); }
+    drawHands(now);
+    drawString(now);
+    drawTargets(now);
+    drawParts(dt);
+    ctx.restore();
+    if (MODE.X < 1){ // the switch: a vertical rainbow laser sweeps across
+      ctx.globalCompositeOperation = 'lighter';
+      const g = ctx.createLinearGradient(0, 0, 0, H); for (let i = 0; i <= 6; i++) g.addColorStop(i / 6, `hsl(${i * 55 + now * .1},100%,60%)`);
+      ctx.fillStyle = g; ctx.globalAlpha = .9; ctx.fillRect(edge - 3, 0, 6, H); ctx.globalAlpha = .25; ctx.fillRect(edge - 18, 0, 36, H); ctx.globalAlpha = 1;
+    }
+  }
+  ctx.globalCompositeOperation = 'source-over';
+}
+
+window.__AYATORI = {
+  ingestHands:(list, now) => { HANDS_EXTERNAL = true; return ingestHands(list, now); },
+  mode:on => setMode(!!on), tech:setTech, next:() => autoAct(performance.now()),
+  auto:on => { autoOn = !!on; autoNext = 0; },
+  pos:f => fingerPos(f, performance.now()),
+  seg:(a, b) => { const i = segBetween(a, b); if (i < 0) return null; const n = performance.now(); return [stopPos(i, n), stopPos((i + 1) % cycle.length, n)]; },
+  state:() => ({ mode:MODE.on, X:MODE.X, tech:T, step, total:(TECH[T].steps || []).length, pending:pending.map(a => a.k + ':' + a.f), cycle:cycle.map(e => e.lab).join(' '),
+    figure, hands:['L','R'].filter(k => handSeen(k)), fold:{ L:{ ...HAND.L.fold }, R:{ ...HAND.R.fold } }, ...STATE })
+};
+</script>
+</body>
+</html>
