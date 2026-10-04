@@ -15,6 +15,8 @@
              から体が粉になって風へほどけ、止まると点が戻って体を組み直す。
              カメラ一台で撮った MV のような、冷たくて静かな画。
   PALETTE    SCAN   地 #05070a・点 #eef2f5・粉 #6fa8ff（差し色は青一色）
+             AUTO   暗い地の上で、点が上から下へ二色のグラデーションになり、その二色と粉の色が
+                    数秒ごとにランダムな組に滑らかに替わる（2026-10-04 追加）。
              AMBER  地 #0a0705・点 #ffc27a・粉 #f4efe6
              PAPER  地 #ebe8e1・点 #16181c（紙に刷った点描）・粉 #2a47a8
   TYPE       Geist 200/400（細身のグロテスク）＋ Geist Mono（数字）。
@@ -118,13 +120,15 @@ body.cam #shoot::after{background:radial-gradient(circle,#fff 1px,transparent 1.
     <button data-p="0" class="on">SCAN</button>
     <button data-p="1">AMBER</button>
     <button data-p="2">PAPER</button>
+    <button data-p="3">AUTO</button>
   </div>
+  <label><span>AUTO の速さ</span><input type="range" id="sAuto" min="0" max="1" step="0.01" value="0.5"></label>
   <label><span>点の数</span><input type="range" id="sDense" min="0" max="1" step="0.01" value="0.5"></label>
   <label><span>奥行き</span><input type="range" id="sDepth" min="0" max="1" step="0.01" value="0.55"></label>
   <label><span>崩れやすさ</span><input type="range" id="sSens" min="0" max="1" step="0.01" value="0.55"></label>
   <label><span>粉の流れ</span><input type="range" id="sDrift" min="0" max="1" step="0.01" value="0.55"></label>
   <label><span>首振り</span><input type="range" id="sOrbit" min="0" max="1" step="0.01" value="0.5"></label>
-  <div class="note">ドラッグで回す。タップで走査。</div>
+  <div class="note">ドラッグで回す。タップで走査。<br>AUTO にすると点の色がひとりでに次々と替わる。</div>
 </div>
 
 <div id="start">
@@ -156,8 +160,27 @@ const PALS = [
   { name:'SCAN',  bg:[.020,.027,.039], pt:[.93,.95,.96], dust:[.44,.66,1.0], neg:0, css:['#05070a','#eef2f5','#6fa8ff'] },
   { name:'AMBER', bg:[.039,.027,.020], pt:[1.0,.76,.48], dust:[.96,.94,.90], neg:0, css:['#0a0705','#ffc27a','#f4efe6'] },
   { name:'PAPER', bg:[.922,.910,.882], pt:[.91,.90,.87], dust:[.75,.66,.30], neg:1, css:['#ebe8e1','#16181c','#2a47a8'] },
+  { name:'AUTO',  bg:[.018,.020,.030], pt:[1,1,1], dust:[1,1,1], neg:0, css:['#05060a','#eef2f5','#ff6fd0'], auto:1 },
 ];
-const S = { pal:0, dense:.5, depth:.55, sens:.55, drift:.55, orbit:.5 };
+// AUTO: the point colours change by themselves to a new random pair every few seconds
+const AUTO = { from:null, to:null, cur:{ pt:[1,1,1], pt2:[1,1,1], dust:[1,1,1] }, t:1, next:0, count:0 };
+function hsv(h, s, v){ const f = n => { const k = (n + h * 6) % 6; return v - v * s * Math.max(0, Math.min(k, 4 - k, 1)); }; return [f(5), f(3), f(1)]; }
+function autoPick(){
+  const h1 = Math.random(), gap = .15 + Math.random() * .4, h2 = (h1 + (Math.random() < .5 ? gap : -gap) + 1) % 1;
+  const sat = Math.random() < .15 ? .35 : .75 + Math.random() * .25;          // now and then a pale, pastel pair
+  return { pt:hsv(h1, sat, 1), pt2:hsv(h2, sat, 1), dust:hsv((h1 + .5) % 1, .7, 1) };
+}
+function autoStep(dt, now){
+  if (!AUTO.to || now >= AUTO.next){
+    AUTO.from = { pt:AUTO.cur.pt.slice(), pt2:AUTO.cur.pt2.slice(), dust:AUTO.cur.dust.slice() };
+    AUTO.to = autoPick(); AUTO.t = 0; AUTO.count++;
+    AUTO.next = now + (1.2 + Math.random() * 1.6 + 3.5 * (1 - S.autoSpeed)) * 1000;
+  }
+  AUTO.t = Math.min(1, AUTO.t + dt / (.35 + .9 * (1 - S.autoSpeed)));
+  const e = AUTO.t * AUTO.t * (3 - 2 * AUTO.t);
+  for (const k of ['pt', 'pt2', 'dust']) for (let i = 0; i < 3; i++) AUTO.cur[k][i] = AUTO.from[k][i] + (AUTO.to[k][i] - AUTO.from[k][i]) * e;
+}
+const S = { pal:0, autoSpeed:.5, dense:.5, depth:.55, sens:.55, drift:.55, orbit:.5 };
 const LIFE = 2.6;                                  // seconds a crumbled cell takes to fly off and grow back
 
 /* ---------- GL ---------- */
@@ -169,7 +192,7 @@ uniform sampler2D uVid, uField;
 uniform vec2 uScale, uSpan;
 uniform float uMirror, uHasMask, uLayer, uYaw, uPitch, uDepth, uDrift, uT, uPx, uScan, uNeg, uReveal;
 out vec3 vCol; out float vA;
-uniform vec3 uPt, uDust;
+uniform vec3 uPt, uPt2, uDust; uniform float uDuo;
 float h(float n){ return fract(sin(n) * 43758.5453); }
 void main(){
   vec2 v = (vec2(aUV.x, 1. - aUV.y) - .5) * uScale + .5;
@@ -186,7 +209,9 @@ void main(){
   vec3 col;
   if (uLayer < .5){
     a = m * smoothstep(.18, .95, age);                        // the body, with holes where it crumbled
-    col = uPt * (uNeg > .5 ? 1.25 - 1.05 * l : .2 + 1.35 * l);   // on paper, shadows take the most ink
+    // AUTO: two colours blended top to bottom, each point nudged a little so the cloud sparkles
+    vec3 base = mix(uPt, uPt2, uDuo * clamp(aUV.y * .8 + h(aSeed * 7.7) * .35, 0., 1.));
+    col = base * (uNeg > .5 ? 1.25 - 1.05 * l : .2 + 1.35 * l);   // on paper, shadows take the most ink
     float band = exp(-pow((p.y - uScan) * 38., 2.));          // the scanning light
     col += uDust * band * .9 * m; a = max(a, band * m * .8 * step(.18, age));
   } else {
@@ -198,7 +223,7 @@ void main(){
     p += dir * e * (.18 + .55 * uDrift) * (.5 + h(aSeed * 9.7));
     p.x += e * e * .5 * uDrift;
     p += vec3(sin(uT * 1.3 + aSeed * 40.), cos(uT * 1.1 + aSeed * 23.), sin(uT * .9 + aSeed * 11.)) * .03 * e;
-    col = mix(uPt * (.3 + l), uDust, .75) * (1.1 - .4 * age);
+    col = mix(mix(uPt, uPt2, uDuo * h(aSeed * 4.1)) * (.3 + l), uDust, .75) * (1.1 - .4 * age);
   }
   // the switch: each point appears once the reveal front (top → bottom) has passed it
   float pr = (1. - aUV.y) * .78 + h(aSeed * 2.9) * .22;
@@ -479,13 +504,14 @@ $('gear').onclick = () => $('panel').classList.toggle('hide');
 $('scan').onclick = () => { scanFast = 1; scanT = 0; };
 function setPal(i){
   S.pal = i; const p = PALS[i];
+  if (p.auto){ AUTO.to = null; AUTO.next = 0; }
   [...$('pals').children].forEach(x => x.classList.toggle('on', +x.dataset.p === i));
   const r = document.documentElement.style;
   r.setProperty('--bg', p.css[0]); r.setProperty('--fg', p.css[1]); r.setProperty('--acc', p.css[2]);
   r.setProperty('--dim', p.neg ? 'rgba(22,24,28,.55)' : 'rgba(238,242,245,.5)'); r.setProperty('--line', p.neg ? 'rgba(22,24,28,.22)' : 'rgba(238,242,245,.2)');
 }
 $('pals').onclick = e => { const b = e.target.closest('button'); if (b) setPal(+b.dataset.p); };
-[['sDense','dense'],['sDepth','depth'],['sSens','sens'],['sDrift','drift'],['sOrbit','orbit']].forEach(([id,k]) => { $(id).oninput = e => { S[k] = +e.target.value; }; });
+[['sAuto','autoSpeed'],['sDense','dense'],['sDepth','depth'],['sSens','sens'],['sDrift','drift'],['sOrbit','orbit']].forEach(([id,k]) => { $(id).oninput = e => { S[k] = +e.target.value; }; });
 
 // drag to orbit, tap to scan
 let drag = null, yawUser = 0, pitchUser = 0;
@@ -567,6 +593,8 @@ function loop(now){
   if (reveal > 0 && reveal < 1) scanY = (.5 - reveal * 1.1) * span[1];   // during the switch the scan light leads the reveal
 
   const p = PALS[S.pal];
+  if (p.auto) autoStep(dt, performance.now());
+  const ptC = p.auto ? AUTO.cur.pt : p.pt, pt2C = p.auto ? AUTO.cur.pt2 : p.pt, dustC = p.auto ? AUTO.cur.dust : p.dust;
   gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, 0, W, H);
   gl.disable(gl.BLEND);
   gl.clearColor(0, 0, 0, 1); gl.clear(gl.COLOR_BUFFER_BIT);
@@ -602,7 +630,8 @@ function loop(now){
   STATE.camA = camA; STATE.reveal = reveal;
   const gh = W >= H ? Math.round(110 + 150 * S.dense) : Math.round((110 + 150 * S.dense) * H / W);
   gl.uniform1f(PP.U.uPx, Math.max(1.6, H / gh * .78));
-  gl.uniform3fv(PP.U.uPt, p.pt); gl.uniform3fv(PP.U.uDust, p.dust); gl.uniform1f(PP.U.uNeg, p.neg);
+  gl.uniform3fv(PP.U.uPt, ptC); gl.uniform3fv(PP.U.uPt2, pt2C); gl.uniform3fv(PP.U.uDust, dustC); gl.uniform1f(PP.U.uNeg, p.neg);
+  gl.uniform1f(PP.U.uDuo, p.auto ? 1 : 0);
   gl.uniform1f(PP.U.uLayer, 0); gl.drawArrays(gl.POINTS, 0, nPts);
   gl.uniform1f(PP.U.uLayer, 1); gl.drawArrays(gl.POINTS, 0, nPts);
   gl.blendEquation(gl.FUNC_ADD); gl.disable(gl.BLEND);
@@ -621,6 +650,7 @@ function loop(now){
 /* ---------- test hook (used by the local verification harness) ---------- */
 window.__TENGUN = {
   ingestMask(d, w, h){ if (!M.external) setStatus(''); M.external = true; return ingestMask(d, w, h); },
+  auto: () => ({ count:AUTO.count, pt:AUTO.cur.pt.slice(), pt2:AUTO.cur.pt2.slice(), dust:AUTO.cur.dust.slice() }),
   state: () => ({ hasMask:M.has, live:M.live, cover:F.cover, crumbling:F.crumbling, hits:F.hits, cx:F.cx, cy:F.cy, nPts }),
   ageAt(x, y){ const fx = Math.min(F.w - 1, Math.max(0, x * F.w | 0)), fy = Math.min(F.h - 1, Math.max(0, y * F.h | 0)); return F.age ? F.age[fy * F.w + fx] : 1; },
   palette(i){ setPal(i); },
