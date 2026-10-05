@@ -1,0 +1,655 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="description" content="手をひらくと、光るキューブ（または三角）が手の上に生まれ、細かく割れて弾になる。手を振るか画面をタップすると、割れた弾がいっせいに飛んでいく。直進・曲線・炸裂の三つの弾道。">
+<meta name="theme-color" content="#05080c">
+<title>KIRIDAMA ─ 手の上で割れて、飛んでいく光の弾</title>
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  KIRIDAMA 切り弾 ─ 手の上で割れて、飛んでいく光の弾     ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  BASE       CUBRICK TRIANGLE STAR（指さす先に浮かぶ箱）を下敷きに、オーナーの
+             リクエスト「マンガのシューターが手の上に出す四角や三角の弾を参考に
+             アレンジして、飛ばせるように」から作った。原作の名称・意匠は使わず、
+             「手の上に光の立体が生まれ → 格子に割れ → 弾になって飛ぶ」という
+             所作だけを借りている。
+  MOOD       夜の街角で、手の上に半透明の光の立体が組み上がる。少し暗く落とした
+             カメラの上で、立体の稜線と割れ目だけが強く光る。
+  PALETTE    背景はカメラを 35% 落とした暗がり。光は一色（既定 #8fe9ff 氷青）、
+             芯は白。ほかに 翠 #7dffb0／金 #ffd36a／緋 #ff6a5a／菫 #c9a0ff／白。
+  TYPE       Oxanium 300/600（字間を広げた大文字）・端末の日本語ゴシック。
+  MOTION     生成 0.45 秒（ワイヤーから実体へ）→ 分割 0.35 秒（格子が開く）→ 待機。
+             発射は 0.25 秒のあいだに一粒ずつ順に飛び出す。手をひらいたままなら
+             0.6 秒で次の立体が組み上がる。
+  SIGNATURE  ひとつの立体が、格子どおりに割れて、そのまま弾の群れになること。
+  TECH       three.js（動的 import）を画面外のキャンバスに描き、表示用の 2D キャンバス
+             にカメラ・立体・加算の光跡を重ねる（そのまま録画できる）。破片と弾は
+             InstancedMesh で、毎フレームの確保なし。手の速さは観測時刻で測る。
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Oxanium:wght@300;600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#05080c;--fg:#e8f6fb;--dim:rgba(232,246,251,.55);--line:rgba(232,246,251,.22);--acc:#8fe9ff}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none}
+html,body{margin:0;height:100%;background:var(--bg);overflow:hidden;color:var(--fg);
+  font-family:Oxanium,"Hiragino Sans","Noto Sans JP",sans-serif;font-weight:300}
+#out{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+#cam{position:fixed;left:0;top:0;width:2px;height:2px;opacity:.01;pointer-events:none}
+
+#start{position:fixed;inset:0;z-index:30;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;
+  padding:28px;text-align:center;background:radial-gradient(ellipse at 50% 42%,#0e1a22 0%,#05080c 70%)}
+#start svg{width:min(48vw,190px);height:auto;overflow:visible}
+#start .t{font-size:10px;letter-spacing:.55em;margin-right:-.55em;color:var(--dim)}
+#start h1{margin:0;font-weight:600;font-size:min(14vw,84px);line-height:1;letter-spacing:.22em;margin-right:-.22em}
+#start p{margin:0;font:14px/2 "Hiragino Sans","Noto Sans JP",sans-serif;color:var(--dim);letter-spacing:.06em}
+#go{appearance:none;border:1px solid var(--acc);background:transparent;color:var(--fg);font:600 11px Oxanium,sans-serif;
+  letter-spacing:.5em;padding:15px 32px 15px 38px;cursor:pointer;box-shadow:0 0 18px rgba(143,233,255,.25) inset}
+#go:hover{background:rgba(143,233,255,.12)}
+#err{font:12px/1.8 "Hiragino Sans","Noto Sans JP",sans-serif;max-width:340px;min-height:1em;white-space:pre-line;color:#ffb0a4}
+
+.btn{position:fixed;z-index:12;appearance:none;border:0;background:transparent;color:var(--fg);font:600 10px Oxanium,"Hiragino Sans",sans-serif;
+  letter-spacing:.3em;padding:10px 8px;display:none;cursor:pointer;opacity:.7}
+.btn.show{display:block}
+.btn:hover{opacity:1}
+#gear{right:10px;top:calc(env(safe-area-inset-top) + 6px);font-size:15px;letter-spacing:0}
+#flip{right:10px;top:calc(env(safe-area-inset-top) + 40px);letter-spacing:.1em;font:11px "Hiragino Sans","Noto Sans JP",sans-serif}
+#bar{position:fixed;left:0;right:0;bottom:calc(env(safe-area-inset-bottom) + 10px);z-index:12;display:none;justify-content:center;align-items:center;gap:26px}
+#bar.show{display:flex}
+#bar .btn{position:static;display:block}
+#bar #shoot{position:relative;width:42px;height:42px;border-radius:50%;border:1px solid var(--fg);padding:0;opacity:.75}
+#shoot::after{content:"";position:absolute;inset:6px;border-radius:50%;background:var(--fg);opacity:.85}
+#rec.on{opacity:1;color:#ff7a6a}
+#hud{position:fixed;left:14px;top:calc(env(safe-area-inset-top) + 14px);z-index:11;font-size:9px;letter-spacing:.32em;color:var(--dim);
+  pointer-events:none;display:none;line-height:2;white-space:pre}
+#hud.show{display:block}
+#status{position:fixed;left:14px;right:14px;bottom:calc(env(safe-area-inset-bottom) + 66px);z-index:11;
+  font:12px/1.7 "Hiragino Sans","Noto Sans JP",sans-serif;color:var(--dim);pointer-events:none;white-space:pre-line;text-align:center}
+
+#panel{position:fixed;right:10px;top:calc(env(safe-area-inset-top) + 78px);z-index:12;width:min(276px,calc(100vw - 20px));
+  max-height:calc(100dvh - 170px);overflow-y:auto;
+  background:rgba(5,8,12,.86);border:1px solid var(--line);padding:14px 16px;display:flex;flex-direction:column;gap:12px;
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);transition:opacity .25s}
+#panel.hide{opacity:0;pointer-events:none}
+#panel .sub{font:10px "Hiragino Sans","Noto Sans JP",sans-serif;letter-spacing:.2em;color:var(--dim)}
+.chips{display:flex;border:1px solid var(--line)}
+.chips button{flex:1;appearance:none;border:0;background:transparent;color:var(--fg);padding:8px 2px;font:12px "Hiragino Sans","Noto Sans JP",sans-serif;
+  letter-spacing:.1em;cursor:pointer;opacity:.5}
+.chips button.on{opacity:1;background:rgba(143,233,255,.16)}
+.sws{display:flex;gap:8px}
+.sw{appearance:none;flex:1;aspect-ratio:1;border-radius:50%;border:2px solid rgba(255,255,255,.15);padding:0;cursor:pointer}
+.sw.on{border-color:var(--fg);box-shadow:0 0 10px currentColor}
+#panel label{display:flex;align-items:center;gap:10px;font:11px "Hiragino Sans","Noto Sans JP",sans-serif;letter-spacing:.04em}
+#panel label span{width:70px;flex:none;color:var(--dim)}
+#panel label b{width:34px;flex:none;text-align:right;font:300 10px Oxanium,monospace}
+#panel input[type=range]{flex:1;min-width:0;accent-color:var(--acc)}
+#panel .note{font:10px/1.7 "Hiragino Sans","Noto Sans JP",sans-serif;color:var(--dim)}
+</style>
+</head>
+<body>
+<canvas id="out"></canvas>
+<video id="cam" playsinline muted autoplay></video>
+<div id="hud"></div>
+<div id="status"></div>
+<button id="gear" class="btn" aria-label="調整">⚙</button>
+<button id="flip" class="btn">⟲ カメラ</button>
+<div id="bar">
+  <button id="rec" class="btn">● REC</button>
+  <button id="shoot" class="btn" aria-label="撮る"></button>
+  <button id="fire" class="btn">FIRE ▸</button>
+</div>
+
+<div id="panel" class="hide">
+  <div class="sub">形</div>
+  <div class="chips" id="shapes">
+    <button data-v="cube" class="on">四角</button>
+    <button data-v="tri">三角</button>
+  </div>
+  <label><span>分割</span><input type="range" id="sSplit" min="2" max="4" step="1" value="3"><b id="vSplit">27</b></label>
+  <div class="sub">弾道</div>
+  <div class="chips" id="modes">
+    <button data-v="line" class="on">直進</button>
+    <button data-v="curve">曲線</button>
+    <button data-v="burst">炸裂</button>
+  </div>
+  <div class="sub">色</div>
+  <div class="sws" id="sws"></div>
+  <label><span>弾の速さ</span><input type="range" id="sSpeed" min="0" max="1" step="0.01" value="0.5"></label>
+  <label><span>大きさ</span><input type="range" id="sSize" min="0" max="1" step="0.01" value="0.5"></label>
+  <label><span>画面の暗さ</span><input type="range" id="sDark" min="0" max="1" step="0.01" value="0.5"></label>
+  <div class="note">手をひらくと立体が生まれて割れます。手をすばやく振るとその向きへ、画面をタップするとそこへ飛びます。手を握ると消えます。</div>
+</div>
+
+<div id="start">
+  <svg viewBox="0 0 120 120" aria-hidden="true">
+    <g fill="none" stroke="#8fe9ff" stroke-width="1.6">
+      <rect x="20" y="40" width="22" height="22"/><rect x="45" y="40" width="22" height="22"/><rect x="20" y="65" width="22" height="22"/><rect x="45" y="65" width="22" height="22"/>
+    </g>
+    <g fill="#8fe9ff"><rect x="78" y="44" width="10" height="10" opacity=".9"/><rect x="94" y="36" width="8" height="8" opacity=".6"/><rect x="104" y="52" width="6" height="6" opacity=".4"/></g>
+    <g stroke="#8fe9ff" stroke-width="1" opacity=".5"><line x1="70" y1="49" x2="78" y2="49"/><line x1="86" y1="40" x2="94" y2="40"/></g>
+  </svg>
+  <div class="t">SPLIT · AND · FIRE</div>
+  <h1>KIRIDAMA</h1>
+  <p>手をひらくと、光の立体が生まれて割れる。<br>振るか、タップで飛ばす。</p>
+  <button id="go">START</button>
+  <div id="err"></div>
+</div>
+
+<script>
+'use strict';
+/* =====================================================================
+   KIRIDAMA — open hand → a glowing cube/triangle forms above it, splits
+   into a grid of pieces, and a flick (or a tap) fires the pieces as
+   bullets: straight, curving, or bursting.
+   ===================================================================== */
+const THREE_URL  = 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js';
+const VISION_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs';
+const WASM_URL   = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm';
+const HAND_MODEL = 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task';
+
+const $ = id => document.getElementById(id);
+const out = $('out'), ctx = out.getContext('2d'), video = $('cam');
+const COLORS = ['#8fe9ff', '#7dffb0', '#ffd36a', '#ff6a5a', '#c9a0ff', '#ffffff'];
+const S = { shape:'cube', n:3, mode:'line', color:COLORS[0], speed:0.5, size:0.5, dark:0.5 };
+const MAXB = 640;                                  // bullet pool
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+const fin = v => typeof v === 'number' && isFinite(v);
+
+/* ---------- three (dynamic import so a dead CDN still shows the error) ---------- */
+let THREE = null, renderer, scene, cam3, geoCube, geoTri, matPiece, holdMesh = {}, bulMesh = {};
+const DUMMY = { };
+async function initThree(){
+  THREE = await import(THREE_URL);
+  const c3 = document.createElement('canvas');
+  renderer = new THREE.WebGLRenderer({ canvas:c3, alpha:true, antialias:true, premultipliedAlpha:true });
+  renderer.setClearColor(0x000000, 0);
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  scene = new THREE.Scene();
+  cam3 = new THREE.OrthographicCamera(-1, 1, 1, -1, -4000, 4000); cam3.position.z = 2000;
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x223344, 1.2));
+  const sun = new THREE.DirectionalLight(0xffffff, 1.8); sun.position.set(-.5, 1, .8); scene.add(sun);
+  geoCube = new THREE.BoxGeometry(1, 1, 1);
+  const tri = new THREE.Shape(), r = .577;          // unit-side equilateral triangle, centroid at origin
+  for (let i = 0; i < 3; i++){ const a = Math.PI/2 + i*2*Math.PI/3; i ? tri.lineTo(Math.cos(a)*r, Math.sin(a)*r) : tri.moveTo(Math.cos(a)*r, Math.sin(a)*r); }
+  geoTri = new THREE.ExtrudeGeometry(tri, { depth:.32, bevelEnabled:false }); geoTri.translate(0, 0, -.16);
+  matPiece = new THREE.MeshStandardMaterial({ color:0xffffff, emissive:0xffffff, emissiveIntensity:.55, roughness:.25, metalness:.1,
+                                              transparent:true, opacity:.82 });
+  for (const k of ['cube', 'tri']){
+    const g = k === 'cube' ? geoCube : geoTri;
+    holdMesh[k] = new THREE.InstancedMesh(g, matPiece, 2*64); holdMesh[k].count = 0; holdMesh[k].frustumCulled = false; scene.add(holdMesh[k]);
+    bulMesh[k]  = new THREE.InstancedMesh(g, matPiece, MAXB);  bulMesh[k].count = 0;  bulMesh[k].frustumCulled = false;  scene.add(bulMesh[k]);
+  }
+  DUMMY.o = new THREE.Object3D(); DUMMY.q = new THREE.Quaternion(); DUMMY.e = new THREE.Euler(); DUMMY.v = new THREE.Vector3();
+  setColor(S.color);
+}
+function setColor(hex){
+  S.color = hex; document.documentElement.style.setProperty('--acc', hex);
+  if (matPiece){ matPiece.color.set(hex); matPiece.emissive.set(hex); }
+  const n = parseInt(hex.slice(1), 16); COL = [n >> 16 & 255, n >> 8 & 255, n & 255];
+}
+let COL = [143, 233, 255];
+
+/* ---------- layout of the pieces inside one solid (unit size, centred) ---------- */
+// cube: n³ pieces; triangle: n² small triangles (n rows), pieces carry a flip flag
+function layout(shape, n){
+  const L = [];
+  if (shape === 'cube'){
+    for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) for (let k = 0; k < n; k++)
+      L.push({ x:((i + .5)/n - .5), y:((j + .5)/n - .5), z:((k + .5)/n - .5), flip:0 });
+  } else {
+    const rows = n + 1, a = 1/rows, h = a*Math.sqrt(3)/2, H = Math.sqrt(3)/2, top = H*2/3;
+    for (let r = 0; r < rows; r++){
+      const ay = top - r*h;
+      for (let k = 0; k <= r; k++)  L.push({ x:(k - r/2)*a, y:ay - 2*h/3, z:0, flip:0 });
+      for (let k = 0; k < r; k++)   L.push({ x:(k + .5 - r/2)*a, y:ay - h/3, z:0, flip:1 });
+    }
+  }
+  return L;
+}
+const pieceCount = (shape, n) => shape === 'cube' ? n*n*n : (n + 1)*(n + 1);
+
+/* ---------- hands ---------- */
+const HANDS = new Map();          // label → { P, hs, open, palm:{x,y}, vx, vy, t, lastObs, openSince, closedSince }
+let W = 2, H = 2, DPR = 1;
+function mapper(){
+  const vw = video.videoWidth || 1280, vh = video.videoHeight || 720;
+  const s = Math.max(W/vw, H/vh), dw = vw*s, dh = vh*s, ox = (W - dw)/2, oy = (H - dh)/2;
+  return lm => { const x = ox + lm.x*dw; return { x: mirror ? W - x : x, y: oy + lm.y*dh }; };
+}
+const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+function validHand(l){
+  if (!Array.isArray(l) || l.length < 21) return false;
+  for (let i = 0; i < 21; i++){ const p = l[i]; if (!p || !fin(p.x) || !fin(p.y)) return false; }
+  return true;
+}
+// one observation of hands (normalised landmarks), at time `now` (ms)
+function ingestHands(list, labels, now){
+  const map = mapper(), seen = new Set();
+  (Array.isArray(list) ? list : []).forEach((lms, i) => {
+    if (!validHand(lms)) return;
+    let label = (labels && labels[i]) || ('H' + i);
+    if (seen.has(label)) label += i;
+    seen.add(label);
+    const P = []; for (let k = 0; k < 21; k++) P.push(map(lms[k]));
+    const hs = Math.max(8, dist(P[0], P[9]));
+    let ext = 0;                                     // index..pinky extended
+    for (const [tip, base] of [[8,6],[12,10],[16,14],[20,18]]) if (dist(P[tip], P[0]) > dist(P[base], P[0])*1.12) ext++;
+    const palm = { x:(P[0].x + P[5].x + P[9].x + P[13].x + P[17].x)/5, y:(P[0].y + P[5].y + P[9].y + P[13].y + P[17].y)/5 };
+    let h = HANDS.get(label);
+    if (!h){ h = { label, vx:0, vy:0, openSince:0, closedSince:0, lastObs:0, palm }; HANDS.set(label, h); }
+    const dt = (now - h.lastObs)/1000;
+    const jump = Math.hypot(palm.x - h.palm.x, palm.y - h.palm.y)/hs;
+    if (h.lastObs && dt > 0 && dt < .25 && jump < 2.5){   // velocity from observation time only; a teleport is a tracking glitch
+      const ivx = (palm.x - h.palm.x)/dt, ivy = (palm.y - h.palm.y)/dt, k = .55;
+      h.vx = h.vx*(1 - k) + ivx*k; h.vy = h.vy*(1 - k) + ivy*k;
+    } else { h.vx = 0; h.vy = 0; }
+    const open = ext >= 3;
+    if (open){ if (!h.open) h.openSince = now; h.closedSince = 0; }
+    else if (!h.closedSince) h.closedSince = now;
+    Object.assign(h, { P, hs, palm, open, t:now, lastObs:now,
+      up:{ x:(P[9].x - P[0].x)/hs, y:(P[9].y - P[0].y)/hs } });
+  });
+  for (const [k, h] of HANDS) if (now - h.t > 220){ HANDS.delete(k); }   // lost: forget velocity and timers
+}
+
+/* ---------- holders: one solid per open hand ---------- */
+const HOLD = new Map();           // label → { state, t, x, y, size, rot, spin, shape, n, pieces, cool }
+const CHARGE = .45, SPLIT = .35;
+function stepHolders(dt, now){
+  for (const [label, h] of HANDS){
+    let o = HOLD.get(label);
+    const tx = h.palm.x + h.up.x*h.hs*1.25, ty = h.palm.y + h.up.y*h.hs*1.25;
+    const want = clamp(h.hs*(1.0 + S.size*1.2), 30, Math.min(W, H)*.42);
+    if (!o){
+      if (!h.open || now - h.openSince < 120) continue;
+      o = { state:'charge', t:0, x:tx, y:ty, size:want, rot:Math.random()*6, spin:.6 + Math.random()*.4, shape:S.shape, n:S.n,
+            cool:0, gone:0, label };
+      o.pieces = layout(o.shape, o.n); HOLD.set(label, o); sfxCharge();
+    }
+    const k = 1 - Math.exp(-dt*14);
+    o.x += (tx - o.x)*k; o.y += (ty - o.y)*k; o.size += (want - o.size)*k;
+    o.hand = h;
+  }
+  for (const [label, o] of HOLD){
+    const h = HANDS.get(label);
+    o.t += dt; o.rot += dt*o.spin*(o.state === 'ready' ? .5 : 1.4);
+    if (o.state !== 'cool' && (o.shape !== S.shape || o.n !== S.n)){   // settings changed: re-form right away
+      o.shape = S.shape; o.n = S.n; o.pieces = layout(o.shape, o.n); o.state = 'charge'; o.t = 0; sfxCharge();
+    }
+    if (o.state === 'charge' && o.t > CHARGE){ o.state = 'split'; o.t = 0; sfxSplit(); }
+    else if (o.state === 'split' && o.t > SPLIT){ o.state = 'ready'; o.t = 0; }
+    else if (o.state === 'cool' && o.t > .6){
+      if (h && h.open){ o.state = 'charge'; o.t = 0; o.shape = S.shape; o.n = S.n; o.pieces = layout(o.shape, o.n); sfxCharge(); }
+    }
+    // closed hand or lost hand: the solid dissolves
+    const closed = !h || (!h.open && h.closedSince && now - h.closedSince > 180);
+    if (closed){ o.gone += dt*4; if (o.gone >= 1) HOLD.delete(label); }
+    else o.gone = Math.max(0, o.gone - dt*6);
+    // flick: palm speed above threshold (in hand-sizes per second) fires the ready solid
+    if (h && o.state === 'ready' && o.gone === 0){
+      const sp = Math.hypot(h.vx, h.vy)/h.hs;
+      if (sp > 7.5) fire(o, h.vx, h.vy, null);
+    }
+  }
+}
+// piece world position & size inside a holder (used for drawing and for launching)
+function pieceGeom(o, p, outv){
+  const grow = o.state === 'charge' ? easeOut(Math.min(1, o.t/CHARGE)) : 1;
+  const gap = o.state === 'charge' ? 0 : o.state === 'split' ? easeOut(Math.min(1, o.t/SPLIT))*.32 : .32 + Math.sin(o.rot*3)*.02;
+  const S0 = o.size*grow*(1 - o.gone), m = 1 + gap;
+  const c = Math.cos(o.rot), s = Math.sin(o.rot), c2 = Math.cos(o.rot*.7), s2 = Math.sin(o.rot*.7);
+  let x = p.x*S0*m, y = p.y*S0*m, z = p.z*S0*m;
+  if (o.shape === 'cube'){                           // tumble around y then x
+    const x1 = x*c + z*s, z1 = -x*s + z*c; const y1 = y*c2 - z1*s2; x = x1; y = y1;
+  } else {                                           // triangle: rotate in plane, slight sway
+    const x1 = x*c2 - y*s2, y1 = x*s2 + y*c2; x = x1; y = y1;
+  }
+  const n = o.shape === 'cube' ? o.n : o.n + 1;
+  outv.x = o.x + x; outv.y = o.y - y; outv.s = S0/n*(o.shape === 'cube' ? .9 : .92);
+  return outv;
+}
+const easeOut = t => 1 - Math.pow(1 - t, 3);
+
+/* ---------- bullets ---------- */
+const B = { n:0, x:new Float32Array(MAXB), y:new Float32Array(MAXB), vx:new Float32Array(MAXB), vy:new Float32Array(MAXB),
+  s:new Float32Array(MAXB), age:new Float32Array(MAXB), delay:new Float32Array(MAXB), mode:new Uint8Array(MAXB),
+  tri:new Uint8Array(MAXB), flip:new Uint8Array(MAXB), rot:new Float32Array(MAXB), spin:new Float32Array(MAXB),
+  sx:new Float32Array(MAXB), sy:new Float32Array(MAXB), cx:new Float32Array(MAXB), cy:new Float32Array(MAXB),
+  tx:new Float32Array(MAXB), ty:new Float32Array(MAXB), u:new Float32Array(MAXB), len:new Float32Array(MAXB),
+  px:new Float32Array(MAXB), py:new Float32Array(MAXB) };
+const FX = [];                     // explosions: { x, y, t } (small, capped)
+let fired = 0, pops = 0;
+const PG = { x:0, y:0, s:0 };
+function fire(o, dx, dy, target){
+  const n = o.pieces.length, diag = Math.hypot(W, H);
+  let L = Math.hypot(dx, dy); if (!(L > 1e-3)){ dx = 0; dy = -1; L = 1; }
+  dx /= L; dy /= L;
+  const speed = diag*(.55 + S.speed*1.3);
+  const mode = S.mode === 'line' ? 0 : S.mode === 'curve' ? 1 : 2;
+  const aimDist = target ? Math.hypot(target.x - o.x, target.y - o.y) : diag*(mode === 2 ? .42 : .8);
+  const aim = target || { x:o.x + dx*aimDist, y:o.y + dy*aimDist };
+  for (let i = 0; i < n && B.n < MAXB; i++){
+    const p = o.pieces[i], g = pieceGeom(o, p, PG), j = B.n++;
+    B.x[j] = g.x; B.y[j] = g.y; B.s[j] = g.s; B.age[j] = 0; B.delay[j] = i/n*.25; B.mode[j] = mode;
+    B.tri[j] = o.shape === 'tri' ? 1 : 0; B.flip[j] = p.flip; B.rot[j] = o.rot; B.spin[j] = (Math.random() - .5)*12;
+    B.px[j] = g.x; B.py[j] = g.y;
+    // straight: tight spread around the aim; burst: aim at the point and pop there; curve: quadratic arc to the aim
+    const spread = (Math.random() - .5)*(mode === 0 ? .12 : .2);
+    const ex = aim.x - g.x, ey = aim.y - g.y, el = Math.hypot(ex, ey) || 1;
+    let ux = ex/el, uy = ey/el; const cs = Math.cos(spread), sn = Math.sin(spread); const ux2 = ux*cs - uy*sn, uy2 = ux*sn + uy*cs;
+    B.vx[j] = ux2*speed*(mode === 2 ? .7 : 1)*(0.92 + Math.random()*.16); B.vy[j] = uy2*speed*(mode === 2 ? .7 : 1)*(0.92 + Math.random()*.16);
+    B.sx[j] = g.x; B.sy[j] = g.y; const scat = o.size*(mode === 2 ? 2.4 : .8);
+    B.tx[j] = aim.x + (Math.random() - .5)*scat; B.ty[j] = aim.y + (Math.random() - .5)*scat;
+    const side = (i % 2 ? 1 : -1)*(.35 + Math.random()*.55);
+    B.cx[j] = (g.x + B.tx[j])/2 - uy*el*side; B.cy[j] = (g.y + B.ty[j])/2 + ux*el*side;
+    B.len[j] = el*1.25; B.u[j] = 0;
+  }
+  fired += n;
+  o.state = 'cool'; o.t = 0; sfxFire(n);
+}
+function killB(j){ const k = --B.n; if (j === k) return;
+  for (const key in B){ if (key !== 'n') B[key][j] = B[key][k]; } }
+function stepBullets(dt){
+  const m = 80;
+  for (let j = B.n - 1; j >= 0; j--){
+    B.px[j] = B.x[j]; B.py[j] = B.y[j];
+    if (B.delay[j] > 0){ B.delay[j] -= dt; continue; }
+    B.age[j] += dt; B.rot[j] += B.spin[j]*dt;
+    if (B.mode[j] === 1 && B.u[j] < 1){              // follow the arc, then keep going straight
+      const sp = Math.hypot(B.vx[j], B.vy[j]);
+      B.u[j] = Math.min(1, B.u[j] + sp*dt/Math.max(1, B.len[j]));
+      const u = B.u[j], a = (1 - u)*(1 - u), b = 2*u*(1 - u), c = u*u;
+      const nx = a*B.sx[j] + b*B.cx[j] + c*B.tx[j], ny = a*B.sy[j] + b*B.cy[j] + c*B.ty[j];
+      if (u >= 1){ const ddx = nx - B.x[j], ddy = ny - B.y[j], dl = Math.hypot(ddx, ddy) || 1; B.vx[j] = ddx/dl*sp; B.vy[j] = ddy/dl*sp; }
+      B.x[j] = nx; B.y[j] = ny;
+    } else { B.x[j] += B.vx[j]*dt; B.y[j] += B.vy[j]*dt; }
+    if (B.mode[j] === 2){                            // burst: pop when it reaches its point
+      const d = (B.x[j] - B.tx[j])*B.vx[j] + (B.y[j] - B.ty[j])*B.vy[j];
+      if (d > 0){ pops++; if (FX.length < 40) FX.push({ x:B.x[j], y:B.y[j], t:0, s:B.s[j] }); if (Math.random() < .25) sfxPop(); killB(j); continue; }
+    }
+    if (B.x[j] < -m || B.y[j] < -m || B.x[j] > W + m || B.y[j] > H + m || B.age[j] > 4) killB(j);
+  }
+  for (let i = FX.length - 1; i >= 0; i--){ FX[i].t += dt; if (FX[i].t > .5) FX.splice(i, 1); }
+}
+
+/* ---------- tap / button: fire every ready solid at a point ---------- */
+function fireAt(x, y){
+  let any = false;
+  for (const o of HOLD.values()) if (o.state === 'ready' && o.gone === 0){ fire(o, x - o.x, y - o.y, { x, y }); any = true; }
+  if (!any && !HANDS.size){                          // nobody in frame: a solid forms at the bottom and fires (works without the model)
+    const o = { state:'ready', t:0, x:W/2, y:H*.82, size:Math.min(W, H)*(.14 + S.size*.1), rot:Math.random()*6, spin:.8, shape:S.shape, n:S.n,
+                cool:0, gone:0, label:'tap' };
+    o.pieces = layout(o.shape, o.n); fire(o, x - o.x, y - o.y, { x, y }); any = true;
+  }
+  return any;
+}
+out.addEventListener('pointerdown', e => {
+  if (!started) return;
+  const r = out.getBoundingClientRect(); fireAt(e.clientX - r.left, e.clientY - r.top);
+});
+$('fire').onclick = () => { if (!fireAt(W/2, H*.25)) setStatus('手をひらいて、立体ができてから撃てます。'); else setStatus(''); };
+
+/* ---------- drawing ---------- */
+const PV = { x:0, y:0, s:0 };
+function render(now){
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  // camera, cover-fit, mirrored for the selfie camera, then darkened
+  ctx.fillStyle = '#05080c'; ctx.fillRect(0, 0, W, H);
+  if (video.readyState >= 2){
+    const vw = video.videoWidth, vh = video.videoHeight, s = Math.max(W/vw, H/vh), dw = vw*s, dh = vh*s;
+    ctx.save(); if (mirror){ ctx.translate(W, 0); ctx.scale(-1, 1); }
+    ctx.drawImage(video, (W - dw)/2, (H - dh)/2, dw, dh); ctx.restore();
+  }
+  ctx.fillStyle = 'rgba(3,6,10,' + (S.dark*.85).toFixed(3) + ')'; ctx.fillRect(0, 0, W, H);
+
+  const [r, g, b] = COL, glow = (a) => `rgba(${r},${g},${b},${a})`;
+  ctx.globalCompositeOperation = 'lighter';
+  // trails
+  ctx.lineCap = 'round';
+  for (let j = 0; j < B.n; j++){
+    if (B.delay[j] > 0) continue;
+    const sp = Math.hypot(B.vx[j], B.vy[j]), k = Math.min(.06, 36/Math.max(1, sp));
+    const tx = B.x[j] - B.vx[j]*k*1.5, ty = B.y[j] - B.vy[j]*k*1.5;
+    ctx.strokeStyle = glow(.3); ctx.lineWidth = B.s[j]*.7;
+    ctx.beginPath(); ctx.moveTo(tx, ty); ctx.lineTo(B.x[j], B.y[j]); ctx.stroke();
+    ctx.strokeStyle = 'rgba(255,255,255,.4)'; ctx.lineWidth = Math.max(1, B.s[j]*.12);
+    ctx.beginPath(); ctx.moveTo((tx + B.x[j])/2, (ty + B.y[j])/2); ctx.lineTo(B.x[j], B.y[j]); ctx.stroke();
+  }
+  // halos around solids, and the grid flash at the moment of splitting
+  for (const o of HOLD.values()){
+    const a = (o.state === 'charge' ? .25 + .35*Math.min(1, o.t/CHARGE) : o.state === 'cool' ? .1 : .5)*(1 - o.gone);
+    const R = o.size*1.15, gr = ctx.createRadialGradient(o.x, o.y, 0, o.x, o.y, R);
+    gr.addColorStop(0, glow(a*.55)); gr.addColorStop(.5, glow(a*.18)); gr.addColorStop(1, glow(0));
+    ctx.fillStyle = gr; ctx.fillRect(o.x - R, o.y - R, R*2, R*2);
+    if (o.state === 'charge'){                       // wireframe outline drawing itself in
+      const p = Math.min(1, o.t/CHARGE), s = o.size*easeOut(p)*.5;
+      ctx.strokeStyle = glow(.9*(1 - p*.6)); ctx.lineWidth = 1.5;
+      ctx.save(); ctx.translate(o.x, o.y); ctx.rotate(o.rot*.3);
+      if (o.shape === 'cube') ctx.strokeRect(-s, -s, s*2, s*2);
+      else { ctx.beginPath(); for (let i = 0; i < 3; i++){ const an = -Math.PI/2 + i*2*Math.PI/3; ctx[i ? 'lineTo' : 'moveTo'](Math.cos(an)*s*1.15, Math.sin(an)*s*1.15); } ctx.closePath(); ctx.stroke(); }
+      ctx.restore();
+    }
+    if (o.state === 'split' && o.t < .2){
+      ctx.fillStyle = 'rgba(255,255,255,' + (.5*(1 - o.t/.2)).toFixed(3) + ')';
+      ctx.beginPath(); ctx.arc(o.x, o.y, o.size*.7, 0, 7); ctx.fill();
+    }
+  }
+  // explosions
+  for (const f of FX){
+    const p = f.t/.5, R = f.s*(1 + p*4.5);
+    ctx.strokeStyle = glow(.55*(1 - p)); ctx.lineWidth = 1.5*(1 - p) + .5;
+    ctx.beginPath(); ctx.arc(f.x, f.y, R, 0, 7); ctx.stroke();
+    const gr = ctx.createRadialGradient(f.x, f.y, 0, f.x, f.y, R);
+    gr.addColorStop(0, `rgba(255,255,255,${(.16*(1 - p)).toFixed(3)})`); gr.addColorStop(.4, glow(.1*(1 - p))); gr.addColorStop(1, glow(0));
+    ctx.fillStyle = gr; ctx.beginPath(); ctx.arc(f.x, f.y, R, 0, 7); ctx.fill();
+  }
+  ctx.globalCompositeOperation = 'source-over';
+
+  // solid pieces (three.js) on top
+  if (THREE){
+    const o3 = DUMMY.o; let ci = { cube:0, tri:0 };
+    for (const o of HOLD.values()){
+      if (o.state === 'cool') continue;
+      const mesh = holdMesh[o.shape];
+      for (let i = 0; i < o.pieces.length; i++){
+        const p = o.pieces[i], g = pieceGeom(o, p, PV);
+        if (ci[o.shape] >= 128) break;
+        o3.position.set(g.x - W/2, H/2 - g.y, 0);
+        if (o.shape === 'cube') o3.rotation.set(o.rot*.7, o.rot, 0);
+        else o3.rotation.set(Math.sin(o.rot)*.25, Math.sin(o.rot*.8)*.35, -o.rot*.7 + (p.flip ? Math.PI : 0));
+        o3.scale.setScalar(Math.max(.001, g.s)); o3.updateMatrix();
+        mesh.setMatrixAt(ci[o.shape]++, o3.matrix);
+      }
+    }
+    for (const k of ['cube', 'tri']){ holdMesh[k].count = ci[k]; holdMesh[k].instanceMatrix.needsUpdate = true; }
+    ci = { cube:0, tri:0 };
+    for (let j = 0; j < B.n; j++){
+      const k = B.tri[j] ? 'tri' : 'cube';
+      o3.position.set(B.x[j] - W/2, H/2 - B.y[j], 0);
+      if (k === 'cube') o3.rotation.set(B.rot[j], B.rot[j]*.7, 0);
+      else { const ang = Math.atan2(-B.vy[j], B.vx[j]); o3.rotation.set(B.rot[j]*.5, 0, ang - Math.PI/2 + (B.flip[j] && B.delay[j] > 0 ? Math.PI : 0)); }
+      o3.scale.setScalar(B.s[j]); o3.updateMatrix(); bulMesh[k].setMatrixAt(ci[k]++, o3.matrix);
+    }
+    for (const k of ['cube', 'tri']){ bulMesh[k].count = ci[k]; bulMesh[k].instanceMatrix.needsUpdate = true; }
+    renderer.render(scene, cam3);
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.drawImage(renderer.domElement, 0, 0, out.width, out.height);
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    // a hot core on each flying piece
+    ctx.globalCompositeOperation = 'lighter';
+    for (let j = 0; j < B.n; j++){
+      const R = B.s[j]*1.6, gr = ctx.createRadialGradient(B.x[j], B.y[j], 0, B.x[j], B.y[j], R);
+      gr.addColorStop(0, 'rgba(255,255,255,.22)'); gr.addColorStop(1, glow(0));
+      ctx.fillStyle = gr; ctx.fillRect(B.x[j] - R, B.y[j] - R, R*2, R*2);
+    }
+    ctx.globalCompositeOperation = 'source-over';
+  }
+}
+
+/* ---------- audio (AudioContext opens on the start button) ---------- */
+let actx = null, bus = null, recDest = null;
+function ensureAudio(){
+  if (actx){ if (actx.state === 'suspended') actx.resume().catch(()=>{}); return; }
+  const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+  actx = new AC(); bus = actx.createGain(); bus.gain.value = .5; bus.connect(actx.destination);
+  recDest = actx.createMediaStreamDestination(); bus.connect(recDest);
+  actx.resume().catch(()=>{});
+}
+const live = () => actx && actx.state === 'running';
+function tone(f0, f1, dur, type, vol, t0){
+  const t = (t0 || actx.currentTime), o = actx.createOscillator(), g = actx.createGain();
+  o.type = type; o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(f1, t + dur);
+  g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + .02); g.gain.exponentialRampToValueAtTime(.0001, t + dur);
+  o.connect(g); g.connect(bus); o.start(t); o.stop(t + dur + .02);
+}
+function noise(dur, f, q, vol){
+  const t = actx.currentTime, n = actx.sampleRate*dur | 0, b = actx.createBuffer(1, n, actx.sampleRate), d = b.getChannelData(0);
+  for (let i = 0; i < n; i++) d[i] = (Math.random()*2 - 1)*Math.pow(1 - i/n, 2);
+  const s = actx.createBufferSource(); s.buffer = b; const bp = actx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = f; bp.Q.value = q;
+  const g = actx.createGain(); g.gain.value = vol; s.connect(bp); bp.connect(g); g.connect(bus); s.start(t);
+}
+function sfxCharge(){ if (live()) tone(180, 720, .45, 'sine', .08); }
+function sfxSplit(){ if (!live()) return; for (let i = 0; i < 4; i++) tone(1800 + i*300, 1600 + i*300, .05, 'square', .025, actx.currentTime + i*.03); }
+function sfxFire(n){ if (!live()) return; noise(.35, 2400, .8, .5); tone(900, 140, .3, 'sawtooth', .05); }
+function sfxPop(){ if (live()){ noise(.18, 500, .7, .5); tone(160, 60, .2, 'sine', .12); } }
+
+/* ---------- MediaPipe hands (dynamic import) ---------- */
+let landmarker = null, lastVT = -1, external = false;
+async function initModel(){
+  try{
+    const vision = await import(VISION_URL);
+    const fs = await vision.FilesetResolver.forVisionTasks(WASM_URL);
+    const opts = d => ({ baseOptions:{ modelAssetPath:HAND_MODEL, delegate:d }, runningMode:'VIDEO', numHands:2,
+      minHandDetectionConfidence:.5, minHandPresenceConfidence:.5, minTrackingConfidence:.5 });
+    try { landmarker = await vision.HandLandmarker.createFromOptions(fs, opts('GPU')); }
+    catch(e){ landmarker = await vision.HandLandmarker.createFromOptions(fs, opts('CPU')); }
+    setStatus('手をひらいてみてください。');
+    setTimeout(() => { if ($('status').textContent === '手をひらいてみてください。') setStatus(''); }, 4000);
+  }catch(e){
+    if (external) return;
+    setStatus('手の認識モデルを読み込めませんでした（ネット接続を確認）。\nタップした場所へ撃つことはできます。');
+  }
+}
+function detect(now){
+  if (!landmarker || external || video.readyState < 2 || video.currentTime === lastVT) return;
+  lastVT = video.currentTime;
+  try{
+    const res = landmarker.detectForVideo(video, now);
+    const labels = (res.handednesses || []).map(h => h && h[0] && h[0].categoryName);
+    ingestHands(res.landmarks || [], labels, now);
+  }catch(e){}
+}
+
+/* ---------- camera ---------- */
+let stream = null, facing = 'user', mirror = true, started = false;
+function setStatus(t){ $('status').textContent = t || ''; }
+function camError(e){
+  const msg = (e && (e.message || e.name)) ? (e.message || e.name) : String(e || 'unknown');
+  const text = 'カメラを起動できませんでした：' + msg + '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+  $('err').textContent = text;
+  if (started) setStatus(text);
+}
+async function startCam(){
+  const md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) throw new Error('getUserMedia is unavailable');
+  const s = await md.getUserMedia({ video:{ facingMode:{ ideal:facing }, width:{ ideal:1280 }, height:{ ideal:720 } }, audio:false });
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = s; mirror = facing === 'user';
+  video.srcObject = s;
+  await new Promise(r => { if (video.readyState >= 1) r(); else video.onloadedmetadata = () => r(); });
+  await video.play().catch(()=>{});
+}
+$('go').onclick = async () => {
+  $('err').textContent = '';
+  ensureAudio();
+  try { await startCam(); } catch(e){ camError(e); return; }
+  try { if (!THREE) await initThree(); }
+  catch(e){ $('err').textContent = '3D の描画ライブラリを読み込めませんでした：' + (e && e.message || e) + '\nネット接続を確認して、もう一度お試しください。'; return; }
+  $('start').style.display = 'none';
+  ['gear','flip','bar','rec','shoot','fire','hud'].forEach(id => $(id).classList.add('show'));
+  if (!started){ started = true; initModel(); requestAnimationFrame(loop); }
+};
+$('flip').onclick = async () => {
+  const prev = facing; facing = facing === 'user' ? 'environment' : 'user';
+  try { await startCam(); HANDS.clear(); } catch(e){ facing = prev; camError(e); }
+};
+
+/* ---------- panel ---------- */
+$('gear').onclick = () => $('panel').classList.toggle('hide');
+function chips(id, key){ $(id).onclick = e => { const b = e.target.closest('button'); if (!b) return; S[key] = b.dataset.v;
+  [...$(id).children].forEach(x => x.classList.toggle('on', x === b)); updSplit(); }; }
+chips('shapes', 'shape'); chips('modes', 'mode');
+function updSplit(){ $('vSplit').textContent = pieceCount(S.shape, S.n); }
+$('sSplit').oninput = e => { S.n = +e.target.value; updSplit(); };
+[['sSpeed','speed'],['sSize','size'],['sDark','dark']].forEach(([id, k]) => { $(id).oninput = e => { S[k] = +e.target.value; }; });
+COLORS.forEach((c, i) => { const b = document.createElement('button'); b.className = 'sw' + (i ? '' : ' on'); b.style.background = c; b.style.color = c;
+  b.setAttribute('aria-label', '色 ' + (i + 1)); b.onclick = () => { setColor(c); [...$('sws').children].forEach(x => x.classList.toggle('on', x === b)); };
+  $('sws').appendChild(b); });
+updSplit();
+
+/* ---------- record / snapshot ---------- */
+$('shoot').onclick = () => {
+  try{ out.toBlob(b => { if (!b) return; const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = 'kiridama-' + Date.now() + '.png'; a.click(); }, 'image/png'); }
+  catch(e){ setStatus('保存できませんでした。'); }
+};
+let rec = null, chunks = [];
+$('rec').onclick = () => {
+  if (rec && rec.state === 'recording'){ rec.stop(); return; }
+  try{
+    ensureAudio();
+    const tracks = [...out.captureStream(30).getVideoTracks()];
+    if (recDest) tracks.push(...recDest.stream.getAudioTracks());
+    const mime = ['video/mp4;codecs=avc1','video/webm;codecs=vp9,opus','video/webm'].find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || '';
+    rec = new MediaRecorder(new MediaStream(tracks), mime ? { mimeType:mime } : {});
+    chunks = [];
+    rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+    rec.onstop = () => {
+      $('rec').classList.remove('on'); $('rec').textContent = '● REC';
+      const ext = (rec.mimeType || '').includes('mp4') ? 'mp4' : 'webm';
+      const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(chunks, { type:rec.mimeType || 'video/webm' })); a.download = 'kiridama.' + ext; a.click();
+    };
+    rec.start(); $('rec').classList.add('on'); $('rec').textContent = '■ STOP';
+  }catch(e){ setStatus('録画を開始できませんでした。'); }
+};
+
+/* ---------- loop ---------- */
+let lastT = 0, hudT = 0;
+function loop(now){
+  requestAnimationFrame(loop);
+  const rdt = lastT ? Math.min(.25, Math.max(0, (now - lastT)/1000)) : 1/60, dt = Math.min(.05, rdt); lastT = now;
+  DPR = Math.min(window.devicePixelRatio || 1, 1.5);
+  W = innerWidth; H = innerHeight;
+  const k = Math.min(1, 1600/Math.max(W*DPR, H*DPR)); DPR *= k;
+  const cw = Math.round(W*DPR), ch = Math.round(H*DPR);
+  if (out.width !== cw || out.height !== ch){
+    out.width = cw; out.height = ch;
+    renderer.setPixelRatio(1); renderer.setSize(cw, ch, false);
+    cam3.left = -W/2; cam3.right = W/2; cam3.top = H/2; cam3.bottom = -H/2; cam3.updateProjectionMatrix();
+  }
+  detect(now);
+  for (const [kk, h] of HANDS) if (now - h.t > 220) HANDS.delete(kk);   // lost: forget velocity and timers
+  stepHolders(rdt, now);                               // state timers follow wall-clock time
+  stepBullets(dt);
+  render(now);
+  hudT += dt;
+  if (hudT > .25){ hudT = 0;
+    let ready = 0; for (const o of HOLD.values()) if (o.state === 'ready') ready++;
+    $('hud').textContent = 'KIRIDAMA  ' + (S.shape === 'cube' ? 'CUBE' : 'TRI') + ' × ' + pieceCount(S.shape, S.n) + '\n' +
+      ({ line:'STRAIGHT', curve:'CURVE', burst:'BURST' })[S.mode] + '  ·  ' + (ready ? 'READY' : HANDS.size ? 'OPEN YOUR HAND' : 'NO HAND'); }
+}
+
+/* ---------- test hook (used by the local verification harness) ---------- */
+window.__KIRIDAMA = {
+  hands(list, labels, t){ if (!external) setStatus(''); external = true; ingestHands(list, labels, t == null ? performance.now() : t); },
+  tap(x, y){ return fireAt(x, y); },
+  set(k, v){ S[k] = v; updSplit(); },
+  color(c){ setColor(c); },
+  state: () => ({ hands:HANDS.size, holders:[...HOLD.values()].map(o => ({ state:o.state, x:o.x, y:o.y, n:o.pieces.length, gone:o.gone })),
+                  bullets:B.n, fired, pops, fx:FX.length }),
+};
+</script>
+</body>
+</html>
