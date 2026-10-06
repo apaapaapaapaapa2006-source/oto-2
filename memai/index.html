@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="description" content="映った人の輪郭が、象牙・深紅・墨の帯になって何重にも外へ広がり続ける渦の映画ポスター。帯は少し前のあなたの形なので、動くほど渦がよじれて開き、止まれば静かな同心の輪に戻る。">
+<meta name="theme-color" content="#1b0a0c">
+<title>MEMAI ─ あなたの輪郭が、渦になって広がる</title>
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  MEMAI 目眩 ─ あなたの輪郭が、渦になって広がる        ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  MOOD       50〜70 年代の映画ポスターとジャズのレコードジャケット。墨の
+             肖像のまわりに、自分の輪郭が象牙・深紅・墨の帯になって何重にも
+             外へ外へと広がっていく。止まれば催眠のような同心の輪、動けば
+             一本一本が少し前の別の姿勢なので、帯がよじれて渦が開く。
+  PALETTE    VERTIGO   地 #1b0a0c / 帯 象牙 #efe4cf・深紅 #8e1b22・墨 #0e0b0b
+             SILVER    地 #0c0c0c / 帯 #ededeb・#7d7d7a・#0c0c0c
+             MIDNIGHT  地 #0d1428 / 帯 淡金 #d9c48d・紺 #23335f・墨 #070a14
+             三色まで。人物は墨→地の色→象牙のダブルトーン。
+  TYPE       Gilda Display（題字）・Overpass Mono 300（小さな UI）。
+  MOTION     帯はいつもゆっくり外へ流れる（止まっていても止まらない）。
+             動くほど帯は速く広がり、よじれ、回る。タップで回転が逆向きに。
+  SIGNATURE  時間がそのまま同心円になる：内側ほどいまの自分、外ほど過去。
+  TECH       Canvas2D。ImageSegmenter の人物マスクを 70ms ごとに一枚、固定
+             プールの帯キャンバスに色を決めて焼き、各帯は自分の重心まわりに
+             毎フレーム拡大・回転して古い順に重ねる。人物はマスク内だけ
+             LUT でダブルトーンにして最前面へ。ImageData・配列はすべて再利用。
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Gilda+Display&family=Overpass+Mono:wght@300;600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#1b0a0c;--fg:#efe4cf;--acc:#8e1b22;--dim:rgba(239,228,207,.58);--line:rgba(239,228,207,.26)}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none}
+html,body{margin:0;height:100%;background:var(--bg);overflow:hidden;color:var(--fg);
+  font-family:"Overpass Mono",ui-monospace,"Hiragino Sans","Noto Sans JP",monospace;font-weight:300}
+#cv{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+#cam{position:fixed;left:0;top:0;width:2px;height:2px;opacity:.01;pointer-events:none}
+
+#start{position:fixed;inset:0;z-index:30;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:24px;
+  padding:28px;text-align:center;
+  background:repeating-radial-gradient(circle at 50% 46%,#1b0a0c 0 22px,#8e1b22 22px 34px,#1b0a0c 34px 46px,#efe4cf 46px 50px)}
+#start .card{background:#1b0a0c;padding:34px 30px 30px;display:flex;flex-direction:column;align-items:center;gap:20px;box-shadow:0 0 0 1px #efe4cf}
+#start .t{font-size:10px;letter-spacing:.55em;margin-right:-.55em;color:var(--dim)}
+#start h1{margin:0;font-family:"Gilda Display",Georgia,serif;font-weight:400;font-size:min(19vw,104px);line-height:.95;letter-spacing:.06em;margin-right:-.06em}
+#start p{margin:0;font-size:12px;line-height:2.1;color:var(--dim);letter-spacing:.06em}
+#go{appearance:none;border:1px solid var(--fg);background:transparent;color:var(--fg);font:600 10px "Overpass Mono",monospace;
+  letter-spacing:.45em;padding:15px 30px 15px 36px;cursor:pointer;transition:background .3s,color .3s}
+#go:hover{background:var(--fg);color:#1b0a0c}
+#err{font-size:12px;line-height:1.8;max-width:320px;min-height:1em;white-space:pre-line;color:#f0a9a0}
+
+.btn{position:fixed;z-index:12;appearance:none;border:0;background:transparent;color:var(--fg);font:600 10px "Overpass Mono","Hiragino Sans",monospace;
+  letter-spacing:.22em;padding:10px 8px;display:none;cursor:pointer;opacity:.72;transition:opacity .3s;text-shadow:0 0 6px rgba(0,0,0,.5)}
+.btn.show{display:block}
+.btn:hover{opacity:1}
+#gear{right:10px;top:calc(env(safe-area-inset-top) + 6px);font-size:14px;letter-spacing:0}
+#flip{right:10px;top:calc(env(safe-area-inset-top) + 40px);letter-spacing:.08em}
+#bar{position:fixed;left:0;right:0;bottom:calc(env(safe-area-inset-bottom) + 10px);z-index:12;display:none;justify-content:center;align-items:center;gap:30px}
+#bar.show{display:flex}
+#bar .btn{position:static;display:block}
+#bar #shoot{position:relative;width:42px;height:42px;border-radius:50%;border:1px solid var(--fg);padding:0}
+#shoot::after{content:"";position:absolute;inset:6px;border-radius:50%;background:var(--fg);opacity:.9}
+#rec.on{opacity:1;color:#ff8f86}
+#mode{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom) + 68px);z-index:13;display:none;
+  appearance:none;border:1px solid var(--fg);background:rgba(0,0,0,.25);color:var(--fg);font:600 10px "Overpass Mono",monospace;
+  letter-spacing:.4em;padding:11px 20px 11px 26px;cursor:pointer}
+#mode.show{display:block}
+#hud{position:fixed;left:14px;top:calc(env(safe-area-inset-top) + 12px);z-index:11;font-size:9px;letter-spacing:.3em;color:var(--fg);opacity:.75;
+  pointer-events:none;display:none;line-height:2;white-space:pre}
+#hud.show{display:block}
+#status{position:fixed;left:14px;right:14px;bottom:calc(env(safe-area-inset-bottom) + 112px);z-index:11;font-size:11px;letter-spacing:.04em;
+  color:var(--fg);pointer-events:none;line-height:1.7;white-space:pre-line;text-align:center;text-shadow:0 0 6px rgba(0,0,0,.6)}
+
+#panel{position:fixed;right:10px;top:calc(env(safe-area-inset-top) + 78px);z-index:12;width:min(270px,calc(100vw - 20px));
+  background:rgba(14,11,11,.88);border:1px solid var(--line);padding:14px 16px;display:flex;flex-direction:column;gap:13px;
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);transition:opacity .25s}
+#panel.hide{opacity:0;pointer-events:none}
+.chips{display:flex;border:1px solid var(--line)}
+.chips button{flex:1;appearance:none;border:0;background:transparent;color:var(--fg);padding:8px 2px;font:600 9px "Overpass Mono",monospace;
+  letter-spacing:.12em;cursor:pointer;opacity:.5}
+.chips button.on{opacity:1;background:rgba(239,228,207,.12)}
+#panel label{display:flex;align-items:center;gap:10px;font-size:11px;letter-spacing:.04em}
+#panel label span{width:78px;flex:none;color:var(--dim)}
+#panel input[type=range]{flex:1;accent-color:#c9a9a0}
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<video id="cam" playsinline muted autoplay></video>
+<div id="hud"></div>
+<div id="status"></div>
+<button id="gear" class="btn" aria-label="調整">⚙</button>
+<button id="flip" class="btn">⟲ カメラ</button>
+<button id="mode">▸ MEMAI</button>
+<div id="bar">
+  <button id="rec" class="btn">● REC</button>
+  <button id="shoot" class="btn" aria-label="撮る"></button>
+  <button id="spin" class="btn">↻ 逆回転</button>
+</div>
+
+<div id="panel" class="hide">
+  <div class="chips" id="pals">
+    <button data-p="0" class="on">VERTIGO</button>
+    <button data-p="1">SILVER</button>
+    <button data-p="2">MIDNIGHT</button>
+  </div>
+  <label><span>帯の太さ</span><input type="range" id="sBand" min="0" max="1" step="0.01" value="0.45"></label>
+  <label><span>広がる速さ</span><input type="range" id="sGrow" min="0" max="1" step="0.01" value="0.45"></label>
+  <label><span>よじれ</span><input type="range" id="sTwist" min="0" max="1" step="0.01" value="0.4"></label>
+  <label><span>動きへの反応</span><input type="range" id="sReact" min="0" max="1" step="0.01" value="0.6"></label>
+  <label><span>粒子</span><input type="range" id="sGrain" min="0" max="1" step="0.01" value="0.35"></label>
+</div>
+
+<div id="start">
+  <div class="card">
+    <div class="t">A PORTRAIT IN RINGS</div>
+    <h1>MEMAI</h1>
+    <p>あなたの輪郭が、渦になって広がる。<br>動くほど、渦がよじれて開く。</p>
+    <button id="go">START</button>
+    <div id="err"></div>
+  </div>
+</div>
+
+<script>
+'use strict';
+/* =====================================================================
+   MEMAI — a Saul-Bass vortex made of your own outline. Every ~70 ms the
+   person mask is burned into a pooled "band" canvas in the next colour
+   of a three-colour cycle; each band keeps growing and turning around its
+   own centroid, drawn oldest-first, so time becomes concentric rings.
+   ===================================================================== */
+const VISION_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs';
+const WASM_URL   = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm';
+const SEG_MODEL  = 'https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite';
+
+const $ = id => document.getElementById(id);
+const cv = $('cv'), ctx = cv.getContext('2d', { alpha:false }), video = $('cam');
+
+const PALS = [
+  { name:'VERTIGO',  bg:'#1b0a0c', bands:[[239,228,207],[142,27,34],[14,11,11]],  ink:[14,11,11], mid:[120,40,40], hi:[239,228,207] },
+  { name:'SILVER',   bg:'#0c0c0c', bands:[[237,237,235],[125,125,122],[12,12,12]], ink:[10,10,10], mid:[110,110,108], hi:[240,240,238] },
+  { name:'MIDNIGHT', bg:'#0d1428', bands:[[217,196,141],[35,51,95],[7,10,20]],     ink:[7,10,20],  mid:[60,72,110], hi:[226,210,165] },
+];
+const S = { pal:0, band:0.45, grow:0.45, twist:0.4, react:0.6, grain:0.35 };
+const POOL = 40;
+
+/* ---------- processing buffers (screen-shaped, short edge ≈ 360 px) ---------- */
+let PW = 0, PH = 0, pcv, pctx, pimg, p32, bandW = 0, bandH = 0;
+let vcv, vctx;                                       // video drawn into processing size
+let mIdx = null, mFx = null, mFy = null;             // processing pixel → mask cell + bilinear weights
+const bands = [];                                    // { cv, cx, cy, s, rot, born, seq, live }
+const lut = new Uint32Array(256);
+let seq = 0;
+function buildLUT(){
+  const p = PALS[S.pal], le = new Uint8Array(new Uint32Array([1]).buffer)[0] === 1;
+  for (let i = 0; i < 256; i++){
+    let l = i / 255; l = l*l*(3 - 2*l); l = l*l*(3 - 2*l) * .55 + l * .45;       // hard S-curve: posterised ink
+    const a = l < .5 ? p.ink : p.mid, b = l < .5 ? p.mid : p.hi, t = l < .5 ? l*2 : (l - .5)*2;
+    const r = a[0] + (b[0] - a[0])*t | 0, g = a[1] + (b[1] - a[1])*t | 0, bl = a[2] + (b[2] - a[2])*t | 0;
+    lut[i] = le ? (255 << 24 | bl << 16 | g << 8 | r) >>> 0 : (r << 24 | g << 16 | bl << 8 | 255) >>> 0;
+  }
+}
+function ensureProc(W, H){
+  const k = 360 / Math.min(W, H), w = Math.max(32, Math.round(W*k)), h = Math.max(32, Math.round(H*k));
+  if (w === PW && h === PH) return;
+  PW = w; PH = h;
+  pcv = document.createElement('canvas'); pcv.width = w; pcv.height = h; pctx = pcv.getContext('2d');
+  pimg = pctx.createImageData(w, h); p32 = new Uint32Array(pimg.data.buffer);
+  vcv = document.createElement('canvas'); vcv.width = w; vcv.height = h; vctx = vcv.getContext('2d', { willReadFrequently:true });
+  bandW = w; bandH = h;
+  bands.length = 0;
+  for (let i = 0; i < POOL; i++){
+    const c = document.createElement('canvas'); c.width = bandW; c.height = bandH;
+    const x = c.getContext('2d'), img = x.createImageData(bandW, bandH);
+    bands.push({ cv:c, x, img, u32:new Uint32Array(img.data.buffer), cx:0, cy:0, s:1, rot:0, born:0, seq:0, live:false });
+  }
+  mIdx = null;
+}
+
+/* ---------- mask (video space, unmirrored) ---------- */
+const M = { w:0, h:0, f:null, cover:0, present:false, has:false, external:false, cx:.5, cy:.5, seen:0 };
+function ingestMask(data, w, h){
+  if (!data || !(w > 0) || !(h > 0) || data.length < w*h) return;
+  if (M.w !== w || M.h !== h){ M.w = w; M.h = h; M.f = new Float32Array(w*h); mIdx = null; }
+  const F = M.f; let on = 0, sx = 0, sy = 0;
+  for (let y = 0, i = 0; y < h; y++) for (let x = 0; x < w; x++, i++){
+    let m = data[i]; if (!(m >= 0)) m = 0; else if (m > 1) m = 1;
+    F[i] = F[i]*.3 + m*.7;
+    if (F[i] > .5){ on++; sx += x; sy += y; }
+  }
+  M.cover = on/(w*h); M.has = true;
+  M.present = M.cover > .01;
+  if (M.present){ M.cx = sx/on/w; M.cy = sy/on/h; M.seen = performance.now(); }
+}
+function buildMap(sx, sy){
+  // processing pixel (screen-shaped, mirrored) → mask pixel (video space)
+  mIdx = new Int32Array(PW*PH); mFx = new Float32Array(PW*PH); mFy = new Float32Array(PW*PH);
+  for (let y = 0, i = 0; y < PH; y++) for (let x = 0; x < PW; x++, i++){
+    let u = ((x + .5)/PW - .5)*sx + .5, v = ((y + .5)/PH - .5)*sy + .5;
+    if (mirror) u = 1 - u;
+    const fx = Math.min(M.w - 1.001, Math.max(0, u*M.w - .5)), fy = Math.min(M.h - 1.001, Math.max(0, v*M.h - .5));
+    const mx = fx | 0, my = fy | 0;
+    mIdx[i] = my*M.w + mx; mFx[i] = fx - mx; mFy[i] = fy - my;
+  }
+  mapMag = Math.max(PW/(M.w*sx), PH/(M.h*sy));
+  mapKey = sx + ':' + sy + ':' + mirror + ':' + M.w + ':' + M.h + ':' + PW + ':' + PH;
+}
+let mapKey = '';
+let alphaBuf = null, tmpBuf = null, mapMag = 1;
+// the mask resampled (bilinear) into processing space, then a smooth threshold
+function sampleAlpha(lo, hi){
+  const n = PW*PH; if (!alphaBuf || alphaBuf.length !== n) alphaBuf = new Float32Array(n);
+  if (!tmpBuf || tmpBuf.length !== n) tmpBuf = new Float32Array(n);
+  const F = M.f, mw = M.w, k = 1/(hi - lo), A = alphaBuf, T = tmpBuf;
+  for (let i = 0; i < n; i++){
+    const j = mIdx[i], fx = mFx[i], fy = mFy[i];
+    const a = F[j] + (F[j + 1] - F[j])*fx, b = F[j + mw] + (F[j + mw + 1] - F[j + mw])*fx;
+    A[i] = a + (b - a)*fy;
+  }
+  // a box blur about one mask cell wide melts the cell staircase into a smooth contour
+  const r = Math.max(1, Math.round(mapMag*.8)), inv = 1/(2*r + 1);
+  for (let y = 0; y < PH; y++){
+    const o = y*PW; let acc = 0;
+    for (let x = -r; x <= r; x++) acc += A[o + (x < 0 ? 0 : x >= PW ? PW - 1 : x)];
+    for (let x = 0; x < PW; x++){
+      T[o + x] = acc*inv;
+      const xa = x + r + 1, xr = x - r;
+      acc += A[o + (xa >= PW ? PW - 1 : xa)] - A[o + (xr < 0 ? 0 : xr)];
+    }
+  }
+  for (let x = 0; x < PW; x++){
+    let acc = 0;
+    for (let y = -r; y <= r; y++) acc += T[(y < 0 ? 0 : y >= PH ? PH - 1 : y)*PW + x];
+    for (let y = 0; y < PH; y++){
+      let t = (acc*inv - lo)*k; t = t < 0 ? 0 : t > 1 ? 1 : t;
+      A[y*PW + x] = t*t*(3 - 2*t);
+      const ya = y + r + 1, yr = y - r;
+      acc += T[(ya >= PH ? PH - 1 : ya)*PW + x] - T[(yr < 0 ? 0 : yr)*PW + x];
+    }
+  }
+  return A;
+}
+
+/* ---------- MediaPipe (dynamic import) ---------- */
+let segmenter = null, lastTs = 0, lastVT = -1;
+async function initModel(){
+  try{
+    const vision = await import(VISION_URL);
+    const fs = await vision.FilesetResolver.forVisionTasks(WASM_URL);
+    const opts = d => ({ baseOptions:{ modelAssetPath:SEG_MODEL, delegate:d }, runningMode:'VIDEO', outputConfidenceMasks:true, outputCategoryMask:false });
+    try { segmenter = await vision.ImageSegmenter.createFromOptions(fs, opts('GPU')); }
+    catch(e){ segmenter = await vision.ImageSegmenter.createFromOptions(fs, opts('CPU')); }
+    if (!M.external) setStatus('');
+  }catch(e){
+    if (M.external) return;
+    setStatus('人物検出モデルを読み込めませんでした（ネット接続を確認）。\n普通のカメラで続けます。');
+  }
+}
+function segment(now){
+  if (!segmenter || video.readyState < 2) return;
+  const vt = video.currentTime; if (vt === lastVT) return; lastVT = vt;
+  try{
+    const ts = Math.max(lastTs + 1, Math.round(now)); lastTs = ts;
+    segmenter.segmentForVideo(video, ts, res => {
+      const ms = res && res.confidenceMasks;
+      if (!ms || !ms.length) return;
+      const mk = ms[ms.length - 1];
+      ingestMask(mk.getAsFloat32Array(), mk.width, mk.height);
+    });
+  }catch(e){}
+}
+
+/* ---------- camera ---------- */
+let stream = null, facing = 'user', mirror = true, started = false, vidW = 1280, vidH = 720;
+function setStatus(t){ $('status').textContent = t || ''; }
+function camError(e){
+  const msg = (e && (e.message || e.name)) ? (e.message || e.name) : String(e || 'unknown');
+  const text = 'カメラを起動できませんでした：' + msg + '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+  $('err').textContent = text;
+  if (started) setStatus(text);
+}
+async function startCam(){
+  const md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) throw new Error('getUserMedia is unavailable');
+  const s = await md.getUserMedia({ video:{ facingMode:{ ideal:facing }, width:{ ideal:1280 }, height:{ ideal:720 } }, audio:false });
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = s; mirror = facing === 'user';
+  video.srcObject = s;
+  await new Promise(r => { if (video.readyState >= 1) r(); else video.onloadedmetadata = () => r(); });
+  await video.play().catch(()=>{});
+  vidW = video.videoWidth || 1280; vidH = video.videoHeight || 720;
+  clearBands(); mapKey = '';
+}
+
+/* ---------- audio: a low, slowly beating drone that rises with motion ---------- */
+let actx = null, bus = null, recDest = null, drone = null;
+function ensureAudio(){
+  if (actx){ if (actx.state === 'suspended') actx.resume().catch(()=>{}); return; }
+  const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+  actx = new AC(); bus = actx.createGain(); bus.gain.value = .5; bus.connect(actx.destination);
+  recDest = actx.createMediaStreamDestination(); bus.connect(recDest);
+  const g = actx.createGain(); g.gain.value = 0; g.connect(bus);
+  const lp = actx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 300; lp.Q.value = 4; lp.connect(g);
+  const o1 = actx.createOscillator(), o2 = actx.createOscillator();
+  o1.type = 'sawtooth'; o2.type = 'sawtooth'; o1.frequency.value = 55; o2.frequency.value = 55.6;
+  o1.connect(lp); o2.connect(lp); o1.start(); o2.start();
+  drone = { g, lp, o2 };
+  actx.resume().catch(()=>{});
+}
+function click(){
+  if (!actx || actx.state !== 'running') return;
+  const t = actx.currentTime, len = actx.sampleRate*.03 | 0, b = actx.createBuffer(1, len, actx.sampleRate), d = b.getChannelData(0);
+  for (let i = 0; i < len; i++) d[i] = (Math.random()*2 - 1) * Math.pow(1 - i/len, 5);
+  const s = actx.createBufferSource(); s.buffer = b;
+  const bp = actx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 2200; bp.Q.value = 1.3;
+  s.connect(bp); bp.connect(bus); s.start(t);
+}
+
+/* ---------- mode: plain camera ⇄ MEMAI ---------- */
+const MODE = { on:false, t0:0 };
+function setMode(on){
+  if (MODE.on === on) return;
+  MODE.on = on; MODE.t0 = performance.now();
+  $('mode').textContent = on ? '◂ CAMERA' : '▸ MEMAI';
+  $('spin').style.visibility = on ? '' : 'hidden';
+  clearBands();
+  click();
+}
+function clearBands(){ for (const b of bands) b.live = false; }
+let spinDir = 1, spinCur = 1;
+function flipSpin(){ if (!MODE.on) return; spinDir = -spinDir; click(); }
+
+$('go').onclick = async () => {
+  $('err').textContent = '';
+  ensureAudio();
+  try{ await startCam(); }catch(e){ camError(e); return; }
+  $('start').style.display = 'none';
+  ['gear','flip','bar','rec','shoot','spin','hud','mode'].forEach(id => $(id).classList.add('show'));
+  MODE.on = true; setMode(false);
+  if (!started){ started = true; buildLUT(); initModel(); requestAnimationFrame(loop); }
+};
+$('mode').onclick = () => setMode(!MODE.on);
+$('spin').onclick = flipSpin;
+cv.addEventListener('pointerdown', () => { if (started) flipSpin(); });
+addEventListener('keydown', e => { if (started && (e.key === ' ' || e.key === 'Enter') && document.activeElement.tagName !== 'INPUT'){ e.preventDefault(); setMode(!MODE.on); } });
+$('flip').onclick = async () => {
+  const prev = facing; facing = facing === 'user' ? 'environment' : 'user';
+  try { await startCam(); } catch(e){ facing = prev; camError(e); }
+};
+$('gear').onclick = () => $('panel').classList.toggle('hide');
+function setPal(i){
+  S.pal = i; const p = PALS[i];
+  [...$('pals').children].forEach(x => x.classList.toggle('on', +x.dataset.p === i));
+  const r = document.documentElement.style; r.setProperty('--bg', p.bg);
+  r.setProperty('--fg', 'rgb(' + p.bands[0].join(',') + ')');
+  buildLUT(); clearBands();
+}
+$('pals').onclick = e => { const b = e.target.closest('button'); if (b) setPal(+b.dataset.p); };
+[['sBand','band'],['sGrow','grow'],['sTwist','twist'],['sReact','react'],['sGrain','grain']].forEach(([id,k]) => { $(id).oninput = e => { S[k] = +e.target.value; }; });
+
+$('shoot').onclick = () => {
+  click();
+  try{
+    cv.toBlob(b => { if (!b) return; const a = document.createElement('a'); a.href = URL.createObjectURL(b);
+      a.download = 'memai-' + Date.now() + '.png'; a.click(); }, 'image/png');
+  }catch(e){ setStatus('保存できませんでした。'); }
+};
+let rec = null, chunks = [];
+$('rec').onclick = () => {
+  if (rec && rec.state === 'recording'){ rec.stop(); return; }
+  try{
+    ensureAudio();
+    const tracks = [...cv.captureStream(30).getVideoTracks()];
+    if (recDest) tracks.push(...recDest.stream.getAudioTracks());
+    const mime = ['video/mp4;codecs=avc1','video/webm;codecs=vp9,opus','video/webm'].find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || '';
+    rec = new MediaRecorder(new MediaStream(tracks), mime ? { mimeType:mime } : {});
+    chunks = [];
+    rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+    rec.onstop = () => {
+      $('rec').classList.remove('on'); $('rec').textContent = '● REC';
+      const ext = (rec.mimeType || '').includes('mp4') ? 'mp4' : 'webm';
+      const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(chunks, { type:rec.mimeType || 'video/webm' }));
+      a.download = 'memai.' + ext; a.click();
+    };
+    rec.start(); $('rec').classList.add('on'); $('rec').textContent = '■ STOP';
+  }catch(e){ setStatus('録画を開始できませんでした。'); }
+};
+
+/* ---------- grain tile (made once) ---------- */
+const grain = document.createElement('canvas'); grain.width = grain.height = 160;
+{ const g = grain.getContext('2d'), im = g.createImageData(160, 160);
+  for (let i = 0; i < im.data.length; i += 4){ const v = Math.random()*255 | 0; im.data[i] = im.data[i+1] = im.data[i+2] = v; im.data[i+3] = 255; }
+  g.putImageData(im, 0, 0); }
+
+/* ---------- render ---------- */
+let lastT = 0, hudT = 0, burnT = 0, speed = 0, pcx = -1, pcy = -1, prevCover = 0, live = 0;
+const STAT = { bands:0, speed:0, present:false };
+function burnBand(now){
+  // reuse the oldest (or a dead) band
+  let b = null, oldest = Infinity;
+  for (const c of bands){ if (!c.live){ b = c; break; } if (c.born < oldest){ oldest = c.born; b = c; } }
+  const pal = PALS[S.pal], col = pal.bands[seq % 3];
+  const le = new Uint8Array(new Uint32Array([1]).buffer)[0] === 1;
+  const u = b.u32, al = sampleAlpha(.3, .62);
+  for (let i = 0, n = bandW*bandH; i < n; i++){
+    const A = al[i]*255 | 0;
+    u[i] = le ? (A << 24 | col[2] << 16 | col[1] << 8 | col[0]) >>> 0 : (col[0] << 24 | col[1] << 16 | col[2] << 8 | A) >>> 0;
+  }
+  b.x.putImageData(b.img, 0, 0);
+  b.live = true; b.born = now; b.seq = seq++; b.s = 1; b.rot = 0;
+  // the centroid in processing space (mask centroid → screen, mirrored); lifted toward the head
+  b.cx = curCx; b.cy = curCy;
+}
+let curCx = .5, curCy = .5;
+function loop(now){
+  requestAnimationFrame(loop);
+  const dt = lastT ? Math.min(.1, (now - lastT)/1000) : 1/60; lastT = now;
+  if (video.videoWidth){ vidW = video.videoWidth; vidH = video.videoHeight; }
+  const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+  let W = Math.round(innerWidth*dpr), H = Math.round(innerHeight*dpr);
+  const k = Math.min(1, 1600 / Math.max(W, H)); W = Math.round(W*k); H = Math.round(H*k);
+  if (cv.width !== W || cv.height !== H){ cv.width = W; cv.height = H; }
+  ensureProc(W, H);
+  if (!M.external) segment(now);
+  if (video.readyState < 2) return;
+  const sa = W/H, va = vidW/vidH, sx = sa < va ? sa/va : 1, sy = sa < va ? 1 : va/sa;
+  const pal = PALS[S.pal];
+
+  // the camera, cropped & mirrored to the screen shape
+  const cw = vidW*sx, ch = vidH*sy, cx0 = (vidW - cw)/2, cy0 = (vidH - ch)/2;
+  if (!MODE.on){
+    ctx.save(); if (mirror){ ctx.translate(W, 0); ctx.scale(-1, 1); }
+    ctx.drawImage(video, cx0, cy0, cw, ch, 0, 0, W, H); ctx.restore();
+    const f = 1 - Math.min(1, (now - MODE.t0)/500);              // a short fade back from the vortex
+    if (f > 0){ ctx.globalAlpha = f; ctx.fillStyle = pal.bg; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1; }
+    hudT += dt; if (hudT > .25){ hudT = 0; $('hud').textContent = 'CAMERA'; }
+    if (drone) drone.g.gain.setTargetAtTime(0, actx.currentTime, .2);
+    return;
+  }
+
+  // tracking: present only if a fresh mask says so
+  const has = M.has && M.present && (now - M.seen) < 400 && M.f;
+  if (has){
+    const key = sx + ':' + sy + ':' + mirror + ':' + M.w + ':' + M.h + ':' + PW + ':' + PH;
+    if (key !== mapKey) buildMap(sx, sy);
+    let u = (M.cx - .5)/sx + .5, v = (M.cy - .5)/sy + .5; if (mirror) u = 1 - u;
+    if (Number.isFinite(u) && Number.isFinite(v)){
+      curCx = u; curCy = v - .08;
+      if (pcx >= 0){
+        const dv = Math.hypot((u - pcx)*sa, v - pcy) / dt + Math.abs(M.cover - prevCover) * 40;
+        speed += (Math.min(dv, 3) - speed) * (1 - Math.exp(-dt*6));
+      }
+      pcx = u; pcy = v; prevCover = M.cover;
+    }
+  } else { pcx = -1; speed *= Math.exp(-dt*4); }      // lost: velocities reset, no new bands
+  const react = speed * (.3 + S.react*2.2);
+  spinCur += (spinDir - spinCur) * (1 - Math.exp(-dt*2.5));
+
+  // burn a band every (band-width) ms while someone is there
+  const every = 60 + S.band*160;
+  burnT += dt*1000;
+  if (has && burnT >= every){ burnT = 0; burnBand(now); }
+
+  // bands grow and turn; growth and twist speed up with motion
+  const enter = Math.min(1, (now - MODE.t0)/900);
+  const grow = (.25 + S.grow*.7) * (1 + react*1.8);
+  const twist = (S.twist*.25 + react*S.twist*2.2) * spinCur;
+  ctx.fillStyle = pal.bg; ctx.fillRect(0, 0, W, H);
+  // oldest first: sort the live ones by birth (small pool, insertion order)
+  order.length = 0; for (const b of bands) if (b.live) order.push(b);
+  order.sort((a, b) => a.born - b.born);
+  const diag = Math.hypot(W, H) / Math.min(W, H);
+  ctx.imageSmoothingEnabled = true;
+  live = 0;
+  for (const b of order){
+    b.s *= Math.exp(grow*dt); b.rot += twist*dt;
+    if (b.s > 3.2 + diag*1.6){ b.live = false; continue; }
+    live++;
+    const ax = b.cx*W, ay = b.cy*H;
+    ctx.save(); ctx.translate(ax, ay); ctx.rotate(b.rot); ctx.scale(b.s, b.s); ctx.translate(-ax, -ay);
+    ctx.drawImage(b.cv, 0, 0, W, H);
+    ctx.restore();
+  }
+
+  // the present: a double-tone portrait cut out by the mask
+  if (has){
+    vctx.save(); if (mirror){ vctx.translate(PW, 0); vctx.scale(-1, 1); }
+    vctx.drawImage(video, cx0, cy0, cw, ch, 0, 0, PW, PH); vctx.restore();
+    const d = vctx.getImageData(0, 0, PW, PH).data, al = sampleAlpha(.4, .62);
+    for (let i = 0, j = 0, n = PW*PH; i < n; i++, j += 4){
+      const a = al[i];
+      if (a === 0){ p32[i] = 0; continue; }
+      const l = (d[j]*54 + d[j+1]*183 + d[j+2]*19) >> 8;
+      const c = lut[l];
+      p32[i] = a >= 1 ? c : leSys ? ((c & 0x00ffffff) | ((a*255 | 0) << 24)) >>> 0 : ((c & 0xffffff00) | (a*255 | 0)) >>> 0;
+    }
+    pctx.putImageData(pimg, 0, 0);
+    ctx.globalAlpha = enter;
+    ctx.drawImage(pcv, 0, 0, W, H);
+    ctx.globalAlpha = 1;
+  }
+  // entering: the room sinks away
+  if (enter < 1){
+    ctx.globalAlpha = 1 - enter; ctx.save(); if (mirror){ ctx.translate(W, 0); ctx.scale(-1, 1); }
+    ctx.drawImage(video, cx0, cy0, cw, ch, 0, 0, W, H); ctx.restore(); ctx.globalAlpha = 1;
+  }
+  // film grain + soft vignette
+  if (S.grain > 0){
+    ctx.globalAlpha = S.grain*.16; ctx.globalCompositeOperation = 'overlay';
+    const ox = Math.random()*160 | 0, oy = Math.random()*160 | 0;
+    ctx.save(); ctx.translate(-ox, -oy); ctx.fillStyle = grainPat || (grainPat = ctx.createPattern(grain, 'repeat')); ctx.fillRect(0, 0, W + 160, H + 160); ctx.restore();
+    ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
+  }
+  const vg = vign(W, H); ctx.fillStyle = vg; ctx.fillRect(0, 0, W, H);
+
+  if (drone){
+    const t = actx.currentTime;
+    drone.g.gain.setTargetAtTime(has ? .05 + Math.min(react, 1.5)*.06 : .02, t, .3);
+    drone.lp.frequency.setTargetAtTime(220 + Math.min(react, 2)*700, t, .2);
+    drone.o2.frequency.setTargetAtTime(55.4 + Math.min(react, 2)*1.6, t, .3);
+  }
+  STAT.bands = live; STAT.speed = speed; STAT.present = !!has;
+  hudT += dt;
+  if (hudT > .25){ hudT = 0;
+    $('hud').textContent = pal.name + '\nRINGS ' + String(live).padStart(2, '0') + (spinDir < 0 ? '  ↺' : '  ↻') + (has ? '' : '\nNO SUBJECT'); }
+}
+const order = [];
+const leSys = new Uint8Array(new Uint32Array([1]).buffer)[0] === 1;
+let grainPat = null, vgKey = '', vgGrad = null;
+function vign(W, H){
+  const key = W + 'x' + H;
+  if (key !== vgKey){ vgKey = key;
+    const r = Math.hypot(W, H)/2; vgGrad = ctx.createRadialGradient(W/2, H*.45, r*.35, W/2, H*.45, r*1.05);
+    vgGrad.addColorStop(0, 'rgba(0,0,0,0)'); vgGrad.addColorStop(1, 'rgba(0,0,0,.55)'); }
+  return vgGrad;
+}
+
+/* ---------- test hook (used by the local verification harness) ---------- */
+window.__MEMAI = {
+  ingestMask(d, w, h){ if (!M.external) setStatus(''); M.external = true; ingestMask(d, w, h); },
+  mode(on){ setMode(!!on); },
+  spin(){ flipSpin(); },
+  palette(i){ setPal(i); },
+  set(k, v){ if (k in S) S[k] = +v; },
+  state: () => ({ mode:MODE.on, spinDir, cover:M.cover, ...STAT }),
+};
+</script>
+</body>
+</html>
