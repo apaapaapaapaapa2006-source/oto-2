@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="description" content="画面が灰色の壁になり、止まっているものはすべて消える。動いたところだけがあなたの浮彫として白と黒で現れ、朱の残像がその後を追う。タップでいまの部屋を焼き付けると、離れた場所に自分の抜け殻が残る。">
+<meta name="theme-color" content="#8b8a85">
+<title>SABUN ─ 動いたときだけ、あなたが現れる</title>
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  SABUN 差分 ─ 動いたときだけ、あなたが現れる          ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  MOOD       美術館の打ち放しの壁。止まっているものは壁に溶けて消え、動いた
+             瞬間だけ、あなたが石膏の浮彫のように白と黒で浮かび上がる。
+             少し遅れて朱の残像が尾を引く。じっと立てば、また壁になる。
+  PALETTE    CONCRETE 壁 #8b8a85 / 光 #f4f2ec / 墨 #141414 / 差し色 朱 #e2461d
+             GRAPHITE 壁 #1d1e20 / 光 #dfe3e6 / 墨 #000000 / 差し色 氷 #9fd8ff
+             PAPER    壁 #d9d3c5 / 光 #fffdf7 / 墨 #191714 / 差し色 群青 #2440b8
+             差し色は一色だけ。
+  TYPE       Instrument Serif Italic（題字）・Spline Sans Mono 300（小さな UI）。
+  MOTION     動きがすべて。静止＝無地の壁。速いほど浮彫は太く、朱の尾は長い。
+             切り替えは一度だけ、細い朱の線が上から壁を引き下ろす。
+  SIGNATURE  「存在＝変化」。タップで部屋を焼き付けると、いた場所に自分の
+             反転した抜け殻が残り、いまの自分と二人で並ぶ。
+  TECH       WebGL2。縮小した映像を TEXTURE_2D_ARRAY のリングに毎フレーム
+             書き、いまと Δt 前の差（符号つき輝度）を壁色に足して浮彫にする。
+             差の大きさを減衰つき max で溜めて残像にする。人物検出は使わない
+             （動いたものが主役になる）ので CDN に依存しない。
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Spline+Sans+Mono:wght@300;500&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#8b8a85;--fg:#f4f2ec;--ink:#141414;--acc:#e2461d;--dim:rgba(20,20,20,.62);--line:rgba(20,20,20,.28)}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none}
+html,body{margin:0;height:100%;background:var(--bg);overflow:hidden;color:var(--ink);
+  font-family:"Spline Sans Mono",ui-monospace,"Hiragino Sans","Noto Sans JP",monospace;font-weight:300}
+#gl{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+#cam{position:fixed;left:0;top:0;width:2px;height:2px;opacity:.01;pointer-events:none}
+
+#start{position:fixed;inset:0;z-index:30;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:24px;
+  padding:28px;text-align:center;background:#8b8a85}
+#start .t{font-size:10px;letter-spacing:.55em;margin-right:-.55em;color:var(--dim)}
+#start h1{margin:0;font-family:"Instrument Serif",Georgia,serif;font-style:italic;font-weight:400;font-size:min(24vw,150px);line-height:.9;
+  color:#f4f2ec;text-shadow:-1px -1px 0 #f4f2ec,2px 2px 0 #141414}
+#start h1 i{color:var(--acc);font-style:italic}
+#start p{margin:0;font-size:12px;line-height:2.1;color:var(--dim);letter-spacing:.06em}
+#go{appearance:none;border:1px solid var(--ink);background:transparent;color:var(--ink);font:500 10px "Spline Sans Mono",monospace;
+  letter-spacing:.45em;padding:15px 30px 15px 36px;cursor:pointer;transition:background .3s,color .3s}
+#go:hover{background:var(--ink);color:#8b8a85}
+#err{font-size:12px;line-height:1.8;max-width:340px;min-height:1em;white-space:pre-line;color:#6e1606}
+
+.btn{position:fixed;z-index:12;appearance:none;border:0;background:transparent;color:var(--fg);font:500 10px "Spline Sans Mono","Hiragino Sans",monospace;
+  letter-spacing:.24em;padding:10px 8px;display:none;cursor:pointer;opacity:.75;transition:opacity .3s;text-shadow:0 0 6px rgba(0,0,0,.35)}
+.btn.show{display:block}
+.btn:hover{opacity:1}
+#gear{right:10px;top:calc(env(safe-area-inset-top) + 6px);font-size:14px;letter-spacing:0}
+#flip{right:10px;top:calc(env(safe-area-inset-top) + 40px);letter-spacing:.1em}
+#bar{position:fixed;left:0;right:0;bottom:calc(env(safe-area-inset-bottom) + 10px);z-index:12;display:none;justify-content:center;align-items:center;gap:26px}
+#bar.show{display:flex}
+#bar .btn{position:static;display:block}
+#bar #shoot{position:relative;width:42px;height:42px;border-radius:50%;border:1px solid var(--fg);padding:0}
+#shoot::after{content:"";position:absolute;inset:6px;border-radius:50%;background:var(--fg);opacity:.9}
+#rec.on{opacity:1;color:var(--acc)}
+#hold.on{opacity:1;color:var(--acc)}
+#mode{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom) + 68px);z-index:13;display:none;
+  appearance:none;border:1px solid var(--fg);background:rgba(20,20,20,.18);color:var(--fg);font:500 10px "Spline Sans Mono",monospace;
+  letter-spacing:.4em;padding:11px 20px 11px 26px;cursor:pointer}
+#mode.show{display:block}
+#hud{position:fixed;left:14px;top:calc(env(safe-area-inset-top) + 12px);z-index:11;font-size:9px;letter-spacing:.3em;color:var(--fg);opacity:.8;
+  pointer-events:none;display:none;line-height:2;white-space:pre}
+#hud.show{display:block}
+#mark{position:fixed;left:14px;bottom:calc(env(safe-area-inset-bottom) + 14px);z-index:11;pointer-events:none;display:none;
+  font-family:"Instrument Serif",Georgia,serif;font-style:italic;font-size:30px;line-height:1;color:var(--fg);opacity:.9}
+#mark.show{display:block}
+@media (max-width:600px){#mark{bottom:calc(env(safe-area-inset-bottom) + 122px);font-size:26px}}
+#status{position:fixed;left:14px;right:14px;bottom:calc(env(safe-area-inset-bottom) + 112px);z-index:11;font-size:11px;letter-spacing:.04em;
+  color:var(--fg);pointer-events:none;line-height:1.7;white-space:pre-line;text-align:center;text-shadow:0 0 6px rgba(0,0,0,.4)}
+
+#panel{position:fixed;right:10px;top:calc(env(safe-area-inset-top) + 78px);z-index:12;width:min(270px,calc(100vw - 20px));
+  background:rgba(244,242,236,.9);color:#141414;border:1px solid rgba(20,20,20,.3);padding:14px 16px;display:flex;flex-direction:column;gap:13px;
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);transition:opacity .25s}
+#panel.hide{opacity:0;pointer-events:none}
+.chips{display:flex;border:1px solid rgba(20,20,20,.3)}
+.chips button{flex:1;appearance:none;border:0;background:transparent;color:#141414;padding:8px 2px;font:500 9px "Spline Sans Mono",monospace;
+  letter-spacing:.14em;cursor:pointer;opacity:.5}
+.chips button.on{opacity:1;background:rgba(20,20,20,.1)}
+#panel label{display:flex;align-items:center;gap:10px;font-size:11px;letter-spacing:.04em}
+#panel label span{width:78px;flex:none;color:rgba(20,20,20,.7)}
+#panel input[type=range]{flex:1;accent-color:#141414}
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<video id="cam" playsinline muted autoplay></video>
+<div id="hud"></div>
+<div id="mark">Sabun</div>
+<div id="status"></div>
+<button id="gear" class="btn" aria-label="調整">⚙</button>
+<button id="flip" class="btn">⟲ カメラ</button>
+<button id="mode">▸ SABUN</button>
+<div id="bar">
+  <button id="rec" class="btn">● REC</button>
+  <button id="shoot" class="btn" aria-label="撮る"></button>
+  <button id="hold" class="btn">焼き付け</button>
+</div>
+
+<div id="panel" class="hide">
+  <div class="chips" id="pals">
+    <button data-p="0" class="on">CONCRETE</button>
+    <button data-p="1">GRAPHITE</button>
+    <button data-p="2">PAPER</button>
+  </div>
+  <label><span>ずらす時間</span><input type="range" id="sDelay" min="0" max="1" step="0.01" value="0.3"></label>
+  <label><span>浮彫の強さ</span><input type="range" id="sGain" min="0" max="1" step="0.01" value="0.6"></label>
+  <label><span>残像の長さ</span><input type="range" id="sTrail" min="0" max="1" step="0.01" value="0.55"></label>
+  <label><span>うっすら残す</span><input type="range" id="sResid" min="0" max="1" step="0.01" value="0.18"></label>
+  <label><span>粒子</span><input type="range" id="sGrain" min="0" max="1" step="0.01" value="0.4"></label>
+</div>
+
+<div id="start">
+  <div class="t">MOTION ONLY</div>
+  <h1>Sabun<i>.</i></h1>
+  <p>止まっているものは、壁に消える。<br>動いたときだけ、あなたが現れる。</p>
+  <button id="go">START</button>
+  <div id="err"></div>
+</div>
+
+<script>
+'use strict';
+/* =====================================================================
+   SABUN — motion extraction. now − (Δt ago) on a flat wall: what holds
+   still dissolves, what moves stands out in white/black relief, and a
+   decaying max of |difference| trails behind in a single accent colour.
+   ===================================================================== */
+const $ = id => document.getElementById(id);
+const canvas = $('gl'), video = $('cam');
+
+const PALS = [
+  { name:'CONCRETE', wall:[.545,.541,.522], hi:[.957,.949,.925], ink:[.078,.078,.078], acc:[.886,.275,.114], css:['#8b8a85','#f4f2ec','#e2461d'] },
+  { name:'GRAPHITE', wall:[.114,.118,.125], hi:[.875,.890,.902], ink:[0,0,0],         acc:[.624,.847,1.0],  css:['#1d1e20','#dfe3e6','#9fd8ff'] },
+  { name:'PAPER',    wall:[.851,.827,.773], hi:[1.0,.992,.969],  ink:[.098,.090,.078], acc:[.141,.251,.722], css:['#d9d3c5','#191714','#2440b8'] },
+];
+const S = { pal:0, delay:0.3, gain:0.6, trail:0.55, resid:0.18, grain:0.4 };
+const RING = 48;
+
+/* ---------- GL ---------- */
+const gl = canvas.getContext('webgl2', { antialias:false, alpha:false, preserveDrawingBuffer:true, powerPreference:'high-performance' });
+
+const VS = `#version 300 es
+in vec2 p; out vec2 uv; void main(){ uv = p*.5+.5; gl_Position = vec4(p,0.,1.); }`;
+
+// copy: camera → screen-shaped, mirrored, reduced frame (one ring layer)
+const FS_COPY = `#version 300 es
+precision mediump float;
+in vec2 uv; out vec4 o;
+uniform sampler2D uVid; uniform vec2 uScale; uniform float uMirror;
+void main(){
+  vec2 v = (vec2(uv.x, 1. - uv.y) - .5) * uScale + .5;
+  if (uMirror > .5) v.x = 1. - v.x;
+  o = vec4(texture(uVid, v).rgb, 1.);
+}`;
+
+const FS_LUMA = `
+float lum(vec3 c){ return dot(c, vec3(.2126,.7152,.0722)); }
+// a 5-tap soft luminance: kills sensor noise without losing the silhouette
+float L(mediump sampler2DArray t, float layer, vec2 uv, vec2 tx){
+  return lum(texture(t, vec3(uv, layer)).rgb) * .4
+       + (lum(texture(t, vec3(uv + vec2(tx.x, 0.), layer)).rgb) + lum(texture(t, vec3(uv - vec2(tx.x, 0.), layer)).rgb)
+        + lum(texture(t, vec3(uv + vec2(0., tx.y), layer)).rgb) + lum(texture(t, vec3(uv - vec2(0., tx.y), layer)).rgb)) * .15;
+}`;
+
+// trail: decaying max of |now − then|
+const FS_TRAIL = `#version 300 es
+precision mediump float; precision mediump sampler2DArray;
+in vec2 uv; out vec4 o;
+uniform sampler2D uPrev; uniform mediump sampler2DArray uRing;
+uniform float uCur, uPast, uKeep, uThr, uReset; uniform vec2 uTx;
+${FS_LUMA}
+void main(){
+  float d = abs(L(uRing, uCur, uv, uTx) - L(uRing, uPast, uv, uTx));
+  float m = smoothstep(uThr, uThr + .16, d);
+  float p = uReset > .5 ? 0. : texture(uPrev, uv).r * uKeep;
+  o = vec4(max(p, m), 0., 0., 1.);
+}`;
+
+// present
+const FS_OUT = `#version 300 es
+precision highp float; precision mediump sampler2DArray;
+in vec2 uv; out vec4 o;
+uniform mediump sampler2DArray uRing; uniform sampler2D uTrail, uHold;
+uniform float uCur, uPast, uGain, uResid, uThr, uGrain, uT, uMix, uWipe, uFrozen, uTrailOn;
+uniform vec2 uTx, uRes;
+uniform vec3 uWall, uHi, uInk, uAcc;
+${FS_LUMA}
+float h21(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233))) * 43758.5453); }
+void main(){
+  vec3 camc = texture(uRing, vec3(uv, uCur)).rgb;
+  float lc = L(uRing, uCur, uv, uTx);
+  float lp = uFrozen > .5
+    ? lum(texture(uHold, uv).rgb) * .4 + (lum(texture(uHold, uv + vec2(uTx.x,0.)).rgb) + lum(texture(uHold, uv - vec2(uTx.x,0.)).rgb)
+        + lum(texture(uHold, uv + vec2(0.,uTx.y)).rgb) + lum(texture(uHold, uv - vec2(0.,uTx.y)).rgb)) * .15
+    : L(uRing, uPast, uv, uTx);
+  float d = lc - lp;
+  float ad = max(abs(d) - uThr, 0.) * sign(d);              // dead zone: sensor flicker stays on the wall
+  float r = clamp(ad * uGain, -1., 1.);
+  r = sign(r) * pow(abs(r), .8);
+  float rr = r + uResid * (lc - .5);                          // a faint memory of the photograph
+  float tr = uTrailOn * texture(uTrail, uv).r;
+  vec3 c = mix(uWall, uAcc, clamp(tr * .92, 0., .92));
+  c += (uHi - c) * clamp(rr, 0., 1.);                         // relief: light side
+  c += (uInk - c) * clamp(-rr, 0., 1.);                       // relief: shadow side
+  // gallery light: a soft top-down falloff, grain
+  vec2 q = uv - .5; q.x *= uRes.x / uRes.y;
+  c *= 1. - .22 * smoothstep(.3, 1.1, length(q - vec2(0., .25)));
+  float n = h21(floor(gl_FragCoord.xy / 1.4) + fract(uT * 7.13) * 91.7) - .5;
+  c += n * uGrain * .085;
+  // camera ⇄ SABUN with a single accent line drawn down the wall
+  vec3 plain = camc;
+  float edge = 1. - uWipe;                                    // wipe front, top → bottom (uv.y up)
+  float e = uMix > .5 ? step(edge, uv.y) : step(uv.y, edge);
+  if (uWipe <= 0.) e = uMix > .5 ? 1. : 0.;
+  if (uWipe >= 1.) e = uMix > .5 ? 1. : 0.;
+  vec3 col = mix(plain, c, uMix > .5 ? e : 1. - e);
+  if (uWipe > 0. && uWipe < 1.) col = mix(col, uAcc, smoothstep(2.5, 0., abs(uv.y - edge) * uRes.y));
+  o = vec4(clamp(col, 0., 1.), 1.);
+}`;
+
+function sh(type, src){ const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s; }
+function prog(fs){ const p = gl.createProgram(); gl.attachShader(p, sh(gl.VERTEX_SHADER, VS)); gl.attachShader(p, sh(gl.FRAGMENT_SHADER, fs));
+  gl.bindAttribLocation(p, 0, 'p'); gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+  const U = {}, n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+  for (let i = 0; i < n; i++){ const u = gl.getActiveUniform(p, i); U[u.name] = gl.getUniformLocation(p, u.name); }
+  return { p, U }; }
+function tex2(filter){ const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, filter); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, filter);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE); return t; }
+
+let PC, PT, PO, texVid, ring = null, ringFbo = null, trail = [null,null], trailFbo = [null,null], hold = null, holdFbo = null;
+let RW = 0, RH = 0, head = -1, filled = 0, tping = 0, needReset = true;
+const ringT = new Float64Array(RING);
+function initGL(){
+  PC = prog(FS_COPY); PT = prog(FS_TRAIL); PO = prog(FS_OUT);
+  const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+  texVid = tex2(gl.LINEAR);
+  ringFbo = gl.createFramebuffer();
+}
+function ensureBuffers(w, h){
+  if (w === RW && h === RH) return;
+  RW = w; RH = h;
+  if (ring) gl.deleteTexture(ring);
+  ring = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D_ARRAY, ring);
+  gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.texStorage3D(gl.TEXTURE_2D_ARRAY, 1, gl.RGBA8, w, h, RING);
+  for (let i = 0; i < 2; i++){
+    if (trail[i]) gl.deleteTexture(trail[i]); if (trailFbo[i]) gl.deleteFramebuffer(trailFbo[i]);
+    trail[i] = tex2(gl.LINEAR); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    trailFbo[i] = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, trailFbo[i]);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, trail[i], 0);
+  }
+  if (hold) gl.deleteTexture(hold); if (holdFbo) gl.deleteFramebuffer(holdFbo);
+  hold = tex2(gl.LINEAR); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+  holdFbo = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, holdFbo);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, hold, 0);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  head = -1; filled = 0; needReset = true; setFrozen(false);
+}
+// the ring layer whose timestamp is closest to (newest − delay)
+function layerAt(delaySec){
+  if (filled < 1) return 0;
+  const target = ringT[head] - delaySec * 1000;
+  let best = head, bd = 1e18;
+  for (let k = 0; k < filled; k++){
+    const i = (head - k + RING) % RING, dd = Math.abs(ringT[i] - target);
+    if (dd < bd){ bd = dd; best = i; }
+  }
+  return best;
+}
+
+/* ---------- camera ---------- */
+let stream = null, facing = 'user', mirror = true, started = false, vidW = 1280, vidH = 720, lastVT = -1;
+function setStatus(t){ $('status').textContent = t || ''; }
+function camError(e){
+  const msg = (e && (e.message || e.name)) ? (e.message || e.name) : String(e || 'unknown');
+  const text = 'カメラを起動できませんでした：' + msg + '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+  $('err').textContent = text;
+  if (started) setStatus(text);
+}
+async function startCam(){
+  const md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) throw new Error('getUserMedia is unavailable');
+  const s = await md.getUserMedia({ video:{ facingMode:{ ideal:facing }, width:{ ideal:1280 }, height:{ ideal:720 } }, audio:false });
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = s; mirror = facing === 'user';
+  video.srcObject = s;
+  await new Promise(r => { if (video.readyState >= 1) r(); else video.onloadedmetadata = () => r(); });
+  await video.play().catch(()=>{});
+  vidW = video.videoWidth || 1280; vidH = video.videoHeight || 720;
+  head = -1; filled = 0; needReset = true; setFrozen(false);
+}
+
+/* ---------- audio: a dry shutter and a low wall tone on the switch ---------- */
+let actx = null, bus = null, recDest = null;
+function ensureAudio(){
+  if (actx){ if (actx.state === 'suspended') actx.resume().catch(()=>{}); return; }
+  const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+  actx = new AC(); bus = actx.createGain(); bus.gain.value = .4; bus.connect(actx.destination);
+  recDest = actx.createMediaStreamDestination(); bus.connect(recDest);
+  actx.resume().catch(()=>{});
+}
+function click(f){
+  if (!actx || actx.state !== 'running') return;
+  const t = actx.currentTime, len = actx.sampleRate*.03 | 0, b = actx.createBuffer(1, len, actx.sampleRate), d = b.getChannelData(0);
+  for (let i = 0; i < len; i++) d[i] = (Math.random()*2 - 1) * Math.pow(1 - i/len, 5);
+  const s = actx.createBufferSource(); s.buffer = b;
+  const bp = actx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = f || 2400; bp.Q.value = 1.4;
+  s.connect(bp); bp.connect(bus); s.start(t);
+}
+function hum(){
+  if (!actx || actx.state !== 'running') return;
+  const t = actx.currentTime, o = actx.createOscillator(), g = actx.createGain();
+  o.type = 'sine'; o.frequency.setValueAtTime(110, t); o.frequency.exponentialRampToValueAtTime(55, t + 1.1);
+  g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(.35, t + .05); g.gain.exponentialRampToValueAtTime(.001, t + 1.2);
+  o.connect(g); g.connect(bus); o.start(t); o.stop(t + 1.25);
+}
+
+/* ---------- mode: plain camera ⇄ SABUN ---------- */
+const MODE = { on:false, wipe:1, t0:0 };
+function setMode(on){
+  if (MODE.on === on) return;
+  MODE.on = on; MODE.wipe = 0; MODE.t0 = performance.now();
+  $('mode').textContent = on ? '◂ CAMERA' : '▸ SABUN';
+  $('mark').classList.toggle('show', on);
+  $('hold').style.visibility = on ? '' : 'hidden';
+  if (!on) setFrozen(false);
+  hum();
+}
+const HOLD = { on:false };
+function setFrozen(on){
+  HOLD.on = !!on;
+  $('hold').classList.toggle('on', HOLD.on);
+  $('hold').textContent = HOLD.on ? '焼き付け中' : '焼き付け';
+}
+function toggleHold(){
+  if (!MODE.on || head < 0) return;
+  if (!HOLD.on){
+    // copy the newest ring layer into the hold texture
+    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, ringFbo);
+    gl.framebufferTextureLayer(gl.READ_FRAMEBUFFER, gl.COLOR_ATTACHMENT0, ring, 0, head);
+    gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, holdFbo);
+    gl.blitFramebuffer(0, 0, RW, RH, 0, 0, RW, RH, gl.COLOR_BUFFER_BIT, gl.NEAREST);
+    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, null); gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, null);
+    setFrozen(true); click(1400);
+  } else { setFrozen(false); click(3000); }
+}
+
+$('go').onclick = async () => {
+  $('err').textContent = '';
+  ensureAudio();
+  try{
+    if (!gl) throw new Error('WebGL2 に未対応のブラウザです');
+    if (!PC) initGL();
+    await startCam();
+  }catch(e){ camError(e); return; }
+  $('start').style.display = 'none';
+  ['gear','flip','bar','rec','shoot','hold','hud','mode'].forEach(id => $(id).classList.add('show'));
+  MODE.on = true; setMode(false); MODE.wipe = 1;           // begin as a plain camera
+  if (!started){ started = true; requestAnimationFrame(loop); }
+};
+$('mode').onclick = () => setMode(!MODE.on);
+$('hold').onclick = toggleHold;
+canvas.addEventListener('pointerdown', () => { if (started) toggleHold(); });
+addEventListener('keydown', e => { if (started && (e.key === ' ' || e.key === 'Enter') && document.activeElement.tagName !== 'INPUT'){ e.preventDefault(); setMode(!MODE.on); } });
+$('flip').onclick = async () => {
+  const prev = facing; facing = facing === 'user' ? 'environment' : 'user';
+  try { await startCam(); } catch(e){ facing = prev; camError(e); }
+};
+$('gear').onclick = () => $('panel').classList.toggle('hide');
+function setPal(i){
+  S.pal = i; const p = PALS[i];
+  [...$('pals').children].forEach(x => x.classList.toggle('on', +x.dataset.p === i));
+  const r = document.documentElement.style;
+  r.setProperty('--bg', p.css[0]); r.setProperty('--acc', p.css[2]);
+  r.setProperty('--fg', i === 2 ? '#191714' : '#f4f2ec');
+}
+$('pals').onclick = e => { const b = e.target.closest('button'); if (b) setPal(+b.dataset.p); };
+[['sDelay','delay'],['sGain','gain'],['sTrail','trail'],['sResid','resid'],['sGrain','grain']].forEach(([id,k]) => { $(id).oninput = e => { S[k] = +e.target.value; }; });
+
+$('shoot').onclick = () => {
+  click();
+  try{
+    canvas.toBlob(b => { if (!b) return; const a = document.createElement('a'); a.href = URL.createObjectURL(b);
+      a.download = 'sabun-' + Date.now() + '.png'; a.click(); }, 'image/png');
+  }catch(e){ setStatus('保存できませんでした。'); }
+};
+let rec = null, chunks = [];
+$('rec').onclick = () => {
+  if (rec && rec.state === 'recording'){ rec.stop(); return; }
+  try{
+    ensureAudio();
+    const tracks = [...canvas.captureStream(30).getVideoTracks()];
+    if (recDest) tracks.push(...recDest.stream.getAudioTracks());
+    const mime = ['video/mp4;codecs=avc1','video/webm;codecs=vp9,opus','video/webm'].find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || '';
+    rec = new MediaRecorder(new MediaStream(tracks), mime ? { mimeType:mime } : {});
+    chunks = [];
+    rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+    rec.onstop = () => {
+      $('rec').classList.remove('on'); $('rec').textContent = '● REC';
+      const ext = (rec.mimeType || '').includes('mp4') ? 'mp4' : 'webm';
+      const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(chunks, { type:rec.mimeType || 'video/webm' }));
+      a.download = 'sabun.' + ext; a.click();
+    };
+    rec.start(); $('rec').classList.add('on'); $('rec').textContent = '■ STOP';
+  }catch(e){ setStatus('録画を開始できませんでした。'); }
+};
+
+/* ---------- render ---------- */
+let lastT = 0, hudT = 0, motion = 0;
+const STAT = { cur:0, past:0, delayMs:0 };
+function loop(now){
+  requestAnimationFrame(loop);
+  const dt = lastT ? Math.min(.1, (now - lastT)/1000) : 1/60; lastT = now;
+  if (video.videoWidth && (video.videoWidth !== vidW || video.videoHeight !== vidH)){ vidW = video.videoWidth; vidH = video.videoHeight; }
+  const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+  let W = Math.round(innerWidth*dpr), H = Math.round(innerHeight*dpr);
+  const k = Math.min(1, 1600 / Math.max(W, H)); W = Math.round(W*k); H = Math.round(H*k);
+  if (canvas.width !== W || canvas.height !== H){ canvas.width = W; canvas.height = H; }
+  // processing size: the short edge anchored at ~300 px, whatever the orientation
+  const ps = 300 / Math.min(W, H), rw = Math.max(48, Math.round(W*ps)), rh = Math.max(48, Math.round(H*ps));
+  ensureBuffers(rw, rh);
+  if (video.readyState < 2) return;
+
+  // 1. a new camera frame → next ring layer
+  const vt = video.currentTime;
+  if (vt !== lastVT){
+    lastVT = vt;
+    gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, texVid);
+    try { gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video); } catch(e){ return; }
+    const sa = W/H, va = vidW/vidH, sx = sa < va ? sa/va : 1, sy = sa < va ? 1 : va/sa;
+    head = (head + 1) % RING; ringT[head] = now; filled = Math.min(RING, filled + 1);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, ringFbo);
+    gl.framebufferTextureLayer(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, ring, 0, head);
+    gl.viewport(0, 0, RW, RH); gl.useProgram(PC.p);
+    gl.uniform1i(PC.U.uVid, 1); gl.uniform2f(PC.U.uScale, sx, sy); gl.uniform1f(PC.U.uMirror, mirror ? 1 : 0);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  }
+  if (head < 0) return;
+
+  const delaySec = .04 + S.delay * S.delay * 1.1;            // 0.04 … 1.14 s
+  const past = layerAt(delaySec);
+  STAT.cur = head; STAT.past = past; STAT.delayMs = ringT[head] - ringT[past];
+  const thr = .022, tx = [1/RW, 1/RH];
+
+  // 2. trail
+  const keep = S.trail > 0 ? Math.exp(-dt / (.15 + S.trail * S.trail * 3.2)) : 0;
+  gl.bindFramebuffer(gl.FRAMEBUFFER, trailFbo[1 - tping]); gl.viewport(0, 0, RW, RH);
+  gl.useProgram(PT.p);
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, trail[tping]);
+  gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D_ARRAY, ring);
+  gl.uniform1i(PT.U.uPrev, 0); gl.uniform1i(PT.U.uRing, 2);
+  gl.uniform1f(PT.U.uCur, head); gl.uniform1f(PT.U.uPast, layerAt(.08));
+  gl.uniform1f(PT.U.uKeep, keep); gl.uniform1f(PT.U.uThr, thr * 1.8); gl.uniform1f(PT.U.uReset, needReset ? 1 : 0);
+  gl.uniform2fv(PT.U.uTx, tx);
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  tping = 1 - tping; needReset = false;
+
+  // 3. present
+  MODE.wipe = Math.min(1, (now - MODE.t0) / 900);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, 0, W, H);
+  gl.useProgram(PO.p);
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, trail[tping]);
+  gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, hold);
+  gl.uniform1i(PO.U.uTrail, 0); gl.uniform1i(PO.U.uRing, 2); gl.uniform1i(PO.U.uHold, 3);
+  gl.uniform1f(PO.U.uCur, head); gl.uniform1f(PO.U.uPast, past);
+  gl.uniform1f(PO.U.uGain, 2 + S.gain * 9); gl.uniform1f(PO.U.uResid, S.resid * .9); gl.uniform1f(PO.U.uThr, thr);
+  gl.uniform1f(PO.U.uGrain, S.grain); gl.uniform1f(PO.U.uT, now/1000);
+  gl.uniform1f(PO.U.uMix, MODE.on ? 1 : 0); gl.uniform1f(PO.U.uWipe, MODE.wipe);
+  gl.uniform1f(PO.U.uFrozen, HOLD.on ? 1 : 0); gl.uniform1f(PO.U.uTrailOn, S.trail > 0 ? 1 : 0);
+  gl.uniform2fv(PO.U.uTx, tx); gl.uniform2f(PO.U.uRes, W, H);
+  const p = PALS[S.pal];
+  gl.uniform3fv(PO.U.uWall, p.wall); gl.uniform3fv(PO.U.uHi, p.hi); gl.uniform3fv(PO.U.uInk, p.ink); gl.uniform3fv(PO.U.uAcc, p.acc);
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+  hudT += dt;
+  if (hudT > .25){ hudT = 0;
+    $('hud').textContent = MODE.on ? ('Δt ' + (STAT.delayMs/1000).toFixed(2) + ' S\n' + p.name + (HOLD.on ? '\nHOLD' : '')) : 'CAMERA'; }
+}
+
+/* ---------- test hook (used by the local verification harness) ---------- */
+window.__SABUN = {
+  mode(on){ setMode(!!on); MODE.t0 = -1e9; },
+  hold(){ toggleHold(); },
+  palette(i){ setPal(i); },
+  set(k, v){ if (k in S) S[k] = +v; },
+  state: () => ({ mode:MODE.on, frozen:HOLD.on, head, filled, RW, RH, ...STAT }),
+};
+</script>
+</body>
+</html>
