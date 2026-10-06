@@ -20,8 +20,10 @@
              切り替えは画面を横切るスライスずれの帯。手のひらを返すと並び方と色の組が
              替わり、画面全体がずれて RGB に割れる。
   SWITCH     はじめは素のカメラ。「▸ GLITCH」か片手を振るとエフェクトへ。
-             手のひらを返す（表⇄裏）と並び方と色が替わる。手が見えないあいだは
-             幻の両手がゆっくり呼吸して、カードを並べつづける。
+             両手が揃うまではカードも技も出ない。両手が揃っているあいだに手のひらを
+             返す（表⇄裏）かタップすると並び方と色が替わる。技の名前は既定では出さず、
+             調整の「技の名前を表示」で出せる。「手が無いときも」を入れたときだけ、
+             幻の両手がゆっくり呼吸してカードを並べる。
   TECH       一枚の 2D canvas に、カメラ→色調→カード層（残像つき）→骨格を合成するので、
              録画にも全部残る。手の検出は MediaPipe HandLandmarker（動的 import、
              失敗してもボタンとタップで遊べる）。
@@ -117,7 +119,8 @@ html,body{margin:0;height:100%;background:#000;overflow:hidden;color:#fff;font-f
   <label><span>音</span><input type="checkbox" id="sSnd" checked></label>
   <label><span>手振りで切替</span><input type="checkbox" id="sWave" checked></label>
   <label><span>手を返して次へ</span><input type="checkbox" id="sFlip" checked></label>
-  <label><span>手が無いときも</span><input type="checkbox" id="sGhost" checked></label>
+  <label><span>手が無いときも</span><input type="checkbox" id="sGhost"></label>
+  <label><span>技の名前を表示</span><input type="checkbox" id="sNames"></label>
   <button id="clear">カードを消す</button>
   <div class="note">両手をかざすと、そのあいだにカードが並ぶ。広げると列に、近づけると塊に。<br>手のひらをくるっと返すと並び方と色が替わる。<br>片手だけを開いて左右に振ると、カメラとエフェクトが入れ替わる。<br>画面をタップしても並びが替わる。🎲 で全部ランダム。</div>
 </div>
@@ -140,7 +143,7 @@ const HAND_MODEL = 'https://storage.googleapis.com/mediapipe-models/hand_landmar
 const canvas = $('c'), ctx = canvas.getContext('2d');
 const video = $('v');
 const pc = document.createElement('canvas'), pctx = pc.getContext('2d');     // card layer, keeps a trail
-const S = { k:.5, col:0, set:0, snd:true, wave:true, flip:true, ghost:true, layout:0 };
+const S = { k:.5, col:0, set:0, snd:true, wave:true, flip:true, ghost:false, names:false, layout:0 };
 const STATE = { frames:0, flips:0, waves:0, randoms:0, spawned:0 };
 
 const HAND_CONNECTIONS = [[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],
@@ -318,7 +321,7 @@ async function initModels(){
     setStatus('');
   }catch(e){
     if (HANDS_EXTERNAL) return;
-    setStatus('手の検出モデルを読み込めませんでした（ネット接続を確認）。\n幻の両手とボタン・タップで遊べます。');
+    setStatus('手の検出モデルを読み込めませんでした（ネット接続を確認）。\n調整の「手が無いときも」を入れると、幻の両手で遊べます。');
   }
 }
 function detect(now){
@@ -340,7 +343,7 @@ function flipStep(best, now){
   if (had && now > FLIP.cool && S.flip && started && WAVE.openS > 1.05){
     FLIP.cool = now + FLIP_COOL; FLIP.flashT = now; STATE.flips++;
     resetWave(); WAVE.cool = Math.max(WAVE.cool, now + 700);              // a flip is not the start of a wave
-    if (MODE.on) onFlip(best.scr[0], best.scr[1]);
+    if (MODE.on && HANDS.length === 2) onFlip(best.scr[0], best.scr[1]);     // nothing happens until both hands are up
   }
 }
 function palmOf(lm){
@@ -427,6 +430,7 @@ function setMode(on){
 }
 function showLabel(){
   const l = $('label'); l.innerHTML = '';
+  if (!S.names){ l.classList.remove('on'); return; }
   l.append(LAYOUT_JA[LAYOUTS[S.layout]]);
   const sm = document.createElement('small'); sm.textContent = LAYOUTS[S.layout] + ' · ' + SETS[S.set].name; l.append(sm);
   l.classList.remove('on'); void l.offsetWidth; l.classList.add('on');
@@ -480,6 +484,7 @@ $('sSnd').onchange = e => { S.snd = e.target.checked; };
 $('sWave').onchange = e => { S.wave = e.target.checked; };
 $('sFlip').onchange = e => { S.flip = e.target.checked; };
 $('sGhost').onchange = e => { S.ghost = e.target.checked; };
+$('sNames').onchange = e => { S.names = e.target.checked; if (!S.names) $('label').classList.remove('on'); infoTxt = null; };
 $('clear').onclick = () => { panels.length = 0; particles.length = 0; pctx.clearRect(0, 0, pc.width, pc.height); };
 $('mode').onclick = () => setMode(!MODE.on);
 $('rand').onclick = () => { randomize(); if (!MODE.on) setMode(true); };
@@ -512,10 +517,10 @@ $('rec').onclick = () => {
 addEventListener('keydown', e => {
   if (!started || /INPUT|SELECT/.test(document.activeElement.tagName)) return;
   if (e.key === ' ' || e.key === 'Enter'){ e.preventDefault(); setMode(!MODE.on); }
-  if (e.key === 'ArrowRight' && MODE.on) onFlip(canvas.width / 2, canvas.height / 2);
+  if (e.key === 'ArrowRight' && MODE.on && pairOn) onFlip(canvas.width / 2, canvas.height / 2);
 });
 canvas.addEventListener('pointerdown', e => {
-  if (!started || !MODE.on) return;
+  if (!started || !MODE.on || !pairOn) return;
   const u = canvas.width / innerWidth; onFlip(e.clientX * u, e.clientY * u);
 });
 
@@ -688,9 +693,9 @@ function glitchAll(c, W, H, u, b){
 let infoTxt = '';
 function updateInfo(){
   let t;
-  if (HANDS.length === 2) t = (spreadT < .2 ? '塊' : spreadT < .8 ? '展開中' : LAYOUT_JA[LAYOUTS[S.layout]]) + ' · ' + SETS[S.set].name + ' · ' + panels.length;
+  if (HANDS.length === 2) t = S.names ? (spreadT < .2 ? '塊' : spreadT < .8 ? '展開中' : LAYOUT_JA[LAYOUTS[S.layout]]) + ' · ' + SETS[S.set].name + ' · ' + panels.length : '';
   else if (HANDS.length === 1) t = 'もう片方の手も';
-  else if (ghostOn) t = '幻の両手 · ' + LAYOUT_JA[LAYOUTS[S.layout]] + ' · ' + SETS[S.set].name;
+  else if (ghostOn) t = S.names ? '幻の両手 · ' + LAYOUT_JA[LAYOUTS[S.layout]] + ' · ' + SETS[S.set].name : '';
   else t = '両手をかざして';
   if (t !== infoTxt){ infoTxt = t; $('info').textContent = t; }
 }
@@ -700,6 +705,7 @@ window.__HANDGLITCH = {
   mode:on => setMode(!!on), random:randomize, flip:() => onFlip(canvas.width / 2, canvas.height / 2),
   layout:i => { setLayout(i); showLabel(); }, set:setSet, col:i => { S.col = i; $('sCol').value = i; },
   ghost:on => { S.ghost = !!on; $('sGhost').checked = !!on; },
+  names:on => { S.names = !!on; $('sNames').checked = !!on; },
   state:() => ({ mode:MODE.on, X:MODE.X, layout:LAYOUTS[S.layout], set:SETS[S.set].name, col:S.col, k:S.k, panels:panels.length,
     hands:HANDS.length, pair:pairOn, ghost:ghostOn, spread:spreadT, ...STATE })
 };
