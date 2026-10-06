@@ -15,9 +15,10 @@
              そのまま現実に重ねた感じ ── 端には本当に計算している数字が並ぶ。
   SHAPE      箱と球を切り替えられる。球のときは水が球の内壁に当たり、枠は輪郭と
              三本の大円と二本の緯線で描く針金の球になる。
-  RULE       片手：箱は手のひらに乗り、手の向き（手首→中指、人差し指→小指）
-             にそのまま回る。両手：箱は両手のあいだに浮かび、離すほど大きい。
-             手が無いときは宙でゆっくり回り、画面をドラッグしても回せる。
+  RULE       両手でだけ持てる。両手のあいだに来て、離すほど大きく、両手を回すと
+             回る（両手を結ぶ線でハンドルのように、両手首のひねりで立体的に）。
+             放すとその回転を持ったままくるくる回り続け、数秒でゆっくりに戻る。
+             片手では動かない。持っていないときはその場でゆっくり浮かんでいる。
   FLUID      箱の中の座標で 1,800 粒の粒子流体を解く（二重密度緩和）。重力は
              画面の下向きを箱の向きに直して与え、箱が急に動いた加速度は慣性と
              して逆向きにかかる。箱を回すと水は世界に残ろうとして箱の中で回る。
@@ -96,7 +97,7 @@ body.cam .hud{visibility:hidden}
 <video id="cam" playsinline muted autoplay></video>
 <div id="hudL" class="hud"></div>
 <div id="hudR" class="hud"></div>
-<div id="hudB" class="hud">HAND TRACKING · 片手で動かす · 両手を離すと大きく · ONE HAND STEERS · TWO HANDS APART = ZOOM</div>
+<div id="hudB" class="hud">HAND TRACKING · 両手で持つ · 回すとくるくる · 離すと浮かぶ · TWO HANDS HOLD · TURN TO SPIN · LET GO TO FLOAT</div>
 <div id="status"></div>
 <button id="gear" class="btn" aria-label="調整">⚙</button>
 <button id="flip" class="btn">⟲ カメラ</button>
@@ -123,7 +124,7 @@ body.cam .hud{visibility:hidden}
   <label><span>水の量</span><input type="range" id="sAmt" min="0" max="1" step="0.01" value="0.55"></label>
   <label><span>粘り</span><input type="range" id="sVisc" min="0" max="1" step="0.01" value="0.2"></label>
   <label><span>重さ</span><input type="range" id="sGrav" min="0" max="1" step="0.01" value="0.5"></label>
-  <div class="note">片手：箱が手のひらに乗って一緒に回る。箱の大きさはここで変えられる。両手：あいだに浮かび、離すほど大きい。<br>手が無いときは画面をドラッグして回せる。</div>
+  <div class="note">両手で持つ：あいだに来て、離すほど大きい。両手を回すと箱も回り、離すとくるくる回り続ける。片手では動かない。<br>持っていないときはゆっくり浮かぶ。画面をドラッグ（はじく）しても回せる。</div>
 </div>
 
 <div id="start">
@@ -189,6 +190,20 @@ function q2m(q){
   return [1 - 2*(y*y + z*z), 2*(x*y + z*w), 2*(x*z - y*w),
           2*(x*y - z*w), 1 - 2*(x*x + z*z), 2*(y*z + x*w),
           2*(x*z + y*w), 2*(y*z - x*w), 1 - 2*(x*x + y*y)];
+}
+const qmul = (a, b) => [a[0]*b[0] - a[1]*b[1] - a[2]*b[2] - a[3]*b[3], a[0]*b[1] + a[1]*b[0] + a[2]*b[3] - a[3]*b[2],
+                        a[0]*b[2] - a[1]*b[3] + a[2]*b[0] + a[3]*b[1], a[0]*b[3] + a[1]*b[2] - a[2]*b[1] + a[3]*b[0]];
+const qconj = a => [a[0], -a[1], -a[2], -a[3]];
+const qnorm = a => { const n = Math.hypot(a[0], a[1], a[2], a[3]) || 1; return [a[0] / n, a[1] / n, a[2] / n, a[3] / n]; };
+// a rotation as one vector (axis × angle), and back
+function qlog(q){
+  if (q[0] < 0) q = q.map(v => -v);
+  const s = Math.hypot(q[1], q[2], q[3]); if (s < 1e-9) return [0, 0, 0];
+  const a = 2 * Math.atan2(s, q[0]); return [q[1] / s * a, q[2] / s * a, q[3] / s * a];
+}
+function qexp(v){
+  const a = Math.hypot(v[0], v[1], v[2]); if (a < 1e-9) return [1, 0, 0, 0];
+  const s = Math.sin(a / 2) / a; return [Math.cos(a / 2), v[0] * s, v[1] * s, v[2] * s];
 }
 function qslerp(a, b, t){
   let d = a[0]*b[0] + a[1]*b[1] + a[2]*b[2] + a[3]*b[3];
@@ -290,14 +305,17 @@ function step(dt, gx, gy, gz){
   }
   FL.ke = n ? ke / n : 0; FL.splash = sp;
 }
-// the box turned by dR (box-local to box-local): the water mostly stays where it was in the world
+// the box turned by dR (box-local to box-local): the water mostly stays where it was in the world.
+// The share it keeps is taken as a partial ROTATION (a slerp of the quaternion), never as a
+// straight-line blend of positions — a blend cuts across the circle and, on a fast turn, pulls
+// all the water into a ball in the middle.
 function carry(dR, keep){
   const n = FL.n, X = FL.x, V = FL.v;
+  const R = q2m(qslerp([1, 0, 0, 0], m2q(dR), keep));
   for (let i = 0; i < n; i++){
     const a = i * 3;
-    const p = m3.app(dR, X[a], X[a+1], X[a+2]), v = m3.app(dR, V[a], V[a+1], V[a+2]);
-    X[a] += (p[0] - X[a]) * keep; X[a+1] += (p[1] - X[a+1]) * keep; X[a+2] += (p[2] - X[a+2]) * keep;
-    V[a] += (v[0] - V[a]) * keep; V[a+1] += (v[1] - V[a+1]) * keep; V[a+2] += (v[2] - V[a+2]) * keep;
+    const p = m3.app(R, X[a], X[a+1], X[a+2]), v = m3.app(R, V[a], V[a+1], V[a+2]);
+    X[a] = p[0]; X[a+1] = p[1]; X[a+2] = p[2]; V[a] = v[0]; V[a+1] = v[1]; V[a+2] = v[2];
   }
 }
 
@@ -548,14 +566,18 @@ function setCol(k){
 $('cols').onclick = e => { const b = e.target.closest('button'); if (b) setCol(+b.dataset.k); };
 [['sSize','size'],['sAmt','amt'],['sVisc','visc'],['sGrav','grav']].forEach(([id, k]) => { $(id).oninput = e => { S[k] = +e.target.value; }; });
 setCol(1);
-// with no hands, the box can be turned by dragging
-let drag = null, dragYaw = 0, dragPitch = 0;
-canvas.addEventListener('pointerdown', e => { drag = { x:e.clientX, y:e.clientY, yaw:dragYaw, pitch:dragPitch }; canvas.setPointerCapture(e.pointerId); });
+// dragging turns it too; a flick leaves it spinning
+let drag = null;
+canvas.addEventListener('pointerdown', e => { drag = { x:e.clientX, y:e.clientY, t:performance.now() }; canvas.setPointerCapture(e.pointerId); });
 canvas.addEventListener('pointermove', e => {
-  if (!drag) return; const s = Math.min(innerWidth, innerHeight);
-  dragYaw = drag.yaw + (e.clientX - drag.x) / s * 3.2; dragPitch = drag.pitch + (e.clientY - drag.y) / s * 3.2;
+  if (!drag || !BOX.init) return;
+  const now = performance.now(), dts = Math.max(.008, (now - drag.t) / 1000), k = 3.2 / Math.min(innerWidth, innerHeight);
+  const rv = [(e.clientY - drag.y) * k, -(e.clientX - drag.x) * k, 0];
+  BOX.q = qnorm(qmul(qexp(rv), BOX.q));
+  BOX.w = BOX.w.map((v, i) => v + (rv[i] / dts - v) * .5);
+  drag.x = e.clientX; drag.y = e.clientY; drag.t = now;
 });
-const endDrag = () => { drag = null; };
+const endDrag = () => { if (drag && performance.now() - drag.t > 120) BOX.w = BOX.w.map(v => v * .2); drag = null; };
 canvas.addEventListener('pointerup', endDrag); canvas.addEventListener('pointercancel', endDrag);
 
 $('shoot').onclick = () => {
@@ -587,7 +609,7 @@ $('rec').onclick = () => {
 
 /* ---------- render ---------- */
 // BOX: where the tank is now (canvas px), its half-size (px) and its rotation, eased toward the hands
-const BOX = { x:0, y:0, s:0, q:[1, 0, 0, 0], R:m3.rotX(0), vx:0, vy:0, init:false, tx:0, ty:0, ts:0, tq:[1, 0, 0, 0] };
+const BOX = { x:0, y:0, s:0, q:[1, 0, 0, 0], R:m3.rotX(0), vx:0, vy:0, init:false };
 let lastT = 0, hudT = 0, keSlow = 0, simMs = 0, lastSub = 1;
 const CUBE = [[-1,-1,-1],[1,-1,-1],[1,1,-1],[-1,1,-1],[-1,-1,1],[1,-1,1],[1,1,1],[-1,1,1]];
 const EDGES = [[0,1],[1,2],[2,3],[3,0],[4,5],[5,6],[6,7],[7,4],[0,4],[1,5],[2,6],[3,7]];
@@ -619,27 +641,55 @@ function loop(now){
     try { gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video); } catch(e){ return; } }
   const ms = Math.min(W, Hh);
 
-  // where the hands want the box; the slider scales it (0.4x .. 1.6x)
+  // The tank. Only two hands hold it: they carry it, their distance sizes it, and turning
+  // them turns it (the line between them rolls it like a wheel; twisting both wrists turns it
+  // in 3D). One hand does nothing. Let go and it keeps the spin it had, winding down slowly to
+  // a lazy turn, and floats where it was left.
   const zs = .4 + 1.2 * S.size;
   const live = HANDS.list.length && now - HANDS.lastT < 600;
-  if (live && HANDS.list.length >= 2){
-    const a = HANDS.list[0], b = HANDS.list[1];
-    BOX.tx = (a.c[0] + b.c[0]) / 2; BOX.ty = (a.c[1] + b.c[1]) / 2;
-    BOX.ts = Math.max(ms * .06, Math.hypot(b.c[0] - a.c[0], b.c[1] - a.c[1]) * .3 * zs);
-    BOX.tq = qslerp(m2q(a.R), m2q(b.R), .5);
-  } else if (live){
-    const a = HANDS.list[0];
-    BOX.tx = a.c[0]; BOX.ty = a.c[1] - a.span * .15; BOX.ts = Math.max(ms * .05, a.span * .42 * zs); BOX.tq = m2q(a.R);
-  } else {
-    // no hands: it floats in the middle and turns slowly; dragging turns it too
-    BOX.tx = W / 2; BOX.ty = Hh * .45; BOX.ts = ms * .17 * zs;
-    BOX.tq = m2q(m3.mul(m3.rotY(dragYaw + Math.sin(t * .4) * .6), m3.mul(m3.rotX(dragPitch + .35 + Math.sin(t * .31) * .25), m3.rotZ(Math.sin(t * .23) * .2))));
+  const two = HANDS.list.length >= 2 && now - HANDS.lastT < 250;
+  if (!BOX.init){
+    Object.assign(BOX, { x:W / 2, y:Hh * .45, ax:W / 2, ay:Hh * .45, base:ms * .17, s:ms * .17 * zs,
+                         q:m2q(m3.mul(m3.rotX(.45), m3.rotY(.6))), w:[.06, .22, .03], held:false, hq:null, hr:0 });
+    BOX.R = q2m(BOX.q); BOX.init = true;
   }
-  if (!BOX.init){ Object.assign(BOX, { x:BOX.tx, y:BOX.ty, s:BOX.ts, q:BOX.tq.slice() }); BOX.R = q2m(BOX.q); BOX.init = true; }
-  const e = 1 - Math.exp(-dt / .07);
   const px = BOX.x, py = BOX.y, Rold = BOX.R;
-  BOX.x += (BOX.tx - BOX.x) * e; BOX.y += (BOX.ty - BOX.y) * e; BOX.s += (BOX.ts - BOX.s) * e;
-  BOX.q = qslerp(BOX.q, BOX.tq, e); BOX.R = q2m(BOX.q);
+  let tx, ty;
+  if (two){
+    const a = HANDS.list[0], b = HANDS.list[1];
+    tx = (a.c[0] + b.c[0]) / 2; ty = (a.c[1] + b.c[1]) / 2;
+    BOX.base = Math.max(ms * .05, Math.hypot(b.c[0] - a.c[0], b.c[1] - a.c[1]) * .3);
+    const hq = qslerp(m2q(a.R), m2q(b.R), .5), hr = Math.atan2(b.c[1] - a.c[1], b.c[0] - a.c[0]);
+    if (BOX.held && BOX.hq){
+      let dr = hr - BOX.hr; dr = Math.atan2(Math.sin(dr), Math.cos(dr));
+      // the wrists' own turn this frame; tracker jitter below ~0.7 degrees is ignored
+      let tw = qlog(qmul(hq, qconj(BOX.hq)));
+      tw = Math.hypot(tw[0], tw[1], tw[2]) < .012 ? [0, 0, 0] : tw.map(v => v * .7);
+      const rv = [tw[0], tw[1], tw[2] + dr];
+      BOX.q = qnorm(qmul(qexp(rv), BOX.q));
+      const k = 1 / Math.max(dt, 1 / 120);
+      BOX.w = BOX.w.map((v, i) => v + (rv[i] * k - v) * .35);      // remembered for the moment they let go
+    }
+    BOX.hq = hq; BOX.hr = hr; BOX.held = true; BOX.ax = tx; BOX.ay = ty;
+  } else {
+    if (BOX.held){
+      BOX.held = false; BOX.hq = null;
+      const m = Math.hypot(BOX.w[0], BOX.w[1], BOX.w[2]); if (m > 9) BOX.w = BOX.w.map(v => v * 9 / m);
+    }
+    if (!drag){
+      // the spin it was given winds down (over a few seconds) to a lazy turn
+      const idle = [.06, .22, .03], k = 1 - Math.exp(-dt / 3.5);
+      BOX.w = BOX.w.map((v, i) => v + (idle[i] - v) * k);
+      BOX.q = qnorm(qmul(qexp(BOX.w.map(v => v * dt)), BOX.q));
+    }
+    // floating: a slow bob around where it was left, kept on the screen
+    BOX.ax = Math.min(W * .82, Math.max(W * .18, BOX.ax)); BOX.ay = Math.min(Hh * .78, Math.max(Hh * .22, BOX.ay));
+    tx = BOX.ax + Math.sin(t * .37) * ms * .025; ty = BOX.ay + Math.sin(t * .53 + 1) * ms * .035;
+  }
+  const e = 1 - Math.exp(-dt / (two ? .07 : .6));
+  BOX.x += (tx - BOX.x) * e; BOX.y += (ty - BOX.y) * e;
+  BOX.s += (BOX.base * zs - BOX.s) * (1 - Math.exp(-dt / .12));
+  BOX.R = q2m(BOX.q);
   // the box's own acceleration (canvas px/s^2), smoothed
   const vx = (BOX.x - px) / dt, vy = (BOX.y - py) / dt;
   const ax = (vx - BOX.vx) / dt, ay = (vy - BOX.vy) / dt; BOX.vx = vx; BOX.vy = vy;
@@ -737,7 +787,7 @@ function loop(now){
     let rt = '+ BOX_ROLL     ' + roll.toFixed(1) + '°\n+ BOX_PITCH    ' + pitch.toFixed(1) + '°\n+ SHAPE        ' + (S.shape ? 'SPHERE' : 'CUBE') + '\n+ BOX_SIZE     ' + (BOX.s * 2 / ms).toFixed(2);
     HANDS.list.forEach((h, i) => { if (live) rt += '\n+ HAND_' + (i + 1) + '_POS     ' + (h.c[0] / W).toFixed(2) + ', ' + (h.c[1] / Hh).toFixed(2); });
     if (live && HANDS.list.length >= 2) rt += '\n+ HANDS_DISTANCE ' + (Math.hypot(HANDS.list[1].c[0] - HANDS.list[0].c[0], HANDS.list[1].c[1] - HANDS.list[0].c[1]) / ms).toFixed(2);
-    if (!live) rt += '\n+ NO HANDS · DRAG TO TURN';
+    rt += '\n+ HOLD         ' + (BOX.held ? 'TWO HANDS' : 'FLOATING') + '\n+ SPIN         ' + Math.hypot(BOX.w[0], BOX.w[1], BOX.w[2]).toFixed(2) + ' rad/s';
     $('hudR').textContent = rt;
   }
 }
@@ -752,7 +802,8 @@ window.__SUISOU = {
     const gd = m3.app(m3.tr(BOX.R), 0, 1, 0);
     for (let i = 0; i < n; i++){ const a = i * 3; my += FL.x[a] * gd[0] + FL.x[a+1] * gd[1] + FL.x[a+2] * gd[2]; }
     return { on:MODE.on, shape:S.shape, n, out, down:n ? +(my / n).toFixed(3) : 0, ke:+FL.ke.toFixed(3), splash:FL.splash, ms:+simMs.toFixed(2),
-             box:[BOX.x, BOX.y, BOX.s].map(v => +v.toFixed(1)), hands:HANDS.list.length };
+             box:[BOX.x, BOX.y, BOX.s].map(v => +v.toFixed(1)), hands:HANDS.list.length, held:BOX.held,
+             spin:+Math.hypot(BOX.w[0], BOX.w[1], BOX.w[2]).toFixed(2) };
   },
   mode(m){ setMode(!!m); },
   col(k){ setCol(k); },
