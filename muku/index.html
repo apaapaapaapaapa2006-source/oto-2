@@ -1,0 +1,687 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="description" content="映った人が、白い紙にシルクスクリーンで刷られたポップアートの一枚になる。体は黄色のベタに黒いインクの斑、太い輪郭線。指でなぞると刷りがステッカーのようにめくれて、下から桃色のあなたが出てくる。動くと版がずれる。">
+<meta name="theme-color" content="#f5f3ee">
+<title>MUKU ─ 剥がせる刷り</title>
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  MUKU 剥く ─ 剥がせる刷り                              ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  MOOD       60 年代のポップアートのレコードジャケット。白い紙のまんなかに、
+             シルクスクリーンで刷った黄色いものがひとつだけ置かれている。
+             その一つが、あなたになる。そしてジャケットの黄色は剥がせる
+             ステッカーだった ── 指でめくると、下から桃色のあなたが出てくる。
+  PRINT      版は二枚。黄色のベタ（体の形）と、黒いインク（体の中の暗いところと
+             太い輪郭線）。インクは写真の濃淡ではなく、刷りの斑 ── 紙目と
+             スクリーンの目に噛んで縁がざらつく。黄色の版は黒の版から少し
+             ずれて刷られ、動くと黄色が遅れてついてくる（見当ずれ）。
+  PALETTE    白い紙・黄・黒が正。タップで色版が替わる（桃／青に橙の紙／緑に
+             藤色の紙）。どの色版にも、剥がした下の「中身の色」が一つある。
+  TYPE       Archivo Narrow 600 と Zen Kaku Gothic New、右下の書き文字だけ
+             Yellowtail（今日の日付を署名のように）。
+  MOTION     カメラ⇄刷りの切り替えは、スキージ（へら）が上から下へインクを
+             引いていく一往復。めくりは指に吸いつき、離すとぱたんと戻る。
+  SIGNATURE  めくれ ── 折り返した紙の裏と、その影と、下から覗く桃色。
+  TECH       WebGL2 の全画面シェーダ一枚。人物マスク（MediaPipe、無ければ
+             明るさ）を短辺 96 の場に落とし、黄色の版用に時間遅れのマスクを
+             CPU で作る。インクの閾値は「体の中の明るさの分位」で毎フレーム
+             決めるので、暗い部屋でも明るい部屋でも同じだけ黒が乗る。
+             めくりは指の始点 A と今の点 B の垂直二等分線で紙を折る：
+             A 側は剥がれて下の版、反対側には A 側を線対称に写した紙の裏。
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo+Narrow:wght@400;600&family=Yellowtail&family=Zen+Kaku+Gothic+New:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#f5f3ee;--fg:#16120e;--dim:rgba(22,18,14,.55);--line:rgba(22,18,14,.25);--acc:#16120e}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none}
+html,body{margin:0;height:100%;background:var(--bg);overflow:hidden;color:var(--fg);
+  font-family:"Zen Kaku Gothic New",ui-sans-serif,sans-serif;font-weight:400;transition:background .4s,color .4s}
+#gl{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:grab}
+#cam{position:fixed;left:0;top:0;width:2px;height:2px;opacity:.01;pointer-events:none}
+#est{display:none}
+
+#start{position:fixed;inset:0;z-index:30;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;
+  padding:28px;text-align:center;background:#f5f3ee;color:#16120e}
+#start .t{font:400 10px "Archivo Narrow",sans-serif;letter-spacing:.5em;margin-right:-.5em;opacity:.55}
+#start h1{margin:0;font:600 min(17vw,100px)/1 "Archivo Narrow",sans-serif;letter-spacing:.24em;margin-right:-.24em}
+#start svg{width:min(42vw,170px);height:auto;display:block}
+#start p{margin:0;font-size:12px;line-height:2.1;opacity:.65;letter-spacing:.05em}
+#go{appearance:none;border:1px solid rgba(22,18,14,.4);background:transparent;color:#16120e;font:600 11px "Archivo Narrow",sans-serif;
+  letter-spacing:.5em;padding:15px 30px 15px 36px;cursor:pointer;transition:border-color .3s}
+#go:hover{border-color:#16120e}
+#err{font-size:12px;line-height:1.8;max-width:340px;min-height:1em;white-space:pre-line;color:#b0391f}
+
+.btn{position:fixed;z-index:12;appearance:none;border:0;background:transparent;color:var(--fg);font:500 10px "Zen Kaku Gothic New",sans-serif;
+  letter-spacing:.24em;padding:10px 8px;display:none;cursor:pointer;opacity:.62;transition:opacity .3s,color .4s}
+.btn.show{display:block}
+.btn:hover{opacity:1}
+#gear{right:10px;top:calc(env(safe-area-inset-top) + 6px);font-size:14px;letter-spacing:0}
+#flip{right:10px;top:calc(env(safe-area-inset-top) + 40px);letter-spacing:.1em}
+#bar{position:fixed;left:0;right:0;bottom:calc(env(safe-area-inset-bottom) + 10px);z-index:12;display:none;justify-content:center;align-items:center;gap:26px}
+#bar.show{display:flex}
+#bar .btn{position:static;display:block}
+#bar #shoot{position:relative;width:42px;height:42px;border:1px solid var(--fg);border-radius:50%;padding:0;opacity:.7}
+#shoot::after{content:"";position:absolute;inset:7px;border-radius:50%;background:var(--fg);opacity:.85}
+#rec.on{opacity:1;color:#d0341c}
+#hint{position:fixed;left:0;right:0;top:calc(env(safe-area-inset-top) + 16px);z-index:11;text-align:center;font:400 10px "Archivo Narrow",sans-serif;
+  letter-spacing:.42em;color:var(--dim);pointer-events:none;opacity:0;transition:opacity .8s}
+#hint.show{opacity:1}
+#status{position:fixed;left:14px;bottom:calc(env(safe-area-inset-bottom) + 118px);z-index:11;font-size:11px;
+  color:var(--dim);pointer-events:none;max-width:78vw;line-height:1.7;white-space:pre-line}
+
+#panel{position:fixed;right:10px;top:calc(env(safe-area-inset-top) + 78px);z-index:12;width:min(272px,calc(100vw - 20px));
+  background:rgba(250,248,243,.92);color:#16120e;border:1px solid rgba(22,18,14,.2);padding:14px 16px;display:flex;flex-direction:column;gap:13px;
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);transition:opacity .25s}
+#panel.hide{opacity:0;pointer-events:none}
+.chips{display:flex;border:1px solid rgba(22,18,14,.2)}
+.chips button{flex:1;appearance:none;border:0;background:transparent;color:#16120e;padding:8px 2px;font:500 11px "Zen Kaku Gothic New",sans-serif;
+  letter-spacing:.2em;cursor:pointer;opacity:.5}
+.chips button.on{opacity:1;background:rgba(22,18,14,.1)}
+#panel label{display:flex;align-items:center;gap:10px;font-size:11px}
+#panel label span{width:48px;flex:none;opacity:.6}
+#panel input[type=range]{flex:1;accent-color:#16120e}
+#panel .note{font-size:10px;opacity:.6;line-height:1.8}
+#mode{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom) + 70px);z-index:13;display:none;
+  appearance:none;border:1px solid var(--line);background:rgba(245,243,238,.5);color:var(--fg);
+  font:600 11px "Archivo Narrow",sans-serif;letter-spacing:.42em;padding:12px 22px 12px 28px;cursor:pointer;
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);transition:border-color .3s,color .4s}
+#mode.show{display:block}
+#mode:hover{border-color:var(--fg)}
+body.cam #mode{border-color:rgba(255,255,255,.6);color:#fff;background:rgba(0,0,0,.3)}
+body.cam .btn{color:#fff;text-shadow:0 0 8px rgba(0,0,0,.6)}
+body.cam #bar #shoot{border-color:#fff}
+body.cam #shoot::after{background:#fff}
+body.cam #hint{visibility:hidden}
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<canvas id="est"></canvas>
+<video id="cam" playsinline muted autoplay></video>
+<div id="hint">ゆっくり剥がしてみて ── PEEL WITH A FINGER</div>
+<div id="status"></div>
+<button id="gear" class="btn" aria-label="調整">⚙</button>
+<button id="flip" class="btn">⟲ カメラ</button>
+<button id="mode">▸ MUKU</button>
+<div id="bar">
+  <button id="rec" class="btn">● REC</button>
+  <button id="shoot" class="btn" aria-label="撮る"></button>
+  <button id="next" class="btn">色版 ▸</button>
+</div>
+
+<div id="panel" class="hide">
+  <div class="chips" id="pals">
+    <button data-k="0">黄</button>
+    <button data-k="1">桃</button>
+    <button data-k="2">青</button>
+    <button data-k="3">緑</button>
+  </div>
+  <label><span>インク</span><input type="range" id="sInk" min="0" max="1" step="0.01" value="0.45"></label>
+  <label><span>ずれ</span><input type="range" id="sReg" min="0" max="1" step="0.01" value="0.4"></label>
+  <label><span>輪郭</span><input type="range" id="sLine" min="0" max="1" step="0.01" value="0.45"></label>
+  <div class="note">指でなぞると刷りがめくれて、下の色が出てくる。<br>タップで色版が替わる。動くと黄色の版がずれてついてくる。</div>
+</div>
+
+<div id="start">
+  <div class="t">SILKSCREEN CAMERA</div>
+  <h1>MUKU</h1>
+  <svg viewBox="0 0 170 120" aria-hidden="true">
+    <path d="M18 98 C40 112 118 96 150 30 L156 14 L164 16 L160 34 C134 104 52 124 14 106 Z" fill="#f2cd1d" stroke="#16120e" stroke-width="3" stroke-linejoin="round"/>
+    <path d="M40 104 C70 108 104 92 128 66 L122 64 C102 86 74 98 46 100 Z M150 36 L154 24 L158 26 L154 40 Z" fill="#16120e"/>
+    <path d="M150 30 C142 50 128 66 118 72 L132 92 C146 80 156 56 160 34 Z" fill="#f0a6b4" stroke="#16120e" stroke-width="2"/>
+    <path d="M118 72 L132 92 C122 78 120 76 118 72 Z" fill="#efe9dc"/>
+  </svg>
+  <p>まずは、いつものカメラ。<br>ボタンを押すと、あなたが白い紙に刷られた<br>ポップアートになります。<br>指でなぞると、刷りがめくれます。</p>
+  <button id="go">START</button>
+  <div id="err"></div>
+</div>
+
+<script>
+'use strict';
+/* =====================================================================
+   MUKU — one full-screen shader. The person mask (or, with no model,
+   the darker part of the picture) sits in a 96-cell field together with
+   a time-lagged copy of itself; the yellow plate is drawn from the lag,
+   the black plate from the mask now and the live picture's brightness,
+   thresholded at a per-frame percentile taken inside the body. The peel
+   folds the paper along the perpendicular bisector of the drag: points on
+   the grabbed side show the plate underneath, and the other side gets the
+   grabbed side mirrored across the fold as the back of the paper.
+   ===================================================================== */
+const VISION_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs';
+const WASM_URL   = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm';
+const SEG_MODEL  = 'https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite';
+const $ = id => document.getElementById(id);
+const canvas = $('gl'), video = $('cam'), est = $('est');
+const ectx = est.getContext('2d', { willReadFrequently:true });
+
+/* ---------- colourways: paper, plate, ink, and what is under the plate ---------- */
+const hex = h => [parseInt(h.slice(1, 3), 16) / 255, parseInt(h.slice(3, 5), 16) / 255, parseInt(h.slice(5, 7), 16) / 255];
+const PALS = [
+  { name:'黄', paper:'#f5f3ee', fill:'#f2cd1d', ink:'#16120e', under:'#f2a3b3', uink:'#a73d62', back:'#efe9dc' },
+  { name:'桃', paper:'#f6f1ea', fill:'#f39bb8', ink:'#1a1012', under:'#f2d23a', uink:'#8e6d0c', back:'#f1e9de' },
+  { name:'青', paper:'#f2a24a', fill:'#43b6df', ink:'#10192a', under:'#f4ead0', uink:'#6b5733', back:'#f3ece0' },
+  { name:'緑', paper:'#eee4ef', fill:'#7fd06c', ink:'#111511', under:'#f06a58', uink:'#7a1d1d', back:'#f0eae0' },
+].map(p => Object.assign(p, { P:hex(p.paper), F:hex(p.fill), I:hex(p.ink), U:hex(p.under), UI:hex(p.uink), B:hex(p.back) }));
+const S = { pal:0, ink:.45, reg:.4, line:.45 };
+
+/* ---------- GL ---------- */
+const gl = canvas.getContext('webgl2', { antialias:false, alpha:false, depth:false, preserveDrawingBuffer:true, powerPreference:'high-performance' });
+const VS = `#version 300 es
+in vec2 p; void main(){ gl_Position = vec4(p, 0., 1.); }`;
+const FS = `#version 300 es
+precision highp float;
+uniform sampler2D uVid, uF, uTxt;
+uniform vec2 uRes, uScale, uReg;
+uniform float uMirror, uT, uThr, uLine, uPull, uPeelOn, uTxtOn;
+uniform vec4 uPeel, uTxtRect;
+uniform vec3 uPaper, uFill, uInk, uUnder, uUInk, uBack;
+out vec4 o;
+float h21(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float vn(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3. - 2. * f);
+  return mix(mix(h21(i), h21(i + vec2(1, 0)), f.x), mix(h21(i + vec2(0, 1)), h21(i + vec2(1, 1)), f.x), f.y); }
+vec2 vidUV(vec2 s){ vec2 v = (s - .5) * uScale + .5; if (uMirror > .5) v.x = 1. - v.x; return v; }
+float lum(vec2 s){ return dot(texture(uVid, vidUV(s)).rgb, vec3(.299, .587, .114)); }
+// the ink is printed from a softened picture: blotches, not photographic detail
+float lumSoft(vec2 s){
+  vec2 e = .007 * min(uRes.x, uRes.y) / uRes, f = e * .7071;
+  return (lum(s) * 2. + lum(s + vec2(e.x, 0.)) + lum(s - vec2(e.x, 0.)) + lum(s + vec2(0., e.y)) + lum(s - vec2(0., e.y))
+        + lum(s + f) + lum(s - f) + lum(s + vec2(f.x, -f.y)) + lum(s - vec2(f.x, -f.y))) / 10.;
+}
+// plate k at pixel px: rgb, and how much of the plate is there (0 = bare paper)
+vec4 plate(vec2 px, bool under){
+  // nothing is printed off the edge of the sheet (a fold can reach out there)
+  if (px.x < 0. || px.y < 0. || px.x > uRes.x || px.y > uRes.y) return vec4(uPaper, 0.);
+  vec2 s = px / uRes;
+  vec4 f = texture(uF, s);
+  // the screen's grain and the paper's tooth: every edge of ink is a little ragged
+  float grain = vn(px / 2.2) * .55 + vn(px / 9.) * .45;
+  // the outline: distance in pixels to the mask's half-way line, from its gradient
+  vec2 e = vec2(1.5 / 96.);
+  float m = f.r;
+  vec2 g = vec2((texture(uF, s + vec2(e.x, 0.)).r - texture(uF, s - vec2(e.x, 0.)).r) / (2. * e.x) / uRes.x,
+                (texture(uF, s + vec2(0., e.y)).r - texture(uF, s - vec2(0., e.y)).r) / (2. * e.y) / uRes.y);
+  float dist = (m - .5) / max(length(g), 1e-5) + (grain - .5) * 2.5;   // inside > 0
+  float body = smoothstep(-.8, .8, dist);
+  float line = (1. - smoothstep(uLine * .5, uLine * .5 + 1.2, abs(dist))) * step(.5, uLine);
+  // the colour plate: from the lagged mask, printed a little off the black
+  float fm = texture(uF, s - uReg).g;
+  float fill = smoothstep(.42, .58, fm + (grain - .5) * .08);
+  // black ink inside the body where it is dark
+  float l = lumSoft(s) + (grain - .5) * .09 + f.b * (vn(px / 6. + uT * 9.) - .5) * .25;
+  float ink = body * smoothstep(uThr + .02, uThr - .02, l);
+  vec3 cf = under ? uUnder : uFill, ci = under ? uUInk : uInk;
+  float a = max(fill, max(ink, line));
+  vec3 c = mix(uPaper, cf, fill);
+  c = mix(c, ci, max(ink, line));
+  return vec4(c, a);
+}
+void main(){
+  vec2 px = vec2(gl_FragCoord.x, uRes.y - gl_FragCoord.y);
+  vec2 s = px / uRes;
+  // the paper itself, with a faint tooth
+  vec3 col = uPaper * (.975 + .05 * vn(px / 1.7) - .012 * vn(px / 40.));
+  vec4 top;
+  float d = -1e5;                                 // not peeled anywhere
+  if (uPeelOn > .5) d = dot(px - uPeel.xy, uPeel.zw);
+  if (d > 0.){
+    // peeled away here: the plate underneath, and the fold's shadow on it
+    vec4 u = plate(px, true);
+    col = mix(col, u.rgb, u.a);
+    col *= 1. - .22 * exp(-d / (.02 * uRes.y));
+  } else {
+    top = plate(px, false);
+    col = mix(col, top.rgb, top.a);
+    if (uPeelOn > .5){
+      // the shadow the lifted flap throws, a little down and to the right
+      vec2 sp = px - vec2(.008, .012) * uRes.y;
+      float ds = dot(sp - uPeel.xy, uPeel.zw);
+      if (ds < 0.){ float sa = plate(sp - 2. * ds * uPeel.zw, false).a; col *= 1. - .28 * sa; }
+      // the flap: the grabbed side, folded over onto this side
+      vec2 q = px - 2. * d * uPeel.zw;
+      float fa = plate(q, false).a;
+      float shade = mix(.8, 1.02, smoothstep(0., .07 * uRes.y, -d));
+      col = mix(col, uBack * shade, fa);
+    }
+  }
+  // the signature: today's date in a hand, bottom right
+  if (uTxtOn > .5 && px.x > uTxtRect.x && px.y > uTxtRect.y && px.x < uTxtRect.z && px.y < uTxtRect.w){
+    vec2 t = (px - uTxtRect.xy) / (uTxtRect.zw - uTxtRect.xy);
+    col = mix(col, uInk, texture(uTxt, t).a * .92);
+  }
+  // the squeegee: above the blade, the print; below it, the camera
+  float by = uPull * (uRes.y + .06 * uRes.y);
+  if (px.y > by){
+    col = texture(uVid, vidUV(s)).rgb;
+  }
+  float blade = 1. - smoothstep(0., .012 * uRes.y, abs(px.y - by));
+  col = mix(col, uInk, blade * step(.001, uPull) * step(uPull, .999) * .85);
+  o = vec4(col, 1.);
+}`;
+function sh(type, src){ const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s; }
+function prog(vs, fs, attrs){ const p = gl.createProgram(); gl.attachShader(p, sh(gl.VERTEX_SHADER, vs)); gl.attachShader(p, sh(gl.FRAGMENT_SHADER, fs));
+  attrs.forEach((a, i) => gl.bindAttribLocation(p, i, a)); gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+  const U = {}, n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+  for (let i = 0; i < n; i++){ const u = gl.getActiveUniform(p, i); U[u.name] = gl.getUniformLocation(p, u.name); }
+  return { p, U }; }
+function tex(){ const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE); return t; }
+let PR, vaoQ, texVid, texField, texTxt, txtW = 1, txtH = 1;
+function initGL(){
+  PR = prog(VS, FS, ['p']);
+  vaoQ = gl.createVertexArray(); gl.bindVertexArray(vaoQ);
+  const q = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, q);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+  gl.bindVertexArray(null);
+  texVid = tex(); texField = tex(); texTxt = tex();
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+  makeSignature();
+  document.fonts && document.fonts.load('80px Yellowtail').then(makeSignature, () => {});
+}
+// today's date, written as a signature
+function makeSignature(){
+  const c = document.createElement('canvas'), x = c.getContext('2d');
+  const d = new Date(), M = ['Jan.','Feb.','Mar.','Apr.','May','June','July','Aug.','Sept.','Oct.','Nov.','Dec.'];
+  const text = M[d.getMonth()] + ' ' + d.getDate() + ', ' + d.getFullYear();
+  x.font = '80px Yellowtail, "Brush Script MT", cursive';
+  txtW = Math.ceil(x.measureText(text).width) + 40; txtH = 120;
+  c.width = txtW; c.height = txtH;
+  x.font = '80px Yellowtail, "Brush Script MT", cursive'; x.fillStyle = '#000'; x.textBaseline = 'middle';
+  x.fillText(text, 20, 62);
+  gl.bindTexture(gl.TEXTURE_2D, texTxt);
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, c);
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+}
+
+/* ---------- field: mask in screen space, its blur, motion heat, brightness ---------- */
+const FSHORT = 96;
+const F = { w:0, h:0, cur:null, prev:null, have:false, lum:null, sm:null, blur:null, tmp:null, heat:null, px:null, idx:null, idxKey:'', E:0 };
+function ensureField(W, H){
+  let w, h; if (W >= H){ h = FSHORT; w = Math.round(FSHORT * W / H); } else { w = FSHORT; h = Math.round(FSHORT * H / W); }
+  if (w === F.w && h === F.h) return;
+  F.w = w; F.h = h; est.width = w; est.height = h; const n = w * h;
+  F.cur = new Uint8Array(n); F.prev = new Uint8Array(n); F.have = false; F.lum = new Float32Array(n);
+  F.sm = new Float32Array(n); F.blur = new Float32Array(n); F.tmp = new Float32Array(n); F.heat = new Float32Array(n); F.lag = new Float32Array(n);
+  F.px = new Uint8Array(n * 4); F.idxKey = '';
+}
+function grab(){
+  const w = F.w, h = F.h, vw = video.videoWidth, vh = video.videoHeight;
+  if (!(vw > 0 && vh > 0)) return false;
+  const sa = w / h, va = vw / vh;
+  let cw = vw, ch = vh; if (va > sa) cw = vh * sa; else ch = vw / sa;
+  ectx.setTransform(mirror ? -1 : 1, 0, 0, 1, mirror ? w : 0, 0);
+  try { ectx.drawImage(video, (vw - cw)/2, (vh - ch)/2, cw, ch, 0, 0, w, h); } catch(e){ return false; }
+  const d = ectx.getImageData(0, 0, w, h).data;
+  const t = F.prev; F.prev = F.cur; F.cur = t;
+  for (let i = 0, j = 0, n = w*h; i < n; i++, j += 4){ const g = (d[j]*77 + d[j+1]*150 + d[j+2]*29) >> 8; F.cur[i] = g; F.lum[i] = g / 255; }
+  const ok = F.have; F.have = true; return ok;
+}
+function ensureIdx(){
+  const key = F.w + 'x' + F.h + ':' + M.w + 'x' + M.h + ':' + (mirror ? 1 : 0) + ':' + vidW + 'x' + vidH;
+  if (key === F.idxKey) return; F.idxKey = key;
+  if (!F.idx || F.idx.length !== F.w * F.h) F.idx = new Int32Array(F.w * F.h);
+  // screen cell -> mask pixel: the same cover crop and mirror as the picture
+  const sa = F.w / F.h, va = vidW / vidH, sx = sa < va ? sa / va : 1, sy = sa < va ? 1 : va / sa;
+  for (let y = 0; y < F.h; y++) for (let x = 0; x < F.w; x++){
+    let u = ((x + .5) / F.w - .5) * sx + .5, v = ((y + .5) / F.h - .5) * sy + .5;
+    if (mirror) u = 1 - u;
+    const mx = Math.min(M.w - 1, Math.max(0, u * M.w | 0)), my = Math.min(M.h - 1, Math.max(0, v * M.h | 0));
+    F.idx[y * F.w + x] = my * M.w + mx;
+  }
+}
+function boxBlur(src, dst, tmp, w, h, r){
+  const inv = 1 / (2 * r + 1);
+  for (let y = 0; y < h; y++){ const o = y * w; let s = 0;
+    for (let x = -r; x <= r; x++) s += src[o + Math.min(w - 1, Math.max(0, x))];
+    for (let x = 0; x < w; x++){ tmp[o + x] = s * inv; s += src[o + Math.min(w - 1, x + r + 1)] - src[o + Math.max(0, x - r)]; } }
+  for (let x = 0; x < w; x++){ let s = 0;
+    for (let y = -r; y <= r; y++) s += tmp[Math.min(h - 1, Math.max(0, y)) * w + x];
+    for (let y = 0; y < h; y++){ dst[y * w + x] = s * inv; s += tmp[Math.min(h - 1, y + r + 1) * w + x] - tmp[Math.max(0, y - r) * w + x]; } }
+}
+function updateField(dt, grabbed){
+  const n = F.w * F.h, useMask = M.has && M.live;
+  if (useMask) ensureIdx();
+  const decay = Math.exp(-dt / .55);
+  let e = 0, area = 0;
+  // camera warm-up and exposure jumps change most of the frame at once: that is not you moving
+  // Told apart by the SIGN of the change, not by how much changed. An
+  // exposure jump pushes nearly every pixel the same way; a body moving makes
+  // some pixels brighter and others darker. Counting changed pixels could not
+  // tell them apart: a person close to a phone sweeping sideways changes most
+  // of the frame too, and exactly that lunge was being thrown away.
+  let armed = grabbed && performance.now() - camT0 > 900;
+  if (armed){
+    let ch = 0, cnt = 0, sAbs = 0, sSig = 0;
+    for (let i = 0; i < n; i += 5){
+      const dv = F.cur[i] - F.prev[i]; cnt++;
+      if (dv > 30 || -dv > 30) ch++;
+      sAbs += dv < 0 ? -dv : dv; sSig += dv;
+    }
+    if (ch > cnt * .35 && Math.abs(sSig) > sAbs * .6) armed = false;
+  }
+  for (let i = 0; i < n; i++){
+    // with no mask, brightness alone makes the relief
+    // with no person model, the brightest part of the picture is paper and the rest is printed
+    const mk = useMask ? M.f[F.idx[i]] : (F.lum[i] < INK.cut ? 1 : 0);
+    F.sm[i] = F.sm[i] * .45 + mk * .55;
+    area += useMask ? F.sm[i] : 1;
+    let hv = F.heat[i] * decay;
+    if (armed){
+      const dv = Math.abs(F.cur[i] - F.prev[i]);
+      if (dv > 14){ const m = Math.min(1, (dv - 14) / 45) * (useMask ? Math.min(1, F.sm[i] * 1.6 + .15) : 1); if (m > hv) hv = m; e += m; }
+    }
+    F.heat[i] = hv;
+  }
+  // Movement as a share of YOU, not of the frame: someone small in the
+  // picture should be able to drive the piece as hard as someone close up.
+  if (grabbed) F.E = F.E * .5 + (e / Math.max(area, n * .06)) * .5;
+  else F.E *= Math.exp(-dt / .4);
+  // three box passes ~ a gaussian: a body that fills the frame should still
+  // come out as a dome, not a flat plateau with a cliff round the edge
+  const r = Math.max(2, F.w / 15 | 0);
+  boxBlur(F.sm, F.blur, F.tmp, F.w, F.h, r);
+  boxBlur(F.blur, F.blur, F.tmp, F.w, F.h, r);
+  boxBlur(F.blur, F.blur, F.tmp, F.w, F.h, r);
+  // the colour plate follows the body late, so moving slips it off the black
+  const lk = 1 - Math.exp(-dt / (.04 + .3 * S.reg));
+  for (let i = 0; i < n; i++) F.lag[i] += (F.sm[i] - F.lag[i]) * lk;
+  const P = F.px;
+  for (let i = 0, j = 0; i < n; i++, j += 4){
+    P[j] = F.sm[i] * 255; P[j+1] = F.lag[i] * 255; P[j+2] = F.heat[i] * 255; P[j+3] = F.lum[i] * 255;
+  }
+  gl.bindTexture(gl.TEXTURE_2D, texField);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, F.w, F.h, 0, gl.RGBA, gl.UNSIGNED_BYTE, P);
+}
+
+/* ---------- person mask ---------- */
+const M = { w:0, h:0, f:null, has:false, live:false, external:false, lastT:0 };
+function ingestMask(data, w, h){
+  if (!data || !(w > 0) || !(h > 0) || !(w * h <= 4e6) || data.length < w * h) return false;
+  if (M.w !== w || M.h !== h){ M.w = w; M.h = h; M.f = new Float32Array(w * h); F.idxKey = ''; }
+  for (let i = 0, n = w * h; i < n; i++){ let m = data[i]; if (!(m >= 0)) m = 0; else if (m > 1) m = 1; M.f[i] = m; }
+  M.has = true; M.live = true; M.lastT = performance.now();
+  return true;
+}
+let segmenter = null, lastTs = 0, lastSegVT = -1;
+async function initModel(){
+  try{
+    setStatus('人物の切り抜きを読み込み中…');
+    const vision = await import(VISION_URL);
+    const fs = await vision.FilesetResolver.forVisionTasks(WASM_URL);
+    const opts = d => ({ baseOptions:{ modelAssetPath:SEG_MODEL, delegate:d }, runningMode:'VIDEO', outputConfidenceMasks:true, outputCategoryMask:false });
+    try { segmenter = await vision.ImageSegmenter.createFromOptions(fs, opts('GPU')); }
+    catch(e){ segmenter = await vision.ImageSegmenter.createFromOptions(fs, opts('CPU')); }
+    setStatus('');
+  }catch(e){
+    if (M.external) return;
+    setStatus('人物の切り抜きを読み込めませんでした（ネット接続を確認）。\n明るさだけで立体にして続けます。');
+    setTimeout(() => setStatus(''), 9000);
+  }
+}
+function segment(now){
+  if (!segmenter || video.readyState < 2) return;
+  const vt = video.currentTime; if (vt === lastSegVT) return; lastSegVT = vt;
+  try{
+    const ts = Math.max(lastTs + 1, Math.round(now)); lastTs = ts;
+    segmenter.segmentForVideo(video, ts, res => {
+      const ms = res && res.confidenceMasks; if (!ms || !ms.length) return;
+      const mk = ms[ms.length - 1];
+      ingestMask(mk.getAsFloat32Array(), mk.width, mk.height);
+    });
+  }catch(e){}
+}
+
+/* ---------- camera ---------- */
+let stream = null, facing = 'user', mirror = true, started = false, vidW = 1280, vidH = 720, lastVT = -1, camT0 = 0;
+function setStatus(t){ $('status').textContent = t || ''; }
+function camError(e){
+  const msg = (e && (e.message || e.name)) ? (e.message || e.name) : String(e || 'unknown');
+  const text = 'カメラを起動できませんでした：' + msg + '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+  $('err').textContent = text;
+  if (started) setStatus(text);
+}
+async function startCam(){
+  const md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) throw new Error('getUserMedia is unavailable');
+  const s = await md.getUserMedia({ video:{ facingMode:{ ideal:facing }, width:{ ideal:1280 }, height:{ ideal:720 } }, audio:false });
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = s; mirror = facing === 'user';
+  video.srcObject = s;
+  await new Promise(r => { if (video.readyState >= 1) r(); else video.onloadedmetadata = () => r(); });
+  await video.play().catch(()=>{});
+  vidW = video.videoWidth || 1280; vidH = video.videoHeight || 720;
+  F.have = false; F.idxKey = ''; camT0 = performance.now();
+}
+
+/* ---------- how much black goes on: a share of the body, whatever the light ---------- */
+const INK = { thr:.35, cut:.7, hist:new Uint32Array(64) };
+function inkLevels(){
+  const n = F.w * F.h, H = INK.hist, useMask = M.has && M.live; H.fill(0);
+  let c = 0;
+  for (let i = 0; i < n; i++){ if (F.sm[i] > .5){ H[Math.min(63, F.lum[i] * 64 | 0)]++; c++; } }
+  if (c > 30){
+    const want = c * (.15 + .45 * S.ink); let a = 0, b = 0;
+    for (; b < 64; b++){ a += H[b]; if (a >= want) break; }
+    INK.thr += ((b + .5) / 64 - INK.thr) * .25;
+  }
+  if (!useMask){
+    H.fill(0); for (let i = 0; i < n; i++) H[Math.min(63, F.lum[i] * 64 | 0)]++;
+    let a = 0, b = 0; for (; b < 64; b++){ a += H[b]; if (a >= n * .72) break; }
+    INK.cut += ((b + .5) / 64 - INK.cut) * .2;
+  }
+}
+
+/* ---------- audio: the squeegee, and the sticker coming away ---------- */
+let actx = null, bus = null, recDest = null, noiseBuf = null, peelG = null, peelF = null;
+function ensureAudio(){
+  if (actx){ if (actx.state === 'suspended') actx.resume().catch(()=>{}); return; }
+  const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+  actx = new AC(); bus = actx.createGain(); bus.gain.value = .45; bus.connect(actx.destination);
+  recDest = actx.createMediaStreamDestination(); bus.connect(recDest);
+  noiseBuf = actx.createBuffer(1, actx.sampleRate * 2, actx.sampleRate);
+  const d = noiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  // the peel: a crackle that only opens while the paper is moving
+  const src = actx.createBufferSource(); src.buffer = noiseBuf; src.loop = true;
+  peelF = actx.createBiquadFilter(); peelF.type = 'bandpass'; peelF.frequency.value = 2600; peelF.Q.value = .9;
+  peelG = actx.createGain(); peelG.gain.value = 0;
+  src.connect(peelF); peelF.connect(peelG); peelG.connect(bus); src.start();
+  actx.resume().catch(()=>{});
+}
+function squeegee(){
+  if (!actx || actx.state !== 'running') return;
+  const t = actx.currentTime, s = actx.createBufferSource(), f = actx.createBiquadFilter(), g = actx.createGain();
+  s.buffer = noiseBuf; f.type = 'lowpass'; f.Q.value = 2;
+  f.frequency.setValueAtTime(500, t); f.frequency.exponentialRampToValueAtTime(2200, t + .55);
+  g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime(.35, t + .05); g.gain.exponentialRampToValueAtTime(.0001, t + .62);
+  s.connect(f); f.connect(g); g.connect(bus); s.start(t, Math.random()); s.stop(t + .7);
+}
+function peelSound(speed){
+  if (!peelG || actx.state !== 'running') return;
+  // random dropouts make it crackle like adhesive letting go
+  const v = Math.min(.5, speed * .9) * (Math.random() < .7 ? 1 : .2);
+  peelG.gain.setTargetAtTime(v, actx.currentTime, .02);
+}
+function snapSound(){
+  if (!actx || actx.state !== 'running') return;
+  const t = actx.currentTime, o = actx.createOscillator(), g = actx.createGain();
+  o.frequency.setValueAtTime(180, t); o.frequency.exponentialRampToValueAtTime(70, t + .08);
+  g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime(.3, t + .004); g.gain.exponentialRampToValueAtTime(.0001, t + .14);
+  o.connect(g); g.connect(bus); o.start(t); o.stop(t + .16);
+}
+
+/* ---------- ui ---------- */
+const MODE = { on:false, pull:1, target:1 };
+function setMode(on){
+  if (on === MODE.on) return; MODE.on = on;
+  $('mode').textContent = on ? '◂ CAMERA' : '▸ MUKU';
+  document.body.classList.toggle('cam', !on);
+  MODE.target = on ? 1 : 0;
+  if (on){ $('hint').classList.add('show'); clearTimeout(MODE.ht); MODE.ht = setTimeout(() => $('hint').classList.remove('show'), 5000); }
+  else $('hint').classList.remove('show');
+  squeegee();
+}
+$('mode').onclick = () => setMode(!MODE.on);
+addEventListener('keydown', e => { if (started && (e.key === ' ' || e.key === 'Enter') && document.activeElement.tagName !== 'INPUT'){ e.preventDefault(); setMode(!MODE.on); } });
+$('go').onclick = async () => {
+  $('err').textContent = '';
+  ensureAudio();
+  try{
+    if (!gl) throw new Error('WebGL2 に未対応のブラウザです');
+    if (!PR) initGL();
+    await startCam();
+  }catch(e){ camError(e); return; }
+  $('start').style.display = 'none';
+  ['gear','flip','bar','rec','shoot','next','mode'].forEach(id => $(id).classList.add('show'));
+  MODE.on = false; MODE.target = 0; MODE.pull = 0; document.body.classList.add('cam');
+  if (!started){ started = true; initModel(); requestAnimationFrame(loop); }
+};
+$('flip').onclick = async () => {
+  const prev = facing; facing = facing === 'user' ? 'environment' : 'user';
+  try { await startCam(); } catch(e){ facing = prev; camError(e); }
+};
+$('gear').onclick = () => $('panel').classList.toggle('hide');
+function setPal(k){
+  S.pal = ((k % PALS.length) + PALS.length) % PALS.length;
+  const P = PALS[S.pal], r = document.documentElement.style;
+  r.setProperty('--bg', P.paper); document.querySelector('meta[name=theme-color]').content = P.paper;
+  [...$('pals').children].forEach(x => x.classList.toggle('on', +x.dataset.k === S.pal));
+}
+$('pals').onclick = e => { const b = e.target.closest('button'); if (b) setPal(+b.dataset.k); };
+$('next').onclick = () => setPal(S.pal + 1);
+[['sInk','ink'],['sReg','reg'],['sLine','line']].forEach(([id, k]) => { $(id).oninput = e => { S[k] = +e.target.value; }; });
+setPal(0);
+
+// the peel: A is where the finger took hold, B where it is now (canvas pixels)
+const PEEL = { on:false, held:false, ax:0, ay:0, bx:0, by:0, ex:0, ey:0, back:0, lastX:0, lastY:0, lastT:0, moved:0 };
+function toCanvas(e){ const r = canvas.getBoundingClientRect(); return [(e.clientX - r.left) / r.width * canvas.width, (e.clientY - r.top) / r.height * canvas.height]; }
+canvas.addEventListener('pointerdown', e => {
+  if (!MODE.on || MODE.pull < 1) return;
+  const [x, y] = toCanvas(e);
+  Object.assign(PEEL, { held:true, on:true, ax:x, ay:y, bx:x, by:y, ex:x, ey:y, moved:0, lastX:x, lastY:y, lastT:performance.now() });
+  canvas.setPointerCapture(e.pointerId);
+});
+canvas.addEventListener('pointermove', e => {
+  if (!PEEL.held) return;
+  const [x, y] = toCanvas(e), now = performance.now();
+  PEEL.bx = x; PEEL.by = y; PEEL.moved = Math.max(PEEL.moved, Math.hypot(x - PEEL.ax, y - PEEL.ay));
+  const v = Math.hypot(x - PEEL.lastX, y - PEEL.lastY) / Math.max(8, now - PEEL.lastT) / Math.min(canvas.width, canvas.height) * 1000;
+  PEEL.lastX = x; PEEL.lastY = y; PEEL.lastT = now;
+  peelSound(v);
+});
+const endPeel = () => {
+  if (!PEEL.held) return; PEEL.held = false;
+  if (PEEL.moved < Math.min(canvas.width, canvas.height) * .02){ PEEL.on = false; setPal(S.pal + 1); return; }   // a tap
+  PEEL.back = 1;
+  if (peelG) peelG.gain.setTargetAtTime(0, actx.currentTime, .05);
+};
+canvas.addEventListener('pointerup', endPeel); canvas.addEventListener('pointercancel', endPeel);
+
+$('shoot').onclick = () => {
+  try{
+    canvas.toBlob(b => { if (!b) return; const a = document.createElement('a'); a.href = URL.createObjectURL(b);
+      a.download = 'muku-' + Date.now() + '.png'; a.click(); }, 'image/png');
+  }catch(e){ setStatus('保存できませんでした。'); }
+};
+let rec = null, chunks = [];
+$('rec').onclick = () => {
+  if (rec && rec.state === 'recording'){ rec.stop(); return; }
+  try{
+    ensureAudio();
+    const tracks = [...canvas.captureStream(30).getVideoTracks()];
+    if (recDest) tracks.push(...recDest.stream.getAudioTracks());
+    const mime = ['video/mp4;codecs=avc1','video/webm;codecs=vp9,opus','video/webm'].find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || '';
+    rec = new MediaRecorder(new MediaStream(tracks), mime ? { mimeType:mime } : {});
+    chunks = [];
+    rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+    rec.onstop = () => {
+      $('rec').classList.remove('on'); $('rec').textContent = '● REC';
+      const ext = (rec.mimeType || '').includes('mp4') ? 'mp4' : 'webm';
+      const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(chunks, { type:rec.mimeType || 'video/webm' }));
+      a.download = 'muku.' + ext; a.click();
+    };
+    rec.start(); $('rec').classList.add('on'); $('rec').textContent = '■ STOP';
+  }catch(e){ setStatus('録画を開始できませんでした。'); }
+};
+
+/* ---------- render ---------- */
+let lastT = 0;
+function loop(now){
+  requestAnimationFrame(loop);
+  const dt = lastT ? Math.min(.1, (now - lastT)/1000) : 1/60; lastT = now;
+  const t = now / 1000;
+  if (video.videoWidth && (video.videoWidth !== vidW || video.videoHeight !== vidH)){ vidW = video.videoWidth; vidH = video.videoHeight; F.have = false; F.idxKey = ''; }
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  let W = Math.round(innerWidth*dpr), H = Math.round(innerHeight*dpr);
+  const k = Math.min(1, 1800 / Math.max(W, H)); W = Math.round(W*k); H = Math.round(H*k);
+  if (canvas.width !== W || canvas.height !== H){ canvas.width = W; canvas.height = H; }
+  ensureField(W, H);
+  if (!M.external) segment(now);
+  if (M.live && now - M.lastT > 1500) M.live = false;
+  if (video.readyState < 2) return;
+  const vt = video.currentTime, fresh = vt !== lastVT; lastVT = vt;
+  const grabbed = fresh && grab();
+  updateField(dt, grabbed);
+  if (grabbed) inkLevels();
+  if (fresh){ gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, texVid);
+    try { gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video); } catch(e){ return; } }
+
+  // the squeegee travels down to print, back up to lift the print off
+  MODE.pull += Math.sign(MODE.target - MODE.pull) * Math.min(Math.abs(MODE.target - MODE.pull), dt / .6);
+  // the peel springs back flat when let go, with a slap at the end
+  if (PEEL.back > 0){
+    PEEL.back = Math.max(0, PEEL.back - dt / .45);
+    const e = PEEL.back * PEEL.back;
+    PEEL.bx = PEEL.ax + (PEEL.ex - PEEL.ax) * e; PEEL.by = PEEL.ay + (PEEL.ey - PEEL.ay) * e;
+    if (PEEL.back === 0){ PEEL.on = false; snapSound(); }
+  } else if (PEEL.held){ PEEL.ex = PEEL.bx; PEEL.ey = PEEL.by; }
+  else if (peelG && actx) peelG.gain.setTargetAtTime(0, actx.currentTime, .05);
+
+  const P = PALS[S.pal], ms = Math.min(W, H);
+  const sa = W / H, va = vidW / vidH;
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, 0, W, H);
+  gl.useProgram(PR.p);
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, texVid); gl.uniform1i(PR.U.uVid, 0);
+  gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, texField); gl.uniform1i(PR.U.uF, 1);
+  gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, texTxt); gl.uniform1i(PR.U.uTxt, 2);
+  gl.uniform2f(PR.U.uRes, W, H); gl.uniform2f(PR.U.uScale, sa < va ? sa / va : 1, sa < va ? 1 : va / sa);
+  gl.uniform1f(PR.U.uMirror, mirror ? 1 : 0); gl.uniform1f(PR.U.uT, t);
+  gl.uniform1f(PR.U.uThr, INK.thr);
+  gl.uniform1f(PR.U.uLine, S.line * .016 * ms);
+  // the colour plate sits off the black by a fixed amount, more with the slider
+  const off = (.002 + .01 * S.reg);
+  gl.uniform2f(PR.U.uReg, off * ms / W, -off * .7 * ms / H);
+  gl.uniform1f(PR.U.uPull, MODE.pull);
+  let pe = [0, 0, 0, 1], on = 0;
+  const dx = PEEL.ax - PEEL.bx, dy = PEEL.ay - PEEL.by, L = Math.hypot(dx, dy);
+  if (PEEL.on && L > 1){ pe = [(PEEL.ax + PEEL.bx) / 2, (PEEL.ay + PEEL.by) / 2, dx / L, dy / L]; on = 1; }
+  gl.uniform4f(PR.U.uPeel, pe[0], pe[1], pe[2], pe[3]); gl.uniform1f(PR.U.uPeelOn, on);
+  const th = ms * .065, tw = th * txtW / txtH;
+  gl.uniform4f(PR.U.uTxtRect, W - tw - ms * .05, H - th - ms * .2, W - ms * .05, H - ms * .2); gl.uniform1f(PR.U.uTxtOn, 1);
+  gl.uniform3fv(PR.U.uPaper, P.P); gl.uniform3fv(PR.U.uFill, P.F); gl.uniform3fv(PR.U.uInk, P.I);
+  gl.uniform3fv(PR.U.uUnder, P.U); gl.uniform3fv(PR.U.uUInk, P.UI); gl.uniform3fv(PR.U.uBack, P.B);
+  gl.bindVertexArray(vaoQ); gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+}
+
+/* ---------- test hook (used by the local verification harness) ---------- */
+window.__MUKU = {
+  state: () => ({ on:MODE.on, pull:MODE.pull, pal:S.pal, thr:+INK.thr.toFixed(3), E:+F.E.toFixed(4), mask:M.live, peel:PEEL.on, fw:F.w, fh:F.h }),
+  mode(m){ setMode(!!m); },
+  pal(k){ setPal(k); },
+  set(k, v){ S[k] = v; },
+  peel(ax, ay, bx, by){ Object.assign(PEEL, { on:true, held:true, ax, ay, bx, by, ex:bx, ey:by, back:0, moved:1e9 }); },
+  release(){ PEEL.held = true; PEEL.moved = 1e9; endPeel(); },
+  feedMask(data, w, h){ M.external = true; return ingestMask(data, w, h); },
+};
+</script>
+</body>
+</html>
