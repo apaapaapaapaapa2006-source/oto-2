@@ -13,6 +13,8 @@
   MOOD       色を落とした暗い部屋の映像の上に、細い橙の線で描いた立方体が
              ひとつ浮かぶ。中には赤い水。研究室の流体シミュレーションの画面を
              そのまま現実に重ねた感じ ── 端には本当に計算している数字が並ぶ。
+  SHAPE      箱と球を切り替えられる。球のときは水が球の内壁に当たり、枠は輪郭と
+             三本の大円と二本の緯線で描く針金の球になる。
   RULE       片手：箱は手のひらに乗り、手の向き（手首→中指、人差し指→小指）
              にそのまま回る。両手：箱は両手のあいだに浮かび、離すほど大きい。
              手が無いときは宙でゆっくり回り、画面をドラッグしても回せる。
@@ -102,10 +104,15 @@ body.cam .hud{visibility:hidden}
 <div id="bar">
   <button id="rec" class="btn">● REC</button>
   <button id="shoot" class="btn" aria-label="撮る"></button>
+  <button id="shape" class="btn">○ 球にする</button>
   <button id="refill" class="btn">注ぎ直す</button>
 </div>
 
 <div id="panel" class="hide">
+  <div class="chips" id="shapes">
+    <button data-k="0" class="on">□ 箱</button>
+    <button data-k="1">○ 球</button>
+  </div>
   <div class="chips" id="cols">
     <button data-k="1">青</button>
     <button data-k="0">赤</button>
@@ -157,7 +164,7 @@ const COLS = [
   { name:'金', water:'#ffb21f', line:'#f4d58a' },
   { name:'緑', water:'#5cff6a', line:'#b8f0a6' },
 ].map(c => Object.assign(c, { W:hex(c.water), L:hex(c.line) }));
-const S = { col:1, amt:.55, visc:.2, grav:.5, size:.5 };
+const S = { col:1, amt:.55, visc:.2, grav:.5, size:.5, shape:0 };      // shape: 0 box, 1 sphere
 
 /* ---------- small 3x3 rotation helpers (column-major arrays of 9) ---------- */
 const m3 = {
@@ -264,10 +271,14 @@ function step(dt, gx, gy, gz){
   }
   // walls, and velocities from where everything ended up
   let ke = 0, sp = 0;
-  const inv = 1 / dt;
+  const inv = 1 / dt, sphere = S.shape === 1;
   for (let i = 0; i < n; i++){
     const a = i * 3;
-    for (let c = 0; c < 3; c++){
+    if (sphere){
+      // the round tank: pushed back inside the ball, a little short of the wall so it does not stick
+      const d = Math.hypot(X[a], X[a+1], X[a+2]);
+      if (d > lim){ const f = (lim - (d - lim) * .1) / d; X[a] *= f; X[a+1] *= f; X[a+2] *= f; }
+    } else for (let c = 0; c < 3; c++){
       if (X[a+c] < -lim){ X[a+c] = -lim + (-lim - X[a+c]) * .1; }
       else if (X[a+c] > lim){ X[a+c] = lim - (X[a+c] - lim) * .1; }
     }
@@ -359,7 +370,7 @@ function prog(vs, fs, attrs){ const p = gl.createProgram(); gl.attachShader(p, s
   for (let i = 0; i < n; i++){ const u = gl.getActiveUniform(p, i); U[u.name] = gl.getUniformLocation(p, u.name); }
   return { p, U }; }
 let PC, PP, PL, vaoQ, vaoP, vaoL, bufP, bufZ, bufL, texVid;
-const PDATA = new Float32Array(NMAX * 4), ZDATA = new Float32Array(NMAX), LDATA = new Float32Array(12 * 6 * 3 * 2), ORDER = new Uint16Array(NMAX), DEPTH = new Float32Array(NMAX);
+const PDATA = new Float32Array(NMAX * 4), ZDATA = new Float32Array(NMAX), LDATA = new Float32Array(360 * 6 * 3), ORDER = new Uint16Array(NMAX), DEPTH = new Float32Array(NMAX);
 function initGL(){
   PC = prog(VS_Q, FS_CAM, ['p']); PP = prog(VS_P, FS_P, ['aP', 'aZ']); PL = prog(VS_L, FS_L, ['aL']);
   vaoQ = gl.createVertexArray(); gl.bindVertexArray(vaoQ);
@@ -512,7 +523,7 @@ $('go').onclick = async () => {
     await startCam();
   }catch(e){ camError(e); return; }
   $('start').style.display = 'none';
-  ['gear','flip','bar','rec','shoot','refill','mode','hudL','hudR','hudB'].forEach(id => $(id).classList.add('show'));
+  ['gear','flip','bar','rec','shoot','shape','refill','mode','hudL','hudR','hudB'].forEach(id => $(id).classList.add('show'));
   MODE.on = false; document.body.classList.add('cam');
   if (!started){ started = true; initModel(); requestAnimationFrame(loop); }
 };
@@ -522,6 +533,13 @@ $('flip').onclick = async () => {
 };
 $('gear').onclick = () => $('panel').classList.toggle('hide');
 $('refill').onclick = () => { if (MODE.on) refill(); };
+function setShape(k){
+  S.shape = k ? 1 : 0;
+  $('shape').textContent = S.shape ? '□ 箱にする' : '○ 球にする';
+  [...$('shapes').children].forEach(x => x.classList.toggle('on', +x.dataset.k === S.shape));
+}
+$('shape').onclick = () => setShape(!S.shape);
+$('shapes').onclick = e => { const b = e.target.closest('button'); if (b) setShape(+b.dataset.k); };
 function setCol(k){
   S.col = ((k % COLS.length) + COLS.length) % COLS.length;
   document.documentElement.style.setProperty('--acc', COLS[S.col].line);
@@ -573,6 +591,13 @@ const BOX = { x:0, y:0, s:0, q:[1, 0, 0, 0], R:m3.rotX(0), vx:0, vy:0, init:fals
 let lastT = 0, hudT = 0, keSlow = 0, simMs = 0, lastSub = 1;
 const CUBE = [[-1,-1,-1],[1,-1,-1],[1,1,-1],[-1,1,-1],[-1,-1,1],[1,-1,1],[1,1,1],[-1,1,1]];
 const EDGES = [[0,1],[1,2],[2,3],[3,0],[4,5],[5,6],[6,7],[7,4],[0,4],[1,5],[2,6],[3,7]];
+// the sphere's wireframe: three great circles and two lines of latitude, as short segments
+const GLOBE = [];
+(function(){
+  const N = 48, ring = (f) => { for (let i = 0; i < N; i++){ const a = i / N * 6.2832, b = (i + 1) / N * 6.2832; GLOBE.push([f(a), f(b)]); } };
+  ring(t => [Math.cos(t), Math.sin(t), 0]); ring(t => [0, Math.cos(t), Math.sin(t)]); ring(t => [Math.cos(t), 0, Math.sin(t)]);
+  for (const y of [-.5, .5]){ const r = Math.sqrt(1 - y * y); ring(t => [Math.cos(t) * r, y, Math.sin(t) * r]); }
+})();
 function project(lx, ly, lz){
   // box-local -> screen px, with a gentle perspective; returns [x, y, z]
   const p = m3.app(BOX.R, lx * BOX.s, ly * BOX.s, lz * BOX.s), D = BOX.s * 5.5, k = D / (D + p[2]);
@@ -673,15 +698,27 @@ function loop(now){
       gl.bindBuffer(gl.ARRAY_BUFFER, bufP); gl.bufferSubData(gl.ARRAY_BUFFER, 0, tmp);
       gl.uniform1f(PP.U.uPass, 1); gl.drawArrays(gl.POINTS, 0, n);
     }
-    // the cube's edges, as thin quads; the far ones fainter
-    const V = CUBE.map(c => project(c[0], c[1], c[2]));
+    // the tank's lines, as thin quads; the far ones fainter
     let o = 0; const lw = Math.max(1, ms / 700) * MODE.dim;
-    for (const [i, j] of EDGES){
-      const a = V[i], b = V[j], far = (a[2] + b[2]) / 2 > 0;
+    const seg = (a, b, al) => {
       let dx = b[0] - a[0], dy = b[1] - a[1]; const L = Math.hypot(dx, dy) || 1; const nx = -dy / L * lw, ny = dx / L * lw;
-      const al = (far ? .45 : .95) * MODE.dim;
       for (const [x, y] of [[a[0]-nx, a[1]-ny], [a[0]+nx, a[1]+ny], [b[0]+nx, b[1]+ny], [a[0]-nx, a[1]-ny], [b[0]+nx, b[1]+ny], [b[0]-nx, b[1]-ny]]){
         LDATA[o++] = x; LDATA[o++] = y; LDATA[o++] = al; }
+    };
+    if (S.shape === 1){
+      for (const [p, q] of GLOBE){
+        const a = project(p[0], p[1], p[2]), b = project(q[0], q[1], q[2]);
+        seg(a, b, ((a[2] + b[2]) / 2 > 0 ? .3 : .8) * MODE.dim);
+      }
+      // the outline of the ball itself, always in front
+      const R = BOX.s * 1.02;
+      for (let i = 0; i < 64; i++){
+        const t0 = i / 64 * 6.2832, t1 = (i + 1) / 64 * 6.2832;
+        seg([BOX.x + Math.cos(t0) * R, BOX.y + Math.sin(t0) * R], [BOX.x + Math.cos(t1) * R, BOX.y + Math.sin(t1) * R], .95 * MODE.dim);
+      }
+    } else {
+      const V = CUBE.map(c => project(c[0], c[1], c[2]));
+      for (const [i, j] of EDGES) seg(V[i], V[j], ((V[i][2] + V[j][2]) / 2 > 0 ? .45 : .95) * MODE.dim);
     }
     gl.useProgram(PL.p); gl.uniform2f(PL.U.uRes, W, Hh); gl.uniform3fv(PL.U.uC, C.L);
     gl.bindVertexArray(vaoL); gl.bindBuffer(gl.ARRAY_BUFFER, bufL); gl.bufferSubData(gl.ARRAY_BUFFER, 0, LDATA.subarray(0, o));
@@ -697,7 +734,7 @@ function loop(now){
       '\ngravity    ' + (6 + 14 * S.grav).toFixed(2) + '\nsubsteps   ' + lastSub + '\nkinetic    ' + FL.ke.toFixed(3) + '\nsplash     ' + String(FL.splash).padStart(4, ' ') +
       '\nsolve ms   ' + simMs.toFixed(2) + '\nparticles  ' + FL.n;
     const r = BOX.R, roll = Math.atan2(r[1], r[0]) * 57.3, pitch = Math.asin(Math.max(-1, Math.min(1, -r[2]))) * 57.3;
-    let rt = '+ BOX_ROLL     ' + roll.toFixed(1) + '°\n+ BOX_PITCH    ' + pitch.toFixed(1) + '°\n+ BOX_SIZE     ' + (BOX.s * 2 / ms).toFixed(2);
+    let rt = '+ BOX_ROLL     ' + roll.toFixed(1) + '°\n+ BOX_PITCH    ' + pitch.toFixed(1) + '°\n+ SHAPE        ' + (S.shape ? 'SPHERE' : 'CUBE') + '\n+ BOX_SIZE     ' + (BOX.s * 2 / ms).toFixed(2);
     HANDS.list.forEach((h, i) => { if (live) rt += '\n+ HAND_' + (i + 1) + '_POS     ' + (h.c[0] / W).toFixed(2) + ', ' + (h.c[1] / Hh).toFixed(2); });
     if (live && HANDS.list.length >= 2) rt += '\n+ HANDS_DISTANCE ' + (Math.hypot(HANDS.list[1].c[0] - HANDS.list[0].c[0], HANDS.list[1].c[1] - HANDS.list[0].c[1]) / ms).toFixed(2);
     if (!live) rt += '\n+ NO HANDS · DRAG TO TURN';
@@ -710,14 +747,16 @@ window.__SUISOU = {
   state: () => {
     // how the water sits: its mean position along gravity, and how much of it is outside the box (must be none)
     let out = 0, my = 0; const n = FL.n;
-    for (let i = 0; i < n; i++){ const a = i * 3; if (Math.abs(FL.x[a]) > 1 || Math.abs(FL.x[a+1]) > 1 || Math.abs(FL.x[a+2]) > 1 || !isFinite(FL.x[a])) out++; }
+    for (let i = 0; i < n; i++){ const a = i * 3, x = FL.x[a], y = FL.x[a+1], z = FL.x[a+2];
+      if ((S.shape ? Math.hypot(x, y, z) > 1.001 : (Math.abs(x) > 1 || Math.abs(y) > 1 || Math.abs(z) > 1)) || !isFinite(x)) out++; }
     const gd = m3.app(m3.tr(BOX.R), 0, 1, 0);
     for (let i = 0; i < n; i++){ const a = i * 3; my += FL.x[a] * gd[0] + FL.x[a+1] * gd[1] + FL.x[a+2] * gd[2]; }
-    return { on:MODE.on, n, out, down:n ? +(my / n).toFixed(3) : 0, ke:+FL.ke.toFixed(3), splash:FL.splash, ms:+simMs.toFixed(2),
+    return { on:MODE.on, shape:S.shape, n, out, down:n ? +(my / n).toFixed(3) : 0, ke:+FL.ke.toFixed(3), splash:FL.splash, ms:+simMs.toFixed(2),
              box:[BOX.x, BOX.y, BOX.s].map(v => +v.toFixed(1)), hands:HANDS.list.length };
   },
   mode(m){ setMode(!!m); },
   col(k){ setCol(k); },
+  shape(k){ setShape(k); },
   set(k, v){ S[k] = v; },
   feedHands(h){ HANDS.external = true; return ingestHands(h); },
 };
