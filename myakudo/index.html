@@ -1,0 +1,587 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="description" content="カメラに映るものすべてが、黒地に何十本も重なる白い波形になる。明るいところほど線が持ち上がり、手前の線が奥の線を隠すので、地下鉄の車内も部屋も山脈のような信号の図になる。動いたところは線が電波のように震える。">
+<meta name="theme-color" content="#000000">
+<title>MYAKUDO ─ 脈動の線</title>
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  MYAKUDO 脈動 ─ 脈動の線                               ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  MOOD       1919 年に見つかったパルサーの電波を、一周期ずつ縦に積んだ
+             あの黒地の白線の図。それをカメラにする。何を映しても ── 地下鉄の
+             車内でも、天井の蛍光灯でも、自分の顔でも ── 世界が山脈のような
+             信号の積み重ねとして読める。
+  RULE       線は画面の横幅いっぱい、等間隔に何十本。各線はその高さの行の
+             明るさだけ上へ持ち上がる。下の（手前の）線は黒く塗りつぶして
+             描くので、奥の線は手前の山の陰に隠れる。それだけ。
+  MOTION     動いたところの線は、その一瞬だけ電波のように細かく震える。
+             1.3373 秒ごと（あのパルサーの本当の周期）に全体がかすかに脈を打ち、
+             小さく鳴る。カメラ⇄線の切り替えは、走査が乱れる一瞬のグリッチ。
+  PALETTE    黒地に白が正。タップで替わる：黒（白線）・白（黒線）・燐（緑の
+             オシロスコープ）・彩（線がカメラの色を拾う）。
+  TYPE       Archivo Narrow 400/600 と Zen Kaku Gothic New。
+  SIGNATURE  手前の線が奥の線を隠すこと ── 重なりがあるから平面の線が山になる。
+  TECH       WebGL2。カメラを短辺 180 の明るさの場に落とし、毎フレーム 5〜98%
+             の分位で明るさを正規化（暗い部屋でも線が立つ）。線は 1 本を
+             1 インスタンスとして、先に「線から基線までの黒い帯」、続けて
+             「画面空間で押し出した帯（リボン）」を同じインスタンスの中で描く。
+             インスタンスは上から順に描かれるので、隠線処理は描く順番だけで
+             成り立つ。マイク（任意）を入れると音量で線が跳ねる。
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo+Narrow:wght@400;600&family=Zen+Kaku+Gothic+New:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#000;--fg:#f2f2f0;--dim:rgba(242,242,240,.55);--line:rgba(242,242,240,.24);--acc:#f2f2f0}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none}
+html,body{margin:0;height:100%;background:var(--bg);overflow:hidden;color:var(--fg);
+  font-family:"Zen Kaku Gothic New",ui-sans-serif,sans-serif;font-weight:400;transition:background .4s,color .4s}
+#gl{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+#cam{position:fixed;left:0;top:0;width:2px;height:2px;opacity:.01;pointer-events:none}
+#est{display:none}
+
+#start{position:fixed;inset:0;z-index:30;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;
+  padding:28px;text-align:center;background:#000;color:#f2f2f0}
+#start .t{font:400 10px "Archivo Narrow",sans-serif;letter-spacing:.5em;margin-right:-.5em;opacity:.55}
+#start h1{margin:0;font:600 min(15vw,92px)/1 "Archivo Narrow",sans-serif;letter-spacing:.2em;margin-right:-.2em}
+#start svg{width:min(56vw,230px);height:auto;display:block}
+#start p{margin:0;font-size:12px;line-height:2.1;opacity:.6;letter-spacing:.05em}
+#go{appearance:none;border:1px solid rgba(242,242,240,.32);background:transparent;color:#f2f2f0;font:600 11px "Archivo Narrow",sans-serif;
+  letter-spacing:.5em;padding:15px 30px 15px 36px;cursor:pointer;transition:border-color .3s}
+#go:hover{border-color:#f2f2f0}
+#err{font-size:12px;line-height:1.8;max-width:340px;min-height:1em;white-space:pre-line;color:#f0a896}
+
+.btn{position:fixed;z-index:12;appearance:none;border:0;background:transparent;color:var(--fg);font:500 10px "Zen Kaku Gothic New",sans-serif;
+  letter-spacing:.24em;padding:10px 8px;display:none;cursor:pointer;opacity:.62;transition:opacity .3s,color .4s}
+.btn.show{display:block}
+.btn:hover{opacity:1}
+#gear{right:10px;top:calc(env(safe-area-inset-top) + 6px);font-size:14px;letter-spacing:0}
+#flip{right:10px;top:calc(env(safe-area-inset-top) + 40px);letter-spacing:.1em}
+#bar{position:fixed;left:0;right:0;bottom:calc(env(safe-area-inset-bottom) + 10px);z-index:12;display:none;justify-content:center;align-items:center;gap:26px}
+#bar.show{display:flex}
+#bar .btn{position:static;display:block}
+#bar #shoot{position:relative;width:42px;height:42px;border:1px solid var(--fg);border-radius:50%;padding:0;opacity:.7}
+#shoot::after{content:"";position:absolute;inset:7px;border-radius:50%;background:var(--fg);opacity:.85}
+#rec.on{opacity:1;color:#ff5a4a}
+#mic{border:1px solid var(--line);padding:9px 12px}
+#mic.on{opacity:1;border-color:var(--fg)}
+#hud{position:fixed;left:14px;top:calc(env(safe-area-inset-top) + 14px);z-index:11;font:400 10px "Archivo Narrow",sans-serif;letter-spacing:.3em;color:var(--dim);
+  pointer-events:none;display:none;line-height:2;white-space:pre;transition:color .4s;text-shadow:0 0 3px var(--bg),0 0 6px var(--bg),0 0 10px var(--bg)}
+#hud.show{display:block}
+#status{position:fixed;left:14px;bottom:calc(env(safe-area-inset-bottom) + 118px);z-index:11;font-size:11px;
+  color:var(--dim);pointer-events:none;max-width:78vw;line-height:1.7;white-space:pre-line}
+
+#panel{position:fixed;right:10px;top:calc(env(safe-area-inset-top) + 78px);z-index:12;width:min(272px,calc(100vw - 20px));
+  background:rgba(8,8,8,.88);color:#f2f2f0;border:1px solid rgba(242,242,240,.2);padding:14px 16px;display:flex;flex-direction:column;gap:13px;
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);transition:opacity .25s}
+#panel.hide{opacity:0;pointer-events:none}
+.chips{display:flex;border:1px solid rgba(242,242,240,.2)}
+.chips button{flex:1;appearance:none;border:0;background:transparent;color:#f2f2f0;padding:8px 2px;font:500 11px "Zen Kaku Gothic New",sans-serif;
+  letter-spacing:.2em;cursor:pointer;opacity:.5}
+.chips button.on{opacity:1;background:rgba(242,242,240,.14)}
+#panel label{display:flex;align-items:center;gap:10px;font-size:11px}
+#panel label span{width:48px;flex:none;opacity:.6}
+#panel input[type=range]{flex:1;accent-color:#d8d8d4}
+#panel .note{font-size:10px;opacity:.6;line-height:1.8}
+#mode{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom) + 70px);z-index:13;display:none;
+  appearance:none;border:1px solid var(--line);background:transparent;color:var(--fg);
+  font:600 11px "Archivo Narrow",sans-serif;letter-spacing:.42em;padding:12px 22px 12px 28px;cursor:pointer;
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);transition:border-color .3s,color .4s}
+#mode.show{display:block}
+#mode:hover{border-color:var(--fg)}
+body.cam #mode{border-color:rgba(255,255,255,.6);color:#fff;background:rgba(0,0,0,.3)}
+body.cam .btn{color:#fff;text-shadow:0 0 8px rgba(0,0,0,.6)}
+body.cam #bar #shoot{border-color:#fff}
+body.cam #shoot::after{background:#fff}
+body.cam #hud{visibility:hidden}
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<canvas id="est"></canvas>
+<video id="cam" playsinline muted autoplay></video>
+<div id="hud"></div>
+<div id="status"></div>
+<button id="gear" class="btn" aria-label="調整">⚙</button>
+<button id="flip" class="btn">⟲ カメラ</button>
+<button id="mode">▸ MYAKUDO</button>
+<div id="bar">
+  <button id="rec" class="btn">● REC</button>
+  <button id="shoot" class="btn" aria-label="撮る"></button>
+  <button id="mic" class="btn">♪ MIC</button>
+</div>
+
+<div id="panel" class="hide">
+  <div class="chips" id="themes">
+    <button data-k="0">黒</button>
+    <button data-k="1">白</button>
+    <button data-k="2">燐</button>
+    <button data-k="3">彩</button>
+  </div>
+  <label><span>本数</span><input type="range" id="sLines" min="0" max="1" step="0.01" value="0.4"></label>
+  <label><span>振幅</span><input type="range" id="sAmp" min="0" max="1" step="0.01" value="0.5"></label>
+  <label><span>太さ</span><input type="range" id="sThick" min="0" max="1" step="0.01" value="0.35"></label>
+  <label><span>震え</span><input type="range" id="sShake" min="0" max="1" step="0.01" value="0.5"></label>
+  <div class="note">明るいところほど線が持ち上がる。動いたところは線が震える。<br>画面をタップすると色が替わる。<br>♪ MIC を入れると、音に合わせて線が跳ねる。</div>
+</div>
+
+<div id="start">
+  <div class="t">PULSE PLOT CAMERA</div>
+  <h1>MYAKUDO</h1>
+  <svg viewBox="0 0 230 92" aria-hidden="true" id="logo"></svg>
+  <p>まずは、いつものカメラ。<br>ボタンを押すと、映るものすべてが<br>黒地に重なる白い波形になります。<br>動くと線が震え、タップで色が替わります。</p>
+  <button id="go">START</button>
+  <div id="err"></div>
+</div>
+
+<script>
+'use strict';
+/* =====================================================================
+   MYAKUDO — the camera picture, reduced to a brightness field 180 cells
+   on its short side and levelled per frame (5th..98th percentile), is
+   drawn as N evenly spaced horizontal lines. Each line rises by the
+   brightness of its own row. One instance per line, drawn top to bottom:
+   inside each instance a black band from the curve down to the line's
+   base is drawn first and the line's ribbon after it, so every line
+   hides whatever the lines behind it put there. Hidden lines come from
+   draw order alone — no depth buffer.
+   ===================================================================== */
+const $ = id => document.getElementById(id);
+const canvas = $('gl'), video = $('cam'), est = $('est');
+const ectx = est.getContext('2d', { willReadFrequently:true });
+const PERIOD = 1.3373;                 // CP 1919, the pulsar on that sleeve
+
+// the little emblem on the start screen: the same rule, drawn once
+(function logo(){
+  const svg = $('logo'); let s = '';
+  for (let i = 0; i < 9; i++){
+    const y0 = 22 + i * 7.5; let d = '', f = '';
+    for (let x = 0; x <= 230; x += 3){
+      const c = Math.exp(-Math.pow((x - 115) / 34, 2));
+      const n = Math.sin(x * .31 + i * 2.1) * .5 + Math.sin(x * .73 + i * 5.3) * .5;
+      const y = y0 - c * (12 + 6 * n) * (1 - Math.abs(i - 4) * .08);
+      d += (x ? 'L' : 'M') + x + ' ' + y.toFixed(1);
+    }
+    f = d + 'L230 ' + (y0 + 2) + 'L0 ' + (y0 + 2) + 'Z';
+    s += '<path d="' + f + '" fill="#000"/><path d="' + d + '" fill="none" stroke="#f2f2f0" stroke-width="1.3"/>';
+  }
+  svg.innerHTML = s;
+})();
+
+/* ---------- settings ---------- */
+const THEMES = [
+  { name:'黒', bg:[0, 0, 0],         ink:[.95, .95, .94], vid:0, ui:'#000000', fg:'#f2f2f0' },
+  { name:'白', bg:[.93, .92, .89],   ink:[.05, .05, .05], vid:0, ui:'#edebe3', fg:'#111111' },
+  { name:'燐', bg:[.008, .03, .016], ink:[.42, 1, .62],   vid:0, ui:'#020804', fg:'#8dffb0' },
+  { name:'彩', bg:[0, 0, 0],         ink:[1, 1, 1],       vid:1, ui:'#000000', fg:'#f2f2f0' },
+];
+const S = { theme:0, lines:.4, amp:.5, thick:.35, shake:.5 };
+const nLines = () => Math.round(28 + S.lines * 92);            // 28 .. 120
+
+/* ---------- GL ---------- */
+const gl = canvas.getContext('webgl2', { antialias:false, alpha:false, depth:false, preserveDrawingBuffer:true, powerPreference:'high-performance' });
+const SAMPLES = 256;
+const VS_LINE = `#version 300 es
+precision highp float;
+in vec2 aV;                     // x: sample along the line, y: 0/1 = black band bottom/top, 2/3 = ribbon edges
+uniform sampler2D uF;           // r: levelled brightness, g: movement
+uniform vec2 uRes;
+uniform float uL, uAmp, uHalf, uT, uPulse, uMic, uShake, uG, uSeed;
+out float vAcross; flat out float vKind; out vec2 vUV;
+float h11(float n){ return fract(sin(n * 127.1 + uSeed) * 43758.5453); }
+float vn(float x, float k){ float i = floor(x), f = fract(x); f = f * f * (3. - 2. * f);
+  return mix(h11(i + k * 91.7), h11(i + 1. + k * 91.7), f); }
+// how far line li rises at sample s, in pixels
+float lift(float s, float li, float sp){
+  float x = clamp(s / ${SAMPLES - 1}., 0., 1.), yb = (li + .75) / uL;
+  vec2 f = texture(uF, vec2(x, yb)).rg;
+  float d = pow(f.r, 1.35) * 3.1;
+  // where something moved, the line breaks into a jagged signal for a moment
+  float tick = floor(uT * 20.);
+  d += f.g * uShake * (.2 + 2.2 * vn(s * .45 + tick * 13.1, li * 1.7 + tick));
+  // sound (if the microphone is on) kicks every line, more where it is bright
+  d += uMic * (.4 + 1.6 * f.r) * vn(s * .18 + uT * 7., li * 3.1 + 5.);
+  return max(0., d) * uAmp * (1. + .16 * uPulse) * sp;
+}
+vec2 at(float s, float li, float sp){
+  float yb = (li + .75) / uL * uRes.y;
+  return vec2(s / ${SAMPLES - 1}. * (uRes.x + 4.) - 2., yb - lift(s, li, sp));
+}
+void main(){
+  float li = float(gl_InstanceID), s = aV.x, k = aV.y, sp = uRes.y / uL;
+  vec2 p = at(s, li, sp);
+  vec2 q = p;
+  if (k < .5){
+    q = vec2(p.x, (li + .75) / uL * uRes.y + uHalf + 1.);      // down to the line's own base
+  } else if (k > 1.5){
+    vec2 tg = at(min(s + 1., ${SAMPLES - 1}.), li, sp) - at(max(s - 1., 0.), li, sp);
+    vec2 n = normalize(vec2(tg.y, -tg.x) + vec2(0., -1e-4));
+    q = p + n * (uHalf + 1.) * (k > 2.5 ? 1. : -1.);
+  }
+  // the cut between camera and lines: whole lines jump sideways for a few frames
+  float g = floor(uT * 30.);
+  q.x += (h11(li * 7.3 + g) - .5) * uG * uRes.x * .35 * step(.55, h11(li * 3.1 + g * 1.7));
+  gl_Position = vec4(q.x / uRes.x * 2. - 1., 1. - q.y / uRes.y * 2., 0., 1.);
+  vAcross = k > 2.5 ? 1. : -1.; vKind = k;
+  vUV = vec2(p.x / uRes.x, (li + .75) / uL);
+}`;
+const FS_LINE = `#version 300 es
+precision highp float;
+in float vAcross; flat in float vKind; in vec2 vUV;
+uniform vec3 uBg, uInk;
+uniform float uHalf, uVidCol, uMirror;
+uniform vec2 uScale;
+uniform sampler2D uVid;
+out vec4 o;
+void main(){
+  if (vKind < 1.5){ o = vec4(uBg, 1.); return; }
+  float px = abs(vAcross) * (uHalf + 1.);
+  float a = clamp(uHalf + .5 - px, 0., 1.);
+  vec3 c = uInk;
+  if (uVidCol > .5){
+    vec2 v = (vUV - .5) * uScale + .5; if (uMirror > .5) v.x = 1. - v.x;
+    vec3 k = texture(uVid, v).rgb;
+    c = k / max(max(k.r, max(k.g, k.b)), .25) * .96;      // the camera's colour, at full brightness
+  }
+  o = vec4(c * a, a);
+}`;
+const VS_Q = `#version 300 es
+in vec2 p; void main(){ gl_Position = vec4(p, 0., 1.); }`;
+const FS_BG = `#version 300 es
+precision mediump float;
+uniform vec3 uBg; out vec4 o;
+void main(){ o = vec4(uBg, 1.); }`;
+const FS_CAM = `#version 300 es
+precision mediump float;
+uniform sampler2D uVid; uniform vec2 uRes, uScale; uniform float uMirror, uA, uG, uT; out vec4 o;
+float h(float n){ return fract(sin(n * 91.3) * 43758.5453); }
+void main(){
+  vec2 s = gl_FragCoord.xy / uRes; s.y = 1. - s.y;
+  // a torn scan: bands of rows slide sideways and the colour channels part
+  float band = floor(s.y * 38.), g = floor(uT * 30.);
+  float on = step(.62, h(band + g * 7.1)) * uG;
+  s.x += (h(band * 3.7 + g) - .5) * .5 * on;
+  float sh = .02 * uG;
+  vec2 v = (s - .5) * uScale + .5; if (uMirror > .5) v.x = 1. - v.x;
+  vec3 c = vec3(texture(uVid, v + vec2(sh, 0.)).r, texture(uVid, v).g, texture(uVid, v - vec2(sh, 0.)).b);
+  c = mix(c, vec3(step(.5, h(band + g)) * .9), on * .35);
+  o = vec4(c * uA, 1.);
+}`;
+function sh(type, src){ const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s; }
+function prog(vs, fs, attrs){ const p = gl.createProgram(); gl.attachShader(p, sh(gl.VERTEX_SHADER, vs)); gl.attachShader(p, sh(gl.FRAGMENT_SHADER, fs));
+  attrs.forEach((a, i) => gl.bindAttribLocation(p, i, a)); gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+  const U = {}, n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+  for (let i = 0; i < n; i++){ const u = gl.getActiveUniform(p, i); U[u.name] = gl.getUniformLocation(p, u.name); }
+  return { p, U }; }
+function tex(){ const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE); return t; }
+let PLN, PB, PC, vaoQ, vaoL, nIdx = 0, texVid, texField;
+function initGL(){
+  PLN = prog(VS_LINE, FS_LINE, ['aV']); PB = prog(VS_Q, FS_BG, ['p']); PC = prog(VS_Q, FS_CAM, ['p']);
+  vaoQ = gl.createVertexArray(); gl.bindVertexArray(vaoQ);
+  const q = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, q);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+  // one line: 4 vertices per sample; the black band's triangles first, then the ribbon's
+  vaoL = gl.createVertexArray(); gl.bindVertexArray(vaoL);
+  const v = new Float32Array(SAMPLES * 4 * 2);
+  for (let s = 0, o = 0; s < SAMPLES; s++) for (let k = 0; k < 4; k++){ v[o++] = s; v[o++] = k; }
+  const vb = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, vb); gl.bufferData(gl.ARRAY_BUFFER, v, gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+  const idx = new Uint16Array((SAMPLES - 1) * 12); let o = 0;
+  for (const [a, b] of [[0, 1], [2, 3]]) for (let s = 0; s < SAMPLES - 1; s++){
+    const i0 = s * 4, i1 = (s + 1) * 4;
+    idx[o++] = i0 + a; idx[o++] = i0 + b; idx[o++] = i1 + a;
+    idx[o++] = i1 + a; idx[o++] = i0 + b; idx[o++] = i1 + b;
+  }
+  const ib = gl.createBuffer(); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ib); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, idx, gl.STATIC_DRAW);
+  nIdx = idx.length;
+  gl.bindVertexArray(null);
+  texVid = tex(); texField = tex();
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+}
+
+/* ---------- field: brightness levelled per frame, and movement ---------- */
+const FSHORT = 180;
+const F = { w:0, h:0, cur:null, prev:null, have:false, lum:null, sm:null, tmp:null, heat:null, px:null, E:0, lo:.05, hi:.95 };
+const HIST = new Uint32Array(256);
+function ensureField(W, H){
+  let w, h; if (W >= H){ h = FSHORT; w = Math.round(FSHORT * W / H); } else { w = FSHORT; h = Math.round(FSHORT * H / W); }
+  if (w === F.w && h === F.h) return;
+  F.w = w; F.h = h; est.width = w; est.height = h; const n = w * h;
+  F.cur = new Uint8Array(n); F.prev = new Uint8Array(n); F.have = false; F.lum = new Float32Array(n);
+  F.sm = new Float32Array(n); F.tmp = new Float32Array(n); F.heat = new Float32Array(n); F.px = new Uint8Array(n * 2);
+}
+function grab(){
+  const w = F.w, h = F.h, vw = video.videoWidth, vh = video.videoHeight;
+  if (!(vw > 0 && vh > 0)) return false;
+  const sa = w / h, va = vw / vh;
+  let cw = vw, ch = vh; if (va > sa) cw = vh * sa; else ch = vw / sa;
+  ectx.setTransform(mirror ? -1 : 1, 0, 0, 1, mirror ? w : 0, 0);
+  try { ectx.drawImage(video, (vw - cw)/2, (vh - ch)/2, cw, ch, 0, 0, w, h); } catch(e){ return false; }
+  const d = ectx.getImageData(0, 0, w, h).data;
+  const t = F.prev; F.prev = F.cur; F.cur = t;
+  HIST.fill(0);
+  for (let i = 0, j = 0, n = w*h; i < n; i++, j += 4){ const g = (d[j]*77 + d[j+1]*150 + d[j+2]*29) >> 8; F.cur[i] = g; HIST[g]++; }
+  // levels: a dim room and a lit platform both use the full height of the lines
+  const n = w * h; let c = 0, lo = 0, hi = 255;
+  for (let i = 0; i < 256; i++){ c += HIST[i]; if (c >= n * .05){ lo = i; break; } }
+  c = 0; for (let i = 255; i >= 0; i--){ c += HIST[i]; if (c >= n * .02){ hi = i; break; } }
+  const L0 = lo / 255, L1 = Math.max(L0 + .12, hi / 255);
+  F.lo += (L0 - F.lo) * .25; F.hi += (L1 - F.hi) * .25;
+  const ok = F.have; F.have = true; return ok;
+}
+function updateField(dt, grabbed){
+  const n = F.w * F.h, w = F.w, h = F.h;
+  if (grabbed){
+    const inv = 1 / Math.max(.05, F.hi - F.lo);
+    for (let i = 0; i < n; i++){ const v = Math.min(1, Math.max(0, (F.cur[i] / 255 - F.lo) * inv)); F.lum[i] = F.lum[i] * .35 + v * .65; }
+    // a touch of blur across the row: the picture's grain should not become the signal
+    for (let y = 0; y < h; y++){ const o = y * w;
+      for (let x = 0; x < w; x++) F.sm[o + x] = (F.lum[o + Math.max(0, x - 1)] + 2 * F.lum[o + x] + F.lum[o + Math.min(w - 1, x + 1)]) * .25; }
+  }
+  const decay = Math.exp(-dt / .35);
+  let e = 0;
+  // exposure jumps push every pixel the same way; a moving body pushes some up and some down
+  let armed = grabbed && performance.now() - camT0 > 900;
+  if (armed){
+    let ch = 0, cnt = 0, sAbs = 0, sSig = 0;
+    for (let i = 0; i < n; i += 5){ const dv = F.cur[i] - F.prev[i]; cnt++; if (dv > 30 || -dv > 30) ch++; sAbs += dv < 0 ? -dv : dv; sSig += dv; }
+    if (ch > cnt * .35 && Math.abs(sSig) > sAbs * .6) armed = false;
+  }
+  for (let i = 0; i < n; i++){
+    let hv = F.heat[i] * decay;
+    if (armed){ const dv = Math.abs(F.cur[i] - F.prev[i]); if (dv > 16){ const m = Math.min(1, (dv - 16) / 40); if (m > hv) hv = m; e += m; } }
+    F.heat[i] = hv;
+  }
+  if (grabbed) F.E = F.E * .5 + (e / n) * .5; else F.E *= Math.exp(-dt / .4);
+  const P = F.px;
+  for (let i = 0, j = 0; i < n; i++, j += 2){ P[j] = F.sm[i] * 255; P[j+1] = F.heat[i] * 255; }
+  gl.bindTexture(gl.TEXTURE_2D, texField);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RG8, w, h, 0, gl.RG, gl.UNSIGNED_BYTE, P);
+}
+
+/* ---------- camera ---------- */
+let stream = null, facing = 'user', mirror = true, started = false, vidW = 1280, vidH = 720, lastVT = -1, camT0 = 0;
+function setStatus(t){ $('status').textContent = t || ''; }
+function camError(e){
+  const msg = (e && (e.message || e.name)) ? (e.message || e.name) : String(e || 'unknown');
+  const text = 'カメラを起動できませんでした：' + msg + '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+  $('err').textContent = text;
+  if (started) setStatus(text);
+}
+async function startCam(){
+  const md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) throw new Error('getUserMedia is unavailable');
+  const s = await md.getUserMedia({ video:{ facingMode:{ ideal:facing }, width:{ ideal:1280 }, height:{ ideal:720 } }, audio:false });
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = s; mirror = facing === 'user';
+  video.srcObject = s;
+  await new Promise(r => { if (video.readyState >= 1) r(); else video.onloadedmetadata = () => r(); });
+  await video.play().catch(()=>{});
+  vidW = video.videoWidth || 1280; vidH = video.videoHeight || 720;
+  F.have = false; camT0 = performance.now();
+}
+
+/* ---------- audio: the pulsar's tick, a faint static, and the optional microphone ---------- */
+let actx = null, bus = null, recDest = null, hiss = null, nextTick = 0, micAn = null, micBuf = null, micStream = null, micLevel = 0;
+function ensureAudio(){
+  if (actx){ if (actx.state === 'suspended') actx.resume().catch(()=>{}); return; }
+  const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+  actx = new AC(); bus = actx.createGain(); bus.gain.value = .5; bus.connect(actx.destination);
+  recDest = actx.createMediaStreamDestination(); bus.connect(recDest);
+  // radio static, opened up by movement
+  const nb = actx.createBuffer(1, actx.sampleRate * 2, actx.sampleRate), d = nb.getChannelData(0);
+  for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  const src = actx.createBufferSource(); src.buffer = nb; src.loop = true;
+  const bp = actx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 2400; bp.Q.value = .7;
+  hiss = actx.createGain(); hiss.gain.value = 0;
+  src.connect(bp); bp.connect(hiss); hiss.connect(bus); src.start();
+  actx.resume().catch(()=>{});
+}
+function tickAudio(){
+  if (!actx || actx.state !== 'running') return;
+  const t = actx.currentTime;
+  if (nextTick < t) nextTick = Math.ceil(t / PERIOD) * PERIOD;
+  while (nextTick < t + .2){
+    // one pulse: a dull knock with a short bright edge, like a receiver catching it
+    const o = actx.createOscillator(), g = actx.createGain();
+    o.type = 'sine'; o.frequency.setValueAtTime(110, nextTick); o.frequency.exponentialRampToValueAtTime(55, nextTick + .12);
+    g.gain.setValueAtTime(.0001, nextTick); g.gain.exponentialRampToValueAtTime(.22, nextTick + .004); g.gain.exponentialRampToValueAtTime(.0001, nextTick + .2);
+    o.connect(g); g.connect(bus); o.start(nextTick); o.stop(nextTick + .25);
+    nextTick += PERIOD;
+  }
+  if (hiss) hiss.gain.setTargetAtTime(MODE.on ? Math.min(.05, .004 + F.E * .5) : 0, t, .08);
+}
+async function toggleMic(){
+  if (micStream){ micStream.getTracks().forEach(t => t.stop()); micStream = null; micAn = null; micLevel = 0; $('mic').classList.remove('on'); return; }
+  ensureAudio(); if (!actx) return;
+  try{
+    micStream = await navigator.mediaDevices.getUserMedia({ audio:{ echoCancellation:false, noiseSuppression:false, autoGainControl:false } });
+    const src = actx.createMediaStreamSource(micStream);
+    micAn = actx.createAnalyser(); micAn.fftSize = 1024; micBuf = new Float32Array(micAn.fftSize);
+    src.connect(micAn);                 // listened to, never played back
+    $('mic').classList.add('on');
+  }catch(e){ micStream = null; setStatus('マイクを使えませんでした：' + (e.message || e.name)); setTimeout(() => setStatus(''), 5000); }
+}
+function readMic(dt){
+  if (!micAn){ micLevel *= Math.exp(-dt / .2); return; }
+  micAn.getFloatTimeDomainData(micBuf);
+  let s = 0; for (let i = 0; i < micBuf.length; i++) s += micBuf[i] * micBuf[i];
+  const v = Math.min(1, Math.sqrt(s / micBuf.length) * 7);
+  micLevel += (v - micLevel) * (1 - Math.exp(-dt / (v > micLevel ? .03 : .25)));
+}
+
+/* ---------- ui ---------- */
+const MODE = { on:false, X:0, camA:1, glitch:0 };
+function setMode(on){
+  if (on === MODE.on) return; MODE.on = on;
+  $('mode').textContent = on ? '◂ CAMERA' : '▸ MYAKUDO';
+  document.body.classList.toggle('cam', !on);
+  MODE.glitch = 1;
+}
+$('mode').onclick = () => setMode(!MODE.on);
+addEventListener('keydown', e => { if (started && (e.key === ' ' || e.key === 'Enter') && document.activeElement.tagName !== 'INPUT'){ e.preventDefault(); setMode(!MODE.on); } });
+$('go').onclick = async () => {
+  $('err').textContent = '';
+  ensureAudio();
+  try{
+    if (!gl) throw new Error('WebGL2 に未対応のブラウザです');
+    if (!PLN) initGL();
+    await startCam();
+  }catch(e){ camError(e); return; }
+  $('start').style.display = 'none';
+  ['gear','flip','bar','rec','shoot','mic','hud','mode'].forEach(id => $(id).classList.add('show'));
+  MODE.on = true; setMode(false); MODE.glitch = 0;
+  if (!started){ started = true; requestAnimationFrame(loop); }
+};
+$('flip').onclick = async () => {
+  const prev = facing; facing = facing === 'user' ? 'environment' : 'user';
+  try { await startCam(); } catch(e){ facing = prev; camError(e); }
+};
+$('gear').onclick = () => $('panel').classList.toggle('hide');
+$('mic').onclick = toggleMic;
+function setTheme(k){
+  S.theme = ((k % THEMES.length) + THEMES.length) % THEMES.length;
+  const T = THEMES[S.theme], r = document.documentElement.style;
+  r.setProperty('--bg', T.ui); r.setProperty('--fg', T.fg);
+  r.setProperty('--dim', T.fg + '8c'); r.setProperty('--line', T.fg + '3d');
+  [...$('themes').children].forEach(x => x.classList.toggle('on', +x.dataset.k === S.theme));
+}
+$('themes').onclick = e => { const b = e.target.closest('button'); if (b) setTheme(+b.dataset.k); };
+[['sLines','lines'],['sAmp','amp'],['sThick','thick'],['sShake','shake']].forEach(([id, k]) => { $(id).oninput = e => { S[k] = +e.target.value; }; });
+let down = null;
+canvas.addEventListener('pointerdown', e => { down = { x:e.clientX, y:e.clientY }; });
+canvas.addEventListener('pointerup', e => {
+  if (down && Math.hypot(e.clientX - down.x, e.clientY - down.y) < 10 && MODE.on){ setTheme(S.theme + 1); $('panel').classList.add('hide'); }
+  down = null;
+});
+setTheme(0);
+
+$('shoot').onclick = () => {
+  try{
+    canvas.toBlob(b => { if (!b) return; const a = document.createElement('a'); a.href = URL.createObjectURL(b);
+      a.download = 'myakudo-' + Date.now() + '.png'; a.click(); }, 'image/png');
+  }catch(e){ setStatus('保存できませんでした。'); }
+};
+let rec = null, chunks = [];
+$('rec').onclick = () => {
+  if (rec && rec.state === 'recording'){ rec.stop(); return; }
+  try{
+    ensureAudio();
+    const tracks = [...canvas.captureStream(30).getVideoTracks()];
+    if (recDest) tracks.push(...recDest.stream.getAudioTracks());
+    const mime = ['video/mp4;codecs=avc1','video/webm;codecs=vp9,opus','video/webm'].find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || '';
+    rec = new MediaRecorder(new MediaStream(tracks), mime ? { mimeType:mime } : {});
+    chunks = [];
+    rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+    rec.onstop = () => {
+      $('rec').classList.remove('on'); $('rec').textContent = '● REC';
+      const ext = (rec.mimeType || '').includes('mp4') ? 'mp4' : 'webm';
+      const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(chunks, { type:rec.mimeType || 'video/webm' }));
+      a.download = 'myakudo.' + ext; a.click();
+    };
+    rec.start(); $('rec').classList.add('on'); $('rec').textContent = '■ STOP';
+  }catch(e){ setStatus('録画を開始できませんでした。'); }
+};
+
+/* ---------- render ---------- */
+let lastT = 0, hudT = 0;
+function loop(now){
+  requestAnimationFrame(loop);
+  const dt = lastT ? Math.min(.1, (now - lastT)/1000) : 1/60; lastT = now;
+  const t = now / 1000;
+  if (video.videoWidth && (video.videoWidth !== vidW || video.videoHeight !== vidH)){ vidW = video.videoWidth; vidH = video.videoHeight; F.have = false; }
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  let W = Math.round(innerWidth*dpr), H = Math.round(innerHeight*dpr);
+  const k = Math.min(1, 1800 / Math.max(W, H)); W = Math.round(W*k); H = Math.round(H*k);
+  if (canvas.width !== W || canvas.height !== H){ canvas.width = W; canvas.height = H; }
+  ensureField(W, H);
+  if (video.readyState < 2) return;
+  const vt = video.currentTime, fresh = vt !== lastVT; lastVT = vt;
+  const grabbed = fresh && grab();
+  updateField(dt, grabbed);
+  if (fresh){ gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, texVid);
+    try { gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video); } catch(e){ return; } }
+  readMic(dt); tickAudio();
+
+  // the switch: a torn scan for a third of a second, then a clean cut
+  MODE.glitch = MODE.hold != null ? MODE.hold : Math.max(0, MODE.glitch - dt / .38);
+  const showLines = MODE.on ? MODE.glitch < .55 : MODE.glitch > .45;
+  const ph = ((actx ? actx.currentTime : t) % PERIOD) / PERIOD, pulse = Math.exp(-ph * PERIOD / .09);
+  const sa = W / H, va = vidW / vidH, scale = [sa < va ? sa / va : 1, sa < va ? 1 : va / sa];
+  const T = THEMES[S.theme], L = nLines();
+
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, 0, W, H);
+  if (!showLines){
+    gl.useProgram(PC.p); gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, texVid); gl.uniform1i(PC.U.uVid, 0);
+    gl.uniform2f(PC.U.uRes, W, H); gl.uniform2f(PC.U.uScale, scale[0], scale[1]);
+    gl.uniform1f(PC.U.uMirror, mirror ? 1 : 0); gl.uniform1f(PC.U.uA, 1); gl.uniform1f(PC.U.uG, MODE.glitch); gl.uniform1f(PC.U.uT, t);
+    gl.bindVertexArray(vaoQ); gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  } else {
+    gl.useProgram(PB.p); gl.uniform3fv(PB.U.uBg, T.bg);
+    gl.bindVertexArray(vaoQ); gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+    gl.useProgram(PLN.p);
+    gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, texField); gl.uniform1i(PLN.U.uF, 1);
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, texVid); gl.uniform1i(PLN.U.uVid, 0);
+    gl.uniform2f(PLN.U.uRes, W, H); gl.uniform1f(PLN.U.uL, L);
+    gl.uniform1f(PLN.U.uAmp, .25 + 1.5 * S.amp);
+    gl.uniform1f(PLN.U.uHalf, (.45 + 2.6 * S.thick) * Math.min(W, H) / 900);
+    gl.uniform1f(PLN.U.uT, t); gl.uniform1f(PLN.U.uPulse, pulse); gl.uniform1f(PLN.U.uMic, micLevel);
+    // someone moving in a still picture shakes the lines hard; when the whole
+    // picture moves (walking with the phone) every line would shake and the
+    // drawing turns to noise, so the shake is shared out over how much moved
+    gl.uniform1f(PLN.U.uShake, 2 * S.shake * Math.min(1, .035 / Math.max(F.E, .035))); gl.uniform1f(PLN.U.uG, MODE.glitch); gl.uniform1f(PLN.U.uSeed, 3.1);
+    gl.uniform3fv(PLN.U.uBg, T.bg); gl.uniform3fv(PLN.U.uInk, T.ink); gl.uniform1f(PLN.U.uVidCol, T.vid);
+    gl.uniform1f(PLN.U.uMirror, mirror ? 1 : 0); gl.uniform2f(PLN.U.uScale, scale[0], scale[1]);
+    gl.bindVertexArray(vaoL); gl.drawElementsInstanced(gl.TRIANGLES, nIdx, gl.UNSIGNED_SHORT, 0, L);
+    gl.disable(gl.BLEND);
+  }
+
+  if (++hudT > 10){
+    hudT = 0;
+    $('hud').textContent = 'MYAKUDO  PSR 1919+21  ' + PERIOD.toFixed(4) + 'S' +
+      '\nLINES ' + String(L).padStart(3, '0') + '   ' + THEMES[S.theme].name + (micAn ? '   ♪ ' + String(Math.round(micLevel * 99)).padStart(2, '0') : '');
+  }
+}
+
+/* ---------- test hook (used by the local verification harness) ---------- */
+window.__MYAKUDO = {
+  state: () => ({ on:MODE.on, glitch:MODE.glitch, lines:nLines(), theme:S.theme, E:+F.E.toFixed(4), lo:+F.lo.toFixed(3), hi:+F.hi.toFixed(3),
+                  mic:!!micAn, fw:F.w, fh:F.h }),
+  mode(m){ setMode(!!m); },
+  theme(k){ setTheme(k); },
+  set(k, v){ S[k] = v; },
+  hold(v){ MODE.hold = v; },
+};
+</script>
+</body>
+</html>
