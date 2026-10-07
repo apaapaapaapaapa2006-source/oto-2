@@ -1,0 +1,627 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="description" content="画面がシネスコの夜の映画になり、あなたの瞳から青いアナモルフィックの光芒が横一文字に走る。首を振ると光の軌跡が残り、目を閉じて開くと光が画面を横切って閃く。">
+<meta name="theme-color" content="#03060a">
+<title>SENKOU ─ 瞳から走る、青い光芒</title>
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  SENKOU 閃光 ─ 瞳から走る、青い光芒                 ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  MOOD       夜の SF 映画のクローズアップ。シネスコの黒帯、青く沈んだ肌、
+             そして瞳から横一文字に走るアナモルフィック・レンズの光芒。
+             首を振れば光の筋が残像になって尾を引き、目を閉じて開けば
+             光芒が画面の端から端まで閃く。
+  PALETTE    COBALT  墨 #03060a ／ 鋼 #3f5a70 ／ 氷 #dff4ff ／ 光芒 #2f8cff
+             SODIUM  墨 #070403 ／ 銅 #6a4a34 ／ 象牙 #fff0dc ／ 光芒 #ff8a2a
+             PHOSPHOR墨 #020403 ／ 苔 #3c5a4a ／ 白 #e8fff2 ／ 光芒 #3cffb4
+             どの配色も「暗い地＋光芒一色」。原色を並べない。
+  TYPE       Syncopate 400（字間を広げた題字）・DM Mono 300（UI）。
+  MOTION     光芒は瞳に吸い付いて動き、0.2〜2 秒の残像を残す（尾の長さ）。
+             点火は一度だけ強く、1 秒かけて静まる。
+  SIGNATURE  横一文字の青い光と、それが首の動きで描く軌跡。
+  TECH       FaceLandmarker（虹彩・まぶた、最大 2 人）で瞳とまばたきを取り、
+             ImageSegmenter で背景を闇に沈める。WebGL2 の 3 パス：
+             ①映像の明部を横に引き伸ばす光条（1/4 解像度）
+             ②瞳の光芒を max で残す残像バッファ（1/2 解像度、ping-pong）
+             ③グレード・色収差・ゴースト・黒帯・粒子で合成。
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Syncopate&family=DM+Mono:wght@300;500&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#03060a;--fg:#dff4ff;--dim:rgba(223,244,255,.55);--line:rgba(223,244,255,.22);--acc:#2f8cff}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none}
+html,body{margin:0;height:100%;background:var(--bg);overflow:hidden;color:var(--fg);
+  font-family:"DM Mono",ui-monospace,"Hiragino Sans","Noto Sans JP",monospace;font-weight:300}
+#gl{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+#cam{position:fixed;left:0;top:0;width:2px;height:2px;opacity:.01;pointer-events:none}
+
+#start{position:fixed;inset:0;z-index:30;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:26px;
+  padding:28px;text-align:center;background:#03060a}
+#start::before{content:"";position:absolute;left:0;right:0;top:50%;height:2px;margin-top:-58px;pointer-events:none;
+  background:linear-gradient(90deg,transparent,rgba(47,140,255,.0) 8%,rgba(47,140,255,.85) 44%,#fff 50%,rgba(47,140,255,.85) 56%,rgba(47,140,255,0) 92%,transparent);
+  filter:blur(.6px);box-shadow:0 0 18px 2px rgba(47,140,255,.45)}
+#start .t{font-size:10px;letter-spacing:.6em;margin-right:-.6em;color:var(--dim);position:relative}
+#start h1{margin:0;font-family:Syncopate,"DM Mono",sans-serif;font-weight:400;font-size:min(12vw,76px);line-height:1;letter-spacing:.32em;margin-right:-.32em;position:relative}
+#start p{margin:0;font-size:12px;line-height:2.1;color:var(--dim);letter-spacing:.06em;position:relative}
+#go{appearance:none;border:1px solid var(--line);background:transparent;color:var(--fg);font:500 10px "DM Mono",monospace;
+  letter-spacing:.5em;padding:15px 34px 15px 40px;cursor:pointer;transition:border-color .3s;position:relative}
+#go:hover{border-color:var(--fg)}
+#err{font-size:12px;line-height:1.8;max-width:340px;min-height:1em;white-space:pre-line;color:#f0a0a0;position:relative}
+
+.btn{position:fixed;z-index:12;appearance:none;border:0;background:transparent;color:var(--fg);font:500 10px "DM Mono","Hiragino Sans",monospace;
+  letter-spacing:.24em;padding:10px 8px;display:none;cursor:pointer;opacity:.6;transition:opacity .3s}
+.btn.show{display:block}
+.btn:hover{opacity:1}
+#gear{right:10px;top:calc(env(safe-area-inset-top) + 6px);font-size:14px;letter-spacing:0}
+#flip{right:10px;top:calc(env(safe-area-inset-top) + 40px);letter-spacing:.1em}
+#bar{position:fixed;left:0;right:0;bottom:calc(env(safe-area-inset-bottom) + 12px);z-index:12;display:none;justify-content:center;align-items:center;gap:26px}
+#bar.show{display:flex}
+#bar .btn{position:static;display:block}
+#bar #shoot{position:relative;width:44px;height:44px;border-radius:50%;border:1px solid var(--fg);padding:0;opacity:.7}
+#shoot::after{content:"";position:absolute;inset:6px;border-radius:50%;background:var(--fg);opacity:.85}
+#rec.on{opacity:1;color:#ff7a7a}
+#mode{border:1px solid var(--line);padding:11px 16px 11px 20px;opacity:.85}
+#hud{position:fixed;left:14px;top:calc(env(safe-area-inset-top) + 14px);z-index:11;font-size:9px;letter-spacing:.34em;color:var(--dim);
+  pointer-events:none;display:none;line-height:2;white-space:pre}
+#hud.show{display:block}
+#status{position:fixed;left:14px;right:14px;bottom:calc(env(safe-area-inset-bottom) + 74px);z-index:11;font-size:11px;letter-spacing:.04em;
+  color:var(--fg);opacity:.72;pointer-events:none;line-height:1.7;white-space:pre-line;text-align:center}
+
+#panel{position:fixed;right:10px;top:calc(env(safe-area-inset-top) + 78px);z-index:12;width:min(270px,calc(100vw - 20px));
+  background:rgba(3,6,10,.86);border:1px solid var(--line);padding:14px 16px;display:flex;flex-direction:column;gap:13px;
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);transition:opacity .25s}
+#panel.hide{opacity:0;pointer-events:none}
+.chips{display:flex;border:1px solid var(--line)}
+.chips button{flex:1;appearance:none;border:0;background:transparent;color:var(--fg);padding:8px 2px;font:500 9px "DM Mono",monospace;
+  letter-spacing:.16em;cursor:pointer;opacity:.55}
+.chips button.on{opacity:1;background:rgba(223,244,255,.12)}
+#panel label{display:flex;align-items:center;gap:10px;font-size:11px;letter-spacing:.04em}
+#panel label span{width:78px;flex:none;color:var(--dim)}
+#panel input[type=range]{flex:1;accent-color:var(--acc)}
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<video id="cam" playsinline muted autoplay></video>
+<div id="hud"></div>
+<div id="status"></div>
+<button id="gear" class="btn" aria-label="調整">⚙</button>
+<button id="flip" class="btn">⟲ カメラ</button>
+<div id="bar">
+  <button id="rec" class="btn">● REC</button>
+  <button id="shoot" class="btn" aria-label="撮る"></button>
+  <button id="mode" class="btn">光をいれる</button>
+</div>
+
+<div id="panel" class="hide">
+  <div class="chips" id="pals">
+    <button data-p="0" class="on">COBALT</button>
+    <button data-p="1">SODIUM</button>
+    <button data-p="2">PHOSPHOR</button>
+  </div>
+  <label><span>光芒の長さ</span><input type="range" id="sLen" min="0" max="1" step="0.01" value="0.6"></label>
+  <label><span>尾の長さ</span><input type="range" id="sTrail" min="0" max="1" step="0.01" value="0.55"></label>
+  <label><span>背景の闇</span><input type="range" id="sDark" min="0" max="1" step="0.01" value="0.75"></label>
+  <label><span>粒子</span><input type="range" id="sGrain" min="0" max="1" step="0.01" value="0.4"></label>
+</div>
+
+<div id="start">
+  <div class="t">ANAMORPHIC · 閃光</div>
+  <h1>SENKOU</h1>
+  <p>瞳から、青い光芒が走る。<br>目を閉じて、開くと、閃く。</p>
+  <button id="go">はじめる</button>
+  <div id="err"></div>
+</div>
+
+<script>
+'use strict';
+/* =====================================================================
+   SENKOU — anamorphic lens flares locked to your irises. Highlights of
+   the frame are stretched sideways, the flares persist in a max-hold
+   buffer so head movement paints trails, and a closed-then-opened eye
+   ignites one full-width flash.
+   ===================================================================== */
+const VISION_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs';
+const WASM_URL   = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm';
+const SEG_MODEL  = 'https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite';
+const FACE_MODEL = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
+
+const $ = id => document.getElementById(id);
+const canvas = $('gl'), video = $('cam');
+const hex = h => [parseInt(h.slice(1,3),16)/255, parseInt(h.slice(3,5),16)/255, parseInt(h.slice(5,7),16)/255];
+const PALS = [
+  { name:'COBALT',   sh:'#03060a', mid:'#3f5a70', hi:'#dff4ff', fl:'#2f8cff', css:'#2f8cff' },
+  { name:'SODIUM',   sh:'#070403', mid:'#6a4a34', hi:'#fff0dc', fl:'#ff8a2a', css:'#ff8a2a' },
+  { name:'PHOSPHOR', sh:'#020403', mid:'#3c5a4a', hi:'#e8fff2', fl:'#3cffb4', css:'#3cffb4' },
+];
+const S = { pal:0, len:.6, trail:.55, dark:.75, grain:.4 };
+
+/* ---------- GL ---------- */
+const gl = canvas.getContext('webgl2', { antialias:false, alpha:false, preserveDrawingBuffer:true, powerPreference:'high-performance' });
+const VS = `#version 300 es
+in vec2 p; out vec2 uv; void main(){ uv = p*.5+.5; gl_Position = vec4(p,0.,1.); }`;
+const CAM = `
+uniform sampler2D uVid; uniform vec2 uScale; uniform float uMirror;
+vec2 vuv(vec2 s){ vec2 v = (vec2(s.x, 1. - s.y) - .5) * uScale + .5; if (uMirror > .5) v.x = 1. - v.x; return v; }
+float lum(vec3 c){ return dot(c, vec3(.2126,.7152,.0722)); }`;
+// pass 1: highlights stretched sideways (the lens' own streaks on lamps and windows)
+const FS_STREAK = `#version 300 es
+precision highp float;
+in vec2 uv; out vec4 o;
+${CAM}
+uniform float uThr, uSpan;
+void main(){
+  vec3 acc = vec3(0.); float wsum = 0.;
+  for (int i = -20; i <= 20; i++){
+    float f = float(i) / 20.;
+    float w = exp(-abs(f) * 4.);
+    vec3 c = texture(uVid, vuv(uv + vec2(f * uSpan, 0.))).rgb;
+    acc += max(lum(c) - uThr, 0.) * w * vec3(1.);
+    wsum += w;
+  }
+  o = vec4(acc / wsum * 6., 1.);
+}`;
+// pass 2: eye flares with a max-hold trail
+const FS_FLARE = `#version 300 es
+precision highp float;
+in vec2 uv; out vec4 o;
+uniform sampler2D uPrev;
+uniform vec4 uEye[4];        // x, y (uv), intensity, unused
+uniform vec4 uEyeP[4];       // the same eyes one frame ago: the flare sweeps the path between
+uniform float uAsp, uDecay, uLen, uIgn, uReset;
+uniform vec3 uFl;
+void main(){
+  vec3 prev = uReset > .5 ? vec3(0.) : texture(uPrev, uv).rgb * uDecay;
+  vec3 c = vec3(0.);
+  for (int i = 0; i < 4; i++){
+    vec4 e = uEye[i];
+    if (e.z <= 0.) continue;
+    vec2 A = vec2(uAsp, 1.), pa = (uv - uEyeP[i].xy) * A, ba = (e.xy - uEyeP[i].xy) * A;
+    float hh = clamp(dot(pa, ba) / max(dot(ba, ba), 1e-8), 0., 1.);
+    vec2 d = pa - ba * hh;
+    float L = uLen * (1. + 2.5 * uIgn);
+    float h = .0042 + .005 * uIgn;
+    float line = exp(-(d.y*d.y) / (h*h)) / pow(1. + abs(d.x) / L, 1.6);
+    float wide = exp(-(d.y*d.y) / (h*h*36.)) / pow(1. + abs(d.x) / (L*.45), 1.8) * .5;
+    float core = exp(-dot(d,d) / .00012);
+    float halo = exp(-dot(d,d) / .0022) * .35;
+    float hot = exp(-abs(d.x) / .05) * line;
+    c += e.z * (uFl * (line + wide + halo) + vec3(1.) * (core * 1.4 + hot * .9));
+  }
+  o = vec4(max(prev, c), 1.);
+}`;
+// pass 3: grade + compose
+const FS_OUT = `#version 300 es
+precision highp float;
+in vec2 uv; out vec4 o;
+${CAM}
+uniform sampler2D uMask, uStreak, uFlare;
+uniform vec4 uEye[4];
+uniform vec2 uRes;
+uniform float uHas, uFx, uDim, uDark, uGrain, uT, uIgn, uBars, uAsp;
+uniform vec3 uSh, uMid, uHi, uFl;
+float h21(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233))) * 43758.5453); }
+void main(){
+  vec2 v = vuv(uv);
+  vec3 raw = texture(uVid, v).rgb;
+  if (uFx < .5){ o = vec4(raw * uDim, 1.); return; }
+  // a touch of lateral chromatic aberration toward the frame edges
+  vec2 q = uv - .5;
+  float ca = .004 * dot(q, q) * 4.;
+  vec3 cam = vec3(texture(uVid, vuv(uv + vec2(ca, 0.))).r, raw.g, texture(uVid, vuv(uv - vec2(ca, 0.))).b);
+  float m = uHas > .5 ? smoothstep(.35, .75, texture(uMask, v).r) : 1.;
+  // night grade: low-key, cold, contrasty; keep a little of the skin
+  float l = clamp(lum(cam), 0., 1.);
+  l = smoothstep(.05, .9, l); l = pow(l, 1.3);
+  vec3 tone = l < .5 ? mix(uSh, uMid, l*2.) : mix(uMid, uHi, (l - .5)*2.);
+  vec3 c = mix(tone, tone * (.7 + .6 * cam / max(l, .05)), .12);
+  c *= mix(1. - uDark * .94, 1., m);                    // the room sinks, the subject stays
+  // flares + lens streaks
+  vec3 fl = texture(uFlare, uv).rgb;
+  vec3 st = texture(uStreak, uv).rgb;
+  c += st * mix(uFl, vec3(1.), .25) * .55;
+  c = 1. - (1. - c) * (1. - clamp(fl, 0., 1.));         // screen blend
+  c += max(fl - 1., 0.) * .5;
+  // ghosts: soft discs mirrored through the frame centre
+  for (int i = 0; i < 4; i++){
+    vec4 e = uEye[i]; if (e.z <= 0.) continue;
+    vec2 ev = e.xy - .5;
+    for (int g = 0; g < 3; g++){
+      float s = g == 0 ? -.55 : (g == 1 ? -1.25 : .38);
+      float r = g == 0 ? .05 : (g == 1 ? .11 : .025);
+      vec2 d = (uv - (.5 + ev * s)) * vec2(uAsp, 1.);
+      float disc = smoothstep(r, r * .7, length(d)) * (g == 1 ? .05 : .09);
+      c += disc * e.z * (g == 2 ? vec3(1.) : uFl) * (1. + uIgn);
+    }
+  }
+  // ignition: a brief lift of the whole exposure
+  c += uFl * uIgn * .18 * (1. - abs(q.y) * 1.6);
+  // vignette, grain, bars
+  vec2 r = q; r.x *= uAsp;
+  c *= 1. - .5 * smoothstep(.4, 1.05, length(r));
+  float n = h21(floor(gl_FragCoord.xy / 1.5) + fract(uT * 7.13) * 91.7) - .5;
+  c += n * uGrain * .085;
+  if (abs(uv.y - .5) > .5 - uBars) c = vec3(0.);
+  o = vec4(clamp(c, 0., 1.) * uDim, 1.);
+}`;
+function shd(type, src){ const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s; }
+function prog(fs){ const p = gl.createProgram(); gl.attachShader(p, shd(gl.VERTEX_SHADER, VS)); gl.attachShader(p, shd(gl.FRAGMENT_SHADER, fs));
+  gl.bindAttribLocation(p, 0, 'p'); gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+  const U = {}, n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+  for (let i = 0; i < n; i++){ const u = gl.getActiveUniform(p, i); U[u.name.replace(/\[0\]$/, '')] = gl.getUniformLocation(p, u.name); }
+  return { p, U }; }
+function tex(){ const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE); return t; }
+let PS = null, PF, PO, texVid, texMask, floatOK = false;
+const RT = { st:null, stF:null, fl:[null,null], flF:[null,null], w:0, h:0, ping:0, reset:true };
+function initGL(){
+  floatOK = !!gl.getExtension('EXT_color_buffer_float'); gl.getExtension('OES_texture_float_linear');
+  PS = prog(FS_STREAK); PF = prog(FS_FLARE); PO = prog(FS_OUT);
+  const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+  texVid = tex(); texMask = tex();
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, 1, 1, 0, gl.RED, gl.UNSIGNED_BYTE, new Uint8Array([0]));
+}
+function target(w, h){
+  const t = tex();
+  if (floatOK) gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, w, h, 0, gl.RGBA, gl.HALF_FLOAT, null);
+  else gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+  const f = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, f);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, t, 0);
+  const ok = gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE;
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  return ok ? [t, f] : null;
+}
+function ensureRT(W, H){
+  if (RT.w === W && RT.h === H) return;
+  [RT.st, RT.fl[0], RT.fl[1]].forEach(t => t && gl.deleteTexture(t));
+  [RT.stF, RT.flF[0], RT.flF[1]].forEach(f => f && gl.deleteFramebuffer(f));
+  let a = target(Math.max(16, W >> 2), Math.max(16, H >> 2));
+  if (!a && floatOK){ floatOK = false; a = target(Math.max(16, W >> 2), Math.max(16, H >> 2)); }
+  [RT.st, RT.stF] = a;
+  for (let i = 0; i < 2; i++){ [RT.fl[i], RT.flF[i]] = target(Math.max(16, W >> 1), Math.max(16, H >> 1)); }
+  RT.w = W; RT.h = H; RT.reset = true;
+}
+
+/* ---------- mask (reused buffers) ---------- */
+const M = { w:0, h:0, f:null, u8:null, present:false, has:false };
+function ingestMask(data, w, h){
+  if (!data || !(w > 0) || !(h > 0) || data.length < w*h) return;
+  if (M.w !== w || M.h !== h){ M.w = w; M.h = h; M.f = new Float32Array(w*h); M.u8 = new Uint8Array(w*h); }
+  const F = M.f, U8 = M.u8; let on = 0;
+  for (let i = 0, n = w*h; i < n; i++){
+    let m = data[i]; if (!(m >= 0)) m = 0; else if (m > 1) m = 1;
+    F[i] = F[i]*.35 + m*.65; U8[i] = F[i]*255 | 0; if (F[i] > .5) on++;
+  }
+  M.present = on/(w*h) > .006; M.has = true;
+  if (PS){ gl.bindTexture(gl.TEXTURE_2D, texMask); gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, w, h, 0, gl.RED, gl.UNSIGNED_BYTE, U8); }
+}
+
+/* ---------- faces → eyes (uv of the output, y up) ---------- */
+let mirror = true, vidW = 1280, vidH = 720, scX = 1, scY = 1, asp = 16/9;
+const EYES = new Float32Array(16), EYESP = new Float32Array(16);   // 4 × (x, y, intensity, 0), now and one frame ago
+const FACES = [0, 1].map(() => ({ ok:false, lastSeen:-1e9, lastT:0, ex:[0,0,0,0], open:[1,1], cx:0, cy:0, w:.1,
+  E:0, closedFor:0, armed:false }));
+let ign = 0, ignitions = 0, ignAt = -1e9;
+function pt(a, i){
+  if (!a || a.length <= i) return null;
+  const p = a[i];
+  if (!p || !Number.isFinite(p.x) || !Number.isFinite(p.y)) return null;
+  return p;
+}
+function toUV(p, out, k){
+  let x = p.x; if (mirror) x = 1 - x;
+  out[k] = (x - .5) / scX + .5; out[k + 1] = 1 - ((p.y - .5) / scY + .5);
+}
+const _e = [0,0,0,0];
+function loseFace(F){ F.ok = false; F.E = 0; F.closedFor = 0; F.armed = false; }
+function onFace(lms, F, tMs){
+  // iris centres (refined mesh), or the eye-corner midpoints as a fallback
+  const ir1 = pt(lms, 468), ir2 = pt(lms, 473);
+  const c1 = pt(lms, 33), c2 = pt(lms, 133), c3 = pt(lms, 362), c4 = pt(lms, 263);
+  if (!c1 || !c2 || !c3 || !c4){ if (tMs - F.lastSeen > 350) loseFace(F); return false; }
+  const a = ir1 || { x:(c1.x + c2.x)/2, y:(c1.y + c2.y)/2 }, b = ir2 || { x:(c3.x + c4.x)/2, y:(c3.y + c4.y)/2 };
+  toUV(a, _e, 0); toUV(b, _e, 2);
+  const w = Math.hypot((c1.x - c4.x) * vidW, (c1.y - c4.y) * vidH);   // outer eye corners, in video pixels
+  if (!(w > 6) || ![..._e].every(Number.isFinite)) { if (tMs - F.lastSeen > 350) loseFace(F); return false; }
+  // openness: lid gap over eye width
+  const lid = (u, d, l, r) => { const U = pt(lms, u), D = pt(lms, d), L = pt(lms, l), R = pt(lms, r);
+    if (!U || !D || !L || !R) return 1;
+    const ww = Math.hypot((L.x - R.x)*vidW, (L.y - R.y)*vidH);          // in video pixels: normalised x and y differ in scale
+    return ww > .5 ? Math.hypot((U.x - D.x)*vidW, (U.y - D.y)*vidH) / ww : 1; };
+  const o1 = Math.max(0, Math.min(1, (lid(159, 145, 33, 133) - .1) / .16));
+  const o2 = Math.max(0, Math.min(1, (lid(386, 374, 362, 263) - .1) / .16));
+  const dtO = Math.min(.25, Math.max(.005, (tMs - F.lastT) / 1000));
+  const cx = (_e[0] + _e[2]) / 2, cy = (_e[1] + _e[3]) / 2;
+  if (!F.ok || tMs - F.lastSeen > 350){
+    F.ex[0] = _e[0]; F.ex[1] = _e[1]; F.ex[2] = _e[2]; F.ex[3] = _e[3];
+    F.open[0] = o1; F.open[1] = o2; F.cx = cx; F.cy = cy; F.w = w; F.E = 0; F.closedFor = 0; F.armed = false; F.ok = true;
+  } else {
+    const sp = Math.hypot((cx - F.cx) * asp, cy - F.cy) / dtO;        // screen heights per second
+    F.E = F.E * .75 + Math.min(4, sp) * .25;
+    const k = .7;
+    for (let i = 0; i < 4; i++) F.ex[i] += (_e[i] - F.ex[i]) * k;
+    F.open[0] += (o1 - F.open[0]) * .6; F.open[1] += (o2 - F.open[1]) * .6;
+    F.cx = cx; F.cy = cy; F.w = w;
+    // ignition: both eyes closed for a while (observed time), then opened
+    const closed = o1 < .25 && o2 < .25, open = o1 > .55 && o2 > .55;
+    if (closed){ F.closedFor += dtO; if (F.closedFor > .35) F.armed = true; }
+    else if (open){
+      if (F.armed && MODE.fx){ ignite(); }
+      F.closedFor = 0; F.armed = false;
+    }
+  }
+  F.lastSeen = tMs; F.lastT = tMs;
+  return true;
+}
+function onFaces(list, tMs){
+  if (!Number.isFinite(tMs)) return;
+  const arr = Array.isArray(list) ? list : [];
+  // a single landmark array may be passed directly (test hook)
+  const faces = arr.length && arr[0] && Number.isFinite(arr[0].x) ? [arr] : arr;
+  for (let i = 0; i < 2; i++){
+    const F = FACES[i], l = faces[i];
+    if (!Array.isArray(l) || !onFace(l, F, tMs)){ if (tMs - F.lastSeen > 350) loseFace(F); }
+  }
+}
+function ignite(){
+  const now = performance.now();
+  if (now - ignAt < 900) return;
+  ignAt = now; ign = 1; ignitions++;
+  boom();
+}
+
+/* ---------- MediaPipe (dynamic import; the grade still runs without it) ---------- */
+let segmenter = null, facer = null, lastTs = 0, lastVT = -1, modelState = 'loading', EXT = false;
+async function initModel(){
+  try{
+    const vision = await import(VISION_URL);
+    const fs = await vision.FilesetResolver.forVisionTasks(WASM_URL);
+    const mk = async (Cls, o) => { try { return await Cls.createFromOptions(fs, { ...o, baseOptions:{ ...o.baseOptions, delegate:'GPU' } }); }
+                                   catch(e){ return await Cls.createFromOptions(fs, { ...o, baseOptions:{ ...o.baseOptions, delegate:'CPU' } }); } };
+    facer = await mk(vision.FaceLandmarker, { baseOptions:{ modelAssetPath:FACE_MODEL }, runningMode:'VIDEO', numFaces:2,
+      outputFaceBlendshapes:false, minFaceDetectionConfidence:.5, minFacePresenceConfidence:.5, minTrackingConfidence:.5 });
+    segmenter = await mk(vision.ImageSegmenter, { baseOptions:{ modelAssetPath:SEG_MODEL }, runningMode:'VIDEO', outputConfidenceMasks:true, outputCategoryMask:false });
+    modelState = 'ok';
+  }catch(e){ if (!EXT) modelState = 'fail'; }
+}
+function track(now){
+  if (video.readyState < 2) return;
+  const vt = video.currentTime; if (vt === lastVT) return; lastVT = vt;
+  const ts = Math.max(lastTs + 1, Math.round(now)); lastTs = ts;
+  if (facer){ try{ const r = facer.detectForVideo(video, ts); onFaces(r && r.faceLandmarks, ts); }catch(e){} }
+  if (segmenter){
+    try{ segmenter.segmentForVideo(video, ts, res => {
+      const ms = res && res.confidenceMasks; if (!ms || !ms.length) return;
+      const mk = ms[ms.length - 1]; ingestMask(mk.getAsFloat32Array(), mk.width, mk.height); }); }catch(e){}
+  }
+}
+
+/* ---------- camera ---------- */
+let stream = null, facing = 'user', started = false;
+function setStatus(t){ $('status').textContent = t || ''; }
+function camError(e){
+  const msg = (e && (e.message || e.name)) ? (e.message || e.name) : String(e || 'unknown');
+  const text = 'カメラを起動できませんでした：' + msg + '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+  $('err').textContent = text;
+  if (started) setStatus(text);
+}
+async function startCam(){
+  const md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) throw new Error('getUserMedia is unavailable');
+  const s = await md.getUserMedia({ video:{ facingMode:{ ideal:facing }, width:{ ideal:1280 }, height:{ ideal:720 } }, audio:false });
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = s; mirror = facing === 'user';
+  video.srcObject = s;
+  await new Promise(r => { if (video.readyState >= 1) r(); else video.onloadedmetadata = () => r(); });
+  await video.play().catch(()=>{});
+  vidW = video.videoWidth || 1280; vidH = video.videoHeight || 720;
+  FACES.forEach(loseFace); RT.reset = true;
+}
+
+/* ---------- audio: a low swell and a glassy shimmer on ignition ---------- */
+let actx = null, bus = null, recDest = null;
+function ensureAudio(){
+  if (actx){ if (actx.state === 'suspended') actx.resume().catch(()=>{}); return; }
+  const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+  actx = new AC(); bus = actx.createGain(); bus.gain.value = .45; bus.connect(actx.destination);
+  recDest = actx.createMediaStreamDestination(); bus.connect(recDest);
+  actx.resume().catch(()=>{});
+}
+function boom(){
+  if (!actx || actx.state !== 'running') return;
+  const t = actx.currentTime;
+  const o = actx.createOscillator(), g = actx.createGain();
+  o.type = 'sine'; o.frequency.setValueAtTime(92, t); o.frequency.exponentialRampToValueAtTime(41, t + 1.6);
+  g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(.7, t + .05); g.gain.exponentialRampToValueAtTime(.001, t + 2.2);
+  o.connect(g); g.connect(bus); o.start(t); o.stop(t + 2.3);
+  [1760, 2637, 3520].forEach((f, i) => {
+    const s = actx.createOscillator(), h = actx.createGain();
+    s.type = 'triangle'; s.frequency.value = f * (1 + (Math.random() - .5) * .004);
+    h.gain.setValueAtTime(0, t); h.gain.linearRampToValueAtTime(.05 / (i + 1), t + .02); h.gain.exponentialRampToValueAtTime(.0005, t + 1.4 + i*.3);
+    s.connect(h); h.connect(bus); s.start(t); s.stop(t + 2.2);
+  });
+}
+function click(){
+  if (!actx || actx.state !== 'running') return;
+  const t = actx.currentTime, len = actx.sampleRate*.025 | 0, b = actx.createBuffer(1, len, actx.sampleRate), d = b.getChannelData(0);
+  for (let i = 0; i < len; i++) d[i] = (Math.random()*2 - 1) * Math.pow(1 - i/len, 5);
+  const s = actx.createBufferSource(); s.buffer = b;
+  const f = actx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 2200; f.Q.value = 1.2;
+  s.connect(f); f.connect(bus); s.start(t);
+}
+
+/* ---------- mode: plain camera ⇄ the film ---------- */
+const MODE = { on:false, t0:-1e9, fx:false, revealed:true };
+function setMode(on){
+  MODE.on = on; MODE.t0 = performance.now(); MODE.revealed = false;
+  $('mode').textContent = on ? 'カメラにもどる' : '光をいれる';
+}
+$('go').onclick = async () => {
+  $('err').textContent = '';
+  ensureAudio();
+  try{
+    if (!gl) throw new Error('WebGL2 に未対応のブラウザです');
+    if (!PS) initGL();
+    await startCam();
+  }catch(e){ camError(e); return; }
+  $('start').style.display = 'none';
+  ['gear','flip','bar','rec','shoot','mode','hud'].forEach(id => $(id).classList.add('show'));
+  if (!started){ started = true; if (!EXT) initModel(); requestAnimationFrame(loop); }
+};
+$('flip').onclick = async () => {
+  const prev = facing; facing = facing === 'user' ? 'environment' : 'user';
+  try { await startCam(); } catch(e){ facing = prev; camError(e); }
+};
+$('gear').onclick = () => $('panel').classList.toggle('hide');
+$('mode').onclick = () => { ensureAudio(); setMode(!MODE.on); };
+addEventListener('keydown', e => { if (started && (e.key === ' ' || e.key === 'Enter') && document.activeElement.tagName !== 'INPUT'){ e.preventDefault(); setMode(!MODE.on); } });
+function setPal(i){
+  S.pal = i; [...$('pals').children].forEach(x => x.classList.toggle('on', +x.dataset.p === i));
+  document.documentElement.style.setProperty('--acc', PALS[i].css);
+}
+$('pals').onclick = e => { const b = e.target.closest('button'); if (b) setPal(+b.dataset.p); };
+[['sLen','len'],['sTrail','trail'],['sDark','dark'],['sGrain','grain']].forEach(([id,k]) => { $(id).oninput = e => { S[k] = +e.target.value; }; });
+
+$('shoot').onclick = () => {
+  click();
+  try{ canvas.toBlob(b => { if (!b) return; const a = document.createElement('a'); a.href = URL.createObjectURL(b);
+    a.download = 'senkou-' + Date.now() + '.png'; a.click(); }, 'image/png'); }
+  catch(e){ setStatus('保存できませんでした。'); }
+};
+let rec = null, chunks = [];
+$('rec').onclick = () => {
+  if (rec && rec.state === 'recording'){ rec.stop(); return; }
+  try{
+    ensureAudio();
+    const tracks = [...canvas.captureStream(30).getVideoTracks()];
+    if (recDest) tracks.push(...recDest.stream.getAudioTracks());
+    const mime = ['video/mp4;codecs=avc1','video/webm;codecs=vp9,opus','video/webm'].find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || '';
+    rec = new MediaRecorder(new MediaStream(tracks), mime ? { mimeType:mime } : {});
+    chunks = [];
+    rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+    rec.onstop = () => {
+      $('rec').classList.remove('on'); $('rec').textContent = '● REC';
+      const ext = (rec.mimeType || '').includes('mp4') ? 'mp4' : 'webm';
+      const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(chunks, { type:rec.mimeType || 'video/webm' }));
+      a.download = 'senkou.' + ext; a.click();
+    };
+    rec.start(); $('rec').classList.add('on'); $('rec').textContent = '■ STOP';
+  }catch(e){ setStatus('録画を開始できませんでした。'); }
+};
+
+/* ---------- render ---------- */
+let lastT = 0, hudT = 0;
+function loop(now){
+  requestAnimationFrame(loop);
+  const dt = lastT ? Math.min(.1, (now - lastT)/1000) : 1/60; lastT = now;
+  const t = now/1000;
+  if (video.videoWidth){ vidW = video.videoWidth; vidH = video.videoHeight; }
+  const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+  let W = Math.round(innerWidth*dpr), H = Math.round(innerHeight*dpr);
+  const kk = Math.min(1, 1500 / Math.max(W, H)); W = Math.round(W*kk); H = Math.round(H*kk);
+  if (canvas.width !== W || canvas.height !== H){ canvas.width = W; canvas.height = H; }
+  asp = W/H;
+  const va = vidW/vidH; scX = asp < va ? asp/va : 1; scY = asp < va ? 1 : va/asp;
+  ensureRT(W, H);
+  if (!EXT) track(now);
+  if (video.readyState < 2) return;
+
+  // mode transition: dip to black, swap, rise
+  const k = Math.min(1, (now - MODE.t0)/900), dip = Math.sin(Math.PI*k);
+  const fxVisible = MODE.on ? k >= .5 : k < .5;
+  if (!MODE.revealed && k >= .5){ MODE.revealed = true; RT.reset = true; if (MODE.on) ignite(); }
+  MODE.fx = fxVisible;
+  ign *= Math.exp(-dt * 2.4); if (ign < .002) ign = 0;
+
+  // eyes → uniforms (intensity: openness, presence, motion, ignition)
+  EYESP.set(EYES);
+  let n = 0, energy = 0;
+  for (const F of FACES){
+    if (!F.ok) continue;
+    energy = Math.max(energy, F.E);
+    for (let e = 0; e < 2; e++){
+      EYES[n*4] = F.ex[e*2]; EYES[n*4+1] = F.ex[e*2+1];
+      EYES[n*4+2] = Math.pow(F.open[e], 1.5) * (.85 + .35*Math.min(1.5, F.E) + 1.4*ign); EYES[n*4+3] = 0; n++;
+    }
+  }
+  for (let i = n; i < 4; i++){ EYES[i*4+2] = 0; }
+  for (let i = 0; i < 4; i++){                         // no sweep from a vanished or far-jumped eye
+    if (EYESP[i*4+2] <= 0 || Math.hypot((EYES[i*4] - EYESP[i*4])*asp, EYES[i*4+1] - EYESP[i*4+1]) > .25){ EYESP[i*4] = EYES[i*4]; EYESP[i*4+1] = EYES[i*4+1]; }
+  }
+  const pal = PALS[S.pal], flc = hex(pal.fl);
+
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, texVid);
+  try { gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video); } catch(e){ return; }
+
+  if (fxVisible){
+    // pass 1: lens streaks
+    gl.bindFramebuffer(gl.FRAMEBUFFER, RT.stF); gl.viewport(0, 0, Math.max(16, W >> 2), Math.max(16, H >> 2));
+    gl.useProgram(PS.p);
+    gl.uniform1i(PS.U.uVid, 0); gl.uniform2f(PS.U.uScale, scX, scY); gl.uniform1f(PS.U.uMirror, mirror ? 1 : 0);
+    gl.uniform1f(PS.U.uThr, .72); gl.uniform1f(PS.U.uSpan, .18 + .3*S.len);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    // pass 2: eye flares with trails
+    const src = RT.ping, dst = 1 - src;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, RT.flF[dst]); gl.viewport(0, 0, Math.max(16, W >> 1), Math.max(16, H >> 1));
+    gl.useProgram(PF.p);
+    gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, RT.fl[src]);
+    gl.uniform1i(PF.U.uPrev, 1);
+    gl.uniform4fv(PF.U.uEye, EYES); gl.uniform4fv(PF.U.uEyeP, EYESP); gl.uniform1f(PF.U.uAsp, asp);
+    const tau = .06 + 1.6 * S.trail * S.trail;
+    gl.uniform1f(PF.U.uDecay, Math.exp(-dt / tau)); gl.uniform1f(PF.U.uLen, .05 + .32*S.len);
+    gl.uniform1f(PF.U.uIgn, ign); gl.uniform1f(PF.U.uReset, RT.reset ? 1 : 0); gl.uniform3fv(PF.U.uFl, flc);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    RT.ping = dst; RT.reset = false;
+  }
+  // pass 3: compose
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, 0, W, H);
+  gl.useProgram(PO.p);
+  gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, texMask);
+  gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, RT.st);
+  gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, RT.fl[RT.ping]);
+  const U = PO.U;
+  gl.uniform1i(U.uVid, 0); gl.uniform1i(U.uMask, 1); gl.uniform1i(U.uStreak, 2); gl.uniform1i(U.uFlare, 3);
+  gl.uniform2f(U.uScale, scX, scY); gl.uniform1f(U.uMirror, mirror ? 1 : 0); gl.uniform2f(U.uRes, W, H);
+  gl.uniform4fv(U.uEye, EYES); gl.uniform1f(U.uAsp, asp);
+  gl.uniform1f(U.uHas, M.has && M.present ? 1 : 0); gl.uniform1f(U.uFx, fxVisible ? 1 : 0); gl.uniform1f(U.uDim, 1 - .95*dip);
+  gl.uniform1f(U.uDark, S.dark); gl.uniform1f(U.uGrain, S.grain); gl.uniform1f(U.uT, t); gl.uniform1f(U.uIgn, ign);
+  // cinemascope bars: 2.39:1 on wide screens, a thin frame on tall ones
+  const bars = asp > 1.3 ? Math.max(0, .5 - (asp/2.39)/2) : .045;
+  gl.uniform1f(U.uBars, bars);
+  gl.uniform3fv(U.uSh, hex(pal.sh)); gl.uniform3fv(U.uMid, hex(pal.mid)); gl.uniform3fv(U.uHi, hex(pal.hi)); gl.uniform3fv(U.uFl, flc);
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+  hudT += dt;
+  if (hudT > .25){ hudT = 0;
+    $('hud').textContent = 'SENKOU\n' + (fxVisible ? pal.name + '  2.39:1' : 'CAMERA');
+    let st = '';
+    if (modelState === 'fail' && !EXT) st = '顔の検出モデルを読み込めませんでした（ネット接続を確認）。';
+    else if (fxVisible && n === 0 && (modelState === 'ok' || EXT)) st = '顔をカメラに向けてください。';
+    if ($('status').textContent !== st && !$('status').textContent.startsWith('カメラを起動')) setStatus(st);
+  }
+}
+
+/* ---------- test hook (used by the local verification harness) ---------- */
+window.__SENKOU = {
+  external(){ EXT = true; },
+  ingestMask(d, w, h){ EXT = true; ingestMask(d, w, h); },
+  face(list, tMs){ EXT = true; onFaces(list, tMs); },
+  mode(on){ setMode(!!on); },
+  palette(i){ setPal(i); },
+  state: () => ({ faces:FACES.map(F => ({ ok:F.ok, ex:F.ex.slice(), open:F.open.slice(), E:F.E, armed:F.armed })),
+                  eyes:Array.from(EYES), ign, ignitions, fx:MODE.fx, floatOK }),
+};
+</script>
+</body>
+</html>
