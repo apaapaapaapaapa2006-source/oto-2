@@ -1,0 +1,789 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="description" content="顔が、生きている彫刻になる。暗いギャラリーに自分の顔を型取りした面が浮かび、首を動かせば軌跡に型が並び、速く振れば石膏が砕けて崩れ落ちる。タップでその表情の型を残せる。">
+<meta name="theme-color" content="#0b0b0c">
+<title>KATADORI ─ 顔が、生きている彫刻になる</title>
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  KATADORI 型取り ─ 顔が、生きている彫刻になる          ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  MOOD       夜の美術館の一室。スポットの下に、自分の顔から型を取った白い面が
+             浮かび、ゆっくり回って横顔を見せる。瞬きも口の動きもそのまま石膏
+             に乗る。首を動かせば、その軌跡に型が一枚ずつ置かれていき、空間に
+             マレーの連続写真やボッチョーニの彫刻のような「動きの彫刻」が立つ。
+             速く振った軌跡の型は、置かれた瞬間に砕けて床へ崩れる。
+  PALETTE    PLASTER 壁 #0b0b0c → 床 #1c1b1a ／ 石膏 #e9e4da ／ 内側 #4a4540
+             CHROME  同じ部屋 ／ 鏡面に映るのは二灯のソフトボックスだけ
+             BRONZE  同じ部屋 ／ 青銅 #6b4526 ／ 窪みに緑青 #3f6a58
+             色を持つのは素材だけ。部屋は無彩色。
+  TYPE       Tenor Sans（題字・ラベル）・Victor Mono 300（計器）。
+  MOTION     カメラは 18 秒周期で左右に振れ、23 秒周期でわずかに俯く。
+             型は動いた距離で置かれ、速さで寿命が決まる（遅い＝残る、速い＝砕ける）。
+             崩れは三角形ごとの遅れ・回転・重力で、床で止まる。
+  SIGNATURE  一人の人間の数秒間が、空間に並んだ白い面の列として見えること。
+  TECH       FaceLandmarker の 478 点（3D）を MediaPipe の正準顔メッシュの
+             898 三角形（Apache-2.0、canonical_face_model.obj）で張り、毎フレーム
+             法線と窪み（ラプラシアン）を計算する。型は頂点を写し取った固定プール
+             （32 枠）で、崩れは頂点シェーダの中だけで起こる。半透明は使わず
+             スクリーンドア（ハッシュ discard）で消すので並べ替えが要らない。
+             床の映り込みは鏡像を二度描き、背景は逆 VP 行列から床と壁を光線で
+             解く。素のカメラ ⇄ 彫刻の切り替えは、走査線の上だけ顔が画面上の
+             位置のまま石膏になり、そのあと視点がギャラリーへ回り込む。
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Tenor+Sans&family=Victor+Mono:wght@300;500&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0b0b0c;--fg:#ece8e0;--dim:rgba(236,232,224,.55);--line:rgba(236,232,224,.22)}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none}
+html,body{margin:0;height:100%;background:var(--bg);overflow:hidden;color:var(--fg);
+  font-family:"Victor Mono",ui-monospace,"Hiragino Sans","Noto Sans JP",monospace;font-weight:300}
+#gl{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:grab}
+#cam{position:fixed;left:0;top:0;width:2px;height:2px;opacity:.01;pointer-events:none}
+
+#start{position:fixed;inset:0;z-index:30;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:24px;
+  padding:28px;text-align:center;background:radial-gradient(ellipse at 50% 38%,#1f1e1c 0%,#0b0b0c 70%)}
+#start .t{font-size:10px;letter-spacing:.6em;margin-right:-.6em;color:var(--dim)}
+#start h1{margin:0;font-family:"Tenor Sans",Georgia,serif;font-weight:400;font-size:min(15vw,96px);line-height:1;letter-spacing:.16em;margin-right:-.16em}
+#start p{margin:0;font-size:12px;line-height:2.1;color:var(--dim);letter-spacing:.05em}
+#go{appearance:none;border:1px solid var(--line);background:transparent;color:var(--fg);font:500 10px "Victor Mono",monospace;
+  letter-spacing:.5em;padding:15px 34px 15px 40px;cursor:pointer;transition:border-color .3s}
+#go:hover{border-color:var(--fg)}
+#err{font-size:12px;line-height:1.8;max-width:340px;min-height:1em;white-space:pre-line;color:#e5a4a4}
+
+.btn{position:fixed;z-index:12;appearance:none;border:0;background:transparent;color:var(--fg);font:500 10px "Victor Mono","Hiragino Sans",monospace;
+  letter-spacing:.22em;padding:10px 8px;display:none;cursor:pointer;opacity:.6;transition:opacity .3s}
+.btn.show{display:block}
+.btn:hover{opacity:1}
+#gear{right:10px;top:calc(env(safe-area-inset-top) + 6px);font-size:14px;letter-spacing:0}
+#flip{right:10px;top:calc(env(safe-area-inset-top) + 40px);letter-spacing:.1em}
+#bar{position:fixed;left:0;right:0;bottom:calc(env(safe-area-inset-bottom) + 12px);z-index:12;display:none;justify-content:center;align-items:center;gap:22px}
+#bar.show{display:flex}
+#bar .btn{position:static;display:block}
+#bar #shoot{position:relative;width:44px;height:44px;border-radius:50%;border:1px solid var(--fg);padding:0;opacity:.7}
+#shoot::after{content:"";position:absolute;inset:6px;border-radius:50%;background:var(--fg);opacity:.85}
+#rec.on{opacity:1;color:#ea8a8a}
+#mode{border:1px solid var(--line);padding:11px 16px 11px 20px;opacity:.85;font-family:"Tenor Sans","Hiragino Sans",sans-serif;letter-spacing:.18em}
+#hud{position:fixed;left:14px;top:calc(env(safe-area-inset-top) + 14px);z-index:11;font-size:9px;letter-spacing:.3em;color:var(--dim);
+  pointer-events:none;display:none;line-height:2;white-space:pre}
+#hud.show{display:block}
+#status{position:fixed;left:14px;right:14px;bottom:calc(env(safe-area-inset-bottom) + 74px);z-index:11;font-size:11px;letter-spacing:.05em;
+  color:var(--fg);opacity:.7;pointer-events:none;line-height:1.7;white-space:pre-line;text-align:center}
+
+#panel{position:fixed;right:10px;top:calc(env(safe-area-inset-top) + 78px);z-index:12;width:min(272px,calc(100vw - 20px));
+  background:rgba(11,11,12,.86);border:1px solid var(--line);padding:14px 16px;display:flex;flex-direction:column;gap:13px;
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);transition:opacity .25s}
+#panel.hide{opacity:0;pointer-events:none}
+.chips{display:flex;border:1px solid var(--line)}
+.chips button{flex:1;appearance:none;border:0;background:transparent;color:var(--fg);padding:8px 2px;font:500 9px "Victor Mono",monospace;
+  letter-spacing:.16em;cursor:pointer;opacity:.55}
+.chips button.on{opacity:1;background:rgba(236,232,224,.12)}
+#panel label{display:flex;align-items:center;gap:10px;font-size:11px;letter-spacing:.04em}
+#panel label span{width:80px;flex:none;color:var(--dim)}
+#panel input[type=range]{flex:1;accent-color:#bdb6aa}
+#panel .note{font-size:10px;line-height:1.8;color:var(--dim);letter-spacing:.03em}
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<video id="cam" playsinline muted autoplay></video>
+<div id="hud"></div>
+<div id="status"></div>
+<button id="gear" class="btn" aria-label="調整">⚙</button>
+<button id="flip" class="btn">⟲ カメラ</button>
+<div id="bar">
+  <button id="rec" class="btn">● REC</button>
+  <button id="clear" class="btn">崩す</button>
+  <button id="shoot" class="btn" aria-label="撮る"></button>
+  <button id="mode" class="btn">型をとる</button>
+</div>
+
+<div id="panel" class="hide">
+  <div class="chips" id="mats">
+    <button data-m="0" class="on">PLASTER</button>
+    <button data-m="1">CHROME</button>
+    <button data-m="2">BRONZE</button>
+  </div>
+  <label><span>型の残る時間</span><input type="range" id="sLife" min="0.3" max="2" step="0.01" value="1"></label>
+  <label><span>型の置かれる間隔</span><input type="range" id="sGap" min="0.4" max="2" step="0.01" value="0.8"></label>
+  <label><span>視点の回り</span><input type="range" id="sOrbit" min="0" max="1.5" step="0.01" value="1"></label>
+  <label><span>粒子</span><input type="range" id="sGrain" min="0" max="1" step="0.01" value="0.45"></label>
+  <div class="note">タップでいまの表情の型を残す（8 枚まで）。ドラッグで視点を回す。「崩す」で全部が崩れ落ちる。</div>
+</div>
+
+<div id="start">
+  <div class="t">CASTING · 型取り</div>
+  <h1>KATADORI</h1>
+  <p>顔が、生きている彫刻になる。<br>動けば型が並び、速く振れば砕ける。</p>
+  <button id="go">はじめる</button>
+  <div id="err"></div>
+</div>
+
+<script>
+'use strict';
+/* =====================================================================
+   KATADORI — the live face mesh (478 landmarks, 3D) skinned with the
+   canonical 898-triangle topology, rendered as a plaster / chrome /
+   bronze mask in a gallery. Movement leaves casts along the path;
+   fast movement makes them crumble; a tap keeps one.
+   ===================================================================== */
+const VISION_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs';
+const WASM_URL   = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm';
+const FACE_MODEL = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
+
+// canonical face mesh triangles (MediaPipe canonical_face_model.obj, Apache License 2.0)
+const TRI = new Uint16Array([173,155,133,246,33,7,382,398,362,263,466,249,308,415,324,78,95,191,356,389,264,127,34,162,368,264,389,139,162,34,267,0,302,37,72,0,11,302,0,11,0,72,349,451,350,120,121,231,452,350,451,232,231,121,267,302,269,37,39,72,303,269,302,73,72,39,357,343,350,128,121,114,277,350,343,47,114,121,350,452,357,121,128,232,453,357,452,233,232,128,299,333,297,69,67,104,332,297,333,103,104,67,175,152,396,175,171,152,377,396,152,148,152,171,381,384,382,154,155,157,398,382,384,173,157,155,280,347,330,50,101,118,348,330,347,119,118,101,269,303,270,39,40,73,304,270,303,74,73,40,9,336,151,9,151,107,337,151,336,108,107,151,344,278,360,115,131,48,279,360,278,49,48,131,262,431,418,32,194,211,424,418,431,204,211,194,304,408,270,74,40,184,409,270,408,185,184,40,272,310,407,42,183,80,415,407,310,191,80,183,322,270,410,92,186,40,409,410,270,185,40,186,347,449,348,118,119,229,450,348,449,230,229,119,434,432,430,214,210,212,422,430,432,202,212,210,313,314,18,83,18,84,17,18,314,17,84,18,307,375,306,77,76,146,291,306,375,61,146,76,259,387,260,29,30,160,388,260,387,161,160,30,286,414,384,56,157,190,398,384,414,173,190,157,418,424,406,194,182,204,335,406,424,106,204,182,367,416,364,138,135,192,434,364,416,214,192,135,391,423,327,165,98,203,358,327,423,129,203,98,298,301,284,68,54,71,251,284,301,21,71,54,4,275,5,4,5,45,281,5,275,51,45,5,254,373,253,24,23,144,374,253,373,145,144,23,320,321,307,90,77,91,375,307,321,146,91,77,280,425,411,50,187,205,427,411,425,207,205,187,421,313,200,201,200,83,18,200,313,18,83,200,335,321,406,106,182,91,405,406,321,181,91,182,405,321,404,181,180,91,320,404,321,90,91,180,17,314,16,17,16,84,315,16,314,85,84,16,425,266,426,205,206,36,423,426,266,203,36,206,369,396,400,140,176,171,377,400,396,148,171,176,391,269,322,165,92,39,270,322,269,40,39,92,417,465,413,193,189,245,464,413,465,244,245,189,257,258,386,27,159,28,385,386,258,158,28,159,260,388,467,30,247,161,466,467,388,246,161,247,248,456,419,3,196,236,399,419,456,174,236,196,333,298,332,104,103,68,284,332,298,54,68,103,285,8,417,55,193,8,168,417,8,168,8,193,340,261,346,111,117,31,448,346,261,228,31,117,285,417,441,55,221,193,413,441,417,189,193,221,327,460,326,98,97,240,328,326,460,99,240,97,277,355,329,47,100,126,371,329,355,142,126,100,309,392,438,79,218,166,439,438,392,219,166,218,381,382,256,154,26,155,341,256,382,112,155,26,360,279,420,131,198,49,429,420,279,209,49,198,365,364,379,136,150,135,394,379,364,169,135,150,355,277,437,126,217,47,343,437,277,114,47,217,443,444,282,223,52,224,283,282,444,53,224,52,281,275,363,51,134,45,440,363,275,220,45,134,431,262,395,211,170,32,369,395,262,140,32,170,337,299,338,108,109,69,297,338,299,67,69,109,335,273,321,106,91,43,375,321,273,146,43,91,348,450,349,119,120,230,451,349,450,231,230,120,467,359,342,247,113,130,446,342,359,226,130,113,282,283,334,52,105,53,293,334,283,63,53,105,250,458,462,20,242,238,461,462,458,241,238,242,276,353,300,46,70,124,383,300,353,156,124,70,325,292,324,96,95,62,308,324,292,78,62,95,283,276,293,53,63,46,300,293,276,70,46,63,447,264,345,227,116,34,372,345,264,143,34,116,352,345,346,123,117,116,340,346,345,111,116,117,1,19,274,1,44,19,354,274,19,125,19,44,248,281,456,3,236,51,363,456,281,134,51,236,425,426,427,205,207,206,436,427,426,216,206,207,380,381,252,153,22,154,256,252,381,26,154,22,391,393,269,165,39,167,267,269,393,37,167,39,199,428,200,199,200,208,421,200,428,201,208,200,330,329,266,101,36,100,371,266,329,142,100,36,422,432,273,202,43,212,287,273,432,57,212,43,290,250,328,60,99,20,462,328,250,242,20,99,258,286,385,28,158,56,384,385,286,157,56,158,342,446,353,113,124,226,265,353,446,35,226,124,257,386,259,27,29,159,387,259,386,160,159,29,430,422,431,210,211,202,424,431,422,204,202,211,445,342,276,225,46,113,353,276,342,124,113,46,424,422,335,204,106,202,273,335,422,43,202,106,306,292,307,76,77,62,325,307,292,96,62,77,366,447,352,137,123,227,345,352,447,116,227,123,302,268,303,72,73,38,271,303,268,41,38,73,371,358,266,142,36,129,423,266,358,203,129,36,327,294,460,98,240,64,455,460,294,235,64,240,294,331,278,64,48,102,279,278,331,49,102,48,303,271,304,73,74,41,272,304,271,42,41,74,427,436,434,207,214,216,432,434,436,212,216,214,304,272,408,74,184,42,407,408,272,183,42,184,394,430,395,169,170,210,431,395,430,211,210,170,395,369,378,170,149,140,400,378,369,176,140,149,296,334,299,66,69,105,333,299,334,104,105,69,417,168,351,193,122,168,6,351,168,6,168,122,280,411,352,50,123,187,376,352,411,147,187,123,319,320,325,89,96,90,307,325,320,77,90,96,285,295,336,55,107,65,296,336,295,66,65,107,404,320,403,180,179,90,319,403,320,89,90,179,330,348,329,101,100,119,349,329,348,120,119,100,334,293,333,105,104,63,298,333,293,68,63,104,323,454,366,93,137,234,447,366,454,227,234,137,16,315,15,16,15,85,316,15,315,86,85,15,429,279,358,209,129,49,331,358,279,102,49,129,15,316,14,15,14,86,317,14,316,87,86,14,8,285,9,8,9,55,336,9,285,107,55,9,329,349,277,100,47,120,350,277,349,121,120,47,252,253,380,22,153,23,374,380,253,145,23,153,402,403,318,178,88,179,319,318,403,89,179,88,351,6,419,122,196,6,197,419,6,197,6,196,324,318,325,95,96,88,319,325,318,89,88,96,397,367,365,172,136,138,364,365,367,135,138,136,288,435,397,58,172,215,367,397,435,138,215,172,438,439,344,218,115,219,278,344,439,48,219,115,271,311,272,41,42,81,310,272,311,80,81,42,5,281,195,5,195,51,248,195,281,3,51,195,273,287,375,43,146,57,291,375,287,61,57,146,396,428,175,171,175,208,199,175,428,199,208,175,268,312,271,38,41,82,311,271,312,81,82,41,444,445,283,224,53,225,276,283,445,46,225,53,254,339,373,24,144,110,390,373,339,163,110,144,295,282,296,65,66,52,334,296,282,105,52,66,346,448,347,117,118,228,449,347,448,229,228,118,454,356,447,234,227,127,264,447,356,34,127,227,336,296,337,107,108,66,299,337,296,69,66,108,151,337,10,151,10,108,338,10,337,109,108,10,278,439,294,48,64,219,455,294,439,235,219,64,407,415,292,183,62,191,308,292,415,78,191,62,358,371,429,129,209,142,355,429,371,126,142,209,345,372,340,116,111,143,265,340,372,35,143,111,388,390,466,161,246,163,249,466,390,7,163,246,352,346,280,123,50,117,347,280,346,118,117,50,295,442,282,65,52,222,443,282,442,223,222,52,19,94,354,19,125,94,370,354,94,141,94,125,295,285,442,65,222,55,441,442,285,221,55,222,419,197,248,196,3,197,195,248,197,195,197,3,359,263,255,130,25,33,249,255,263,7,33,25,275,274,440,45,220,44,457,440,274,237,44,220,300,383,301,70,71,156,368,301,383,139,156,71,417,351,465,193,245,122,412,465,351,188,122,245,466,263,467,246,247,33,359,467,263,130,33,247,389,251,368,162,139,21,301,368,251,71,21,139,374,386,380,145,153,159,385,380,386,158,159,153,379,394,378,150,149,169,395,378,394,170,169,149,351,419,412,122,188,196,399,412,419,174,196,188,426,322,436,206,216,92,410,436,322,186,92,216,387,373,388,160,161,144,390,388,373,163,144,161,393,326,164,167,164,97,2,164,326,2,97,164,354,370,461,125,241,141,462,461,370,242,141,241,0,267,164,0,164,37,393,164,267,167,37,164,11,12,302,11,72,12,268,302,12,38,12,72,386,374,387,159,160,145,373,387,374,144,145,160,12,13,268,12,38,13,312,268,13,82,13,38,293,300,298,63,68,70,301,298,300,71,70,68,340,265,261,111,31,35,446,261,265,226,35,31,380,385,381,153,154,158,384,381,385,157,158,154,280,330,425,50,205,101,266,425,330,36,101,205,423,391,426,203,206,165,322,426,391,92,165,206,429,355,420,209,198,126,437,420,355,217,126,198,391,327,393,165,167,98,326,393,327,97,98,167,457,438,440,237,220,218,344,440,438,115,218,220,382,362,341,155,112,133,463,341,362,243,133,112,457,461,459,237,239,241,458,459,461,238,241,239,434,430,364,214,135,210,394,364,430,169,210,135,414,463,398,190,173,243,362,398,463,133,243,173,262,428,369,32,140,208,396,369,428,171,208,140,457,274,461,237,241,44,354,461,274,125,44,241,316,403,317,86,87,179,402,317,403,178,179,87,315,404,316,85,86,180,403,316,404,179,180,86,314,405,315,84,85,181,404,315,405,180,181,85,313,406,314,83,84,182,405,314,406,181,182,84,418,406,421,194,201,182,313,421,406,83,182,201,366,401,323,137,93,177,361,323,401,132,177,93,408,407,306,184,76,183,292,306,407,62,183,76,408,306,409,184,185,76,291,409,306,61,76,185,410,409,287,186,57,185,291,287,409,61,185,57,436,410,432,216,212,186,287,432,410,57,186,212,434,416,427,214,207,192,411,427,416,187,192,207,264,368,372,34,143,139,383,372,368,156,139,143,457,459,438,237,218,239,309,438,459,79,239,218,352,376,366,123,137,147,401,366,376,177,147,137,4,1,275,4,45,1,274,275,1,44,1,45,428,262,421,208,201,32,418,421,262,194,32,201,327,358,294,98,64,129,331,294,358,102,129,64,367,435,416,138,192,215,433,416,435,213,215,192,455,439,289,235,59,219,392,289,439,166,219,59,328,462,326,99,97,242,370,326,462,141,242,97,326,370,2,97,2,141,94,2,370,94,141,2,460,455,305,240,75,235,289,305,455,59,235,75,448,339,449,228,229,110,254,449,339,24,110,229,261,446,255,31,25,226,359,255,446,130,226,25,449,254,450,229,230,24,253,450,254,23,24,230,450,253,451,230,231,23,252,451,253,22,23,231,451,252,452,231,232,22,256,452,252,26,22,232,256,341,452,26,232,112,453,452,341,233,112,232,413,464,414,189,190,244,463,414,464,243,244,190,441,413,286,221,56,189,414,286,413,190,189,56,441,286,442,221,222,56,258,442,286,28,56,222,442,258,443,222,223,28,257,443,258,27,28,223,444,443,259,224,29,223,257,259,443,27,223,29,259,260,444,29,224,30,445,444,260,225,30,224,260,467,445,30,225,247,342,445,467,113,247,225,250,309,458,20,238,79,459,458,309,239,79,238,290,305,392,60,166,75,289,392,305,59,75,166,460,305,328,240,99,75,290,328,305,60,75,99,376,433,401,147,177,213,435,401,433,215,213,177,250,290,309,20,79,60,392,309,290,166,60,79,411,416,376,187,147,192,433,376,416,213,192,147,341,463,453,112,233,243,464,453,463,244,243,233,453,464,357,233,128,244,465,357,464,245,244,128,412,343,465,188,245,114,357,465,343,128,114,245,437,343,399,217,174,114,412,399,343,188,114,174,363,440,360,134,131,220,344,360,440,115,220,131,456,420,399,236,174,198,437,399,420,217,198,174,456,363,420,236,198,134,360,420,363,131,134,198,361,401,288,132,58,177,435,288,401,215,177,58,353,265,383,124,156,35,372,383,265,143,35,156,255,249,339,25,110,7,390,339,249,163,7,110,261,255,448,31,228,25,339,448,255,110,25,228,14,317,13,14,13,87,312,13,317,82,87,13,317,402,312,87,82,178,311,312,402,81,178,82,402,318,311,178,81,88,310,311,318,80,88,81,318,324,310,88,80,95,415,310,324,191,95,80]);
+const NV = 468, NT = TRI.length / 3, NC = NT * 3;          // vertices, triangles, expanded corners
+
+const $ = id => document.getElementById(id);
+const canvas = $('gl'), video = $('cam');
+const MATS = ['PLASTER', 'CHROME', 'BRONZE'];
+const S = { mat:0, life:1, gap:.8, orbit:1, grain:.45 };
+
+/* ---------- small mat4 kit (column-major) ---------- */
+const M4 = {
+  persp(o, fovy, asp, n, f){ const t = 1/Math.tan(fovy/2); o.fill(0); o[0] = t/asp; o[5] = t; o[10] = (f+n)/(n-f); o[11] = -1; o[14] = 2*f*n/(n-f); return o; },
+  look(o, e, c, u){
+    let zx = e[0]-c[0], zy = e[1]-c[1], zz = e[2]-c[2], l = Math.hypot(zx, zy, zz); zx /= l; zy /= l; zz /= l;
+    let xx = u[1]*zz - u[2]*zy, xy = u[2]*zx - u[0]*zz, xz = u[0]*zy - u[1]*zx; l = Math.hypot(xx, xy, xz); xx /= l; xy /= l; xz /= l;
+    const yx = zy*xz - zz*xy, yy = zz*xx - zx*xz, yz = zx*xy - zy*xx;
+    o[0] = xx; o[1] = yx; o[2] = zx; o[3] = 0; o[4] = xy; o[5] = yy; o[6] = zy; o[7] = 0; o[8] = xz; o[9] = yz; o[10] = zz; o[11] = 0;
+    o[12] = -(xx*e[0] + xy*e[1] + xz*e[2]); o[13] = -(yx*e[0] + yy*e[1] + yz*e[2]); o[14] = -(zx*e[0] + zy*e[1] + zz*e[2]); o[15] = 1; return o; },
+  mul(o, a, b){ for (let c = 0; c < 4; c++) for (let r = 0; r < 4; r++){ let s = 0; for (let k = 0; k < 4; k++) s += a[k*4+r]*b[c*4+k]; o[c*4+r] = s; } return o; },
+  inv(o, m){
+    const a00=m[0],a01=m[1],a02=m[2],a03=m[3],a10=m[4],a11=m[5],a12=m[6],a13=m[7],a20=m[8],a21=m[9],a22=m[10],a23=m[11],a30=m[12],a31=m[13],a32=m[14],a33=m[15];
+    const b00=a00*a11-a01*a10,b01=a00*a12-a02*a10,b02=a00*a13-a03*a10,b03=a01*a12-a02*a11,b04=a01*a13-a03*a11,b05=a02*a13-a03*a12,
+          b06=a20*a31-a21*a30,b07=a20*a32-a22*a30,b08=a20*a33-a23*a30,b09=a21*a32-a22*a31,b10=a21*a33-a23*a31,b11=a22*a33-a23*a32;
+    let d = b00*b11-b01*b10+b02*b09+b03*b08-b04*b07+b05*b06; if (!d) return o; d = 1/d;
+    o[0]=(a11*b11-a12*b10+a13*b09)*d; o[1]=(a02*b10-a01*b11-a03*b09)*d; o[2]=(a31*b05-a32*b04+a33*b03)*d; o[3]=(a22*b04-a21*b05-a23*b03)*d;
+    o[4]=(a12*b08-a10*b11-a13*b07)*d; o[5]=(a00*b11-a02*b08+a03*b07)*d; o[6]=(a32*b02-a30*b05-a33*b01)*d; o[7]=(a20*b05-a22*b02+a23*b01)*d;
+    o[8]=(a10*b10-a11*b08+a13*b06)*d; o[9]=(a01*b08-a00*b10-a03*b06)*d; o[10]=(a30*b04-a31*b02+a33*b00)*d; o[11]=(a21*b02-a20*b04-a23*b00)*d;
+    o[12]=(a11*b07-a10*b09-a12*b06)*d; o[13]=(a00*b09-a01*b07+a02*b06)*d; o[14]=(a31*b01-a30*b03-a32*b00)*d; o[15]=(a20*b03-a21*b01+a22*b00)*d; return o; },
+};
+
+/* ---------- topology: neighbours for the cavity term ---------- */
+const NB_OFF = new Uint16Array(NV + 1), NB = (() => {
+  const sets = Array.from({ length:NV }, () => new Set());
+  for (let t = 0; t < NT; t++){ const a = TRI[t*3], b = TRI[t*3+1], c = TRI[t*3+2];
+    sets[a].add(b); sets[a].add(c); sets[b].add(a); sets[b].add(c); sets[c].add(a); sets[c].add(b); }
+  let n = 0; for (let i = 0; i < NV; i++){ NB_OFF[i] = n; n += sets[i].size; } NB_OFF[NV] = n;
+  const out = new Uint16Array(n); let k = 0; for (let i = 0; i < NV; i++) for (const j of sets[i]) out[k++] = j;
+  return out;
+})();
+// per-triangle random (delay, spin, drift) — static, shared by every slot
+const RND = (() => { const r = new Float32Array(NC*3); let s = 7;
+  const rand = () => (s = (s*16807) % 2147483647) / 2147483647;
+  for (let t = 0; t < NT; t++){ const a = rand(), b = rand(), c = rand(); for (let k = 0; k < 3; k++){ r[(t*3+k)*3] = a; r[(t*3+k)*3+1] = b; r[(t*3+k)*3+2] = c; } }
+  return r; })();
+
+/* ---------- GL ---------- */
+const gl = canvas.getContext('webgl2', { antialias:true, alpha:false, preserveDrawingBuffer:true, powerPreference:'high-performance' });
+const VS_Q = `#version 300 es
+in vec2 p; out vec2 uv; void main(){ uv = p*.5+.5; gl_Position = vec4(p,0.,1.); }`;
+// background: the room, solved per pixel by casting a ray from the eye (floor + wall + one spot)
+const FS_BG = `#version 300 es
+precision highp float;
+in vec2 uv; out vec4 o;
+uniform mat4 uInvVP; uniform vec3 uEye; uniform float uFloor;
+void main(){
+  vec4 w = uInvVP * vec4(uv*2. - 1., 1., 1.); vec3 d = normalize(w.xyz/w.w - uEye);
+  vec3 c = mix(vec3(.028,.027,.026), vec3(.075,.072,.068), smoothstep(-.1,.5,d.y));   // the wall
+  c += vec3(.06,.055,.05) * exp(-pow((d.x)*2.2, 2.)) * smoothstep(-.05,.35,d.y);    // a wash of light behind the piece
+  if (d.y < -.001){
+    float t = (uFloor - uEye.y) / d.y;
+    if (t > 0.){
+      vec3 h = uEye + d*t;
+      float r = length(h.xz);
+      vec3 f = vec3(.06,.058,.055) + vec3(.2,.19,.175) * exp(-r*r*.28);            // the spot pool
+      float fog = 1. - exp(-t*.06);
+      c = mix(f, c, fog);
+      c += vec3(.03) * exp(-abs(h.z + 6.)*1.2);                                       // the skirting line
+    }
+  }
+  o = vec4(c, 1.);
+}`;
+const VS_MESH = `#version 300 es
+in vec3 aPos; in vec3 aNrm; in float aCav; in vec3 aCen; in vec2 aImg; in vec3 aRnd;
+uniform mat4 uVP; uniform float uCrumble, uFloor, uReflect, uK;
+out vec3 vN; out vec3 vW; out float vCav; out float vFall; out float vH;
+mat3 rot(vec3 a, float t){ a = normalize(a); float c = cos(t), s = sin(t), C = 1. - c;
+  return mat3(c + a.x*a.x*C, a.y*a.x*C + a.z*s, a.z*a.x*C - a.y*s,
+              a.x*a.y*C - a.z*s, c + a.y*a.y*C, a.z*a.y*C + a.x*s,
+              a.x*a.z*C + a.y*s, a.y*a.z*C - a.x*s, c + a.z*a.z*C); }
+void main(){
+  vec3 p = aPos, n = aNrm; float fall = 0.;
+  if (uCrumble > 0.){
+    float tt = max(uCrumble - aRnd.x*.5, 0.);
+    if (tt > 0.){
+      mat3 R = rot(aRnd*2. - 1. + vec3(.013, .021, .007), tt*(1.5 + aRnd.y*6.));
+      vec3 off = vec3((aRnd.y - .5)*.7, .2 + aRnd.z*.35, (aRnd.z - .5)*.7)*tt - vec3(0., 2.4*tt*tt, 0.);
+      vec3 cm = aCen + off; cm.y = max(cm.y, uFloor + .003);                  // where the shard's centre is now
+      float keep = clamp(1. - (tt - 1.3)/1.1, 0., 1.);                        // late in the fall the shard shrinks away
+      p = cm + R*(p - aCen)*keep; n = R*n;
+      if (p.y < uFloor + .003){ p.y = uFloor + .003 + (p.y - uFloor)*.01; n = vec3(0., 1., 0.); }
+      fall = tt;
+    }
+  }
+  vH = p.y - uFloor;
+  if (uReflect > .5){ p.y = 2.*uFloor - p.y; n.y = -n.y; }
+  vW = p; vN = n; vCav = aCav; vFall = fall;
+  vec4 cg = uVP * vec4(p, 1.);
+  if (uK < .999){
+    vec3 ng = cg.xyz / cg.w, ni = vec3(aImg, .5 - aPos.z*.05);
+    gl_Position = vec4(mix(ni, ng, uK), 1.);
+  } else gl_Position = cg;
+}`;
+const FS_MESH = `#version 300 es
+precision highp float;
+in vec3 vN; in vec3 vW; in float vCav; in float vFall; in float vH;
+out vec4 o;
+uniform vec3 uEye; uniform int uMat; uniform float uAlpha, uReflect, uT, uDust, uScanY, uK;
+float h12(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233))) * 43758.5453); }
+vec3 env(vec3 d){
+  // the room as a chrome surface sees it: a dim dome, a lit floor near the horizon, three lights
+  vec3 c = mix(vec3(.15,.15,.16), vec3(.035), smoothstep(0., .85, d.y));
+  if (d.y < 0.) c = mix(vec3(.24,.23,.215), vec3(.04), smoothstep(-.04, -.7, d.y));
+  c += vec3(.55) * exp(-abs(d.y)*28.);                                     // horizon
+  c += vec3(.5) * smoothstep(.955, .985, d.y);                              // the overhead fixture
+  vec3 k = normalize(vec3(-.6, .55, .58)), kr = normalize(cross(vec3(0.,1.,0.), k)), ku = cross(k, kr);
+  float kd = dot(d, k);
+  if (kd > 0.){ vec2 q = vec2(dot(d, kr), dot(d, ku)) / kd;                // key softbox
+    c += vec3(1.,.98,.95) * 2.6 * smoothstep(.36, .3, abs(q.x)) * smoothstep(.56, .5, abs(q.y)); }
+  vec3 f = normalize(vec3(.55, -.05, .8)), fr = normalize(cross(vec3(0.,1.,0.), f)), fu = cross(f, fr);
+  float fd = dot(d, f);
+  if (fd > 0.){ vec2 q = vec2(dot(d, fr), dot(d, fu)) / fd;                // fill card
+    c += vec3(.75) * smoothstep(.5, .4, abs(q.x)) * smoothstep(.3, .24, abs(q.y)); }
+  vec3 s = normalize(vec3(.85, .12, -.5)), sr = normalize(cross(vec3(0.,1.,0.), s)), su = cross(s, sr);
+  float sd = dot(d, s);
+  if (sd > 0.){ vec2 q = vec2(dot(d, sr), dot(d, su)) / sd;                // strip light behind
+    c += vec3(.85,.92,1.) * 1.8 * smoothstep(.08, .055, abs(q.x)) * smoothstep(.9, .8, abs(q.y)); }
+  return c;
+}
+void main(){
+  float a = uAlpha * (1. - smoothstep(1.9, 2.4, vFall));
+  if (h12(floor(gl_FragCoord.xy) + fract(uT*.37)*61.) > a) discard;      // screen-door transparency: no sorting
+  vec3 N = normalize(vN), V = uK < .999 ? vec3(0., 0., 1.) : normalize(uEye - vW);   // pinned to the image: seen from the camera
+  float back = dot(N, V) < 0. ? 1. : 0.;
+  if (back > .5) N = -N;
+  float cav = clamp(vCav, -1., 1.);
+  vec3 L1 = normalize(vec3(-.6, .55, .58)), L2 = normalize(vec3(.85, .12, -.5));
+  float ndv = max(dot(N, V), 0.), fres = pow(1. - ndv, 5.);
+  vec3 col;
+  if (uMat == 1){                                                          // chrome
+    vec3 e = env(reflect(-V, N));
+    col = e * mix(vec3(.82), vec3(1.), fres) * (1. - max(cav, 0.)*.35);
+  } else if (uMat == 2){                                                   // bronze
+    vec3 base = vec3(.30,.19,.11);
+    vec3 e = env(reflect(-V, N));
+    float d = max(dot(N, L1), 0.);
+    col = base * (d*.55 + .07) + e * mix(base*1.25, vec3(.9,.8,.68), .3 + .5*fres) * .42;
+    col = mix(col, vec3(.16,.27,.22) * (.4 + d*.7), smoothstep(.04, .4, cav) * .6);  // patina in the hollows
+  } else {                                                                 // plaster
+    vec3 alb = vec3(.913,.894,.855);
+    float d = dot(N, L1); d = max(d, 0.)*.82 + (d*.5 + .5)*.18;
+    float rim = pow(1. - ndv, 3.) * max(dot(N, L2) + .25, 0.);
+    float ao = clamp(1. - cav*2.4, .32, 1.);
+    float hemi = .5 + .5*N.y;
+    float sp = pow(max(dot(reflect(-L1, N), V), 0.), 16.) * .07;
+    col = alb * (d*1.02 + .1 + .1*hemi) * ao + vec3(.92,.95,1.)*rim*.55 + sp;
+    col = mix(col, col * vec3(1.04,.97,.9), (1. - d)*.25);                 // a warm fall-off into shadow
+  }
+  if (back > .5) col = col * .32 + vec3(.012);                             // the inside of the mask
+  col *= 1. - uDust * .3;
+  if (vFall > 0.) col *= .8;
+  if (uReflect > .5) col *= .38 * exp(-max(vH, 0.)*1.1);                 // added onto the floor, fading with height
+  // the scan line during the cast: a thin hot band across the mesh
+  if (uK < .999){ float dy = abs(gl_FragCoord.y - uScanY); col += vec3(.75,.9,1.) * exp(-dy*.35) * .9; }
+  o = vec4(col, 1.);
+}`;
+// post: camera ⇄ gallery wipe, grain, vignette
+const FS_POST = `#version 300 es
+precision highp float;
+in vec2 uv; out vec4 o;
+uniform sampler2D uScene, uVid; uniform vec2 uScale, uRes; uniform float uMirror, uScan, uGrain, uT, uFx;
+float h21(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233))) * 43758.5453); }
+void main(){
+  vec2 v = (vec2(uv.x, 1. - uv.y) - .5) * uScale + .5; if (uMirror > .5) v.x = 1. - v.x;
+  vec3 cam = texture(uVid, v).rgb, sc = texture(uScene, uv).rgb;
+  float y = 1. - uv.y;
+  vec2 q = uv - .5; q.x *= uRes.x/uRes.y;
+  sc *= 1. - .45*smoothstep(.45, 1.15, length(q));
+  float n = h21(floor(gl_FragCoord.xy/1.5) + fract(uT*7.13)*91.7) - .5;
+  sc += n * uGrain * .075;
+  vec3 c = uFx < .5 ? cam : (y < uScan ? sc : cam);
+  if (uScan > 0. && uScan < 1.){
+    float d = abs(y - uScan) * uRes.y;
+    c += vec3(.8,.92,1.) * (exp(-d*.4)*.9 + exp(-d*.04)*.12);
+  }
+  o = vec4(clamp(c, 0., 1.), 1.);
+}`;
+function shd(type, src){ const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s; }
+function prog(vs, fs, attrs){ const p = gl.createProgram(); gl.attachShader(p, shd(gl.VERTEX_SHADER, vs)); gl.attachShader(p, shd(gl.FRAGMENT_SHADER, fs));
+  attrs.forEach((a, i) => gl.bindAttribLocation(p, i, a)); gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+  const U = {}, n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+  for (let i = 0; i < n; i++){ const u = gl.getActiveUniform(p, i); U[u.name] = gl.getUniformLocation(p, u.name); }
+  return { p, U }; }
+function tex(filter){ const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, filter); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, filter);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE); return t; }
+
+const STRIDE = 12;                                         // pos3 nrm3 cav1 cen3 img2
+const NSLOT = 34;                                          // 2 live faces + 32 casts
+let PB, PM, PP, quadVAO, texVid, sceneTex, sceneFB, sceneDepth, sceneW = 0, sceneH = 0;
+const SLOT = [];                                           // { vao, buf }
+function initGL(){
+  PB = prog(VS_Q, FS_BG, ['p']); PP = prog(VS_Q, FS_POST, ['p']);
+  PM = prog(VS_MESH, FS_MESH, ['aPos','aNrm','aCav','aCen','aImg','aRnd']);
+  quadVAO = gl.createVertexArray(); gl.bindVertexArray(quadVAO);
+  const qb = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, qb);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+  const rb = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, rb); gl.bufferData(gl.ARRAY_BUFFER, RND, gl.STATIC_DRAW);
+  for (let s = 0; s < NSLOT; s++){
+    const vao = gl.createVertexArray(); gl.bindVertexArray(vao);
+    const buf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    gl.bufferData(gl.ARRAY_BUFFER, NC*STRIDE*4, gl.DYNAMIC_DRAW);
+    const F = 4*STRIDE;
+    gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, F, 0);
+    gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 3, gl.FLOAT, false, F, 12);
+    gl.enableVertexAttribArray(2); gl.vertexAttribPointer(2, 1, gl.FLOAT, false, F, 24);
+    gl.enableVertexAttribArray(3); gl.vertexAttribPointer(3, 3, gl.FLOAT, false, F, 28);
+    gl.enableVertexAttribArray(4); gl.vertexAttribPointer(4, 2, gl.FLOAT, false, F, 40);
+    gl.bindBuffer(gl.ARRAY_BUFFER, rb);
+    gl.enableVertexAttribArray(5); gl.vertexAttribPointer(5, 3, gl.FLOAT, false, 0, 0);
+    SLOT.push({ vao, buf });
+  }
+  gl.bindVertexArray(null);
+  texVid = tex(gl.LINEAR);
+}
+function ensureScene(W, H){
+  if (W === sceneW && H === sceneH) return;
+  if (sceneTex){ gl.deleteTexture(sceneTex); gl.deleteFramebuffer(sceneFB); gl.deleteRenderbuffer(sceneDepth); }
+  sceneTex = tex(gl.LINEAR); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, W, H, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+  sceneDepth = gl.createRenderbuffer(); gl.bindRenderbuffer(gl.RENDERBUFFER, sceneDepth); gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT24, W, H);
+  sceneFB = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, sceneFB);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, sceneTex, 0);
+  gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, sceneDepth);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  sceneW = W; sceneH = H;
+}
+
+/* ---------- faces → world (scratch buffers are allocated once) ---------- */
+let mirror = true, vidW = 1280, vidH = 720, scX = 1, scY = 1, asp = 16/9;
+const P = new Float32Array(NV*3), IMG = new Float32Array(NV*2), NRM = new Float32Array(NV*3), CAV = new Float32Array(NV);
+const EXP = new Float32Array(NC*STRIDE);
+const W = {                                                // the world frame: one face width = 1 unit
+  scale:0, px:0, py:0, pz:0, floor:-1.4, ready:false };
+const FACES = [0, 1].map(i => ({ ok:false, alpha:0, lastSeen:-1e9, lastT:0, cx:0, cy:0, yaw:0, speed:0,
+  lcx:0, lcy:0, lyaw:0, lastCast:-1e9, slot:i }));
+function pt(a, i){
+  if (!a || a.length <= i) return null;
+  const p = a[i];
+  if (!p || !Number.isFinite(p.x) || !Number.isFinite(p.y)) return null;
+  return p;
+}
+function loseFace(F){ F.ok = false; F.speed = 0; F.lastCast = -1e9; }
+// landmark → world position (x right, y up, z toward the viewer), in face-width units around nothing (absolute)
+function buildWorld(lms){
+  for (let i = 0; i < NV; i++){
+    const p = lms[i];
+    let x = p.x; if (mirror) x = 1 - x;
+    const z = Number.isFinite(p.z) ? p.z : 0;
+    P[i*3] = (x - .5) * vidW; P[i*3+1] = -(p.y - .5) * vidH; P[i*3+2] = -z * vidW;
+    IMG[i*2] = ((x - .5) / scX) * 2; IMG[i*2+1] = -((p.y - .5) / scY) * 2;
+  }
+}
+function normalsAndCavity(){
+  NRM.fill(0);
+  for (let t = 0; t < NT; t++){
+    const a = TRI[t*3]*3, b = TRI[t*3+1]*3, c = TRI[t*3+2]*3;
+    const ux = P[b]-P[a], uy = P[b+1]-P[a+1], uz = P[b+2]-P[a+2], vx = P[c]-P[a], vy = P[c+1]-P[a+1], vz = P[c+2]-P[a+2];
+    const nx = uy*vz - uz*vy, ny = uz*vx - ux*vz, nz = ux*vy - uy*vx;
+    NRM[a] += nx; NRM[a+1] += ny; NRM[a+2] += nz; NRM[b] += nx; NRM[b+1] += ny; NRM[b+2] += nz; NRM[c] += nx; NRM[c+1] += ny; NRM[c+2] += nz;
+  }
+  // orientation: the nose tip must face the viewer whatever the winding after mirroring
+  const flip = NRM[4*3+2] < 0 ? -1 : 1;
+  let edge = 0, ne = 0;
+  for (let i = 0; i < NV; i++){
+    const l = Math.hypot(NRM[i*3], NRM[i*3+1], NRM[i*3+2]) || 1;
+    NRM[i*3] *= flip/l; NRM[i*3+1] *= flip/l; NRM[i*3+2] *= flip/l;
+  }
+  for (let i = 0; i < NV; i++){
+    let ax = 0, ay = 0, az = 0; const s = NB_OFF[i], e = NB_OFF[i+1];
+    for (let k = s; k < e; k++){ const j = NB[k]*3; ax += P[j]; ay += P[j+1]; az += P[j+2];
+      edge += Math.hypot(P[j]-P[i*3], P[j+1]-P[i*3+1], P[j+2]-P[i*3+2]); ne++; }
+    const m = e - s || 1; ax = ax/m - P[i*3]; ay = ay/m - P[i*3+1]; az = az/m - P[i*3+2];
+    CAV[i] = ax*NRM[i*3] + ay*NRM[i*3+1] + az*NRM[i*3+2];
+  }
+  const el = ne ? edge/ne : 1;
+  for (let i = 0; i < NV; i++) CAV[i] = Math.max(-1, Math.min(1, CAV[i]/el * 1.6));
+}
+// expand to the per-corner layout in world units (P is in video pixels; W.scale converts)
+function expand(){
+  const k = 1/W.scale;
+  for (let t = 0; t < NT; t++){
+    const a = TRI[t*3], b = TRI[t*3+1], c = TRI[t*3+2];
+    const cx = (P[a*3] + P[b*3] + P[c*3])/3*k, cy = (P[a*3+1] + P[b*3+1] + P[c*3+1])/3*k, cz = (P[a*3+2] + P[b*3+2] + P[c*3+2])/3*k;
+    for (let q = 0; q < 3; q++){
+      const v = TRI[t*3+q], o = (t*3+q)*STRIDE;
+      EXP[o] = P[v*3]*k; EXP[o+1] = P[v*3+1]*k; EXP[o+2] = P[v*3+2]*k;
+      EXP[o+3] = NRM[v*3]; EXP[o+4] = NRM[v*3+1]; EXP[o+5] = NRM[v*3+2];
+      EXP[o+6] = CAV[v];
+      EXP[o+7] = cx; EXP[o+8] = cy; EXP[o+9] = cz;
+      EXP[o+10] = IMG[v*2]; EXP[o+11] = IMG[v*2+1];
+    }
+  }
+}
+
+/* ---------- casts: a fixed pool of slots 2..33 ---------- */
+const CASTS = Array.from({ length:NSLOT - 2 }, (_, i) => ({ on:false, slot:i + 2, born:0, life:0, crumble:0, pinned:false, dust:0 }));
+let pinnedCount = 0, castsMade = 0, crumbled = 0;
+function freeCast(){
+  let best = null;
+  for (const c of CASTS) if (!c.on) return c;
+  for (const c of CASTS) if (!c.pinned && c.crumble > 0 && (!best || c.crumble > best.crumble)) best = c;
+  if (best) return best;
+  for (const c of CASTS) if (!c.pinned && (!best || c.born < best.born)) best = c;
+  return best;
+}
+function placeCast(F, now, life, pinned){
+  const c = freeCast(); if (!c) return null;
+  gl.bindBuffer(gl.ARRAY_BUFFER, SLOT[c.slot].buf); gl.bufferSubData(gl.ARRAY_BUFFER, 0, EXP);
+  c.on = true; c.born = now; c.life = life; c.crumble = 0; c.pinned = !!pinned; c.dust = 0;
+  castsMade++;
+  return c;
+}
+function crumbleAll(){ for (const c of CASTS) if (c.on && c.crumble === 0){ c.crumble = 1e-4; c.pinned = false; } pinnedCount = 0; crack(1); }
+
+/* ---------- per-observation update ---------- */
+let wantPin = false;
+function onFace(lms, F, tMs){
+  if (!PM) return false;
+  const n1 = pt(lms, 4), a = pt(lms, 234), b = pt(lms, 454), top = pt(lms, 10), chin = pt(lms, 152);
+  if (!lms || lms.length < NV || !n1 || !a || !b || !top || !chin){ if (tMs - F.lastSeen > 350) loseFace(F); return false; }
+  for (let i = 0; i < NV; i++){ const p = lms[i]; if (!p || !Number.isFinite(p.x) || !Number.isFinite(p.y)){ if (tMs - F.lastSeen > 350) loseFace(F); return false; } }
+  buildWorld(lms);
+  const fw = Math.hypot(P[454*3] - P[234*3], P[454*3+1] - P[234*3+1], P[454*3+2] - P[234*3+2]);
+  if (!(fw > 12)){ if (tMs - F.lastSeen > 350) loseFace(F); return false; }
+  normalsAndCavity();
+  // the world frame follows face 0 slowly: scale, pivot and floor
+  const cx = (P[234*3] + P[454*3]) / 2, cy = (P[10*3+1] + P[152*3+1]) / 2;
+  const yaw = ((P[4*3] - cx) / fw);
+  if (F.slot === 0){
+    if (!W.ready){ W.scale = fw; W.px = cx/fw; W.py = cy/fw; W.floor = cy/fw - 1.45; W.ready = true; }
+    const dtW = Math.min(.25, Math.max(.005, (tMs - (F.lastT || tMs)) / 1000));
+    const ks = 1 - Math.exp(-dtW / 3), kp = 1 - Math.exp(-dtW / 1.8);
+    W.scale += (fw - W.scale) * ks;
+    W.px += (cx/W.scale - W.px) * kp; W.py += (cy/W.scale - W.py) * kp;
+    W.floor += ((cy/W.scale - 1.45) - W.floor) * kp * .5;
+  }
+  expand();
+  gl.bindBuffer(gl.ARRAY_BUFFER, SLOT[F.slot].buf); gl.bufferSubData(gl.ARRAY_BUFFER, 0, EXP);
+  const wx = cx / W.scale, wy = cy / W.scale;
+  const dtO = Math.min(.25, Math.max(.005, (tMs - F.lastT) / 1000));
+  if (!F.ok || tMs - F.lastSeen > 350 || tMs < F.lastT){          // (re)acquired, or the clock went backwards: no velocity, no cast
+    F.cx = wx; F.cy = wy; F.yaw = yaw; F.speed = 0; F.lcx = wx; F.lcy = wy; F.lyaw = yaw; F.lastCast = tMs; F.ok = true;
+  } else {
+    var sp = Math.hypot(wx - F.cx, wy - F.cy) / dtO + Math.abs(yaw - F.yaw) / dtO * .8;
+    F.speed = F.speed * .7 + Math.min(8, sp) * .3;
+    F.cx = wx; F.cy = wy; F.yaw = yaw;
+    // a cast every time the head has travelled far enough (in face widths) — only while the piece is showing
+    const moved = Math.hypot(wx - F.lcx, wy - F.lcy) + Math.abs(yaw - F.lyaw) * 1.2;
+    if (MODE.fx && MODE.k >= 1 && moved > .2 * S.gap && tMs - F.lastCast > 60){
+      const fast = Math.max(0, Math.min(1, (Math.max(F.speed, sp*.8) - 1.1) / 2.4));   // a whip shatters at once
+      const life = fast > .85 ? .12 : (5.5 - 5.2 * fast) * S.life;
+      if (placeCast(F, performance.now(), life, false)) tok(fast);
+      F.lcx = wx; F.lcy = wy; F.lyaw = yaw; F.lastCast = tMs;
+    }
+  }
+  if (F.slot === 0 && wantPin && MODE.fx && MODE.k >= 1){
+    wantPin = false;
+    if (pinnedCount >= 8){ let o = null; for (const c of CASTS) if (c.on && c.pinned && (!o || c.born < o.born)) o = c; if (o){ o.pinned = false; o.crumble = 1e-4; pinnedCount--; crack(.6); } }
+    if (placeCast(F, performance.now(), 1e9, true)){ pinnedCount++; chisel(); }
+  }
+  F.lastSeen = tMs; F.lastT = tMs;
+  return true;
+}
+function onFaces(list, tMs){
+  if (!Number.isFinite(tMs)) return;
+  const arr = Array.isArray(list) ? list : [];
+  const faces = arr.length && arr[0] && Number.isFinite(arr[0].x) ? [arr] : arr;
+  for (let i = 0; i < 2; i++){
+    const F = FACES[i], l = faces[i];
+    if (!Array.isArray(l) || !onFace(l, F, tMs)){ if (tMs - F.lastSeen > 350) loseFace(F); }
+  }
+}
+
+/* ---------- MediaPipe (dynamic import; the page still runs without it) ---------- */
+let facer = null, lastTs = 0, lastVT = -1, modelState = 'loading', EXT = false;
+async function initModel(){
+  try{
+    const vision = await import(VISION_URL);
+    const fs = await vision.FilesetResolver.forVisionTasks(WASM_URL);
+    const o = d => ({ baseOptions:{ modelAssetPath:FACE_MODEL, delegate:d }, runningMode:'VIDEO', numFaces:2,
+      minFaceDetectionConfidence:.5, minFacePresenceConfidence:.5, minTrackingConfidence:.5 });
+    try { facer = await vision.FaceLandmarker.createFromOptions(fs, o('GPU')); }
+    catch(e){ facer = await vision.FaceLandmarker.createFromOptions(fs, o('CPU')); }
+    modelState = 'ok';
+  }catch(e){ if (!EXT) modelState = 'fail'; }
+}
+function track(now){
+  if (!facer || video.readyState < 2) return;
+  const vt = video.currentTime; if (vt === lastVT) return; lastVT = vt;
+  const ts = Math.max(lastTs + 1, Math.round(now)); lastTs = ts;
+  try{ const r = facer.detectForVideo(video, ts); onFaces(r && r.faceLandmarks, ts); }catch(e){}
+}
+
+/* ---------- camera ---------- */
+let stream = null, facing = 'user', started = false;
+function setStatus(t){ $('status').textContent = t || ''; }
+function camError(e){
+  const msg = (e && (e.message || e.name)) ? (e.message || e.name) : String(e || 'unknown');
+  const text = 'カメラを起動できませんでした：' + msg + '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+  $('err').textContent = text;
+  if (started) setStatus(text);
+}
+async function startCam(){
+  const md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) throw new Error('getUserMedia is unavailable');
+  const s = await md.getUserMedia({ video:{ facingMode:{ ideal:facing }, width:{ ideal:1280 }, height:{ ideal:720 } }, audio:false });
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = s; mirror = facing === 'user';
+  video.srcObject = s;
+  await new Promise(r => { if (video.readyState >= 1) r(); else video.onloadedmetadata = () => r(); });
+  await video.play().catch(()=>{});
+  vidW = video.videoWidth || 1280; vidH = video.videoHeight || 720;
+  FACES.forEach(loseFace); W.ready = false;
+}
+
+/* ---------- audio: room tone, plaster taps, the chisel, the crumble ---------- */
+let actx = null, bus = null, recDest = null, noise = null, lastTok = 0;
+function ensureAudio(){
+  if (actx){ if (actx.state === 'suspended') actx.resume().catch(()=>{}); return; }
+  const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+  actx = new AC(); bus = actx.createGain(); bus.gain.value = .5; bus.connect(actx.destination);
+  recDest = actx.createMediaStreamDestination(); bus.connect(recDest);
+  const len = actx.sampleRate*2 | 0; noise = actx.createBuffer(1, len, actx.sampleRate);
+  const d = noise.getChannelData(0); let b = 0; for (let i = 0; i < len; i++){ b = b*.98 + (Math.random()*2 - 1)*.2; d[i] = b; }
+  // the room: brown noise, very low, always on
+  const s = actx.createBufferSource(); s.buffer = noise; s.loop = true;
+  const f = actx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 160;
+  const g = actx.createGain(); g.gain.value = .22; s.connect(f); f.connect(g); g.connect(bus); s.start();
+  actx.resume().catch(()=>{});
+}
+function burst(freq, q, dur, gain, type){
+  if (!actx || actx.state !== 'running' || !noise) return;
+  const t = actx.currentTime, s = actx.createBufferSource(); s.buffer = noise;
+  const f = actx.createBiquadFilter(); f.type = type || 'bandpass'; f.frequency.value = freq; f.Q.value = q;
+  const g = actx.createGain(); g.gain.setValueAtTime(gain, t); g.gain.exponentialRampToValueAtTime(.0005, t + dur);
+  s.connect(f); f.connect(g); g.connect(bus); s.start(t, Math.random()*1.5); s.stop(t + dur + .02);
+}
+function tok(fast){ const now = performance.now(); if (now - lastTok < 55) return; lastTok = now;
+  burst(900 + Math.random()*700, 6, .07, .5 + fast*.4); if (fast > .5) burst(2600, 1.5, .25, .25*fast); }
+function crack(p){ burst(300, .7, .9*p + .3, .8*p, 'lowpass'); burst(3200, .8, .6, .3*p); }
+function chisel(){
+  if (!actx || actx.state !== 'running') return;
+  const t = actx.currentTime;
+  [[392, .3, 1.8], [1176, .12, .9], [2350, .05, .5]].forEach(([f, a, d]) => {
+    const o = actx.createOscillator(), g = actx.createGain(); o.frequency.value = f;
+    g.gain.setValueAtTime(a, t); g.gain.exponentialRampToValueAtTime(.0005, t + d); o.connect(g); g.connect(bus); o.start(t); o.stop(t + d + .05); });
+  burst(1800, 3, .05, .7);
+}
+function click(){ burst(2200, 1.2, .03, .6); }
+
+/* ---------- mode: plain camera ⇄ gallery ---------- */
+// k: 0 = mask pinned to the image, 1 = gallery view. scan: the wipe line (0 top … 1 bottom)
+const MODE = { on:false, fx:false, t0:-1e9, k:0, scan:0 };
+function setMode(on){
+  MODE.on = on; MODE.t0 = performance.now();
+  $('mode').textContent = on ? 'カメラにもどる' : '型をとる';
+  if (on){ scanSound(); } else click();
+}
+function scanSound(){ if (!actx || actx.state !== 'running') return;
+  const t = actx.currentTime, o = actx.createOscillator(), g = actx.createGain();
+  o.type = 'sine'; o.frequency.setValueAtTime(180, t); o.frequency.exponentialRampToValueAtTime(90, t + 1.2);
+  g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(.12, t + .1); g.gain.exponentialRampToValueAtTime(.001, t + 1.4);
+  o.connect(g); g.connect(bus); o.start(t); o.stop(t + 1.5); burst(5000, 4, 1.1, .08); }
+
+$('go').onclick = async () => {
+  $('err').textContent = '';
+  ensureAudio();
+  try{
+    if (!gl) throw new Error('WebGL2 に未対応のブラウザです');
+    if (!PM) initGL();
+    await startCam();
+  }catch(e){ camError(e); return; }
+  $('start').style.display = 'none';
+  ['gear','flip','bar','rec','shoot','mode','clear','hud'].forEach(id => $(id).classList.add('show'));
+  if (!started){ started = true; if (!EXT) initModel(); requestAnimationFrame(loop); }
+};
+$('flip').onclick = async () => {
+  const prev = facing; facing = facing === 'user' ? 'environment' : 'user';
+  try { await startCam(); } catch(e){ facing = prev; camError(e); }
+};
+$('gear').onclick = () => $('panel').classList.toggle('hide');
+$('mode').onclick = () => { ensureAudio(); setMode(!MODE.on); };
+$('clear').onclick = () => { ensureAudio(); crumbleAll(); };
+addEventListener('keydown', e => { if (started && (e.key === ' ' || e.key === 'Enter') && document.activeElement.tagName !== 'INPUT'){ e.preventDefault(); setMode(!MODE.on); } });
+function setMat(i){ S.mat = i; [...$('mats').children].forEach(x => x.classList.toggle('on', +x.dataset.m === i)); }
+$('mats').onclick = e => { const b = e.target.closest('button'); if (b) setMat(+b.dataset.m); };
+[['sLife','life'],['sGap','gap'],['sOrbit','orbit'],['sGrain','grain']].forEach(([id,k]) => { $(id).oninput = e => { S[k] = +e.target.value; }; });
+
+// drag = turn the view; a short tap = keep a cast
+const DRAG = { on:false, x:0, y:0, t:0, moved:0, yaw:0, pitch:0 };
+canvas.addEventListener('pointerdown', e => { DRAG.on = true; DRAG.x = e.clientX; DRAG.y = e.clientY; DRAG.t = performance.now(); DRAG.moved = 0; canvas.setPointerCapture(e.pointerId); });
+canvas.addEventListener('pointermove', e => { if (!DRAG.on) return;
+  const dx = e.clientX - DRAG.x, dy = e.clientY - DRAG.y; DRAG.x = e.clientX; DRAG.y = e.clientY; DRAG.moved += Math.abs(dx) + Math.abs(dy);
+  const k = 3 / Math.min(innerWidth, innerHeight);
+  DRAG.yaw = Math.max(-1.3, Math.min(1.3, DRAG.yaw - dx*k)); DRAG.pitch = Math.max(-.35, Math.min(.6, DRAG.pitch + dy*k*.6)); });
+canvas.addEventListener('pointerup', () => { if (!DRAG.on) return; DRAG.on = false;
+  if (DRAG.moved < 10 && performance.now() - DRAG.t < 450){ ensureAudio(); wantPin = true; } });
+
+$('shoot').onclick = () => {
+  click();
+  try{ canvas.toBlob(b => { if (!b) return; const a = document.createElement('a'); a.href = URL.createObjectURL(b);
+    a.download = 'katadori-' + Date.now() + '.png'; a.click(); }, 'image/png'); }
+  catch(e){ setStatus('保存できませんでした。'); }
+};
+let rec = null, chunks = [];
+$('rec').onclick = () => {
+  if (rec && rec.state === 'recording'){ rec.stop(); return; }
+  try{
+    ensureAudio();
+    const tracks = [...canvas.captureStream(30).getVideoTracks()];
+    if (recDest) tracks.push(...recDest.stream.getAudioTracks());
+    const mime = ['video/mp4;codecs=avc1','video/webm;codecs=vp9,opus','video/webm'].find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || '';
+    rec = new MediaRecorder(new MediaStream(tracks), mime ? { mimeType:mime } : {});
+    chunks = [];
+    rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+    rec.onstop = () => {
+      $('rec').classList.remove('on'); $('rec').textContent = '● REC';
+      const ext = (rec.mimeType || '').includes('mp4') ? 'mp4' : 'webm';
+      const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(chunks, { type:rec.mimeType || 'video/webm' }));
+      a.download = 'katadori.' + ext; a.click();
+    };
+    rec.start(); $('rec').classList.add('on'); $('rec').textContent = '■ STOP';
+  }catch(e){ setStatus('録画を開始できませんでした。'); }
+};
+
+/* ---------- render ---------- */
+const VIEW = new Float32Array(16), PROJ = new Float32Array(16), VP = new Float32Array(16), IVP = new Float32Array(16);
+const EYE = [0, 0, 5], TGT = [0, 0, 0], UP = [0, 1, 0];
+let lastT = 0, hudT = 0;
+const ease = x => x < .5 ? 4*x*x*x : 1 - Math.pow(-2*x + 2, 3)/2;
+function drawMesh(slot, alpha, crumble, dust, reflect, k){
+  const U = PM.U;
+  gl.uniform1f(U.uAlpha, alpha); gl.uniform1f(U.uCrumble, crumble); gl.uniform1f(U.uDust, dust);
+  gl.uniform1f(U.uReflect, reflect); gl.uniform1f(U.uK, k);
+  gl.bindVertexArray(SLOT[slot].vao); gl.drawArrays(gl.TRIANGLES, 0, NC);
+}
+function loop(now){
+  requestAnimationFrame(loop);
+  const dtw = lastT ? Math.min(.5, (now - lastT)/1000) : 1/60, dt = Math.min(.1, dtw); lastT = now;
+  const t = now/1000;
+  if (video.videoWidth){ vidW = video.videoWidth; vidH = video.videoHeight; }
+  const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+  let Wd = Math.round(innerWidth*dpr), Hd = Math.round(innerHeight*dpr);
+  const kk = Math.min(1, 1600 / Math.max(Wd, Hd)); Wd = Math.round(Wd*kk); Hd = Math.round(Hd*kk);
+  if (canvas.width !== Wd || canvas.height !== Hd){ canvas.width = Wd; canvas.height = Hd; }
+  asp = Wd/Hd; const va = vidW/vidH; scX = asp < va ? asp/va : 1; scY = asp < va ? 1 : va/asp;
+  ensureScene(Wd, Hd);
+  if (!EXT) track(now);
+  if (video.readyState < 2) return;
+
+  // mode: entering = scan down (1.1 s) then the view swings out to the gallery (1.6 s); leaving = scan up
+  const el = (now - MODE.t0) / 1000;
+  if (MODE.on){
+    MODE.fx = true;
+    MODE.scan = el < 1.1 ? ease(Math.min(1, el/1.1)) : 1;
+    MODE.k = el < 1.1 ? 0 : ease(Math.min(1, (el - 1.1)/1.6));
+  } else {
+    if (el < .9){ MODE.scan = 1 - ease(el/.9); MODE.fx = MODE.scan > 0; MODE.k = 1; }
+    else { MODE.scan = 0; MODE.fx = false; MODE.k = 0; }
+  }
+
+  // camera: an orbit around the slowly-following pivot
+  const dist = 5.3 * Math.max(1, .78/asp);
+  if (!DRAG.on){ DRAG.yaw *= Math.exp(-dt*.35); DRAG.pitch *= Math.exp(-dt*.35); }
+  const yaw = S.orbit * .62 * Math.sin(t * 2*Math.PI / 18) + DRAG.yaw;
+  const pitch = .1 + .07 * Math.sin(t * 2*Math.PI / 23) * S.orbit + DRAG.pitch;
+  TGT[0] = W.px; TGT[1] = W.py - (asp > 1 ? .32 : .5); TGT[2] = 0;
+  EYE[0] = TGT[0] + Math.sin(yaw)*Math.cos(pitch)*dist; EYE[1] = TGT[1] + Math.sin(pitch)*dist; EYE[2] = Math.cos(yaw)*Math.cos(pitch)*dist;
+  M4.persp(PROJ, 30*Math.PI/180, asp, .05, 60); M4.look(VIEW, EYE, TGT, UP); M4.mul(VP, PROJ, VIEW); M4.inv(IVP, VP);
+
+  // casts age; expired ones crumble; crumbled ones free their slot
+  let live = 0;
+  for (const c of CASTS){
+    if (!c.on) continue;
+    const age = (now - c.born)/1000;
+    if (c.crumble === 0 && !c.pinned && age > c.life){ c.crumble = 1e-4; if (c.life > 1.2) crack(.35); }
+    if (c.crumble > 0){ c.crumble += dtw; if (c.crumble > 2.6){ c.on = false; crumbled++; continue; } }   // wall time: shards fall at the same speed on a slow device
+    c.dust = c.pinned ? 0 : Math.min(1, age / Math.max(.5, c.life));
+    live++;
+  }
+  for (const F of FACES){ const show = F.ok; F.alpha += ((show ? 1 : 0) - F.alpha) * (1 - Math.exp(-dt*(show ? 6 : 3))); }
+
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, texVid);
+  try { gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video); } catch(e){ return; }
+
+  if (MODE.fx){
+    gl.bindFramebuffer(gl.FRAMEBUFFER, sceneFB); gl.viewport(0, 0, Wd, Hd);
+    gl.disable(gl.DEPTH_TEST);
+    gl.useProgram(PB.p); gl.bindVertexArray(quadVAO);
+    gl.uniformMatrix4fv(PB.U.uInvVP, false, IVP); gl.uniform3fv(PB.U.uEye, EYE); gl.uniform1f(PB.U.uFloor, W.floor);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.LESS);
+    gl.useProgram(PM.p); const U = PM.U;
+    gl.uniformMatrix4fv(U.uVP, false, VP); gl.uniform3fv(U.uEye, EYE); gl.uniform1i(U.uMat, S.mat);
+    gl.uniform1f(U.uFloor, W.floor); gl.uniform1f(U.uT, t); gl.uniform1f(U.uScanY, (1 - MODE.scan) * Hd);
+    for (let pass = 0; pass < 2; pass++){                  // 0: the reflection in the floor, 1: the pieces
+      gl.clear(gl.DEPTH_BUFFER_BIT);
+      const refl = pass === 0 ? 1 : 0;
+      if (refl && MODE.k < .5) continue;
+      if (refl){ gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE); } else gl.disable(gl.BLEND);
+      for (const c of CASTS) if (c.on) drawMesh(c.slot, 1, c.crumble, c.dust, refl, 1);
+      for (const F of FACES) if (F.alpha > .01) drawMesh(F.slot, F.alpha, 0, 0, refl, refl ? 1 : MODE.k);
+    }
+    gl.disable(gl.DEPTH_TEST); gl.disable(gl.BLEND);
+  }
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, 0, Wd, Hd);
+  gl.useProgram(PP.p); gl.bindVertexArray(quadVAO);
+  gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, sceneTex);
+  gl.uniform1i(PP.U.uVid, 0); gl.uniform1i(PP.U.uScene, 1);
+  gl.uniform2f(PP.U.uScale, scX, scY); gl.uniform2f(PP.U.uRes, Wd, Hd); gl.uniform1f(PP.U.uMirror, mirror ? 1 : 0);
+  gl.uniform1f(PP.U.uScan, MODE.fx ? MODE.scan : 0); gl.uniform1f(PP.U.uGrain, S.grain); gl.uniform1f(PP.U.uT, t); gl.uniform1f(PP.U.uFx, MODE.fx ? 1 : 0);
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+  hudT += dt;
+  if (hudT > .25){ hudT = 0;
+    $('hud').textContent = 'KATADORI\n' + (MODE.fx ? MATS[S.mat] + '  ·  ' + live + ' CASTS' + (pinnedCount ? '  ·  ' + pinnedCount + ' KEPT' : '') : 'CAMERA');
+    let st = '';
+    if (modelState === 'fail' && !EXT) st = '顔の検出モデルを読み込めませんでした（ネット接続を確認）。';
+    else if (MODE.fx && !FACES[0].ok && (modelState === 'ok' || EXT)) st = '顔をカメラに向けてください。';
+    if ($('status').textContent !== st && !$('status').textContent.startsWith('カメラを起動')) setStatus(st);
+  }
+}
+
+/* ---------- test hook (used by the local verification harness) ---------- */
+window.__KATADORI = {
+  external(){ EXT = true; },
+  face(list, tMs){ EXT = true; onFaces(list, tMs); },
+  mode(on){ setMode(!!on); },
+  material(i){ setMat(i); },
+  palette(i){ setMat(i); },
+  tap(){ wantPin = true; },
+  clear(){ crumbleAll(); },
+  view(yaw, pitch){ DRAG.yaw = yaw; DRAG.pitch = pitch || 0; },
+  state: () => ({ faces:FACES.map(F => ({ ok:F.ok, speed:F.speed, alpha:F.alpha })), world:{ ...W },
+                  casts:CASTS.filter(c => c.on).length, crumbling:CASTS.filter(c => c.on && c.crumble > 0).length,
+                  pinned:pinnedCount, made:castsMade, fx:MODE.fx, k:MODE.k }),
+};
+</script>
+</body>
+</html>
