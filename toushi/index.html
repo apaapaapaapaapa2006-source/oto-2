@@ -1,0 +1,1527 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="description" content="体が、動くレントゲン写真になる。頭蓋骨・肋骨・骨盤・手の小さな骨まで X 線の写り方で透け、黒い肺野に心臓の影が打つ。速く動くと X 線が連写され、骨の残像が多重露光として焼き付く。">
+<meta name="theme-color" content="#03060a">
+<title>TOUSHI ─ 体が、動くレントゲン写真になる</title>
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  TOUSHI 透視 ─ 体が、動くレントゲン写真になる          ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  MOOD       夜の読影室。シャウカステンの青白い光の上で、自分の骨格が一枚の
+             レントゲン写真として動いている。手を振れば指の骨が、首をかしげれば
+             頭蓋骨が、踊れば肋骨と背骨がそのまま踊る。動くほど心臓の影は速く
+             打ち、横隔膜は大きく上下する。
+  REFERENCE  Nick Veasey の X 線写真作品／The Chemical Brothers
+             "Hey Boy Hey Girl"（1999）の骸骨のダンサー／W. C. Röntgen が 1895 年
+             に撮った指輪の手（最初の X 線写真）。
+  PALETTE    FILM    空気 #02050a → 肉 #24394a → 骨 #f5fafc ／ 未露光の縁 #b9c8d0
+             FLUORO  反転表示：空気 #e2eadf → 骨 #0b100d（イメージ管の円い視野）
+             1895    ガラス乾板：#140d07 → #f4e6c6 のセピア、薬指に指輪
+             どれも単色の階調だけ。色相は一つの写真につき一つ。
+  TYPE       B612（題字）・B612 Mono（フィルムの記載）── 航空機の計器表示の書体。
+  MOTION     骨は体そのものなので速さを決めない。写真のほうが動きに応える ──
+             速く動くと X 線が 8 回/秒のパルスで連写され、ひとつ前の姿勢の骨が
+             薄い残像として 0.5 秒ほどフィルムに残る（マレーの連続写真の多重露光）。
+             FLUORO は代わりにイメージ管の残像を引く。心拍 64→126、呼吸 13→30 は
+             動いた量の積分で数十秒かけて上下し、心臓の影と横隔膜がその速さで動く。
+  SIGNATURE  骨は「中が空洞の管」として X 線が通る長さで描く ── 皮質が縁で厚く
+             中央で薄いので、本物と同じく縁が白く髄腔が暗い。曲がった骨（肋骨・
+             鎖骨・下顎・腸骨稜）は継ぎ目を斜めに切って一本につなぎ、視線に沿って
+             走る部分ほど白くなる。腸骨翼・仙骨・肩甲骨は扇形の薄い板。
+  TECH       PoseLandmarker（2 人・人物マスク付き）＋ HandLandmarker（4 手）。
+             骨格・肺野・肺血管・心臓・腸のガスを 1 人あたり約 1300 個の解析的
+             プリミティブ（中空の管・回転楕円体の殻・角丸の箱・扇形の板）として
+             組み、インスタンス描画で半精度の「通過長」バッファに加算する（骨・
+             軟部・空気・金属の 4 チャンネル）。フィルム状態のパスで人物マスクの
+             厚み（ミップマップのぼかし）を軟部に足し、Beer–Lambert の減衰
+             1−exp(−μx) を求め、骨にだけアンシャープマスクをかけ、ブレ（前フレーム
+             との混合）とパルスごとの残像（減衰する最大値）を保持する。表示の
+             パスでフィルムの階調・枠・鉛マーカー・コリメータ光に通す。
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=B612:wght@400;700&family=B612+Mono&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#03060a;--fg:#e6f0f4;--dim:rgba(230,240,244,.56);--line:rgba(230,240,244,.24)}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none}
+html,body{margin:0;height:100%;background:var(--bg);overflow:hidden;color:var(--fg);
+  font-family:"B612 Mono",ui-monospace,"Hiragino Sans","Noto Sans JP",monospace}
+#gl{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+#cam{position:fixed;left:0;top:0;width:2px;height:2px;opacity:.01;pointer-events:none}
+
+#start{position:fixed;inset:0;z-index:30;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:24px;
+  padding:28px;text-align:center;background:radial-gradient(ellipse at 50% 40%,#122130 0%,#03060a 72%)}
+#start .t{font-size:10px;letter-spacing:.6em;margin-right:-.6em;color:var(--dim)}
+#start h1{margin:0;font-family:B612,sans-serif;font-weight:700;font-size:min(14vw,88px);line-height:1;letter-spacing:.3em;margin-right:-.3em}
+#start p{margin:0;font-size:12px;line-height:2.1;color:var(--dim);letter-spacing:.06em}
+#go{appearance:none;border:1px solid var(--line);background:transparent;color:var(--fg);font:10px "B612 Mono",monospace;
+  letter-spacing:.5em;padding:15px 34px 15px 40px;cursor:pointer;transition:border-color .3s}
+#go:hover{border-color:var(--fg)}
+#err{font-size:12px;line-height:1.8;max-width:340px;min-height:1em;white-space:pre-line;color:#f0a4a4}
+
+.btn{position:fixed;z-index:12;appearance:none;border:0;background:rgba(3,6,10,.38);color:var(--fg);font:10px "B612 Mono","Hiragino Sans",monospace;
+  letter-spacing:.2em;padding:9px 11px;display:none;cursor:pointer;opacity:.78;transition:opacity .3s;border-radius:2px;
+  backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
+.btn.show{display:block}
+.btn:hover{opacity:1}
+#gear{right:10px;top:calc(env(safe-area-inset-top) + 8px);font-size:14px;letter-spacing:0;padding:6px 10px}
+#flip{right:10px;top:calc(env(safe-area-inset-top) + 46px);letter-spacing:.1em}
+#bar{position:fixed;left:0;right:0;bottom:calc(env(safe-area-inset-bottom) + 12px);z-index:12;display:none;justify-content:center;align-items:center;gap:16px}
+#bar.show{display:flex}
+#bar .btn{position:static;display:block}
+#bar #shoot{position:relative;width:46px;height:46px;border-radius:50%;border:1px solid var(--fg);padding:0}
+#shoot::after{content:"";position:absolute;inset:7px;border-radius:50%;background:var(--fg);opacity:.85}
+#rec.on{opacity:1;color:#ff8f8f}
+#mode{border:1px solid var(--line);padding:11px 16px 11px 20px;font-family:B612,"Hiragino Sans",sans-serif;letter-spacing:.16em}
+#hud{position:fixed;left:14px;top:calc(env(safe-area-inset-top) + 14px);z-index:11;font-size:9px;letter-spacing:.32em;color:var(--dim);
+  pointer-events:none;display:none;line-height:2;white-space:pre}
+#hud.show{display:block}
+#status{position:fixed;left:14px;right:14px;bottom:calc(env(safe-area-inset-bottom) + 78px);z-index:11;font-size:11px;letter-spacing:.05em;
+  color:#fff;opacity:.85;pointer-events:none;line-height:1.7;white-space:pre-line;text-align:center;text-shadow:0 0 8px rgba(0,0,0,.8)}
+
+#panel{position:fixed;right:10px;top:calc(env(safe-area-inset-top) + 84px);z-index:12;width:min(276px,calc(100vw - 20px));
+  background:rgba(3,6,10,.86);border:1px solid var(--line);padding:14px 16px;display:flex;flex-direction:column;gap:13px;
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);transition:opacity .25s}
+#panel.hide{opacity:0;pointer-events:none}
+.chips{display:flex;border:1px solid var(--line)}
+.chips button{flex:1;appearance:none;border:0;background:transparent;color:var(--fg);padding:8px 2px;font:9px "B612 Mono",monospace;
+  letter-spacing:.14em;cursor:pointer;opacity:.55}
+.chips button.on{opacity:1;background:rgba(230,240,244,.13)}
+#panel label{display:flex;align-items:center;gap:10px;font-size:11px;letter-spacing:.04em}
+#panel label span{width:72px;flex:none;color:var(--dim)}
+#panel input[type=range]{flex:1;accent-color:#9fc3d4}
+#panel .note{font-size:10px;line-height:1.8;color:var(--dim);letter-spacing:.03em}
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<video id="cam" playsinline muted autoplay></video>
+<div id="hud"></div>
+<div id="status"></div>
+<button id="gear" class="btn" aria-label="調整">⚙</button>
+<button id="flip" class="btn">⟲ カメラ</button>
+<div id="bar">
+  <button id="rec" class="btn">● REC</button>
+  <button id="shoot" class="btn" aria-label="撮る"></button>
+  <button id="mode" class="btn">透視する</button>
+</div>
+
+<div id="panel" class="hide">
+  <div class="chips" id="pals">
+    <button data-p="0" class="on">FILM</button>
+    <button data-p="1">FLUORO</button>
+    <button data-p="2">1895</button>
+  </div>
+  <label><span>骨の白さ</span><input type="range" id="sBone" min="0.5" max="1.6" step="0.01" value="1"></label>
+  <label><span>肉の写り</span><input type="range" id="sTissue" min="0.3" max="1.8" step="0.01" value="1"></label>
+  <label><span>残像</span><input type="range" id="sLag" min="0" max="1" step="0.01" value="0.5"></label>
+  <label><span>粒子</span><input type="range" id="sGrain" min="0" max="1" step="0.01" value="0.5"></label>
+  <div class="note">速く動くと X 線が連写され、骨の残像が多重露光で焼き付く。手をカメラに近づけると手の骨が大きく写る。動くほど心拍と呼吸が上がる。二人まで写る。</div>
+</div>
+
+<div id="start">
+  <div class="t">RADIOGRAPH · 透視</div>
+  <h1>TOUSHI</h1>
+  <p>X 線が、あなたを透かす。<br>骨のまま、動ける。</p>
+  <button id="go">はじめる</button>
+  <div id="err"></div>
+</div>
+
+<script>
+'use strict';
+/* =====================================================================
+   TOUSHI — a live radiograph. The skeleton, lungs and organs are rebuilt
+   every frame from the pose and hand landmarks as ~1300 analytic
+   primitives per person whose X-ray path lengths are accumulated in a
+   half-float buffer, then exposed through Beer–Lambert attenuation onto
+   one of three films. Fast motion fires a strobe: ghost exposures.
+   ===================================================================== */
+const VISION_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs';
+const WASM_URL   = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm';
+const POSE_MODEL = 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task';
+const HAND_MODEL = 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task';
+
+const $ = id => document.getElementById(id);
+const canvas = $('gl'), video = $('cam');
+const hex = h => [parseInt(h.slice(1,3),16)/255, parseInt(h.slice(3,5),16)/255, parseInt(h.slice(5,7),16)/255];
+const PALS = [
+  { name:'FILM',   ramp:['#02050a','#22374a','#a5bccb','#f6fbfd'], frame:0, lag:.3,  grain:1,   ink:'#22323c' },
+  { name:'FLUORO', ramp:['#e1e9de','#a3b2a6','#4a584e','#0a0f0c'], frame:1, lag:.62, grain:1.3, ink:'#a6d9ad' },
+  { name:'1895',   ramp:['#120c07','#4b3521','#b6966f','#f4e6c6'], frame:2, lag:.22, grain:1.5, ink:'#e2cfa6' },
+];
+const S = { pal:0, bone:1, tissue:1, lag:.5, grain:.5 };
+PALS.forEach(p => { p.rampF = new Float32Array(12); p.ramp.forEach((h, i) => p.rampF.set(hex(h), i*3)); });
+
+/* ---------- GL ---------- */
+const gl = canvas.getContext('webgl2', { antialias:false, alpha:false, preserveDrawingBuffer:true, powerPreference:'high-performance' });
+let floatOK = false;
+const VS_Q = `#version 300 es
+in vec2 p; out vec2 uv; void main(){ uv = p*.5+.5; gl_Position = vec4(p,0.,1.); }`;
+// one instanced quad per primitive; the fragment shader returns the X-ray path length through it
+const VS_PRIM = `#version 300 es
+in vec2 aC; in vec4 iBox, iP, iQ, iR, iW, iE;
+uniform vec2 uRes;
+out vec2 vPx; flat out vec4 vP, vQ, vR, vW, vE;
+void main(){
+  vec2 px = mix(iBox.xy, iBox.zw, aC);
+  vPx = px; vP = iP; vQ = iQ; vR = iR; vW = iW; vE = iE;
+  vec2 n = px / uRes * 2. - 1.;
+  gl_Position = vec4(n.x, -n.y, 0., 1.);
+}`;
+const FS_PRIM = `#version 300 es
+precision highp float;
+in vec2 vPx; flat in vec4 vP, vQ, vR, vW, vE;
+uniform sampler2D uNoise;
+out vec4 o;
+// signed distance of p from the line a→b, positive on the side of c
+float side(vec2 a, vec2 b, vec2 c, vec2 p){ vec2 n = normalize(vec2(a.y - b.y, b.x - a.x)); return dot(p - a, n) * (dot(c - a, n) < 0. ? -1. : 1.); }
+void main(){
+  int type = int(vE.w + .5);
+  float d = 0.;
+  if (type == 0){
+    // a hollow tube (long bone): cortex is a shell, the medulla is dark, the ends fill with spongy bone
+    vec2 A = vP.xy, B = vP.zw, ab = B - A; float L = max(length(ab), 1e-3); vec2 dir = ab / L;
+    vec2 ap = vPx - A; float along = dot(ap, dir), perp = dot(ap, vec2(-dir.y, dir.x));
+    bool mA = vE.x < 50., mB = vE.y < 50.;                                     // mitred joints inside a chain
+    if (mA && dot(ap, vec2(cos(vE.x), sin(vE.x))) < 0.) discard;
+    if (mB && dot(vPx - B, vec2(cos(vE.y), sin(vE.y))) > 0.) discard;
+    float t = clamp(along / L, 0., 1.), ck = vE.z > 0. ? vE.z : 1.;           // ck flattens the end caps (joints)
+    float over = (along < 0. && !mA) ? -along : (along > L && !mB) ? along - L : 0.;
+    float e = vR.w > .5 ? 0. : max(clamp(1. - t / vR.z, 0., 1.), clamp(1. - (1. - t) / vR.z, 0., 1.));
+    e = e*e*(3. - 2.*e);
+    float R = mix(vQ.x, vQ.y, t) * (1. + vQ.z * e);
+    float dd2 = perp*perp + over*over/(ck*ck);
+    if (dd2 >= R*R) discard;
+    float outer = 2.*sqrt(R*R - dd2);
+    float ri = R * vQ.w * (1. - .3*e);
+    float inner = 2.*sqrt(max(ri*ri - dd2, 0.));
+    vec2 tu = vec2(along, perp) / max(vQ.x, .8);
+    float tex = texture(uNoise, tu * vec2(.07, .26) + vR.y).r;               // trabeculae run along the bone
+    d = (outer - inner) * (1. - .45*e) + inner * vR.x * (.15 + .32*e) * (.4 + 1.2*tex);
+  } else if (type == 1){
+    // an ellipsoid (or an ellipsoidal shell): exact chord of the ray along the view axis
+    vec2 q = vPx - vP.xy;
+    vec3 pp = vec3(dot(vQ.xy, q), dot(vR.xy, q), dot(vE.xy, q));
+    vec3 dv = vec3(vQ.z, vR.z, vE.z);
+    float a = dot(dv, dv), b = dot(pp, dv), c = dot(pp, pp) - 1.;
+    float disc = b*b - a*c; if (disc <= 0.) discard;
+    float outer = 2.*sqrt(disc) / a, inner = 0., k = vP.z;
+    if (k > 0.){ float k2 = k*k, a2 = a/k2, b2 = b/k2, c2 = dot(pp, pp)/k2 - 1., d2 = b2*b2 - a2*c2; if (d2 > 0.) inner = 2.*sqrt(d2) / a2; }
+    vec2 lp = vec2(pp.x / max(length(vQ.xy), 1e-4), pp.y / max(length(vR.xy), 1e-4));   // local px, so the texture rides on the bone
+    float tex = texture(uNoise, lp * .021 + vQ.w).r, tx2 = texture(uNoise, lp * .043 + vQ.w*1.7).r;
+    d = (outer - inner) * (.8 + .4*tx2) + inner * vP.w * (.45 + 1.1*tex);
+    if (vR.w != 0.){ float ly = (pp + dv*(-b/a)).y; d *= smoothstep(vR.w - .3, vR.w + .12, ly); }
+  } else if (type == 3){
+    // a thin plate (iliac wing, sacrum, scapula): one triangle of a fan, even thickness, thicker toward the fan's centre
+    vec2 v0 = vP.xy, v1 = vP.zw, v2 = vQ.xy;
+    float e0 = side(v1, v2, v0, vPx), e1 = side(v2, v0, v1, vPx), e2 = side(v0, v1, v2, vPx);
+    float cov = clamp(min(min(e0, e1), e2) + .5, 0., 1.);                      // shared edges of the fan sum to one
+    if (cov <= 0.) discard;
+    float l0 = clamp(e0 / max(side(v1, v2, v0, v0), 1e-3), 0., 1.);
+    vec2 dq = vPx - v0, tc = vec2(vR.z*dq.x - vR.w*dq.y, vR.w*dq.x + vR.z*dq.y);
+    float tex = texture(uNoise, tc + vR.y).r * .6 + texture(uNoise, tc * 2.3 + vR.y).r * .4;
+    float prof = vQ.w < 0. ? -vQ.w * sqrt(l0*(2. - l0)) : vQ.w * l0*l0;          // < 0: rounded like a lung, > 0: a thick body at the centre
+    d = vQ.z * cov * (1. + prof) * (1. + vR.x * (2.*tex - 1.));
+  } else {
+    // a rounded box (vertebral bodies): flat depth inside, rounded falloff and an optional cortical rim
+    vec2 q0 = vPx - vP.xy; float ca = cos(vP.z), sa = sin(vP.z);
+    vec2 q = vec2(ca*q0.x + sa*q0.y, -sa*q0.x + ca*q0.y);
+    float rr = max(vP.w, .5);
+    vec2 qq = abs(q) - (vQ.xy - rr);
+    float sdf = length(max(qq, 0.)) + min(max(qq.x, qq.y), 0.) - rr;
+    if (sdf >= 0.) discard;
+    float outer = vQ.z * sqrt(clamp(-sdf / rr, 0., 1.)), inner = 0.;
+    if (vQ.w > 0.) inner = vQ.z * .9 * sqrt(clamp(-(sdf + vQ.w) / rr, 0., 1.));
+    float tex = texture(uNoise, q * .05 + vR.y).r;
+    d = outer - inner + inner * vR.x * (.45 + 1.1*tex);
+  }
+  o = vW * d;
+}`;
+// the film's state: tissue thickness from the mask + path lengths → Beer–Lambert exposure, kept with its lag and
+// with the stroboscopic ghosts (fast motion fires short pulses; each pulse is a fainter copy that stays a moment)
+const FS_FILM = `#version 300 es
+precision highp float;
+in vec2 uv; out vec4 o;
+uniform sampler2D uDen, uMask, uPrev;
+uniform vec2 uScale, uRes; uniform float uMirror;
+uniform float uMuT, uMuB, uLod, uHasMask, uLag, uEdge, uPulse, uGDecay;
+uniform vec4 uDec;
+vec2 vuv(vec2 s){ vec2 v = (vec2(s.x, 1. - s.y) - .5) * uScale + .5; if (uMirror > .5) v.x = 1. - v.x; return v; }
+void main(){
+  vec2 v = vuv(uv), tx = 1. / uRes;
+  vec4 D = texture(uDen, uv) * uDec;
+  float bl = (texture(uDen, uv + vec2(2.5, 0.)*tx).r + texture(uDen, uv - vec2(2.5, 0.)*tx).r
+            + texture(uDen, uv + vec2(0., 2.5)*tx).r + texture(uDen, uv - vec2(0., 2.5)*tx).r) * .25 * uDec.r;
+  float bone = max(D.r + uEdge*(D.r - bl), 0.);                                // unsharp mask, bone only
+  float mk = smoothstep(.25, .7, texture(uMask, v).r);
+  float mb = textureLod(uMask, v, uLod).r;
+  float thick = uHasMask * mk * (.016 + .25*pow(mb, 1.25));                    // metres of soft tissue
+  float tissue = max(thick + D.g - D.b, 0.);
+  float att = uMuT*tissue + uMuB*bone + 320.*max(D.a, 0.);
+  float val = 1. - exp(-att);
+  vec4 pv = texture(uPrev, uv);
+  o = vec4(mix(val, pv.r, uLag), max(pv.g * uGDecay, val * uPulse), val, 1.);  // exposure blur / intensifier lag; ghosts
+}`;
+// what is shown: the film on its light box (or the intensifier, or the plate), the markings, the camera and the flash
+const FS_SHOW = `#version 300 es
+precision highp float;
+in vec2 uv; out vec4 o;
+uniform sampler2D uSt, uVid, uOver, uGlyph, uNoise;
+uniform vec2 uScale, uRes; uniform float uMirror;
+uniform float uGrain, uT, uCam, uColl, uFlash, uDev, uGhost;
+uniform vec4 uField, uMk[4]; uniform vec3 uCirc; uniform int uFrame;
+uniform vec3 uRamp[4];
+float h21(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233))) * 43758.5453); }
+vec2 vuv(vec2 s){ vec2 v = (vec2(s.x, 1. - s.y) - .5) * uScale + .5; if (uMirror > .5) v.x = 1. - v.x; return v; }
+vec3 ramp(float x){ x = clamp(x, 0., 1.)*3.;
+  return x < 1. ? mix(uRamp[0], uRamp[1], x) : x < 2. ? mix(uRamp[1], uRamp[2], x - 1.) : mix(uRamp[2], uRamp[3], x - 2.); }
+void main(){
+  vec2 px = gl_FragCoord.xy, sp = vec2(px.x, uRes.y - px.y);
+  vec3 cam = texture(uVid, vuv(uv)).rgb;
+  vec4 st = texture(uSt, uv);
+  float gh = st.g * uGhost, gm = max(st.r, gh);
+  float g = (gm + (1. - gm) * .3 * min(st.r, gh)) * uDev;                      // the ghosts of a multiple exposure
+  for (int i = 0; i < 4; i++){                                                  // lead markers are radiopaque
+    vec4 m = uMk[i]; if (m.z <= 0.) continue;
+    vec2 q = (sp - m.xy) / m.z + .5;
+    if (q.x > 0. && q.x < 1. && q.y > 0. && q.y < 1.) g = max(g, texture(uGlyph, vec2((q.x + m.w)*.5, q.y)).a * .97 * uDev);
+  }
+  g = pow(clamp((g - .03) / .95, 0., 1.), 1.12);
+  float n = h21(floor(px/1.25) + fract(uT*7.13)*97.3) - .5;
+  g += n * uGrain * (.018 + .1*sqrt(max(g*(1. - g), 0.)));                     // quantum mottle
+  vec3 col = ramp(g);
+  vec4 ov = texture(uOver, vec2(uv.x, 1. - uv.y));
+  if (uFrame == 0){
+    // FILM: the collimated field is exposed, the margin is clear film on the light box
+    float inside = smoothstep(-1.5, 1.5, min(min(sp.x - uField.x, uField.z - sp.x), min(sp.y - uField.y, uField.w - sp.y)));
+    vec3 clear = vec3(.70,.77,.81) * (.9 + .1*(1. - uv.y)) * mix(.93, 1., h21(floor(px/2.)) );
+    col = mix(clear, col, inside);
+  } else if (uFrame == 1){
+    // FLUORO: the round image-intensifier field
+    float r = length(sp - uCirc.xy), inside = smoothstep(uCirc.z, uCirc.z - 2., r);
+    col *= 1. - .22*smoothstep(uCirc.z*.55, uCirc.z, r);
+    col = mix(vec3(.015,.02,.017), col, inside);
+    col += vec3(.18,.24,.2) * exp(-abs(r - uCirc.z)*.6) * .5;
+  } else {
+    // 1895: a glass plate — uneven edges, dust and a warm vignette
+    vec2 q = uv - .5; q.x *= uRes.x/uRes.y;
+    float edge = texture(uNoise, uv*vec2(3.1, 2.3)).r;
+    col *= 1. - .55*smoothstep(.36 + .05*edge, .82, length(q*vec2(.9, 1.15)));
+    float dust = smoothstep(.93, .97, texture(uNoise, sp*.013 + .37).r) * smoothstep(.6, .9, texture(uNoise, sp*.0031).r);
+    col = mix(col, vec3(.96,.9,.78), dust*.55);
+  }
+  col = mix(col, ov.rgb, ov.a);
+  // ---- the camera, the collimator light and the exposure flash ----
+  vec3 c2 = cam;
+  if (uColl > 0.){
+    float inside = smoothstep(-2., 2., min(min(sp.x - uField.x, uField.z - sp.x), min(sp.y - uField.y, uField.w - sp.y)));
+    vec2 cc = (uField.xy + uField.zw) * .5;
+    float cross = max(exp(-abs(sp.x - cc.x)*.9), exp(-abs(sp.y - cc.y)*.9)) * inside;
+    c2 = c2 * mix(1. - .45*uColl, 1. + .35*uColl, inside) + vec3(.16,.13,.06) * uColl * inside;
+    c2 *= 1. - .6*uColl*cross;
+  }
+  o = vec4(clamp(mix(col, c2, uCam) + vec3(uFlash), 0., 1.), 1.);
+}`;
+
+function shd(type, src){ const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s; }
+function prog(vs, fs, attrs){ const p = gl.createProgram(); gl.attachShader(p, shd(gl.VERTEX_SHADER, vs)); gl.attachShader(p, shd(gl.FRAGMENT_SHADER, fs));
+  attrs.forEach((a, i) => gl.bindAttribLocation(p, i, a)); gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+  const U = {}, n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+  for (let i = 0; i < n; i++){ const u = gl.getActiveUniform(p, i); U[u.name.replace(/\[0\]$/, '')] = gl.getUniformLocation(p, u.name); }
+  return { p, U }; }
+function tex(minF, magF, wrap){ const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, minF); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, magF || gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, wrap || gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, wrap || gl.CLAMP_TO_EDGE); return t; }
+
+const MAXI = 4096, IF = 24;
+const INST = new Float32Array(MAXI * IF);
+let PP, PF, PS, quadVAO, primVAO, instBuf, texVid, texMask, texNoise, texOver, texGlyph;
+const RT = { den:null, denF:null, dw:0, dh:0, st:[null, null], stF:[null, null], w:0, h:0, ping:0 };
+function initGL(){
+  floatOK = !!gl.getExtension('EXT_color_buffer_float');
+  PP = prog(VS_PRIM, FS_PRIM, ['aC','iBox','iP','iQ','iR','iW','iE']);
+  PF = prog(VS_Q, FS_FILM, ['p']); PS = prog(VS_Q, FS_SHOW, ['p']);
+  quadVAO = gl.createVertexArray(); gl.bindVertexArray(quadVAO);
+  const qb = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, qb);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+  primVAO = gl.createVertexArray(); gl.bindVertexArray(primVAO);
+  const cb = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, cb);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0,0, 1,0, 0,1, 1,1]), gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+  instBuf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, instBuf); gl.bufferData(gl.ARRAY_BUFFER, INST.byteLength, gl.DYNAMIC_DRAW);
+  for (let k = 0; k < 6; k++){ gl.enableVertexAttribArray(1 + k); gl.vertexAttribPointer(1 + k, 4, gl.FLOAT, false, IF*4, k*16); gl.vertexAttribDivisor(1 + k, 1); }
+  gl.bindVertexArray(null);
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+  texVid = tex(gl.LINEAR);
+  texMask = tex(gl.LINEAR_MIPMAP_LINEAR); gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, 1, 1, 0, gl.RED, gl.UNSIGNED_BYTE, new Uint8Array([0])); gl.generateMipmap(gl.TEXTURE_2D);
+  // a tileable noise for trabecular bone, plate dust and edges
+  const N = 128, nd = new Uint8Array(N*N), f = new Float32Array(N*N);
+  for (let i = 0; i < N*N; i++) f[i] = Math.random();
+  for (let pass = 0; pass < 2; pass++){ const g = f.slice();
+    for (let y = 0; y < N; y++) for (let x = 0; x < N; x++){ let s = 0; for (let k = -1; k <= 1; k++){ s += g[y*N + ((x + k + N) % N)] + g[((y + k + N) % N)*N + x]; } f[y*N + x] = s/6; } }
+  let lo = 1, hi = 0; for (const v of f){ if (v < lo) lo = v; if (v > hi) hi = v; }
+  for (let i = 0; i < N*N; i++) nd[i] = (f[i] - lo) / (hi - lo + 1e-6) * 255;
+  texNoise = tex(gl.LINEAR, gl.LINEAR, gl.REPEAT); gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, N, N, 0, gl.RED, gl.UNSIGNED_BYTE, nd);
+  texOver = tex(gl.LINEAR); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4));
+  texGlyph = tex(gl.LINEAR); drawGlyphs();
+}
+function target(w, h, half){
+  const t = tex(gl.LINEAR);
+  if (half) gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, w, h, 0, gl.RGBA, gl.HALF_FLOAT, null);
+  else gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+  const f = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, f);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, t, 0);
+  const ok = gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE;
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  if (!ok){ gl.deleteTexture(t); gl.deleteFramebuffer(f); return null; }
+  return [t, f];
+}
+function ensureRT(W, H){
+  if (RT.w === W && RT.h === H) return;
+  const kill = (t, f) => { if (t) gl.deleteTexture(t); if (f) gl.deleteFramebuffer(f); };
+  kill(RT.den, RT.denF); kill(RT.st[0], RT.stF[0]); kill(RT.st[1], RT.stF[1]);
+  const ds = Math.min(1, 1100 / Math.max(W, H));
+  RT.dw = Math.max(16, Math.round(W*ds)); RT.dh = Math.max(16, Math.round(H*ds));
+  let d = floatOK ? target(RT.dw, RT.dh, true) : null;
+  if (!d){ floatOK = false; d = target(RT.dw, RT.dh, false); }
+  [RT.den, RT.denF] = d;
+  for (let i = 0; i < 2; i++) [RT.st[i], RT.stF[i]] = (floatOK && target(W, H, true)) || target(W, H, false);
+  RT.w = W; RT.h = H; RT.ping = 0; overDirty = true;
+}
+
+/* ---------- the primitive list ---------- */
+let NI = 0, CW = 2, CH = 2, SEED = 0;
+const CTX = { invS:1, a:1, hb:1 };            // metres per px of the part being built, person opacity, bone gain
+const BONE = 0, SOFT = 1, AIR = 2, METAL = 3;
+function put(x0, y0, x1, y1, p0, p1, p2, p3, q0, q1, q2, q3, r0, r1, r2, r3, kind, w, e0, e1, e2, e3){
+  if (NI >= MAXI || !(x1 > -4 && y1 > -4 && x0 < CW + 4 && y0 < CH + 4)) return;
+  if (!Number.isFinite(x0 + y0 + x1 + y1 + p0 + p1 + p2 + p3 + q0 + q1 + q2 + q3 + e0 + e1 + e2)) return;
+  const o = NI*IF, k = CTX.invS * CTX.a * w * (kind === BONE ? CTX.hb : 1) * (floatOK ? 1 : 8);
+  INST[o] = x0; INST[o+1] = y0; INST[o+2] = x1; INST[o+3] = y1;
+  INST[o+4] = p0; INST[o+5] = p1; INST[o+6] = p2; INST[o+7] = p3;
+  INST[o+8] = q0; INST[o+9] = q1; INST[o+10] = q2; INST[o+11] = q3;
+  INST[o+12] = r0; INST[o+13] = r1; INST[o+14] = r2; INST[o+15] = r3;
+  INST[o+16] = kind === BONE ? k : 0; INST[o+17] = kind === SOFT ? k : 0; INST[o+18] = kind === AIR ? k : 0; INST[o+19] = kind === METAL ? k : 0;
+  INST[o+20] = e0; INST[o+21] = e1; INST[o+22] = e2; INST[o+23] = e3;
+  NI++;
+}
+function seed(){ SEED = (SEED + .618034) % 1; return SEED * 5.7; }
+// r0/r1 radii (px), flare: how much the ends swell, cortex: inner/outer radius, trab: spongy fill, endF: share of length that is "end",
+// flat: no swelling (a link of a chain); mA/mB: mitre angles at the ends (99 = a rounded cap); ck: how far the caps bulge (joints)
+function tube(ax, ay, bx, by, r0, r1, flare, cortex, trab, endF, kind, w, flat, mA, mB, ck){
+  if (!(r0 > .2 || r1 > .2)) return;
+  const m = Math.max(r0, r1) * (1 + flare) + 1.5;
+  if (mA === undefined){ mA = mB = flat ? Math.atan2(by - ay, bx - ax) : 99; }
+  put(Math.min(ax, bx) - m, Math.min(ay, by) - m, Math.max(ax, bx) + m, Math.max(ay, by) + m,
+      ax, ay, bx, by,  r0, r1, flare, cortex,  trab, seed(), Math.max(endF, .02), flat ? 1 : 0,  kind, w,  mA, mB, ck || 0, 0);
+}
+// a bone whose ends stop short of the joint: the caps are flattened and end `gap` px before the given points
+function bone(ax, ay, bx, by, r0, r1, flare, cortex, trab, endF, w, ck, gapA, gapB){
+  let dx = bx - ax, dy = by - ay; const L = Math.hypot(dx, dy); if (!(L > 1)) return; dx /= L; dy /= L;
+  const ca = r0*(1 + flare)*ck + gapA, cb = r1*(1 + flare)*ck + gapB;
+  if (!(L > ca + cb + 1)) return;
+  tube(ax + dx*ca, ay + dy*ca, bx - dx*cb, by - dy*cb, r0, r1, flare, cortex, trab, endF, BONE, w, false, 99, 99, ck);
+}
+// a thin plate: one triangle, thickness in px, `boost` thickens it toward v0, `tx` is how mottled it is
+function plate(x0, y0, x1, y1, x2, y2, th, boost, tx, rc, rs, kind, w){
+  if (!(Math.abs((x1 - x0)*(y2 - y0) - (y1 - y0)*(x2 - x0)) > .5)) return;
+  put(Math.min(x0, x1, x2) - 1, Math.min(y0, y1, y2) - 1, Math.max(x0, x1, x2) + 1, Math.max(y0, y1, y2) + 1,
+      x0, y0, x1, y1,  x2, y2, th, boost,  tx, seed(), rc, rs,  kind, w,  0, 0, 0, 3);
+}
+const MI = new Float32Array(9);
+function inv3(m, o){
+  const a = m[0], b = m[1], c = m[2], d = m[3], e = m[4], f = m[5], g = m[6], h = m[7], i = m[8];
+  const A = e*i - f*h, B = f*g - d*i, C = d*h - e*g, det = a*A + b*B + c*C;
+  if (!(Math.abs(det) > 1e-9)) return false; const r = 1/det;
+  o[0] = A*r; o[1] = (c*h - b*i)*r; o[2] = (b*f - c*e)*r;
+  o[3] = B*r; o[4] = (a*i - c*g)*r; o[5] = (c*d - a*f)*r;
+  o[6] = C*r; o[7] = (b*g - a*h)*r; o[8] = (a*e - b*d)*r;
+  return true;
+}
+// an ellipsoid given by M (row-major; its columns are the three semi-axes in screen px, the third pointing into the screen)
+let CUT = 0;                                                    // ellipsoids: fade out below this local height (0 = off)
+function ellM(cx, cy, M, k, trab, kind, w){
+  const ex = Math.hypot(M[0], M[1], M[2]), ey = Math.hypot(M[3], M[4], M[5]);
+  if (!(ex > .25 && ey > .25) || !inv3(M, MI)) return;
+  put(cx - ex - 1, cy - ey - 1, cx + ex + 1, cy + ey + 1,  cx, cy, k, trab,  MI[0], MI[1], MI[2], seed(),  MI[3], MI[4], MI[5], CUT,  kind, w,  MI[6], MI[7], MI[8], 1);
+}
+const EM = new Float32Array(9);
+function ellS(cx, cy, ax, ay, az, ang, k, trab, kind, w){
+  const c = Math.cos(ang), s = Math.sin(ang);
+  EM[0] = c*ax; EM[1] = -s*ay; EM[2] = 0; EM[3] = s*ax; EM[4] = c*ay; EM[5] = 0; EM[6] = 0; EM[7] = 0; EM[8] = az;
+  ellM(cx, cy, EM, k, trab, kind, w);
+}
+function box(cx, cy, ang, hx, hy, rr, depth, th, trab, kind, w){
+  if (!(hx > .3 && hy > .3)) return;
+  const c = Math.abs(Math.cos(ang)), s = Math.abs(Math.sin(ang)), ex = c*hx + s*hy + 1, ey = s*hx + c*hy + 1;
+  put(cx - ex, cy - ey, cx + ex, cy + ey,  cx, cy, ang, Math.min(rr, hx, hy),  hx, hy, depth, th,  trab, seed(), 0, 0,  kind, w,  0, 0, 0, 2);
+}
+
+/* ---------- body frames: local anatomy (metres; x = the subject's left, y up, z forward) → screen ---------- */
+function Frame(){ return { ax:0, ay:0, s:1, R:new Float32Array([1,0,0, 0,1,0, 0,0,1]), fx:1, fy:1, fz:1 }; }
+const _p = [0, 0], _q = [0, 0];
+function proj(F, x, y, z, out){
+  x *= F.fx; y *= F.fy; z *= F.fz; const R = F.R;
+  out[0] = F.ax + F.s*(R[0]*x + R[3]*y + R[6]*z);
+  out[1] = F.ay - F.s*(R[1]*x + R[4]*y + R[7]*z);
+  return out;
+}
+const FM = new Float32Array(9);
+function ellF(F, x, y, z, a, b, c, rz, k, trab, kind, w){
+  proj(F, x, y, z, _p);
+  const cz = Math.cos(rz), sz = Math.sin(rz), R = F.R, s = F.s;
+  const e1x = cz*a*F.fx, e1y = sz*a*F.fy, e2x = -sz*b*F.fx, e2y = cz*b*F.fy, e3 = c*F.fz;
+  FM[0] = s*(R[0]*e1x + R[3]*e1y); FM[1] = s*(R[0]*e2x + R[3]*e2y); FM[2] = s*R[6]*e3;
+  FM[3] = -s*(R[1]*e1x + R[4]*e1y); FM[4] = -s*(R[1]*e2x + R[4]*e2y); FM[5] = -s*R[7]*e3;
+  FM[6] = s*(R[2]*e1x + R[5]*e1y); FM[7] = s*(R[2]*e2x + R[5]*e2y); FM[8] = s*R[8]*e3;
+  ellM(_p[0], _p[1], FM, k, trab, kind, w);
+}
+function tubeF(F, x0, y0, z0, x1, y1, z1, r0, r1, flare, cortex, trab, endF, kind, w, flat){
+  proj(F, x0, y0, z0, _p); const ax = _p[0], ay = _p[1]; proj(F, x1, y1, z1, _q);
+  const sc = F.s * (F.fx + F.fy) * .5;
+  tube(ax, ay, _q[0], _q[1], r0*sc, r1*sc, flare, cortex, trab, endF, kind, w, flat);
+}
+function boxF(F, x, y, z, hx, hy, depth, rrFrac, th, trab, kind, w){
+  proj(F, x, y, z, _p);
+  const R = F.R, ux = R[0], uy = -R[1], vx = R[3], vy = -R[4];
+  const hxp = hx*F.fx*F.s*Math.max(Math.hypot(ux, uy), .3), hyp = hy*F.fy*F.s*Math.max(Math.hypot(vx, vy), .3);
+  box(_p[0], _p[1], Math.atan2(uy, ux), hxp, hyp, Math.min(hxp, hyp)*rrFrac, depth*F.s, th*F.s, trab, kind, w);
+}
+// screen px plus depth (px, toward the viewer) of a frame point
+function proj3(F, x, y, z, out, o){
+  x *= F.fx; y *= F.fy; z *= F.fz; const R = F.R;
+  out[o] = F.ax + F.s*(R[0]*x + R[3]*y + R[6]*z);
+  out[o+1] = F.ay - F.s*(R[1]*x + R[4]*y + R[7]*z);
+  out[o+2] = F.s*(R[2]*x + R[5]*y + R[8]*z);
+}
+// chains: CS holds projected points, CRD a radius (metres) per point, CWT a weight per link. The links meet in mitred
+// joints, so a curved bone reads as one piece, and a link seen end-on gets denser (the ray runs along the bone).
+const CS = new Float32Array(80*3), CRD = new Float32Array(80), CWT = new Float32Array(80);
+function miter(i, j, k){
+  let ux = CS[j*3] - CS[i*3], uy = CS[j*3+1] - CS[i*3+1], vx = CS[k*3] - CS[j*3], vy = CS[k*3+1] - CS[j*3+1];
+  const lu = Math.hypot(ux, uy), lv = Math.hypot(vx, vy);
+  if (lu > 1e-4){ ux /= lu; uy /= lu; } else { ux = 0; uy = 0; }
+  if (lv > 1e-4){ vx /= lv; vy /= lv; } else { vx = 0; vy = 0; }
+  let mx = ux + vx, my = uy + vy;
+  if (Math.hypot(mx, my) < 1e-3){ mx = vx || ux || 1; my = vy || uy; }
+  return Math.atan2(my, mx);
+}
+function chain(n, closed, sc, cortex, trab, kind){
+  const ns = closed ? n : n - 1;
+  for (let k = 0; k < ns; k++){
+    const a = k, b = (k + 1) % n, ax = CS[a*3], ay = CS[a*3+1], bx = CS[b*3], by = CS[b*3+1];
+    const l2 = Math.hypot(bx - ax, by - ay), l3 = Math.hypot(bx - ax, by - ay, CS[b*3+2] - CS[a*3+2]);
+    const tilt = Math.min(2.4, l3 / Math.max(l2, 1e-3));
+    const mA = closed || k > 0 ? miter((a - 1 + n) % n, a, b) : 99, mB = closed || k < ns - 1 ? miter(a, b, (b + 1) % n) : 99;
+    tube(ax, ay, bx, by, CRD[a]*sc, CRD[b]*sc, 0, cortex, trab, .1, kind, CWT[k]*tilt, true, mA, mB, 0);
+  }
+}
+// a Catmull–Rom curve through control points [x, y, z, r?] (frame coordinates, x mirrored by sd), n links
+const JC = [0,0,0,0];
+function curveF(F, P, sd, n, closed, r, w, cortex, trab, kind){
+  const m = closed ? n : n + 1;
+  for (let k = 0; k < m; k++){
+    crmR(P, k/n, closed, JC);
+    proj3(F, sd*JC[0], JC[1], JC[2], CS, k*3);
+    CRD[k] = P[0].length > 3 ? JC[3] : r; CWT[k] = w;
+  }
+  chain(m, closed, F.s*(F.fx + F.fy)*.5, cortex, trab, kind || BONE);
+}
+const wrapI = (j, N, closed) => closed ? ((j % N) + N) % N : Math.max(0, Math.min(N - 1, j));
+function crmR(P, u, closed, out){
+  const N = P.length, segs = closed ? N : N - 1, f = Math.min(segs - 1e-6, Math.max(0, u*segs)), i = Math.floor(f), t = f - i;
+  const p0 = P[wrapI(i - 1, N, closed)], p1 = P[wrapI(i, N, closed)], p2 = P[wrapI(i + 1, N, closed)], p3 = P[wrapI(i + 2, N, closed)], dim = Math.min(4, p1.length);
+  for (let c = 0; c < dim; c++) out[c] = .5*((2*p1[c]) + (-p0[c] + p2[c])*t + (2*p0[c] - 5*p1[c] + 4*p2[c] - p3[c])*t*t + (-p0[c] + 3*p1[c] - 3*p2[c] + p3[c])*t*t*t);
+  return out;
+}
+// a fan of plates from a centre to a closed rim (frame coordinates, x mirrored by sd); thickness in metres
+const FCt = new Float32Array(3), FR = new Float32Array(40*3);
+function fanF(F, c, rim, sd, thick, boost, tx, w, kind){
+  proj3(F, sd*c[0], c[1], c[2], FCt, 0);
+  const n = rim.length;
+  for (let k = 0; k < n; k++) proj3(F, sd*rim[k][0], rim[k][1], rim[k][2], FR, k*3);
+  const ang = Math.atan2(-F.R[1], F.R[0]), kt = 22/F.s, rc = Math.cos(-ang)*kt, rs = Math.sin(-ang)*kt;
+  for (let k = 0; k < n; k++){
+    const a = k*3, b = ((k + 1) % n)*3;
+    const ux = FR[a] - FCt[0], uy = FR[a+1] - FCt[1], uz = FR[a+2] - FCt[2], vx = FR[b] - FCt[0], vy = FR[b+1] - FCt[1], vz = FR[b+2] - FCt[2];
+    const nx = uy*vz - uz*vy, ny = uz*vx - ux*vz, nz = ux*vy - uy*vx, nl = Math.hypot(nx, ny, nz);
+    if (!(nl > 1e-3)) continue;
+    plate(FCt[0], FCt[1], FR[a], FR[a+1], FR[b], FR[b+1], thick*F.s/Math.max(Math.abs(nz)/nl, .32), boost, tx, rc, rs, kind || BONE, w);
+  }
+}
+const sstep = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a)/(b - a))); return t*t*(3 - 2*t); };
+
+/* ---------- anatomy ---------- */
+// vertebral bodies T1…L5 down from the shoulder line (y of centre, height, width)
+const VT = (() => { const a = []; let y = .006;
+  for (let i = 0; i < 17; i++){ const lum = i >= 12;
+    const h = lum ? .0235 + (i - 12)*.0006 : .0142 + i*.00052, w = lum ? .043 + (i - 12)*.0022 : .0265 + i*.00105, gap = lum ? .0072 : .0041;
+    a.push({ y:y - h/2, h, w }); y -= h + gap; }
+  return a; })();
+const RIB_A = [.05,.078,.098,.112,.122,.128,.131,.131,.128,.12,.104,.086],
+      RIB_B = [.04,.06,.075,.085,.092,.096,.098,.098,.096,.092,.085,.075],
+      RIB_D = [.026,.048,.063,.076,.086,.093,.097,.099,.097,.09,.07,.048],
+      RIB_E = [168,168,168,168,166,162,156,148,140,130,108,90];
+const RIB_N = 19;
+function spineAndRibs(T){
+  for (let i = 0; i < VT.length; i++){
+    const v = VT[i], lum = i >= 12, wv = lum ? 1 : .6;                     // the thoracic spine hides behind the heart
+    boxF(T, 0, v.y, -.07, v.w/2, v.h/2, v.w*.8, .34, .001, .3, BONE, .5*wv);
+    for (let sd = -1; sd <= 1; sd += 2){
+      ellF(T, sd*v.w*.36, v.y + v.h*.16, -.072, .0032 + v.w*.06, .0035 + v.h*.17, .007, 0, .62, 0, BONE, .75*wv);     // pedicles: the vertebra's "eyes"
+      tubeF(T, sd*v.w*.42, v.y + v.h*.1, -.076, sd*(v.w*.42 + (lum ? .022 : .012)), v.y + v.h*.14, -.084, .0026, .0022, .3, .4, .4, .2, BONE, .6*wv);
+    }
+    ellF(T, 0, v.y - v.h*.3, -.1, .0034, .0045 + v.h*.24, .012, 0, .4, .4, BONE, .5*wv);                              // spinous process
+  }
+  const sc = T.s*(T.fx + T.fy)*.5;
+  for (let i = 0; i < 12; i++){
+    const a = RIB_A[i], b = RIB_B[i], dr = RIB_D[i], te = RIB_E[i]*Math.PI/180, y0 = VT[i].y + .003;
+    const zc = -.07 + b*.92, cart = i < 7 ? te - .42 : 99;
+    for (let sd = -1; sd <= 1; sd += 2){
+      for (let k = 0; k < RIB_N; k++){
+        const th = .22 + (te - .22)*k/(RIB_N - 1);
+        proj3(T, sd*(.019 + a*Math.sin(th)), y0 + .011*Math.sin(Math.min(th, 1.2)/1.2*Math.PI/2) - dr*Math.pow(sstep(.6, te, th), 1.1), zc - b*Math.cos(th), CS, k*3);
+        CRD[k] = .0058 - .0016*Math.min(1, th/2.2);
+        const tm = .22 + (te - .22)*(k + .5)/(RIB_N - 1);
+        CWT[k] = tm > cart ? .09 : .84 - .3*sstep(1.6, 2.5, tm);                // the front of a rib is thinner; the cartilage barely shows
+      }
+      chain(RIB_N, false, sc, .38, .2, BONE);
+    }
+  }
+  ellF(T, 0, -.02, .1, .022, .019, .01, 0, 0, .5, BONE, .32);                       // manubrium
+  boxF(T, 0, -.1, .105, .013, .075, .012, .45, 0, .5, BONE, .3);                    // sternum
+}
+// the scapula: a triangular plate seen through the ribs, with thick borders, its spine, the coracoid end-on and the glenoid
+const SCAP = [[.074,-.012,-.088],[.07,-.07,-.09],[.086,-.15,-.08],[.1,-.172,-.07],[.125,-.12,-.055],[.142,-.07,-.045],[.15,-.045,-.038],[.148,-.022,-.036],[.12,-.012,-.05],[.095,-.006,-.07]];
+const SC_C = [.105,-.07,-.065];
+const SC_LAT = [[.15,-.05,-.04,.0042],[.137,-.1,-.05,.0048],[.117,-.145,-.062,.0045],[.1,-.172,-.07,.004]];
+const SC_MED = [[.074,-.012,-.088,.0024],[.069,-.07,-.09,.0026],[.085,-.15,-.08,.0028],[.1,-.172,-.07,.0034]];
+const SC_SPN = [[.07,-.045,-.095,.0028],[.11,-.033,-.085,.0042],[.148,-.014,-.06,.0048],[.167,-.006,-.034,.0052]];
+function shoulderGirdle(T){
+  const sc = T.s*(T.fx + T.fy)*.5;
+  for (let sd = -1; sd <= 1; sd += 2){
+    for (let k = 0; k < 15; k++){ const t = k/14;
+      proj3(T, sd*(.024 + .141*t), -.012 + .024*t + .011*Math.sin(Math.PI*t), .085 - .085*t + .016*Math.sin(Math.PI*t*1.4), CS, k*3);
+      CRD[k] = .006 + .003*Math.pow(1 - t, 4) + .0018*Math.pow(t, 3); CWT[k] = .9; }
+    chain(15, false, sc, .5, .25, BONE);                                                        // clavicle
+    fanF(T, SC_C, SCAP, sd, .0038, .2, .35, .55);                                               // scapular blade
+    curveF(T, SC_LAT, sd, 6, false, 0, .7, .45, .3);                                            // lateral border
+    curveF(T, SC_MED, sd, 6, false, 0, .55, .45, .3);                                           // medial border
+    curveF(T, SC_SPN, sd, 7, false, 0, .72, .45, .3);                                           // spine → acromion
+    ellF(T, sd*.168, -.004, -.026, .014, .007, .012, 0, .6, .3, BONE, .55);                     // acromion
+    ellF(T, sd*.13, -.026, .012, .0072, .0082, .016, 0, .58, .2, BONE, .75);                    // coracoid, seen end-on as a ring
+    ellF(T, sd*.152, -.036, -.034, .008, .019, .012, 0, .72, .3, BONE, .75);                    // glenoid rim
+  }
+}
+// lung fields (torso frame; x mirrored for the right lung): apex, the lateral wall down to the sharp costophrenic angle,
+// the diaphragm's dome, then up the mediastinum — the left one curves round the heart
+const LUNG_L = [[.042,.032],[.066,.038],[.092,.024],[.117,-.016],[.135,-.072],[.145,-.14],[.145,-.2],[.139,-.258],[.124,-.254],[.108,-.246],
+                [.094,-.244],[.082,-.222],[.064,-.19],[.045,-.15],[.036,-.105],[.034,-.06],[.03,-.02],[.032,.012]];
+const LUNG_R = [[.042,.032],[.066,.038],[.092,.024],[.117,-.016],[.135,-.072],[.145,-.14],[.146,-.195],[.14,-.242],[.124,-.238],[.1,-.228],
+                [.075,-.226],[.05,-.232],[.04,-.236],[.038,-.2],[.036,-.15],[.032,-.1],[.03,-.05],[.03,-.01]];
+const LW = LUNG_L.map(() => [0, 0, 0]), LC = [0, 0, 0];
+function lung(T, P, sd, breath){
+  // breathing in lowers the domes and widens the chest a little
+  for (let k = 0; k < P.length; k++){ const p = P[k], q = LW[k];
+    q[0] = p[0]*(1 + .035*breath); q[1] = p[1] - breath*.02*sstep(-.08, -.24, p[1]); q[2] = .02; }
+  LC[0] = .09; LC[1] = -.1 - breath*.006; LC[2] = .02;
+  fanF(T, LC, LW, sd, .012, -9, .06, 1.45, AIR);
+  // the vessels fanning out from the hilum, moving with the lung
+  const V = sd > 0 ? VES_L : VES_R;
+  for (let i = 0; i < V.length; i += 6){
+    const y0 = V[i+1] - breath*.02*sstep(-.08, -.24, V[i+1]), y1 = V[i+3] - breath*.02*sstep(-.08, -.24, V[i+3]);
+    tubeF(T, sd*V[i]*(1 + .035*breath), y0, .02, sd*V[i+2]*(1 + .035*breath), y1, .02, V[i+4], V[i+5], 0, 0, 0, .1, SOFT, 4.5);
+  }
+}
+// pulmonary vessels: a branching tree from each hilum, grown once inside the lung outline
+function inPoly(P, x, y){ let c = false;
+  for (let i = 0, j = P.length - 1; i < P.length; j = i++){ const a = P[i], b = P[j];
+    if ((a[1] > y) !== (b[1] > y) && x < (b[0] - a[0])*(y - a[1])/(b[1] - a[1]) + a[0]) c = !c; }
+  return c; }
+function growVessels(P, hx, hy, seedN){
+  const out = []; let sd = seedN; const rnd = () => (sd = (sd*16807) % 2147483647) / 2147483647;
+  const grow = (x, y, ang, len, r, depth) => {
+    const x1 = x + Math.cos(ang)*len, y1 = y + Math.sin(ang)*len;
+    if (!inPoly(P, x1, y1)) return;
+    out.push(x, y, x1, y1, r, r*.82);
+    if (depth >= 4 || r < .0013) return;
+    const spread = .32 + rnd()*.22;
+    grow(x1, y1, ang + spread, len*(.72 + rnd()*.12), r*.72, depth + 1);
+    grow(x1, y1, ang - spread*(.7 + rnd()*.5), len*(.68 + rnd()*.14), r*.68, depth + 1);
+  };
+  for (const a of [1.15, .55, -.15, -.75, -1.25]) grow(hx, hy, a + (rnd() - .5)*.2, .036 + rnd()*.01, .0046, 0);
+  return new Float32Array(out);
+}
+const VES_L = growVessels(LUNG_L, .052, -.118, 7), VES_R = growVessels(LUNG_R, .05, -.112, 11);
+// gas in the colon: pockets along its frame (torso frame), drifting slowly
+const GAS = [[-.085,-.47,.016],[-.088,-.43,.014],[-.083,-.39,.017],[-.07,-.345,.015],[-.035,-.355,.018],[0,-.365,.016],[.035,-.355,.017],
+             [.07,-.33,.015],[.09,-.36,.013],[.092,-.4,.014],[.088,-.44,.012],[.06,-.49,.013],[.02,-.5,.012]];
+function bowel(T, t){
+  for (let i = 0; i < GAS.length; i++){ const g = GAS[i], w = .5 + .5*Math.sin(t*.21 + i*1.7);
+    ellF(T, g[0] + .004*Math.sin(t*.13 + i), g[1], .03, g[2]*(.75 + .35*w), g[2]*(.6 + .3*w), .03, i*.6, 0, 0, AIR, .55); }
+}
+function organs(T, breath, sy, t){
+  lung(T, LUNG_L, 1, breath); lung(T, LUNG_R, -1, breath);
+  bowel(T, t);
+  const hs = 1 - .06*sy;
+  ellF(T, .024, -.192 - breath*.01, .03, .068*hs, .058*hs, .055*hs, -.5, 0, 0, SOFT, .6);                            // heart
+  ellF(T, .03, -.07, 0, .016, .018, .03, 0, 0, 0, SOFT, .35);                                                        // aortic knob
+  ellF(T, -.06, -.31 - breath*.02, .02, .11, .06, .085, .1, 0, 0, SOFT, .3);                                         // liver under the right dome
+  ellF(T, .078, -.284 - breath*.02, 0, .026, .017, .03, 0, 0, 0, AIR, .9);                                           // gastric bubble under the left
+  tubeF(T, 0, .075, .03, 0, -.088, .02, .0085, .0085, 0, 0, 0, .1, AIR, .9);                                       // trachea
+  for (let sd = -1; sd <= 1; sd += 2)                                                                                // main bronchi
+    tubeF(T, 0, -.088, .02, sd*.03, -.115 - (sd > 0 ? .008 : 0), .02, .0062, .005, 0, 0, 0, .1, AIR, .8);
+}
+const JA = [0,0,0], JB = [0,0,0];
+function crm(P, u, out){
+  const n = P.length - 1, f = Math.min(n - 1e-6, Math.max(0, u*n)), i = Math.floor(f), t = f - i;
+  const p0 = P[Math.max(0, i - 1)], p1 = P[i], p2 = P[i + 1], p3 = P[Math.min(n, i + 2)];
+  for (let c = 0; c < 3; c++) out[c] = .5*((2*p1[c]) + (-p0[c] + p2[c])*t + (2*p0[c] - 5*p1[c] + 4*p2[c] - p3[c])*t*t + (-p0[c] + 3*p1[c] - 3*p2[c] + p3[c])*t*t*t);
+  return out;
+}
+// head frame: metres from the ear midpoint; x = the subject's left, y up, z toward the face. [x, y, z, radius]
+const MAND = [[-.052,-.004,-.012,.0048],[-.051,-.038,-.01,.0056],[-.049,-.068,-.004,.0066],[-.038,-.088,.038,.0068],[0,-.099,.072,.0074],
+              [.038,-.088,.038,.0068],[.049,-.068,-.004,.0066],[.051,-.038,-.01,.0056],[.052,-.004,-.012,.0048]];
+const ORB  = [[.013,.033,.074,.0034],[.032,.039,.073,.0046],[.05,.032,.066,.0044],[.055,.014,.06,.0038],[.047,-.003,.066,.0033],
+              [.03,-.006,.072,.003],[.015,.003,.075,.0025],[.01,.02,.076,.0025]];
+const PIRI = [[0,.004,.083,.0013],[.008,-.005,.081,.0015],[.012,-.019,.078,.0018],[.0095,-.031,.077,.002],[0,-.034,.078,.0022],
+              [-.0095,-.031,.077,.002],[-.012,-.019,.078,.0018],[-.008,-.005,.081,.0015]];
+const ZYG  = [[.047,-.004,.058,.0042],[.06,-.009,.035,.0036],[.067,-.01,.012,.0034],[.067,-.011,-.006,.003]];
+const LAMB = [[.004,.112,-.075,.0012],[.03,.098,-.085,.0012],[.052,.07,-.09,.0012],[.064,.038,-.08,.0012]];
+function skull(H){
+  // the vault: outer and inner tables, bright only where the ray grazes them, with the darker diploë between
+  CUT = -.5;
+  ellF(H, 0, .036, -.012, .073, .086, .097, 0, .958, 0, BONE, .92);
+  ellF(H, 0, .036, -.012, .0683, .0813, .0922, 0, .956, 0, BONE, .68);
+  CUT = 0;
+  ellF(H, 0, .02, -.005, .075, .1, .09, 0, 0, 0, AIR, .5);                         // (the mask over-thickens the head)
+  for (let sd = -1; sd <= 1; sd += 2){
+    curveF(H, LAMB, sd, 6, false, 0, -.35, 0, 0);                                    // lambdoid suture, a faint lucent line
+    ellF(H, sd*.033, .016, .05, .018, .016, .03, -sd*.1, 0, 0, BONE, -.1);           // orbit: less bone along the ray
+    curveF(H, ORB, sd, 16, true, 0, .62, .45, .2);                                   // orbital rim
+    ellF(H, sd*.027, -.019, .045, .0145, .0135, .02, -sd*.25, 0, 0, BONE, -.08);     // maxillary sinus
+    ellF(H, sd*.027, -.019, .045, .0155, .0145, .021, -sd*.25, .9, 0, BONE, .26);    // …and its thin wall
+    ellF(H, sd*.047, -.006, .056, .011, .012, .012, 0, .6, .3, BONE, .5);            // zygoma
+    curveF(H, ZYG, sd, 6, false, 0, .72, .45, .25);                                  // zygomatic arch
+    tubeF(H, sd*.054, -.005, -.022, sd*.016, .011, -.006, .0046, .0034, .1, 0, .2, .2, BONE, .6);   // petrous ridge
+    ellF(H, sd*.057, -.03, -.02, .009, .014, .011, 0, .5, .35, BONE, .35);           // mastoid
+    ellF(H, sd*.052, -.003, -.012, .0062, .0052, .008, 0, .5, .3, BONE, .55);        // mandibular condyle
+    ellF(H, sd*.009, .05, .072, .0095, .0085, .008, sd*.3, 0, 0, BONE, -.09);        // frontal sinus
+  }
+  ellF(H, 0, -.014, .07, .0105, .017, .02, 0, 0, 0, BONE, -.16);                     // nasal cavity
+  curveF(H, PIRI, 1, 16, true, 0, .5, .45, .2);                                      // piriform aperture
+  tubeF(H, 0, .003, .076, 0, -.033, .078, .0014, .0014, 0, 0, 0, .2, BONE, .45);    // septum
+  tubeF(H, -.022, -.035, .06, .022, -.035, .06, .0024, .0024, .2, .4, .3, .2, BONE, .45);          // hard palate
+  ellF(H, 0, -.046, .062, .03, .009, .025, 0, .7, .3, BONE, .35);                    // maxillary alveolus
+  curveF(H, MAND, 1, 30, false, 0, .85, .45, .25);                                   // mandible
+  ellF(H, 0, -.096, .072, .012, .008, .008, 0, .4, .4, BONE, .5);                    // chin
+  for (let j = 0; j < 14; j++){                                                      // teeth: enamel crowns, then roots
+    const u = (j - 6.5)/6.5, molar = Math.abs(u) > .55, r = molar ? .0044 : .0029;
+    let x = u*.028, z = .072 - .03*u*u;
+    tubeF(H, x, -.06, z, x, -.042, z, r, r*.5, 0, .3, .15, .15, BONE, .5);
+    ellF(H, x, -.06, z, r*1.02, r*1.15, r*1.02, 0, 0, 0, BONE, .42);
+    x = u*.026; z = .07 - .03*u*u;
+    tubeF(H, x, -.068, z, x, -.087, z, r, r*.5, 0, .3, .15, .15, BONE, .5);
+    ellF(H, x, -.068, z, r*1.02, r*1.15, r*1.02, 0, 0, 0, BONE, .42);
+  }
+}
+function cervical(Hf, Tf){
+  proj(Hf, 0, -.044, -.028, _p); const ax = _p[0], ay = _p[1];
+  proj(Tf, 0, .03, -.066, _q); const bx = _q[0], by = _q[1];
+  const dx = bx - ax, dy = by - ay, L = Math.hypot(dx, dy); if (!(L > 1)) return;
+  const ang = Math.atan2(dy, dx) - Math.PI/2;
+  for (let i = 0; i < 7; i++){
+    const t = (i + .5)/7, cx = ax + dx*t, cy = ay + dy*t, s = Hf.s + (Tf.s - Hf.s)*t;
+    CTX.invS = 1/s;
+    const w = (i === 0 ? .042 : .022 + i*.0008)*s, h = (i === 1 ? .016 : .0105)*s;
+    box(cx, cy, ang, w/2, h/2, Math.min(w, h)*.3, .02*s, .0014*s, .55, BONE, 1);
+    if (i > 0){ const c = Math.cos(ang), sn = Math.sin(ang);
+      for (let sd = -1; sd <= 1; sd += 2) ellS(cx + c*sd*w*.36, cy + sn*sd*w*.36, .0032*s, .0042*s, .006*s, ang, .55, .3, BONE, .8); }
+  }
+  CTX.invS = 1/Tf.s;
+  tube(ax + dx*.55, ay + dy*.55, bx, by, .0085*Tf.s, .0085*Tf.s, 0, 0, 0, .1, AIR, .8);         // trachea in the neck
+}
+
+/* ---------- arms, legs and the pelvis (screen space, from the landmarks) ---------- */
+const PX = new Float32Array(33*2);                                    // the current person's landmarks in screen px
+function lmOK(P, i){ return P.V[i] > .05 && Number.isFinite(PX[i*2]); }
+const vis = (P, i) => sstep(.15, .55, P.V[i]);                       // landmarks MediaPipe only guesses (off-frame) fade out
+function arm(P, sd, hand){
+  const iE = sd > 0 ? 13 : 14, iW = sd > 0 ? 15 : 16, s = P.T.s, T = P.T, a0 = CTX.a;
+  CTX.invS = 1/s;
+  CTX.a = a0 * vis(P, iE); if (CTX.a < .01) return;
+  proj(T, sd*.168, -.032, -.012, _p); const hx = _p[0], hy = _p[1];
+  const ex = PX[iE*2], ey = PX[iE*2+1];
+  let wx = PX[iW*2], wy = PX[iW*2+1];
+  if (hand){ wx = hand[0]; wy = hand[1]; }
+  let dx = ex - hx, dy = ey - hy, L = Math.hypot(dx, dy); if (!(L > 2)) return; dx /= L; dy /= L;
+  let ox = -dy, oy = dx; if (ox*(hx - T.ax) + oy*(hy - T.ay) < 0){ ox = -ox; oy = -oy; }       // lateral at the shoulder
+  const ua = Math.atan2(dy, dx) + Math.PI/2;
+  ellS(hx, hy, .0235*s, .0235*s, .0235*s, 0, .86, .28, BONE, .56);                             // humeral head
+  ellS(hx + ox*.017*s + dx*.008*s, hy + oy*.017*s + dy*.008*s, .0105*s, .016*s, .014*s, ua, .6, .35, BONE, .4);   // greater tuberosity
+  tube(hx + dx*.02*s, hy + dy*.02*s, ex - dx*.03*s, ey - dy*.03*s, .0122*s, .0116*s, .75, .56, .45, .16, BONE, .95, false, 99, 99, .55);
+  // the distal humerus: epicondyles either side, trochlea and capitulum, and the olecranon fossa as a dark window
+  box(ex - dx*.011*s, ey - dy*.011*s, ua, .029*s, .011*s, .009*s, .034*s, .002*s, .4, BONE, .6);
+  ellS(ex - dx*.022*s, ey - dy*.022*s, .0095*s, .0085*s, .02*s, ua, 0, 0, BONE, -.12);
+  CTX.a = a0 * vis(P, iE) * (hand ? 1 : vis(P, iW)); if (CTX.a < .01) return;
+  let fx = wx - ex, fy = wy - ey; const F = Math.hypot(fx, fy); if (!(F > 2)) return; fx /= F; fy /= F;
+  let nx = -fy, ny = fx;
+  if (nx*(ex - P.T.ax) + ny*(ey - P.T.ay) < 0){ nx = -nx; ny = -ny; }                         // lateral at the elbow
+  // which side the thumb is on at the wrist decides whether radius and ulna cross (pronation)
+  let tx, ty, kx, ky;
+  if (hand){ tx = hand[2]; ty = hand[3]; kx = hand[34]; ky = hand[35]; }
+  else { const it = sd > 0 ? 21 : 22, ik = sd > 0 ? 17 : 18; tx = PX[it*2]; ty = PX[it*2+1]; kx = PX[ik*2]; ky = PX[ik*2+1]; }
+  let ts = nx*(tx - kx) + ny*(ty - ky); ts = Number.isFinite(ts) && ts < 0 ? -1 : 1;
+  const fa = Math.atan2(fy, fx) + Math.PI/2;
+  box(ex + nx*.011*s + fx*.012*s, ey + ny*.011*s + fy*.012*s, fa, .0102*s, .0048*s, .003*s, .02*s, .0015*s, .4, BONE, .55);   // radial head
+  bone(ex + nx*.01*s + fx*.016*s, ey + ny*.01*s + fy*.016*s, wx + nx*ts*.012*s, wy + ny*ts*.012*s, .0068*s, .0112*s, .5, .55, .5, .14, 1, .5, 0, .004*s);   // radius
+  bone(ex - nx*.011*s - fx*.02*s, ey - ny*.011*s - fy*.02*s, wx - nx*ts*.01*s, wy - ny*ts*.01*s, .0105*s, .0062*s, .45, .55, .5, .14, 1, .55, 0, .005*s); // ulna
+}
+// the pelvis in the pelvic frame (metres from the hip-joint midpoint; x = the subject's left, y up, z forward); [x, y, z, radius]
+const ILIUM = [[.128,.03,.03],[.145,.062,.018],[.147,.094,.006],[.133,.118,-.006],[.106,.131,-.02],[.077,.127,-.034],[.052,.11,-.048],[.037,.086,-.057],[.031,.066,-.06],
+               [.037,.047,-.052],[.052,.033,-.038],[.062,.016,-.02],[.066,-.004,-.004],[.077,-.021,.008],[.1,-.029,.012],[.121,-.016,.018],[.131,.008,.026]];
+const IL_C = [.095,.005,0];
+const CREST = [[.128,.03,.03,.0055],[.145,.062,.018,.005],[.147,.094,.006,.0056],[.133,.118,-.006,.006],[.106,.131,-.02,.0056],[.077,.127,-.034,.005],
+               [.052,.11,-.048,.0045],[.037,.086,-.057,.0042],[.031,.066,-.06,.004]];
+const BRIM = [[.031,.066,-.06,.0024],[.04,.047,-.05,.0027],[.053,.033,-.036,.003],[.062,.016,-.02,.003],[.066,-.004,-.004,.0032],[.061,-.02,.012,.0034]];
+const OBT = [[.074,-.022,.012,.0092],[.081,-.046,.006,.01],[.077,-.072,0,.0105],[.062,-.09,.006,.008],[.042,-.088,.02,.0048],[.025,-.075,.034,.0048],
+             [.014,-.056,.042,.0082],[.02,-.039,.042,.0075],[.046,-.03,.03,.0072]];
+const ROOF = [[.128,.012,.015,.0028],[.124,.024,.015,.0034],[.11,.031,.015,.0037],[.092,.031,.015,.0037],[.078,.022,.015,.0032],[.072,.01,.015,.0026]];
+const TEAR = [[.069,.008,0,.0016],[.064,-.01,0,.0018],[.07,-.024,0,.0018],[.078,-.013,0,.0017],[.077,.005,0,.0015]];
+const PWALL = [[.083,-.026,-.01,.0018],[.105,-.026,-.015,.002],[.124,-.01,-.012,.002],[.131,.012,-.01,.0018]];
+const SACRUM = [[-.05,.09,-.062],[-.025,.094,-.06],[0,.095,-.058],[.025,.094,-.06],[.05,.09,-.062],[.044,.066,-.062],[.032,.035,-.056],[.019,.006,-.047],
+                [.008,-.016,-.038],[-.008,-.016,-.038],[-.019,.006,-.047],[-.032,.035,-.056],[-.044,.066,-.062]];
+const SA_C = [0,.045,-.058];
+const PROM = [[-.032,.086,-.06,.0026],[0,.093,-.058,.003],[.032,.086,-.06,.0026]];
+const CRISTA = [[0,.084,-.07,.0022],[0,.05,-.068,.0022],[0,.012,-.055,.002]];
+function pelvisAndLegs(P){
+  const F = P.PV, s = F.s, a0 = CTX.a, vh = vis(P, 23) * vis(P, 24); CTX.invS = 1/s;
+  CTX.a = a0 * vh;
+  if (CTX.a > .01) pelvis(F);
+  legs(P, F, s, a0, vh);
+  CTX.a = a0;
+}
+function pelvis(F){
+  fanF(F, SA_C, SACRUM, 1, .0052, .7, .4, .7);                                                   // sacrum
+  curveF(F, PROM, 1, 6, false, 0, .7, .45, .3);                                                   // S1's upper end plate
+  curveF(F, CRISTA, 1, 5, false, 0, .35, .4, .3);                                                 // median sacral crest
+  for (let i = 0; i < 4; i++){                                                                    // fused segments and their foramina
+    const y = .072 - i*.019, x = .021 - i*.0025, r = .0042 - i*.0004;
+    tubeF(F, -x*.8, y - .0095, -.06, x*.8, y - .0095, -.06, .0012, .0012, 0, .3, 0, .1, BONE, .28, true);
+    for (let sd = -1; sd <= 1; sd += 2) ellF(F, sd*x, y, -.06, r, r*.9, .014, 0, 0, 0, BONE, -.3);
+  }
+  for (let k = 0; k < 3; k++) ellF(F, 0, -.026 - k*.009, -.03, .0065 - k*.0012, .004, .006, 0, .5, .3, BONE, .5);   // coccyx
+  for (let sd = -1; sd <= 1; sd += 2){
+    fanF(F, IL_C, ILIUM, sd, .0036, 3.2, .32, .75);                                                // iliac wing: thin, thick at its body
+    curveF(F, CREST, sd, 12, false, 0, .85, .45, .3);                                             // iliac crest
+    curveF(F, BRIM, sd, 7, false, 0, .7, .45, .2);                                                // iliopectineal line
+    curveF(F, OBT, sd, 22, true, 0, .66, .52, .35);                                                 // pubic and ischial rami round the obturator foramen
+    ellF(F, sd*.068, -.085, 0, .013, .011, .016, sd*.3, .5, .35, BONE, .42);                       // ischial tuberosity
+    curveF(F, ROOF, sd, 8, false, 0, .85, .45, .2);                                               // acetabular roof
+    curveF(F, TEAR, sd, 6, false, 0, .55, .4, .2);                                                // teardrop
+    curveF(F, PWALL, sd, 5, false, 0, .4, .4, .2);                                                // posterior wall, across the femoral head
+    tubeF(F, sd*.033, .088, -.06, sd*.043, .038, -.055, .0018, .0018, 0, .3, 0, .1, BONE, .45, true);   // sacro-iliac joint
+  }
+}
+function legs(P, F, s, a0, vh){
+  for (let sd = -1; sd <= 1; sd += 2){
+    const iK = sd > 0 ? 25 : 26, iA = sd > 0 ? 27 : 28, iHe = sd > 0 ? 29 : 30, iT = sd > 0 ? 31 : 32;
+    CTX.a = a0 * vh * vis(P, iK); if (CTX.a < .01) continue;
+    proj(F, sd*.102, 0, .005, _p); const hx = _p[0], hy = _p[1];                                  // the femoral head sits in the acetabulum
+    const kx = PX[iK*2], ky = PX[iK*2+1], ax = PX[iA*2], ay = PX[iA*2+1];
+    let dx = kx - hx, dy = ky - hy, L = Math.hypot(dx, dy); if (!(L > 3)) continue; dx /= L; dy /= L;
+    let lx = -dy, ly = dx; if (lx*(hx - F.ax) + ly*(hy - F.ay) < 0){ lx = -lx; ly = -ly; }
+    const fa = Math.atan2(dy, dx) + Math.PI/2;
+    ellS(hx, hy, .024*s, .024*s, .024*s, 0, .86, .3, BONE, .58);                                  // femoral head
+    tube(hx + lx*.006*s + dx*.004*s, hy + ly*.006*s + dy*.004*s, hx + lx*.036*s + dx*.04*s, hy + ly*.036*s + dy*.04*s, .0145*s, .0165*s, 0, .6, .55, .3, BONE, .78);  // neck
+    ellS(hx + lx*.04*s + dx*.034*s, hy + ly*.04*s + dy*.034*s, .015*s, .022*s, .018*s, fa, .55, .5, BONE, .45);         // greater trochanter
+    ellS(hx + lx*.014*s + dx*.075*s, hy + ly*.014*s + dy*.075*s, .0075*s, .0095*s, .009*s, fa, .5, .4, BONE, .48);     // lesser trochanter
+    tube(hx + lx*.034*s + dx*.06*s, hy + ly*.034*s + dy*.06*s, kx - dx*.04*s, ky - dy*.04*s, .0135*s, .0142*s, .85, .56, .45, .16, BONE, .95, false, 99, 99, .55);  // shaft
+    box(kx - dx*.019*s, ky - dy*.019*s, fa, .039*s, .017*s, .015*s, .05*s, .0025*s, .42, BONE, .6);    // condyles: one broad block…
+    ellS(kx - dx*.003*s, ky - dy*.003*s, .0095*s, .0065*s, .03*s, fa, 0, 0, BONE, -.12);              // …with the notch below
+    tube(kx - dx*.038*s - lx*.035*s, ky - dy*.038*s - ly*.035*s, kx - dx*.038*s + lx*.035*s, ky - dy*.038*s + ly*.035*s, .0011*s, .0011*s, 0, 0, 0, .1, BONE, .5, true);  // physeal scar
+    ellS(kx - dx*.034*s, ky - dy*.034*s, .021*s, .025*s, .012*s, fa, .7, .3, BONE, .24);         // patella, faint over them
+    CTX.a = a0 * vis(P, iK) * vis(P, iA); if (CTX.a < .01) continue;
+    let tx = ax - kx, ty = ay - ky; const TL = Math.hypot(tx, ty); if (!(TL > 3)) continue; tx /= TL; ty /= TL;
+    const ta = Math.atan2(ty, tx) + Math.PI/2;
+    box(kx + tx*.02*s, ky + ty*.02*s, ta, .039*s, .013*s, .009*s, .05*s, .0025*s, .42, BONE, .62);   // tibial plateau
+    for (let k = -1; k <= 1; k += 2) ellS(kx + tx*.007*s + lx*k*.005*s, ky + ty*.007*s + ly*k*.005*s, .0035*s, .0055*s, .006*s, ta, 0, 0, BONE, .45);
+    tube(kx + tx*.032*s, ky + ty*.032*s, ax - tx*.012*s, ay - ty*.012*s, .0145*s, .0105*s, .9, .55, .45, .16, BONE, .95);  // tibia
+    ellS(kx + lx*.033*s + tx*.034*s, ky + ly*.033*s + ty*.034*s, .0085*s, .0095*s, .009*s, ta, .55, .4, BONE, .48);     // fibular head
+    tube(kx + lx*.033*s + tx*.042*s, ky + ly*.033*s + ty*.042*s, ax + lx*.022*s - tx*.004*s, ay + ly*.022*s - ty*.004*s, .0052*s, .0058*s, .45, .5, .4, .12, BONE, .85);
+    ellS(ax - lx*.016*s - tx*.006*s, ay - ly*.016*s - ty*.006*s, .008*s, .012*s, .01*s, ta, .55, .4, BONE, .48);        // medial malleolus
+    if (lmOK(P, iHe) && lmOK(P, iT)){
+      CTX.a *= vis(P, iHe) * vis(P, iT);
+      const hex_ = PX[iHe*2], hey = PX[iHe*2+1], tox = PX[iT*2], toy = PX[iT*2+1];
+      ellS(ax + tx*.02*s, ay + ty*.02*s, .02*s, .015*s, .02*s, 0, .55, .6, BONE, .7);           // talus
+      tube(ax + tx*.02*s, ay + ty*.02*s, hex_, hey, .016*s, .015*s, .3, .35, .8, .3, BONE, .8);   // calcaneus
+      let gx = tox - hex_, gy = toy - hey; const FL = Math.hypot(gx, gy); if (!(FL > 3)) continue; gx /= FL; gy /= FL;
+      const mx = hex_ + (tox - hex_)*.45, my = hey + (toy - hey)*.45;
+      for (let i = 0; i < 5; i++){ const o = (i - 2)*.009*s, o2 = (i - 2)*.011*s;
+        const ex2 = tox - gx*.012*s - gy*o2, ey2 = toy - gy*.012*s + gx*o2;
+        bone(mx - gy*o, my + gx*o, ex2, ey2, .0042*s, .0038*s, .4, .5, .4, .2, .85, .5, 0, .001*s);
+        bone(ex2, ey2, ex2 + gx*.024*s, ey2 + gy*.024*s, .0035*s, .003*s, .3, .5, .3, .2, .8, .5, .0012*s, 0); }
+    }
+  }
+}
+
+/* ---------- hands (21 landmarks in px) ---------- */
+const CARP = [[.012,.010,.0075,.0045,.5],[0,.011,.0055,.0055,0],[-.011,.012,.005,.0045,0],[-.014,.009,.0035,.0035,0],
+              [.017,.024,.0055,.005,.4],[.008,.026,.0045,.0045,0],[-.001,.025,.005,.0085,0],[-.011,.025,.0055,.0075,0]];
+const FING = [[5,6,7,8],[9,10,11,12],[13,14,15,16],[17,18,19,20]];
+// a bone between two landmarks, from fraction fa to fb of the way; its ends stop short of the joints by gA/gB px
+function seg(H, a, b, fa, fb, r0, r1, flare, endF, w, ck, gA, gB){
+  const ax = H[a*2] + (H[b*2] - H[a*2])*fa, ay = H[a*2+1] + (H[b*2+1] - H[a*2+1])*fa;
+  const bx = H[a*2] + (H[b*2] - H[a*2])*fb, by = H[a*2+1] + (H[b*2+1] - H[a*2+1])*fb;
+  bone(ax, ay, bx, by, r0, r1, flare, .5, .32, endF, w, ck, gA, gB);
+}
+function handScale(H){
+  const lp = Math.hypot(H[10] - H[34], H[11] - H[35]) / .072, lv = Math.hypot(H[18] - H[0], H[19] - H[1]) / .092;
+  return Math.max(lp, lv);
+}
+function hand(H, sh, standalone, ring, tissueW){
+  if (!(sh > 20)) return;
+  CTX.invS = 1/sh; CTX.hb = 1.3;
+  const g = .0009*sh;                                                       // half of a joint space
+  // thumb: metacarpal, proximal and distal phalanx
+  seg(H, 1, 2, .05, 1, .0056*sh, .005*sh, .36, .2, 1, .5, 0, g);
+  seg(H, 2, 3, 0, 1, .0049*sh, .0043*sh, .32, .2, 1, .5, g, g);
+  seg(H, 3, 4, 0, .8, .0041*sh, .0031*sh, .35, .25, 1, .75, g, 0);
+  for (const f of FING){
+    const m = f[0], p = f[1], d = f[2], t = f[3], small = m === 17 ? .88 : 1;
+    // metacarpal from the carpus to the knuckle
+    bone(H[0] + (H[m*2] - H[0])*.36, H[1] + (H[m*2+1] - H[1])*.36, H[m*2], H[m*2+1], .0047*sh*small, .0045*sh*small, .36, .5, .32, .2, 1, .55, .0006*sh, g);
+    seg(H, m, p, 0, 1, .0043*sh*small, .004*sh*small, .32, .2, 1, .5, g, g);
+    seg(H, p, d, 0, 1, .0036*sh*small, .0034*sh*small, .3, .22, 1, .5, g, g);
+    seg(H, d, t, 0, .78, .0031*sh*small, .0024*sh*small, .4, .25, 1, .75, g, 0);
+  }
+  // carpus: the eight little bones in two rows
+  let ux = H[10] - H[34], uy = H[11] - H[35]; const ul = Math.hypot(ux, uy) || 1; ux /= ul; uy /= ul;
+  let vx = H[18] - H[0], vy = H[19] - H[1]; const vl = Math.hypot(vx, vy) || 1; vx /= vl; vy /= vl;
+  const va = Math.atan2(vy, vx) - Math.PI/2;
+  for (const c of CARP)
+    ellS(H[0] + (ux*c[0] + vx*c[1])*sh, H[1] + (uy*c[0] + vy*c[1])*sh, c[2]*sh*1.15, c[3]*sh*1.15, .0065*sh, va + c[4], .64, .35, BONE, .8);
+  for (let k = -1; k <= 1; k += 2)                                                             // sesamoids at the thumb
+    ellS(H[4] + (-vy*k)*.0035*sh, H[5] + (vx*k)*.0035*sh, .0022*sh, .0022*sh, .002*sh, 0, 0, 0, BONE, .9);
+  if (standalone){                                                                              // forearm stubs when no arm is known
+    bone(H[0] + ux*.009*sh - vx*.09*sh, H[1] + uy*.009*sh - vy*.09*sh, H[0] + ux*.011*sh - vx*.002*sh, H[1] + uy*.011*sh - vy*.002*sh, .0085*sh, .0112*sh, .5, .55, .5, .14, 1, .5, 0, .002*sh);
+    bone(H[0] - ux*.011*sh - vx*.09*sh, H[1] - uy*.011*sh - vy*.09*sh, H[0] - ux*.012*sh - vx*.006*sh, H[1] - uy*.012*sh - vy*.006*sh, .0075*sh, .0065*sh, .45, .55, .5, .14, 1, .55, 0, .003*sh);
+  }
+  CTX.hb = 1;
+  // soft tissue of the hand (the mask is too coarse for fingers)
+  if (tissueW > 0){
+    for (const f of FING){ const [m, , , t] = f, ex = (H[t*2] - H[m*2]), ey = (H[t*2+1] - H[m*2+1]), el = Math.hypot(ex, ey) || 1;
+      tube(H[m*2], H[m*2+1], H[t*2] + ex/el*.004*sh, H[t*2+1] + ey/el*.004*sh, .0088*sh, .0072*sh, 0, 0, 0, .1, SOFT, tissueW); }
+    tube(H[2], H[3], H[8] + (H[8] - H[6])*.15, H[9] + (H[9] - H[7])*.15, .011*sh, .0078*sh, 0, 0, 0, .1, SOFT, tissueW);
+    const mcx = (H[10] + H[34])/2, mcy = (H[11] + H[35])/2, pcx = (H[0] + mcx)/2 + vx*.004*sh, pcy = (H[1] + mcy)/2 + vy*.004*sh;
+    const across = Math.hypot(H[10] - H[34], H[11] - H[35])/2 + .011*sh, along = Math.hypot(mcx - H[0], mcy - H[1])/2 + .012*sh;
+    box(pcx, pcy, Math.atan2(uy, ux), across, along, .016*sh, .028*sh, 0, 0, SOFT, tissueW);
+    ellS(H[2]*.6 + H[0]*.4, H[3]*.6 + H[1]*.4, .016*sh, .022*sh, .024*sh, va, 0, 0, SOFT, tissueW);
+  }
+  if (ring){                                                                                    // 1895: the ring on the ring finger
+    const rx = H[26] + (H[28] - H[26])*.42, ry = H[27] + (H[29] - H[27])*.42;
+    box(rx, ry, Math.atan2(H[29] - H[27], H[28] - H[26]) + Math.PI/2, .0105*sh, .0024*sh, .0012*sh, .02*sh, .0013*sh, 0, METAL, 1);
+  }
+}
+// a whole hand guessed from the pose's wrist, index and pinky knuckles when the hand model has nothing
+const TPL = [0,0, .022,.025, .042,.05, .056,.075, .066,.098, .025,.09, .03,.135, .033,.16, .035,.182, .004,.095, .005,.145, .006,.174, .007,.198,
+             -.016,.09, -.019,.136, -.021,.162, -.023,.184, -.034,.08, -.04,.112, -.043,.131, -.046,.149];
+function handFromPose(sd, out){
+  const iW = sd > 0 ? 15 : 16, iI = sd > 0 ? 19 : 20, iK = sd > 0 ? 17 : 18;
+  const ox = PX[iW*2], oy = PX[iW*2+1], ax = PX[iI*2] - ox, ay = PX[iI*2+1] - oy, bx = PX[iK*2] - ox, by = PX[iK*2+1] - oy;
+  // affine map of the template's (index, pinky) knuckles onto the observed ones
+  const t1x = .025, t1y = .09, t2x = -.034, t2y = .08, td = t1x*t2y - t2x*t1y;
+  const det = ax*by - ay*bx; if (!(Math.abs(det) > 30) || !Number.isFinite(det)) return null;
+  const i00 = t2y/td, i01 = -t2x/td, i10 = -t1y/td, i11 = t1x/td;
+  const A = ax*i00 + bx*i10, B = ax*i01 + bx*i11, C = ay*i00 + by*i10, D = ay*i01 + by*i11;
+  for (let i = 0; i < 21; i++){ const u = TPL[i*2], v = TPL[i*2+1]; out[i*2] = ox + A*u + B*v; out[i*2+1] = oy + C*u + D*v; }
+  return out;
+}
+
+/* ---------- tracking state (smoothed with One Euro filters) ---------- */
+function OE(n, minC, beta){ return { n, minC, beta, x:new Float32Array(n), dx:new Float32Array(n), init:false, t:0 }; }
+const alphaOf = (cut, dt) => 1 / (1 + 1/(2*Math.PI*cut)/dt);
+function oeStep(F, src, tMs){
+  if (!F.init){ F.x.set(src.subarray(0, F.n)); F.dx.fill(0); F.init = true; F.t = tMs; return; }
+  const dt = Math.max(.001, (tMs - F.t)/1000); F.t = tMs;
+  const ad = alphaOf(1, dt);
+  for (let i = 0; i < F.n; i++){
+    const d = (src[i] - F.x[i]) / dt; F.dx[i] += ad*(d - F.dx[i]);
+    F.x[i] += alphaOf(F.minC + F.beta*Math.abs(F.dx[i]), dt) * (src[i] - F.x[i]);
+  }
+}
+const RAWP = new Float32Array(99), RAWW = new Float32Array(99), RAWH = new Float32Array(63);
+const PEOPLE = [0, 1].map(() => ({ ok:false, alpha:0, lastSeen:-1e9, lastT:0, fN:OE(99, 1.2, 6), fW:OE(99, 1, 4), V:new Float32Array(33),
+  hasWorld:false, E:0, ex:0, hr:66, rr:14, bph:0, hph:0, s:0, sh:0, cx:.5, cy:.5, prevX:0, prevY:0,
+  T:Frame(), PV:Frame(), H:Frame(), hand:[-1, -1] }));
+const HANDS = [0, 1, 2, 3].map(() => ({ ok:false, alpha:0, lastSeen:-1e9, lastT:0, N:new Float32Array(42), init:false, owner:-1 }));
+let mirror = true, vidW = 1280, vidH = 720, scX = 1, scY = 1;
+function finiteLms(l, n){ if (!Array.isArray(l) || l.length < n) return false;
+  for (let i = 0; i < n; i++){ const p = l[i]; if (!p || !Number.isFinite(p.x) || !Number.isFinite(p.y)) return false; } return true; }
+function losePerson(P){ P.ok = false; P.E = 0; P.fN.init = false; P.fW.init = false; }
+const DET = [-1, -1], ORD = [-1, -1], WRAP1 = [null], WRAP2 = [null], MOV = [0, 13, 14, 15, 16], USED = [false, false, false, false];
+const midX = (l) => (l[11].x + l[12].x)/2, midY = (l) => (l[11].y + l[12].y)/2;
+function onPose(list, worldList, tMs){
+  if (!Number.isFinite(tMs)) return;
+  let L = Array.isArray(list) ? list : [];
+  let WL = Array.isArray(worldList) ? worldList : [];
+  if (L.length && L[0] && Number.isFinite(L[0].x)){ WRAP1[0] = L; WRAP2[0] = WL; L = WRAP1; WL = WRAP2; }   // a single landmark array (test hook)
+  let nd = 0; DET[0] = DET[1] = -1;
+  for (let i = 0; i < L.length && nd < 2; i++) if (finiteLms(L[i], 33)) DET[nd++] = i;
+  // keep identities: match detections to people by shoulder midpoint
+  ORD[0] = DET[0]; ORD[1] = DET[1];
+  if (nd === 2 && PEOPLE[0].ok){
+    const p = PEOPLE[0], a = L[DET[0]], b = L[DET[1]];
+    if (Math.hypot(midX(b) - p.cx, midY(b) - p.cy) < Math.hypot(midX(a) - p.cx, midY(a) - p.cy)){ ORD[0] = DET[1]; ORD[1] = DET[0]; }
+  } else if (nd === 1 && !PEOPLE[0].ok && PEOPLE[1].ok){
+    const p = PEOPLE[1], a = L[DET[0]]; if (Math.hypot(midX(a) - p.cx, midY(a) - p.cy) < .15){ ORD[0] = -1; ORD[1] = DET[0]; }
+  }
+  for (let k = 0; k < 2; k++){
+    const P = PEOPLE[k], i = ORD[k];
+    if (i < 0){ if (tMs - P.lastSeen > 600) losePerson(P); continue; }
+    const l = L[i], w = WL[i];
+    for (let j = 0; j < 33; j++){ const q = l[j]; RAWP[j*3] = q.x; RAWP[j*3+1] = q.y; RAWP[j*3+2] = Number.isFinite(q.z) ? q.z : 0;
+      P.V[j] = Number.isFinite(q.visibility) ? q.visibility : 1; }
+    if (!P.ok || tMs - P.lastSeen > 1000 || tMs < P.lastT){ P.fN.init = false; P.fW.init = false; P.E = 0; }
+    const firstX = P.fN.init ? (P.fN.x[33] + P.fN.x[36])/2 : null, firstY = P.fN.init ? (P.fN.x[34] + P.fN.x[37])/2 : null;
+    const dtO = Math.min(.25, Math.max(.005, (tMs - P.lastT)/1000));
+    oeStep(P.fN, RAWP, tMs);
+    if (finiteLms(w, 33)){ for (let j = 0; j < 33; j++){ RAWW[j*3] = w[j].x; RAWW[j*3+1] = w[j].y; RAWW[j*3+2] = Number.isFinite(w[j].z) ? w[j].z : 0; }
+      oeStep(P.fW, RAWW, tMs); P.hasWorld = true; } else P.hasWorld = false;
+    // motion energy: wrists, elbows, shoulders and nose, in shoulder widths per second (≈ metres per second)
+    const sw = Math.hypot(P.fN.x[33] - P.fN.x[36], (P.fN.x[34] - P.fN.x[37]) * vidH/vidW) || .1;
+    if (firstX !== null){
+      let sp = 0; for (let m = 0; m < MOV.length; m++){ const j = MOV[m]; sp += Math.hypot(RAWP[j*3] - P.prevPts[j*2], (RAWP[j*3+1] - P.prevPts[j*2+1]) * vidH/vidW); }
+      sp = sp / 5 / sw * .38 / dtO;
+      P.E = P.E*.8 + Math.min(4, sp)*.2;
+    }
+    if (!P.prevPts) P.prevPts = new Float32Array(66);
+    for (let j = 0; j < 33; j++){ P.prevPts[j*2] = RAWP[j*3]; P.prevPts[j*2+1] = RAWP[j*3+1]; }
+    P.cx = (P.fN.x[33] + P.fN.x[36])/2; P.cy = (P.fN.x[34] + P.fN.x[37])/2;
+    P.ok = true; P.lastSeen = tMs; P.lastT = tMs;
+  }
+}
+function onHands(list, tMs){
+  if (!Number.isFinite(tMs)) return;
+  let L = Array.isArray(list) ? list : [];
+  if (L.length && L[0] && Number.isFinite(L[0].x)) L = [L];
+  const used = USED; used.fill(false);
+  for (const l of L){
+    if (!finiteLms(l, 21)) continue;
+    // the slot whose wrist was closest last time, else a free one
+    let best = -1, bd = .12;
+    for (let k = 0; k < 4; k++){ const h = HANDS[k]; if (!h.ok || used[k]) continue;
+      const d = Math.hypot(h.N[0] - l[0].x, h.N[1] - l[0].y); if (d < bd){ bd = d; best = k; } }
+    if (best < 0) for (let k = 0; k < 4; k++) if (!used[k] && !HANDS[k].ok){ best = k; break; }
+    if (best < 0) continue;
+    const h = HANDS[best]; used[best] = true;
+    for (let j = 0; j < 21; j++){ RAWH[j*2] = l[j].x; RAWH[j*2+1] = l[j].y; }
+    const fresh = !h.ok || tMs - h.lastSeen > 600 || tMs < h.lastT;
+    for (let j = 0; j < 42; j++) h.N[j] = fresh ? RAWH[j] : h.N[j] + (RAWH[j] - h.N[j]) * .6;
+    h.ok = true; h.lastSeen = tMs; h.lastT = tMs;
+  }
+  for (let k = 0; k < 4; k++){ const h = HANDS[k]; if (!used[k] && tMs - h.lastSeen > 500) h.ok = false; }
+}
+
+/* ---------- frames from landmarks ---------- */
+const WP = new Float32Array(99);
+function worldPt(P, i, o){ const x = P.fW.x; o[0] = (mirror ? -1 : 1)*x[i*3]; o[1] = -x[i*3+1]; o[2] = -x[i*3+2]; return o; }
+const A3 = [0,0,0], B3 = [0,0,0], C3 = [0,0,0], D3 = [0,0,0], E3 = [0,0,0], X3 = [0,0,0], Y3 = [0,0,0], Z3 = [0,0,0];
+function basis(R, xa, ya, fwd){
+  // x from xa; y = ya made orthogonal; z = x × y, turned to agree with fwd
+  let l = Math.hypot(xa[0], xa[1], xa[2]) || 1; X3[0] = xa[0]/l; X3[1] = xa[1]/l; X3[2] = xa[2]/l;
+  const d = ya[0]*X3[0] + ya[1]*X3[1] + ya[2]*X3[2];
+  Y3[0] = ya[0] - X3[0]*d; Y3[1] = ya[1] - X3[1]*d; Y3[2] = ya[2] - X3[2]*d;
+  l = Math.hypot(Y3[0], Y3[1], Y3[2]) || 1; Y3[0] /= l; Y3[1] /= l; Y3[2] /= l;
+  Z3[0] = X3[1]*Y3[2] - X3[2]*Y3[1]; Z3[1] = X3[2]*Y3[0] - X3[0]*Y3[2]; Z3[2] = X3[0]*Y3[1] - X3[1]*Y3[0];
+  if (Z3[0]*fwd[0] + Z3[1]*fwd[1] + Z3[2]*fwd[2] < 0){ Z3[0] = -Z3[0]; Z3[1] = -Z3[1]; Z3[2] = -Z3[2]; }
+  R[0] = X3[0]; R[1] = X3[1]; R[2] = X3[2]; R[3] = Y3[0]; R[4] = Y3[1]; R[5] = Y3[2]; R[6] = Z3[0]; R[7] = Z3[1]; R[8] = Z3[2];
+}
+function toScr(nx, ny, out, k){ let x = nx; if (mirror) x = 1 - x; out[k] = ((x - .5)/scX + .5)*CW; out[k+1] = ((ny - .5)/scY + .5)*CH; }
+function frames(P, dt){
+  const n = P.fN.x;
+  for (let i = 0; i < 33; i++) toScr(n[i*3], n[i*3+1], PX, i*2);
+  const shx = PX[22] - PX[24], shy = PX[23] - PX[25], shp = Math.hypot(shx, shy);
+  const erx = PX[14] - PX[16], ery = PX[15] - PX[17], erp = Math.hypot(erx, ery);
+  let sB, sH;
+  if (P.hasWorld){
+    worldPt(P, 11, A3); worldPt(P, 12, B3); worldPt(P, 23, C3); worldPt(P, 24, D3);
+    const nkx = (A3[0] + B3[0])/2, nky = (A3[1] + B3[1])/2, nkz = (A3[2] + B3[2])/2, hpx = (C3[0] + D3[0])/2, hpy = (C3[1] + D3[1])/2, hpz = (C3[2] + D3[2])/2;
+    const swW = Math.hypot(A3[0] - B3[0], A3[1] - B3[1]);
+    sB = swW > .05 ? shp / swW : shp / .36;
+    worldPt(P, 0, E3);
+    basis(P.T.R, [A3[0] - B3[0], A3[1] - B3[1], A3[2] - B3[2]], [nkx - hpx, nky - hpy, nkz - hpz], [E3[0] - nkx, E3[1] - nky + .05, E3[2] - nkz + .02]);
+    const half = Math.hypot(A3[0] - B3[0], A3[1] - B3[1], A3[2] - B3[2])/2, tl = Math.hypot(nkx - hpx, nky - hpy, nkz - hpz);
+    P.T.fx = Math.max(.82, Math.min(1.22, half/.19)); P.T.fy = Math.max(.82, Math.min(1.22, tl/.5)); P.T.fz = (P.T.fx + P.T.fy)/2;
+    // the head: ears give x, eyes over mouth give y, the nose says which way is forward
+    worldPt(P, 7, A3); worldPt(P, 8, B3); worldPt(P, 2, C3); worldPt(P, 5, D3);
+    const emx = (A3[0] + B3[0])/2, emy = (A3[1] + B3[1])/2, emz = (A3[2] + B3[2])/2;
+    const eyx = (C3[0] + D3[0])/2, eyy = (C3[1] + D3[1])/2, eyz = (C3[2] + D3[2])/2;
+    worldPt(P, 9, C3); worldPt(P, 10, D3);
+    const mx = (C3[0] + D3[0])/2, my = (C3[1] + D3[1])/2, mz = (C3[2] + D3[2])/2;
+    basis(P.H.R, [A3[0] - B3[0], A3[1] - B3[1], A3[2] - B3[2]], [eyx - mx, eyy - my, eyz - mz], [E3[0] - emx, E3[1] - emy, E3[2] - emz]);
+    const ewW = Math.hypot(A3[0] - B3[0], A3[1] - B3[1]);
+    sH = ewW > .04 ? erp / ewW : sB;
+  } else {
+    sB = shp / .36; sH = erp > 4 ? erp / .15 : sB;
+    basis(P.T.R, [shx, -shy, 0], [PX[22] + PX[24] - PX[46] - PX[48], -(PX[23] + PX[25] - PX[47] - PX[49]), 0], [0, 0, 1]);
+    basis(P.H.R, [erx, -ery, 0], [0, 1, 0], [0, 0, 1]);
+    P.T.fx = P.T.fy = P.T.fz = 1;
+  }
+  if (!(sB > 20 && sB < 30000)) sB = P.s || 600; if (!(sH > 20 && sH < 30000)) sH = sB;
+  sH = Math.max(sB*.7, Math.min(sB*1.4, sH));
+  const ks = P.s ? 1 - Math.exp(-dt/.35) : 1;
+  P.s = (P.s || sB) + (sB - (P.s || sB))*ks; P.sh = (P.sh || sH) + (sH - (P.sh || sH))*ks;
+  P.T.s = P.s; P.T.ax = (PX[22] + PX[24])/2; P.T.ay = (PX[23] + PX[25])/2;
+  P.PV.s = P.s; P.PV.R.set(P.T.R); P.PV.fx = P.T.fx; P.PV.fy = P.T.fy; P.PV.fz = P.T.fz;
+  P.PV.ax = (PX[46] + PX[48])/2; P.PV.ay = (PX[47] + PX[49])/2;
+  P.H.s = P.sh; P.H.ax = (PX[14] + PX[16])/2; P.H.ay = (PX[15] + PX[17])/2;
+}
+
+/* ---------- physiology: the more you move, the faster the heart and the breath ---------- */
+function physiology(P, dt){
+  const target = Math.min(1.5, P.E / .7);
+  P.ex += (target - P.ex) * (1 - Math.exp(-dt / (target > P.ex ? 4 : 18)));
+  P.hr = 64 + 62*Math.min(1, P.ex); P.rr = 13 + 17*Math.min(1, P.ex);
+  P.bph += dt * P.rr/60 * 2*Math.PI; P.hph += dt * P.hr/60;
+  if (P.bph > 1e4) P.bph -= 2*Math.PI*1000; if (P.hph > 1e4) P.hph -= 1000;
+}
+
+/* ---------- build the whole frame ---------- */
+const HPX = [new Float32Array(42), new Float32Array(42), new Float32Array(42), new Float32Array(42)], HFAKE = new Float32Array(42);
+let lastBuild = { people:0, hands:0 };
+function build(dt){
+  NI = 0; SEED = 0;
+  const ring = PALS[S.pal].frame === 2;
+  for (let k = 0; k < 4; k++){ const h = HANDS[k]; h.alpha += ((h.ok ? 1 : 0) - h.alpha) * (1 - Math.exp(-dt*6)); h.owner = -1;
+    if (h.alpha > .01) for (let j = 0; j < 21; j++) toScr(h.N[j*2], h.N[j*2+1], HPX[k], j*2); }
+  let np = 0, nh = 0;
+  for (let pi = 0; pi < 2; pi++){
+    const P = PEOPLE[pi];
+    P.alpha += ((P.ok ? 1 : 0) - P.alpha) * (1 - Math.exp(-dt*(P.ok ? 5 : 3)));
+    if (P.alpha < .01 || !P.fN.init) continue;
+    np++;
+    physiology(P, dt);
+    frames(P, dt);
+    CTX.a = P.alpha; CTX.hb = 1;
+    CTX.invS = 1/P.T.s;
+    const breath = .5 - .5*Math.cos(P.bph), ph = P.hph % 1, sy = Math.exp(-Math.pow((ph - .12)/.07, 2));
+    organs(P.T, breath, sy, P.bph*.37);
+    spineAndRibs(P.T);
+    shoulderGirdle(P.T);
+    pelvisAndLegs(P);
+    CTX.invS = 1/P.H.s; skull(P.H);
+    cervical(P.H, P.T);
+    // hands: the hand model's hand nearest each wrist, else one guessed from the pose
+    for (let sd = -1; sd <= 1; sd += 2){
+      const iW = sd > 0 ? 15 : 16, wx = PX[iW*2], wy = PX[iW*2+1];
+      let best = -1, bd = .24*P.T.s;
+      for (let k = 0; k < 4; k++){ const h = HANDS[k]; if (h.alpha < .01 || h.owner >= 0) continue;
+        const d = Math.hypot(HPX[k][0] - wx, HPX[k][1] - wy); if (d < bd){ bd = d; best = k; } }
+      let H = null, sh = 0;
+      if (best >= 0){ HANDS[best].owner = pi; H = HPX[best]; sh = Math.min(handScale(H), P.T.s*2.5); }
+      else if (P.V[iW] > .3){ H = handFromPose(sd, HFAKE); sh = P.T.s; }
+      CTX.a = P.alpha; arm(P, sd, H);
+      if (H){ CTX.a = P.alpha * (best >= 0 ? HANDS[best].alpha : 1); hand(H, sh, false, ring, 3.2); nh++; }
+    }
+    CTX.a = 1;
+  }
+  // hands on their own (close to the lens, or the body is out of frame)
+  let bodyS = 0; for (const P of PEOPLE) if (P.alpha > .3 && P.fN.init) bodyS = Math.max(bodyS, P.T.s);
+  for (let k = 0; k < 4; k++){ const h = HANDS[k]; if (h.alpha < .01 || h.owner >= 0) continue;
+    const hs = handScale(HPX[k]); if (bodyS > 0 && hs < bodyS*1.6) continue;              // a lagging hand near a body: the arm draws its own
+    CTX.a = h.alpha; hand(HPX[k], hs, true, ring, 6.5); nh++; }
+  CTX.a = 1; CTX.hb = 1;
+  lastBuild.people = np; lastBuild.hands = nh;
+}
+
+/* ---------- mask (pose segmentation, reused buffers) ---------- */
+const M = { w:0, h:0, u8:null, has:false, at:-1e9 };
+function ingestMask(data, w, h, st){
+  if (!data || !(w > 0) || !(h > 0) || data.length < w*h) return;
+  st = st || Math.max(1, Math.floor(w / 320));
+  const mw = Math.floor(w/st), mh = Math.floor(h/st);
+  if (M.w !== mw || M.h !== mh){ M.w = mw; M.h = mh; M.u8 = new Uint8Array(mw*mh); }
+  const U = M.u8;
+  for (let y = 0; y < mh; y++){ const row = y*st*w;
+    for (let x = 0; x < mw; x++){ let m = data[row + x*st]; if (!(m >= 0)) m = 0; else if (m > 1) m = 1; U[y*mw + x] = m*255; } }
+  M.has = true; M.at = performance.now();
+  if (PF){ gl.bindTexture(gl.TEXTURE_2D, texMask); gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, mw, mh, 0, gl.RED, gl.UNSIGNED_BYTE, U); gl.generateMipmap(gl.TEXTURE_2D); }
+}
+
+/* ---------- MediaPipe (dynamic import; the page still runs without it) ---------- */
+let poser = null, hander = null, lastTs = 0, lastVT = -1, modelState = 'loading', EXT = false, frameNo = 0;
+async function initModel(){
+  try{
+    const vision = await import(VISION_URL);
+    const fs = await vision.FilesetResolver.forVisionTasks(WASM_URL);
+    const mk = async (Cls, o) => { try { return await Cls.createFromOptions(fs, { ...o, baseOptions:{ ...o.baseOptions, delegate:'GPU' } }); }
+                                   catch(e){ return await Cls.createFromOptions(fs, { ...o, baseOptions:{ ...o.baseOptions, delegate:'CPU' } }); } };
+    poser = await mk(vision.PoseLandmarker, { baseOptions:{ modelAssetPath:POSE_MODEL }, runningMode:'VIDEO', numPoses:2,
+      minPoseDetectionConfidence:.5, minPosePresenceConfidence:.5, minTrackingConfidence:.5, outputSegmentationMasks:true });
+    hander = await mk(vision.HandLandmarker, { baseOptions:{ modelAssetPath:HAND_MODEL }, runningMode:'VIDEO', numHands:4,
+      minHandDetectionConfidence:.5, minHandPresenceConfidence:.5, minTrackingConfidence:.5 });
+    modelState = 'ok';
+  }catch(e){ if (!EXT) modelState = 'fail'; }
+}
+const MASKBUF = { f:null };
+function track(now){
+  if (!poser || video.readyState < 2) return;
+  const vt = video.currentTime; if (vt === lastVT) return; lastVT = vt;
+  const ts = Math.max(lastTs + 1, Math.round(now)); lastTs = ts; frameNo++;
+  try{
+    const r = poser.detectForVideo(video, ts);
+    onPose(r && r.landmarks, r && r.worldLandmarks, ts);
+    const ms = r && r.segmentationMasks;
+    if (ms && ms.length){
+      let w = 0, h = 0;
+      for (let i = 0; i < ms.length; i++){
+        const m = ms[i], d = m.getAsFloat32Array(); w = m.width; h = m.height;
+        if (!MASKBUF.f || MASKBUF.f.length !== w*h) MASKBUF.f = new Float32Array(w*h);
+        if (i === 0) MASKBUF.f.set(d); else for (let j = 0; j < d.length; j++) if (d[j] > MASKBUF.f[j]) MASKBUF.f[j] = d[j];
+        try { m.close && m.close(); } catch(e){}
+      }
+      ingestMask(MASKBUF.f, w, h);
+    }
+  }catch(e){}
+  if (hander){ try{ const r = hander.detectForVideo(video, ts); onHands(r && r.landmarks, ts); }catch(e){} }
+}
+
+/* ---------- camera ---------- */
+let stream = null, facing = 'user', started = false;
+function setStatus(t){ $('status').textContent = t || ''; }
+function camError(e){
+  const msg = (e && (e.message || e.name)) ? (e.message || e.name) : String(e || 'unknown');
+  const text = 'カメラを起動できませんでした：' + msg + '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+  $('err').textContent = text;
+  if (started) setStatus(text);
+}
+async function startCam(){
+  const md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) throw new Error('getUserMedia is unavailable');
+  const s = await md.getUserMedia({ video:{ facingMode:{ ideal:facing }, width:{ ideal:1280 }, height:{ ideal:720 } }, audio:false });
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = s; mirror = facing === 'user';
+  video.srcObject = s;
+  await new Promise(r => { if (video.readyState >= 1) r(); else video.onloadedmetadata = () => r(); });
+  await video.play().catch(()=>{});
+  vidW = video.videoWidth || 1280; vidH = video.videoHeight || 720;
+  PEOPLE.forEach(losePerson); HANDS.forEach(h => { h.ok = false; });
+}
+
+/* ---------- film markings: a glyph atlas for the lead markers, a text layer redrawn once a second ---------- */
+const over = document.createElement('canvas'), octx = over.getContext('2d');
+const glyph = document.createElement('canvas'); glyph.width = 128; glyph.height = 64;
+let overDirty = true, overAt = 0, t0 = performance.now();
+function drawGlyphs(){
+  const g = glyph.getContext('2d'); g.clearRect(0, 0, 128, 64);
+  g.fillStyle = '#fff'; g.strokeStyle = '#fff'; g.lineWidth = 4;
+  ['R', 'L'].forEach((ch, i) => { g.strokeRect(i*64 + 6, 6, 52, 52); g.font = '700 38px B612, "B612 Mono", sans-serif';
+    g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(ch, i*64 + 32, 34); });
+  if (texGlyph){ gl.bindTexture(gl.TEXTURE_2D, texGlyph); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, glyph); }
+}
+const FIELD = [0, 0, 0, 0];
+function fieldRect(){
+  const m = Math.round(Math.min(CW, CH)*.035);
+  FIELD[0] = m; FIELD[2] = CW - m;
+  if (CH > CW){ FIELD[1] = Math.round(m*3.6); FIELD[3] = CH - m; } else { FIELD[1] = m; FIELD[3] = CH - Math.round(m*2.6); }
+}
+const pad2 = n => String(n).padStart(2, '0');
+function drawOver(now){
+  if (over.width !== CW || over.height !== CH){ over.width = CW; over.height = CH; }
+  octx.clearRect(0, 0, CW, CH);
+  const pal = PALS[S.pal], u = Math.max(9, Math.round(Math.min(CW, CH)*.0165));
+  const d = new Date(), date = d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()), time = pad2(d.getHours()) + ':' + pad2(d.getMinutes()) + ':' + pad2(d.getSeconds());
+  const P = PEOPLE[0].ok ? PEOPLE[0] : PEOPLE[1].ok ? PEOPLE[1] : null;
+  const vit = P ? 'HR ' + Math.round(P.hr) + '   RR ' + Math.round(P.rr) : 'HR --   RR --';
+  octx.textBaseline = 'alphabetic';
+  if (pal.frame === 0){
+    octx.fillStyle = pal.ink; octx.font = u + 'px "B612 Mono", monospace';
+    if (CH > CW){                                                     // portrait: two lines in the top margin
+      octx.fillText('TOUSHI   ' + date + '   ' + time, FIELD[0], Math.round(FIELD[1]*.46));
+      octx.fillText('AP   72 kV   3.2 mAs   ' + vit, FIELD[0], Math.round(FIELD[1]*.8));
+    } else {
+      const y = FIELD[3] + Math.round((CH - FIELD[3])*.62);
+      octx.fillText('TOUSHI   ' + date + '   ' + time, FIELD[0], y);
+      octx.textAlign = 'right'; octx.fillText('AP   72 kV   3.2 mAs   ' + vit, FIELD[2], y); octx.textAlign = 'left';
+    }
+  } else if (pal.frame === 1){
+    const el = Math.floor((now - t0)/1000);
+    octx.fillStyle = pal.ink; octx.font = u + 'px "B612 Mono", monospace';
+    const m = Math.round(u*1.6), bar = $('bar').getBoundingClientRect().top, yb = (bar > 0 ? bar * CH / innerHeight : CH) - u*1.4;
+    octx.fillText('FLUORO  LIVE', m, m + u); octx.fillText('72 kV   1.6 mA', m, m + u*2.6);
+    octx.fillText(pad2(Math.floor(el/60) % 100) + ':' + pad2(el % 60), m, yb);
+    octx.textAlign = 'right'; octx.fillText(vit, CW - m, yb); octx.textAlign = 'left';
+  } else {
+    octx.fillStyle = 'rgba(226,207,166,.82)'; octx.font = 'italic ' + Math.round(u*1.15) + 'px Georgia, "Times New Roman", serif';
+    octx.fillText('No. 1  —  ' + d.getDate() + '. ' + (d.getMonth() + 1) + '. ' + d.getFullYear(), Math.round(u*2.2), Math.round(u*3.2));
+    // a few scratches in the emulsion, fixed per size
+    let sd = 11; const rnd = () => (sd = (sd*16807) % 2147483647) / 2147483647;
+    octx.strokeStyle = 'rgba(240,226,196,.16)'; octx.lineWidth = 1;
+    for (let i = 0; i < 7; i++){ const x = rnd()*CW, y = rnd()*CH, l = (.1 + rnd()*.35)*CH, a = (rnd() - .5)*.5 + Math.PI/2;
+      octx.beginPath(); octx.moveTo(x, y); octx.quadraticCurveTo(x + Math.cos(a)*l*.5 + (rnd() - .5)*20, y + Math.sin(a)*l*.5, x + Math.cos(a)*l, y + Math.sin(a)*l); octx.stroke(); }
+  }
+  gl.bindTexture(gl.TEXTURE_2D, texOver); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, over);
+  overDirty = false; overAt = now;
+}
+const MK = new Float32Array(16);
+function markers(){
+  MK.fill(0);
+  if (PALS[S.pal].frame !== 0) return;
+  let n = 0;
+  for (const P of PEOPLE){ if (P.alpha < .5 || !P.fN.init || n >= 4) continue;
+    const x = P.fN.x[36], y = P.fN.x[37], x2 = P.fN.x[33]; let sx, sy, ox;
+    { let a = x; if (mirror) a = 1 - a; sx = ((a - .5)/scX + .5)*CW; sy = ((y - .5)/scY + .5)*CH;
+      let b = x2; if (mirror) b = 1 - b; ox = ((b - .5)/scX + .5)*CW; }
+    // lead markers sit in the corner of the collimated field on the side they mark
+    const right = sx > ox, size = Math.max(18, Math.min(40, Math.min(CW, CH)*.045)), m = size*1.2;
+    MK[n*4] = right ? FIELD[2] - m : FIELD[0] + m; MK[n*4+1] = Math.max(FIELD[1] + m*2, Math.min(FIELD[3] - m*2, sy - P.T.s*.05)) + n*size*1.5;
+    MK[n*4+2] = size; MK[n*4+3] = 0; n++;
+  }
+}
+
+/* ---------- audio: the rotor, the exposure beep, a faint high-voltage hum ---------- */
+let actx = null, bus = null, recDest = null, noiseB = null, hum = null;
+function ensureAudio(){
+  if (actx){ if (actx.state === 'suspended') actx.resume().catch(()=>{}); return; }
+  const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+  actx = new AC(); bus = actx.createGain(); bus.gain.value = .5; bus.connect(actx.destination);
+  recDest = actx.createMediaStreamDestination(); bus.connect(recDest);
+  const len = actx.sampleRate | 0; noiseB = actx.createBuffer(1, len, actx.sampleRate);
+  const d = noiseB.getChannelData(0); for (let i = 0; i < len; i++) d[i] = Math.random()*2 - 1;
+  const o = actx.createOscillator(), o2 = actx.createOscillator(), g = actx.createGain(), f = actx.createBiquadFilter();
+  o.type = 'sawtooth'; o.frequency.value = 100; o2.type = 'sine'; o2.frequency.value = 2400; f.type = 'lowpass'; f.frequency.value = 420;
+  g.gain.value = 0; o.connect(f); o2.connect(g); f.connect(g); g.connect(bus); o.start(); o2.start(); hum = g;
+  actx.resume().catch(()=>{});
+}
+function humTo(v){ if (hum && actx) hum.gain.setTargetAtTime(v, actx.currentTime, .4); }
+function rotorAndBeep(){
+  if (!actx || actx.state !== 'running') return;
+  const t = actx.currentTime;
+  const o = actx.createOscillator(), g = actx.createGain(), f = actx.createBiquadFilter();
+  o.type = 'sawtooth'; o.frequency.setValueAtTime(60, t); o.frequency.exponentialRampToValueAtTime(1900, t + .95);
+  f.type = 'bandpass'; f.Q.value = 3; f.frequency.setValueAtTime(300, t); f.frequency.exponentialRampToValueAtTime(3200, t + .95);
+  g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(.08, t + .3); g.gain.setValueAtTime(.08, t + .95); g.gain.exponentialRampToValueAtTime(.0005, t + 1.6);
+  o.connect(f); f.connect(g); g.connect(bus); o.start(t); o.stop(t + 1.7);
+  const b = actx.createOscillator(), bg = actx.createGain(); b.frequency.value = 1046;
+  bg.gain.setValueAtTime(0, t + .78); bg.gain.linearRampToValueAtTime(.16, t + .8); bg.gain.setValueAtTime(.16, t + 1.04); bg.gain.linearRampToValueAtTime(0, t + 1.07);
+  b.connect(bg); bg.connect(bus); b.start(t + .75); b.stop(t + 1.1);
+  click(.5, t + .02);
+}
+function tick(p){
+  if (!actx || actx.state !== 'running') return;
+  const t = actx.currentTime, o = actx.createOscillator(), g = actx.createGain();
+  o.type = 'square'; o.frequency.setValueAtTime(3200, t); o.frequency.exponentialRampToValueAtTime(900, t + .012);
+  g.gain.setValueAtTime(p, t); g.gain.exponentialRampToValueAtTime(.0003, t + .03);
+  o.connect(g); g.connect(bus); o.start(t); o.stop(t + .035);
+}
+function click(p, at){
+  if (!actx || actx.state !== 'running' || !noiseB) return;
+  const t = at || actx.currentTime, s = actx.createBufferSource(); s.buffer = noiseB;
+  const f = actx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 1800; f.Q.value = 1.4;
+  const g = actx.createGain(); g.gain.setValueAtTime((p || .6), t); g.gain.exponentialRampToValueAtTime(.0005, t + .05);
+  s.connect(f); f.connect(g); g.connect(bus); s.start(t, Math.random()*.5); s.stop(t + .06);
+}
+
+/* ---------- mode: plain camera ⇄ radiograph ---------- */
+const MODE = { on:false, t0:-1e9, xr:false, cam:1, coll:0, flash:0, dev:0, reset:true };
+function setMode(on){
+  MODE.on = on; MODE.t0 = performance.now(); MODE.reset = true;
+  $('mode').textContent = on ? 'カメラにもどる' : '透視する';
+  if (on){ rotorAndBeep(); humTo(.012); } else { click(.6); humTo(0); }
+}
+
+$('go').onclick = async () => {
+  $('err').textContent = '';
+  ensureAudio();
+  try{
+    if (!gl) throw new Error('WebGL2 に未対応のブラウザです');
+    if (!PF) initGL();
+    await startCam();
+  }catch(e){ camError(e); return; }
+  $('start').style.display = 'none';
+  ['gear','flip','bar','rec','shoot','mode','hud'].forEach(id => $(id).classList.add('show'));
+  if (document.fonts && document.fonts.load) Promise.all([document.fonts.load('700 38px B612'), document.fonts.load('12px "B612 Mono"')]).then(() => { drawGlyphs(); overDirty = true; }).catch(()=>{});
+  if (!started){ started = true; t0 = performance.now(); if (!EXT) initModel(); requestAnimationFrame(loop); }
+};
+$('flip').onclick = async () => {
+  const prev = facing; facing = facing === 'user' ? 'environment' : 'user';
+  try { await startCam(); } catch(e){ facing = prev; camError(e); }
+};
+$('gear').onclick = () => $('panel').classList.toggle('hide');
+$('mode').onclick = () => { ensureAudio(); setMode(!MODE.on); };
+addEventListener('keydown', e => { if (started && (e.key === ' ' || e.key === 'Enter') && document.activeElement.tagName !== 'INPUT'){ e.preventDefault(); setMode(!MODE.on); } });
+function setPal(i){
+  S.pal = i; [...$('pals').children].forEach(x => x.classList.toggle('on', +x.dataset.p === i));
+  overDirty = true; MODE.reset = true; click(.4);
+}
+$('pals').onclick = e => { const b = e.target.closest('button'); if (b) setPal(+b.dataset.p); };
+[['sBone','bone'],['sTissue','tissue'],['sLag','lag'],['sGrain','grain']].forEach(([id,k]) => { $(id).oninput = e => { S[k] = +e.target.value; }; });
+
+$('shoot').onclick = () => {
+  click(.8);
+  try{ canvas.toBlob(b => { if (!b) return; const a = document.createElement('a'); a.href = URL.createObjectURL(b);
+    a.download = 'toushi-' + Date.now() + '.png'; a.click(); }, 'image/png'); }
+  catch(e){ setStatus('保存できませんでした。'); }
+};
+let rec = null, chunks = [];
+$('rec').onclick = () => {
+  if (rec && rec.state === 'recording'){ rec.stop(); return; }
+  try{
+    ensureAudio();
+    const tracks = [...canvas.captureStream(30).getVideoTracks()];
+    if (recDest) tracks.push(...recDest.stream.getAudioTracks());
+    const mime = ['video/mp4;codecs=avc1','video/webm;codecs=vp9,opus','video/webm'].find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || '';
+    rec = new MediaRecorder(new MediaStream(tracks), mime ? { mimeType:mime } : {});
+    chunks = [];
+    rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+    rec.onstop = () => {
+      $('rec').classList.remove('on'); $('rec').textContent = '● REC';
+      const ext = (rec.mimeType || '').includes('mp4') ? 'mp4' : 'webm';
+      const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(chunks, { type:rec.mimeType || 'video/webm' }));
+      a.download = 'toushi.' + ext; a.click();
+    };
+    rec.start(); $('rec').classList.add('on'); $('rec').textContent = '■ STOP';
+  }catch(e){ setStatus('録画を開始できませんでした。'); }
+};
+
+/* ---------- the strobe: fast motion fires short exposure pulses, each one a ghost that lingers on the film ---------- */
+const STROBE = { k:0, last:0, n:0 };
+function strobe(now, dt, pal){
+  let e = 0; for (const P of PEOPLE) if (P.ok && P.alpha > .5) e = Math.max(e, P.E);
+  const on = pal.frame !== 1 && MODE.on && MODE.xr ? sstep(.5, 1.6, e) : 0;              // the intensifier has its own lag instead
+  STROBE.k += (on - STROBE.k) * (1 - Math.exp(-dt * (on > STROBE.k ? 4 : 1.2)));
+  if (on > .02 && STROBE.k > .04 && now - STROBE.last > 120){ STROBE.last = now; STROBE.n++; tick(.025 + .05*STROBE.k); return 1; }
+  return 0;
+}
+
+const CIRC = [0, 0, 0];
+function circle(W, H, dt){
+  const r = Math.min(W, H) * (H > W ? .49 : .47);
+  let tx = W/2, ty = H/2;
+  for (const P of PEOPLE) if (P.ok && P.alpha > .5){ tx = P.T.ax; ty = P.T.ay + .05*P.T.s; break; }
+  tx = Math.max(r*.9, Math.min(W - r*.9, tx)); ty = Math.max(r*.9, Math.min(H - r*.9, ty));
+  if (!CIRC[2]){ CIRC[0] = tx; CIRC[1] = ty; }
+  const k = 1 - Math.exp(-dt*1.5); CIRC[0] += (tx - CIRC[0])*k; CIRC[1] += (ty - CIRC[1])*k; CIRC[2] = r;
+}
+
+/* ---------- render ---------- */
+let lastT = 0, hudT = 0, noBodyFor = 0;
+function loop(now){
+  requestAnimationFrame(loop);
+  const dtw = lastT ? Math.min(.5, (now - lastT)/1000) : 1/60, dt = Math.min(.1, dtw); lastT = now;
+  if (video.videoWidth){ vidW = video.videoWidth; vidH = video.videoHeight; }
+  const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+  let W = Math.round(innerWidth*dpr), H = Math.round(innerHeight*dpr);
+  const kk = Math.min(1, 1600 / Math.max(W, H)); W = Math.round(W*kk); H = Math.round(H*kk);
+  if (canvas.width !== W || canvas.height !== H){ canvas.width = W; canvas.height = H; }
+  CW = W; CH = H;
+  const asp = W/H, va = vidW/vidH; scX = asp < va ? asp/va : 1; scY = asp < va ? 1 : va/asp;
+  ensureRT(W, H); fieldRect();
+  if (!EXT) track(now);
+  if (video.readyState < 2) return;
+
+  // mode timeline: collimator light (0–1.05 s), exposure flash, the film develops
+  const el = (now - MODE.t0)/1000;
+  if (MODE.on){
+    MODE.xr = el >= 1.05; MODE.cam = MODE.xr ? 0 : 1; MODE.coll = MODE.xr ? 0 : sstep(0, .35, el);
+    MODE.flash = MODE.xr ? Math.exp(-(el - 1.05)*9) : 0; MODE.dev = MODE.xr ? 1 - Math.exp(-(el - 1.05)*3.2) : 0;
+  } else {
+    MODE.coll = 0; MODE.flash = 0;
+    if (el < .55){ MODE.xr = true; MODE.cam = sstep(0, .55, el) * (.86 + .14*Math.sin(el*95)); MODE.dev = 1; }
+    else { MODE.xr = false; MODE.cam = 1; MODE.dev = 0; }
+  }
+
+  build(dt);
+  markers();
+  const pal = PALS[S.pal];
+  if (overDirty || now - overAt > 1000) drawOver(now);
+
+  gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, texVid);
+  try { gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video); } catch(e){ return; }
+
+  // pass 1: path lengths
+  gl.bindFramebuffer(gl.FRAMEBUFFER, RT.denF); gl.viewport(0, 0, RT.dw, RT.dh);
+  gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
+  if (NI > 0){
+    gl.useProgram(PP.p); gl.uniform2f(PP.U.uRes, CW, CH); gl.uniform1i(PP.U.uNoise, 0);
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, texNoise);
+    gl.bindBuffer(gl.ARRAY_BUFFER, instBuf); gl.bufferSubData(gl.ARRAY_BUFFER, 0, INST, 0, NI*IF);
+    gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE); gl.blendEquation(gl.FUNC_ADD);
+    gl.bindVertexArray(primVAO); gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, NI);
+    gl.disable(gl.BLEND);
+  }
+  // pass 2: the exposure, into the ping-pong film state (lag + stroboscopic ghosts)
+  const src = RT.ping, dst = 1 - src;
+  gl.bindFramebuffer(gl.FRAMEBUFFER, RT.stF[dst]); gl.viewport(0, 0, W, H);
+  gl.useProgram(PF.p); gl.bindVertexArray(quadVAO);
+  let U = PF.U;
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, RT.den);
+  gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, texMask);
+  gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, RT.st[src]);
+  gl.uniform1i(U.uDen, 0); gl.uniform1i(U.uMask, 1); gl.uniform1i(U.uPrev, 3);
+  gl.uniform2f(U.uScale, scX, scY); gl.uniform2f(U.uRes, W, H); gl.uniform1f(U.uMirror, mirror ? 1 : 0);
+  gl.uniform1f(U.uMuT, 2.2 * S.tissue); gl.uniform1f(U.uMuB, 52 * S.bone); gl.uniform1f(U.uEdge, .9);
+  const dec = floatOK ? 1 : 1/8;
+  gl.uniform4f(U.uDec, dec, dec, dec, dec);
+  const ps = PEOPLE[0].s || PEOPLE[1].s || 600;
+  gl.uniform1f(U.uLod, Math.log2(Math.max(1, .085*ps * scX * (M.w || 1) / CW)));
+  gl.uniform1f(U.uHasMask, M.has && now - M.at < 1500 ? 1 : 0);
+  gl.uniform1f(U.uLag, MODE.reset ? 0 : Math.min(.93, pal.lag * S.lag * 2));
+  const pulse = strobe(now, dtw, pal);
+  gl.uniform1f(U.uPulse, pulse); gl.uniform1f(U.uGDecay, MODE.reset ? 0 : Math.exp(-dtw / .5));
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  RT.ping = dst; MODE.reset = MODE.reset && MODE.on && el < 1.1;
+  // pass 3: to the screen
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, 0, W, H);
+  gl.useProgram(PS.p); U = PS.U;
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, RT.st[dst]);
+  gl.activeTexture(gl.TEXTURE4); gl.bindTexture(gl.TEXTURE_2D, texOver);
+  gl.activeTexture(gl.TEXTURE5); gl.bindTexture(gl.TEXTURE_2D, texGlyph);
+  gl.activeTexture(gl.TEXTURE6); gl.bindTexture(gl.TEXTURE_2D, texNoise);
+  gl.uniform1i(U.uSt, 0); gl.uniform1i(U.uVid, 2); gl.uniform1i(U.uOver, 4); gl.uniform1i(U.uGlyph, 5); gl.uniform1i(U.uNoise, 6);
+  gl.uniform2f(U.uScale, scX, scY); gl.uniform2f(U.uRes, W, H); gl.uniform1f(U.uMirror, mirror ? 1 : 0);
+  gl.uniform1f(U.uGrain, S.grain * pal.grain); gl.uniform1f(U.uT, now/1000);
+  gl.uniform1f(U.uCam, MODE.cam); gl.uniform1f(U.uColl, MODE.coll); gl.uniform1f(U.uFlash, MODE.flash); gl.uniform1f(U.uDev, MODE.dev);
+  gl.uniform1f(U.uGhost, STROBE.k * .9);
+  gl.uniform4f(U.uField, FIELD[0], FIELD[1], FIELD[2], FIELD[3]);
+  circle(W, H, dtw); gl.uniform3f(U.uCirc, CIRC[0], CIRC[1], CIRC[2]);
+  gl.uniform1i(U.uFrame, pal.frame);
+  gl.uniform4fv(U.uMk, MK);
+  gl.uniform3fv(U.uRamp, pal.rampF);
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+  hudT += dtw;
+  noBodyFor = lastBuild.people || lastBuild.hands ? 0 : noBodyFor + dtw;
+  if (hudT > .25){ hudT = 0;
+    $('hud').classList.toggle('show', !MODE.xr);
+    $('hud').textContent = 'TOUSHI\n' + (MODE.on ? pal.name : 'CAMERA');
+    let st = '';
+    if (modelState === 'fail' && !EXT) st = '骨格の検出モデルを読み込めませんでした（ネット接続を確認）。';
+    else if (MODE.xr && MODE.on && noBodyFor > 1 && (modelState === 'ok' || EXT)) st = '上半身が映るように、すこし離れてください。';
+    if ($('status').textContent !== st && !$('status').textContent.startsWith('カメラを起動')) setStatus(st);
+  }
+}
+
+/* ---------- test hook (used by the local verification harness) ---------- */
+window.__TOUSHI = {
+  external(){ EXT = true; },
+  pose(list, world, tMs){ EXT = true; onPose(list, world, tMs); },
+  hands(list, tMs){ EXT = true; onHands(list, tMs); },
+  ingestMask(d, w, h){ EXT = true; ingestMask(d, w, h, 1); },
+  mode(on){ setMode(!!on); },
+  palette(i){ setPal(i); },
+  set(k, v){ if (k in S) S[k] = +v; },
+  state: () => ({ people:PEOPLE.map(P => ({ ok:P.ok, alpha:P.alpha, s:P.s, sh:P.sh, E:P.E, hr:P.hr, rr:P.rr, ax:P.T.ax, ay:P.T.ay, HR:Array.from(P.H.R), TR:Array.from(P.T.R) })), CW, CH, hands:HANDS.map(h => h.ok),
+                  prims:NI, built:{ ...lastBuild }, xr:MODE.xr, floatOK, mask:M.has, strobe:{ k:STROBE.k, n:STROBE.n } }),
+};
+</script>
+</body>
+</html>
