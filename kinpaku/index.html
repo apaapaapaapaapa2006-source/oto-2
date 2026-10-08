@@ -1,0 +1,835 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="description" content="クリムトの黄金の肖像画になる。顔と手は白く描かれたまま、服と体は目・渦・市松の金箔のモザイクに。動くと金箔が剥がれて舞い、いた場所には金の模様が残る。">
+<meta name="theme-color" content="#120e07">
+<title>KINPAKU ─ 黄金の肖像</title>
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  KINPAKU 金箔 ─ 黄金の肖像                           ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  SOURCE     クリムトの黄金時代（《アデーレ・ブロッホ＝バウアーの肖像 I》1907、
+             《接吻》1908、ストックレー・フリーズの《生命の樹》）。
+             顔と手だけが写実の肌で、服も体も金箔と平面の文様に溶ける。
+  MOOD       美術館の暗い一室。ブロンズの地に金の粒が散り、あなたが黄金の
+             肖像としてそこに立つ。動けば金箔が剥がれて舞い、いた場所に
+             金の文様が一瞬焼き付いてゆっくり消える。
+  PALETTE    ADELE    金 #74501a → #edbd5c ／ 墨 #0d0b0a ／ 象牙 #ede3cc ／ 地 ブロンズ #1c1609 → #4d3b19
+             KUSS     同じ金に 銀 #b3b2ad と くすんだ差し色（牛血・粘板岩・黄土）／ 地 オリーブ金
+             SPIRALE  体は墨、金の渦だけが光る ／ 地 象牙の紙 #ede5cf
+  TYPE       Marcellus（題字・ウィーン分離派の碑文調）・DM Mono 300（UI）。
+  MOTION     金箔はゆっくり裏返りながら舞い落ちる。光は顔の向きについて体の
+             金をなでる。切り替えは箔を一枚ずつ置いていく「箔押し」。
+  SIGNATURE  白い顔と、黄金の文様の体。動いた軌跡に残る金の残像。
+  LAYERS     ①金箔の地（箔の継ぎ目・一枚ごとの傾き）＋文様のモザイク
+             ②顔と手は写実の白い肌（FaceLandmarker の輪郭＋肌色）・髪は漆黒
+             ③顔の向きで動く斜光と箔のきらめき
+             ④動いた後ろ側から金箔が剥がれて舞う（固定プール）
+             ⑤いた場所に残る金の文様の残像
+             ⑥ADELE・KUSS・SPIRALE の三様式（タップで箔を貼り替える）
+  TECH       ImageSegmenter の人物マスクと FaceLandmarker（輪郭・目・鼻）。
+             WebGL2 の 1 パスで文様・照明・肌・残像・地を合成し、剥がれる
+             箔は 2D キャンバスに描いて重ねる。素のカメラ ⇄ 金箔 を切り替える。
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Marcellus&family=DM+Mono:wght@300;500&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#120e07;--fg:#efe6cf;--gold:#d9ad55;--dim:rgba(239,230,207,.56);--line:rgba(217,173,85,.32)}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none}
+html,body{margin:0;height:100%;background:var(--bg);overflow:hidden;color:var(--fg);
+  font-family:"DM Mono",ui-monospace,"Hiragino Sans","Noto Sans JP",monospace;font-weight:300}
+#gl{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+#cam{position:fixed;left:0;top:0;width:2px;height:2px;opacity:.01;pointer-events:none}
+
+#start{position:fixed;inset:0;z-index:30;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;
+  padding:28px;text-align:center;background:
+  radial-gradient(ellipse at 50% 40%,rgba(217,173,85,.16) 0%,rgba(18,14,7,0) 60%),
+  radial-gradient(ellipse at 50% 42%,#2a2010 0%,#120e07 74%)}
+#start .t{font-size:10px;letter-spacing:.62em;margin-right:-.62em;color:var(--gold);opacity:.8}
+#start h1{margin:0;font-family:"Marcellus",Georgia,serif;font-weight:400;font-size:min(19vw,118px);line-height:1;letter-spacing:.14em;margin-right:-.14em;
+  background:linear-gradient(170deg,#f6dc96 0%,#c79537 45%,#7a5419 60%,#e8c271 80%,#a87a2a 100%);-webkit-background-clip:text;background-clip:text;color:transparent}
+#start .rule{width:min(240px,50vw);height:1px;background:linear-gradient(90deg,transparent,var(--gold),transparent);opacity:.7}
+#start p{margin:0;font-size:12px;line-height:2.1;color:var(--dim);letter-spacing:.06em}
+#go{appearance:none;border:1px solid var(--line);background:transparent;color:var(--fg);font:500 10px "DM Mono",monospace;
+  letter-spacing:.5em;padding:15px 34px 15px 40px;cursor:pointer;transition:border-color .3s}
+#go:hover{border-color:var(--gold)}
+#err{font-size:12px;line-height:1.8;max-width:340px;min-height:1em;white-space:pre-line;color:#e6a98f}
+
+.btn{position:fixed;z-index:12;appearance:none;border:0;background:transparent;color:var(--fg);font:500 10px "DM Mono","Hiragino Sans",monospace;
+  letter-spacing:.24em;padding:10px 8px;display:none;cursor:pointer;opacity:.66;transition:opacity .3s;text-shadow:0 0 6px rgba(0,0,0,.45)}
+.btn.show{display:block}
+.btn:hover{opacity:1}
+#gear{right:10px;top:calc(env(safe-area-inset-top) + 6px);font-size:14px;letter-spacing:0}
+#flip{right:10px;top:calc(env(safe-area-inset-top) + 40px);letter-spacing:.1em}
+#bar{position:fixed;left:0;right:0;bottom:calc(env(safe-area-inset-bottom) + 12px);z-index:12;display:none;justify-content:center;align-items:center;gap:26px}
+#bar.show{display:flex}
+#bar .btn{position:static;display:block}
+#bar #shoot{position:relative;width:44px;height:44px;border-radius:50%;border:1px solid var(--gold);padding:0;opacity:.8}
+#shoot::after{content:"";position:absolute;inset:6px;border-radius:50%;background:var(--gold);opacity:.85}
+#rec.on{opacity:1;color:#e88f74}
+#mode{border:1px solid var(--line);padding:11px 16px 11px 20px;opacity:.9;background:rgba(18,14,7,.32)}
+#hud{position:fixed;left:14px;top:calc(env(safe-area-inset-top) + 14px);z-index:11;font-size:9px;letter-spacing:.34em;color:var(--dim);
+  pointer-events:none;display:none;line-height:2;white-space:pre;text-shadow:0 0 6px rgba(0,0,0,.45)}
+#hud.show{display:block}
+#hud b{font-family:"Marcellus",serif;font-weight:400;font-size:12px;letter-spacing:.3em;color:var(--gold)}
+#status{position:fixed;left:14px;right:14px;bottom:calc(env(safe-area-inset-bottom) + 74px);z-index:11;font-size:11px;letter-spacing:.04em;
+  color:var(--fg);opacity:.78;pointer-events:none;line-height:1.7;white-space:pre-line;text-align:center;text-shadow:0 0 8px rgba(0,0,0,.6)}
+
+#panel{position:fixed;right:10px;top:calc(env(safe-area-inset-top) + 78px);z-index:12;width:min(270px,calc(100vw - 20px));
+  background:rgba(18,14,7,.86);border:1px solid var(--line);padding:14px 16px;display:flex;flex-direction:column;gap:13px;
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);transition:opacity .25s}
+#panel.hide{opacity:0;pointer-events:none}
+.chips{display:flex;border:1px solid var(--line)}
+.chips button{flex:1;appearance:none;border:0;background:transparent;color:var(--fg);padding:8px 2px;font:500 9px "DM Mono",monospace;
+  letter-spacing:.18em;cursor:pointer;opacity:.55}
+.chips button.on{opacity:1;background:rgba(217,173,85,.18);color:#f3d58f}
+#panel label{display:flex;align-items:center;gap:10px;font-size:11px;letter-spacing:.04em}
+#panel label span{width:78px;flex:none;color:var(--dim)}
+#panel input[type=range]{flex:1;accent-color:#c99a45}
+#panel .note{font-size:10px;color:var(--dim);line-height:1.7;letter-spacing:.03em}
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<video id="cam" playsinline muted autoplay></video>
+<div id="hud"></div>
+<div id="status"></div>
+<button id="gear" class="btn" aria-label="調整">⚙</button>
+<button id="flip" class="btn">⟲ カメラ</button>
+<div id="bar">
+  <button id="rec" class="btn">● REC</button>
+  <button id="shoot" class="btn" aria-label="撮る"></button>
+  <button id="mode" class="btn">金箔を貼る</button>
+</div>
+
+<div id="panel" class="hide">
+  <div class="chips" id="styles">
+    <button data-s="0" class="on">ADELE</button>
+    <button data-s="1">KUSS</button>
+    <button data-s="2">SPIRALE</button>
+  </div>
+  <label><span>文様の大きさ</span><input type="range" id="sPat" min="0.6" max="1.6" step="0.01" value="1"></label>
+  <label><span>剥がれる箔</span><input type="range" id="sShed" min="0" max="1" step="0.01" value="0.55"></label>
+  <label><span>金の残像</span><input type="range" id="sGhost" min="0" max="1" step="0.01" value="0.6"></label>
+  <label><span>金の輝き</span><input type="range" id="sShine" min="0" max="1" step="0.01" value="0.6"></label>
+  <label><span>粒子</span><input type="range" id="sGrain" min="0" max="1" step="0.01" value="0.35"></label>
+  <div class="note">画面をタップすると、箔を貼り替えて様式が変わる。</div>
+</div>
+
+<div id="start">
+  <div class="t">GOLDEN PORTRAIT · 金箔</div>
+  <h1>KINPAKU</h1>
+  <div class="rule"></div>
+  <p>あなたが、黄金の肖像画になる。<br>動けば金箔が剥がれて舞い、いた場所に金の文様が残る。</p>
+  <button id="go">はじめる</button>
+  <div id="err"></div>
+</div>
+
+<script>
+'use strict';
+/* =====================================================================
+   KINPAKU — a Klimt golden-phase portrait. One WebGL2 pass builds the
+   gold-leaf mosaic (leaf seams, per-leaf tilt, motifs pinned to the body),
+   paints the skin, rakes light with the head, prints a fading gold ghost
+   where the body was, and lays it all on a flecked bronze ground. Gold
+   flakes peel from the trailing edge of motion on a 2D overlay.
+   ===================================================================== */
+const VISION_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs';
+const WASM_URL   = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm';
+const SEG_MODEL  = 'https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite';
+const FACE_MODEL = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
+
+const $ = id => document.getElementById(id);
+const canvas = $('gl'), video = $('cam');
+const STYLES = ['ADELE', 'KUSS', 'SPIRALE'];
+const S = { style:0, pat:1, shed:.55, ghost:.6, shine:.6, grain:.35 };
+
+/* ---------- GL ---------- */
+const gl = canvas.getContext('webgl2', { antialias:false, alpha:false, preserveDrawingBuffer:true, powerPreference:'high-performance' });
+const VS = `#version 300 es
+in vec2 p; out vec2 uv; void main(){ uv = p*.5+.5; gl_Position = vec4(p,0.,1.); }`;
+const FS = `#version 300 es
+precision highp float;
+in vec2 uv; out vec4 o;
+uniform sampler2D uVid, uMask, uTrace, uFace, uFront;
+uniform vec2 uScale, uRes, uAnchor, uVTex;
+uniform vec3 uL, uHair;
+uniform float uMirror, uHas, uT, uReveal, uWipe, uE, uPat, uGhost, uShine, uGrain, uFaceOn, uSweep, uRoll;
+uniform int uStA, uStB;
+const vec3 GD = vec3(.40,.26,.075), GL = vec3(.95,.76,.37), INK = vec3(.05,.043,.038), IVO = vec3(.93,.89,.80), SIL = vec3(.70,.70,.67);
+float h21(vec2 p){ p = fract(p*vec2(123.34,456.21)); p += dot(p, p + 45.32); return fract(p.x*p.y); }
+float lum(vec3 c){ return dot(c, vec3(.2126,.7152,.0722)); }
+float vn(vec2 p){ vec2 i = floor(p), f = fract(p); f = f*f*(3. - 2.*f);
+  return mix(mix(h21(i), h21(i + vec2(1,0)), f.x), mix(h21(i + vec2(0,1)), h21(i + 1.), f.x), f.y); }
+float sl0(float l){ return smoothstep(.04, .82, l); }
+float fbm(vec2 p){ return .5*vn(p) + .3*vn(p*2.13 + 3.1) + .2*vn(p*4.37 + 7.7); }
+
+// gold leaf: squares of leaf, each a slightly different tone and tilt, with seams
+vec3 leaf(vec2 q, out vec3 n){
+  vec2 lq = q*1.9 + vec2(.37,.11);
+  vec2 id = floor(lq), f = fract(lq);
+  float r = h21(id), r2 = h21(id + 17.3), r3 = h21(id + 5.1);
+  n = normalize(vec3((r2 - .5)*.8, (r3 - .5)*.8, 1.));
+  float seam = min(min(f.x, 1. - f.x), min(f.y, 1. - f.y));
+  float crink = vn(q*11.) - .5;
+  vec3 g = mix(GD, GL, clamp(.45 + .38*r + .2*crink, 0., 1.));
+  g *= mix(.62, 1., smoothstep(.0, .03, seam));
+  n.xy += crink*.1;
+  return g;
+}
+// ADELE: almond eyes, spirals, checkered blocks, rings on gold
+vec4 adele(vec2 q, vec3 g){
+  vec2 c = q; c.x += .5*mod(floor(c.y), 2.);
+  vec2 id = floor(c), f = fract(c) - .5; float r = h21(id + 3.7);
+  vec3 col = g; float m = 1.;
+  if (r < .36){
+    float d = max(length(f - vec2(0., -.31)) - .5, length(f - vec2(0., .31)) - .5);
+    if (d < 0.) col = g*1.12;
+    float ir = length(f);
+    if (d < 0. && ir < .17){ col = INK; m = 0.; if (abs(ir - .11) < .02){ col = IVO; } if (ir < .055){ col = g*1.2; m = 1.; } }
+    if (abs(d) < .03){ col = INK; m = 0.; }
+  } else if (r < .6){
+    float rr = length(f), a = atan(f.y, f.x)*(r < .48 ? 1. : -1.);
+    if (rr < .41 && fract(rr*8. - a/6.2832) < .26){ col = INK; m = 0.; }
+    if (abs(rr - .435) < .022){ col = INK; m = 0.; }
+  } else if (r < .68){
+    vec2 af = abs(f); float b = max(af.x, af.y);
+    if (b < .34){ vec2 k = floor((f + .34)/.17); col = mod(k.x + k.y, 2.) < .5 ? INK : IVO; m = 0.; }
+    else if (b < .39){ col = INK; m = 0.; }
+  } else if (r < .84){
+    float rr = length(f);
+    if (rr < .4 && fract(rr*7.5) < .3){ col = INK; m = 0.; }
+  } else {
+    vec2 ff = fract(c*3.) - .5;
+    if (length(ff) < .15){ col = INK; m = 0.; }
+  }
+  return vec4(col, m);
+}
+// KUSS: tall black / ivory / silver rectangles, and a few muted flower roundels
+vec4 kuss(vec2 q, vec3 g){
+  vec2 c = q*vec2(1.45, .6); c.y += h21(vec2(floor(c.x), 9.))*3.;
+  vec2 id = floor(c), f = fract(c) - .5, af = abs(f); float r = h21(id + 1.3);
+  vec3 col = g; float m = 1.;
+  if (r < .5 && af.x < .36 && af.y < .43){
+    float r2 = h21(id + 8.1);
+    if (r2 < .46){ col = INK; m = 0.; } else if (r2 < .74){ col = IVO; m = 0.; } else { col = SIL; m = .55; }
+    if (r2 > .86){ vec2 k = floor((f + vec2(.36,.43))/vec2(.18,.215)); col = mod(k.x + k.y, 2.) < .5 ? INK : IVO; m = 0.; }
+    if (af.x > .32 || af.y > .39){ col = INK; m = 0.; }
+  }
+  vec2 c2 = q*.85 + vec2(.5, .25); vec2 id2 = floor(c2), f2 = fract(c2) - .5; float r3 = h21(id2 + 4.4);
+  float rr = length(f2);
+  if (r3 < .16 && rr < .34){
+    vec3 acc = r3 < .055 ? vec3(.45,.12,.11) : r3 < .11 ? vec3(.22,.29,.38) : vec3(.70,.47,.16);
+    float ring = fract(rr*9.);
+    col = ring < .5 ? acc : (rr < .1 ? IVO : mix(acc, IVO, .55)); m = 0.;
+    if (rr > .31) { col = INK; }
+  }
+  return vec4(col, m);
+}
+// SPIRALE: ink body, coiling gold spirals and gold seeds
+vec4 spirale(vec2 q, vec3 g){
+  vec2 c = q*1.05; c.x += .5*mod(floor(c.y), 2.);
+  vec2 id = floor(c), f = fract(c) - .5; float r = h21(id + .7);
+  vec3 col = INK; float m = 0.;
+  float rr = length(f), a = atan(f.y, f.x)*(r < .5 ? 1. : -1.);
+  if (rr < .47){ if (fract(rr*6.2 - a/6.2832 + r) < .4){ col = g; m = 1.; } }
+  else { vec2 ff = fract(c*4.) - .5; if (length(ff) < .14){ col = g; m = 1.; } }
+  return vec4(col, m);
+}
+vec3 ground(vec2 P, int st){
+  float n = fbm(P*2.6 + float(st)*7.);
+  vec3 a = st == 0 ? vec3(.075,.058,.026) : st == 1 ? vec3(.12,.11,.05) : vec3(.83,.78,.65);
+  vec3 b = st == 0 ? vec3(.28,.21,.085) : st == 1 ? vec3(.38,.33,.13) : vec3(.95,.92,.83);
+  vec3 c = mix(a, b, smoothstep(.2, .85, n));
+  vec2 fq = P*34.; vec2 id = floor(fq); float r = h21(id);
+  vec2 f = fract(fq) - .5 - (vec2(h21(id + 1.), h21(id + 2.)) - .5)*.5;
+  float cl = smoothstep(.35, .75, fbm(P*1.7 + 11.));
+  float rad = .07 + .12*h21(id + 3.);
+  float fl = step(.93 - .12*cl, r)*(1. - smoothstep(rad*.6, rad, length(f)));
+  float tw = .55 + .45*sin(uT*1.1 + r*60.);
+  c = mix(c, (st == 2 ? GD*1.4 : GL)*(.55 + .45*tw), fl*.75);
+  return c;
+}
+vec4 motif(int st, vec2 q, vec3 g){ return st == 0 ? adele(q, g) : st == 1 ? kuss(q, g) : spirale(q, g); }
+void main(){
+  vec2 su = vec2(uv.x, 1. - uv.y);
+  vec2 v = (su - .5)*uScale + .5; if (uMirror > .5) v.x = 1. - v.x;
+  vec3 cam = texture(uVid, v).rgb;
+  float sh = min(uRes.x, uRes.y);
+  vec2 P = (gl_FragCoord.xy - .5*uRes)/sh;
+  // gilding order: leaf-sized screen cells, roughly top to bottom
+  vec2 rc = floor(gl_FragCoord.xy/(sh*.05));
+  float ord = .5*h21(rc + .5) + .5*su.y;
+  float rev = step(ord, uReveal*1.04 - .02);
+  vec3 c = cam;
+  if (rev > 0.){
+    int st = ord < uWipe*1.04 - .02 ? uStB : uStA;
+    vec2 px = 1.6/uVTex;
+    vec3 cb = (cam*2. + texture(uVid, v + vec2(px.x, 0.)).rgb + texture(uVid, v - vec2(px.x, 0.)).rgb
+                      + texture(uVid, v + vec2(0., px.y)).rgb + texture(uVid, v - vec2(0., px.y)).rgb)/6.;
+    float l = lum(cb);
+    float m = uHas > .5 ? smoothstep(.42, .72, texture(uMask, v).r) : 1.;
+    float tr = uHas > .5 ? texture(uTrace, v).r : 0.;
+    // the motif is pinned to the body (anchor) and turns a little with the head
+    float cr = cos(uRoll), sr = sin(uRoll);
+    vec2 d = P - uAnchor; d = vec2(cr*d.x + sr*d.y, -sr*d.x + cr*d.y);
+    vec2 q = d/uPat;
+    vec3 n; vec3 g = leaf(q, n);
+    vec4 mt = motif(st, q, g);
+    // light: per-leaf glints + a raking band that follows the head
+    vec3 L = normalize(uL);
+    float spec = pow(max(dot(reflect(-L, n), vec3(0., 0., 1.)), 0.), 20.);
+    float band = exp(-pow(dot(P, normalize(vec2(.85, .5))) - uSweep, 2.)*7.);
+    float shade = mix(.34, 1.16, smoothstep(.03, .8, l));
+    vec3 body = mt.rgb*mix(mix(.8, 1.04, sl0(l)), shade, mt.a)*(.92 + .25*band*mt.a);
+    body += mt.a*(vec3(1., .87, .58)*spec*(.35 + .9*uShine + .8*uE) + GL*band*.32*uShine);
+    // skin: the face oval from the landmarker, hands and neck from skin chroma
+    float cbv = .5 - .1687*cb.r - .3313*cb.g + .5*cb.b, crv = .5 + .5*cb.r - .4187*cb.g - .0813*cb.b;
+    float skc = (1. - smoothstep(.05, .085, abs(crv - .605)))*(1. - smoothstep(.06, .1, abs(cbv - .405)))*smoothstep(.1, .2, l);
+    float fm = smoothstep(.25, .7, textureLod(uFace, su, 1.2).r)*uFaceOn;
+    float skin = clamp(max(fm, skc)*m, 0., 1.);
+    float sl = smoothstep(.04, .82, l);
+    vec3 paint = mix(vec3(.36,.29,.27), vec3(.98,.93,.87), sl);
+    paint = mix(paint, paint*vec3(1.04,.86,.84), clamp((cb.r - cb.g)*2.6 - .25, 0., 1.)*.6);   // blush
+    paint += (lum(cam) - l)*.9;                                                                   // keep features crisp
+    vec3 person = mix(body, paint, skin);
+    // hair: dark, lacquered, only around the head
+    float hz = uHair.z > 0. ? 1. - smoothstep(uHair.z, uHair.z*1.35, length((P - uHair.xy)*vec2(1., .9))) : 0.;
+    float dark = hz*(1. - skin)*smoothstep(.34, .14, l);
+    vec3 hair = INK*1.4 + cb*.18 + vec3(1., .85, .5)*spec*.18;
+    person = mix(person, hair, dark);
+    // ground, and the gold ghost of where you were
+    vec3 bg = ground(P, st);
+    float gh = smoothstep(.04, .5, clamp(tr - m*.9, 0., 1.))*uGhost;
+    // the ghost is an imprint: the motif's lines in gold on the ground, fading
+    float ink = st == 2 ? mt.a : (1. - mt.a)*step(lum(mt.rgb), .3);
+    vec3 gc = st == 2 ? mix(bg, GD*1.15, ink*.85) : mix(bg*1.25 + GD*.18, GL*(.62 + .5*spec), ink*.9);
+    bg = mix(bg, gc, gh*smoothstep(0., .25, tr));
+    c = mix(bg, person, m);
+    float line = smoothstep(.25, .5, m)*(1. - smoothstep(.5, .78, m));
+    c = mix(c, st == 2 ? INK : INK*.9, line*.75*uHas);
+    // a thin gilt frame
+    vec2 e = min(gl_FragCoord.xy, uRes - gl_FragCoord.xy)/sh; float ed = min(e.x, e.y);
+    c = mix(c, GL*.85, (1. - smoothstep(.0, .0025, abs(ed - .03)))*.75);
+    // the edge of fresh leaf flashes as it is laid
+    float fresh = 1. - smoothstep(0., .07, uReveal*1.04 - .02 - ord);
+    float freshW = 1. - smoothstep(0., .07, abs(uWipe*1.04 - .02 - ord));
+    c += GL*(fresh*.8 + freshW*step(.001, uWipe)*step(uWipe, .999)*.6);
+  }
+  vec4 fr = texture(uFront, su);
+  c = mix(c, fr.rgb, fr.a);
+  vec2 r = uv - .5; r.x *= uRes.x/uRes.y;
+  c *= 1. - .38*smoothstep(.45, 1.1, length(r))*rev;
+  float gn = h21(floor(gl_FragCoord.xy/1.5) + fract(uT*7.13)*91.7) - .5;
+  c += gn*uGrain*.09*rev;
+  o = vec4(clamp(c, 0., 1.), 1.);
+}`;
+function shd(type, src){ const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s; }
+let P = null, texVid, texMask, texTrace, texFace, texFront;
+function tex(filter){ const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, filter); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE); return t; }
+function initGL(){
+  const p = gl.createProgram(); gl.attachShader(p, shd(gl.VERTEX_SHADER, VS)); gl.attachShader(p, shd(gl.FRAGMENT_SHADER, FS));
+  gl.bindAttribLocation(p, 0, 'p'); gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+  const U = {}, n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+  for (let i = 0; i < n; i++){ const u = gl.getActiveUniform(p, i); U[u.name] = gl.getUniformLocation(p, u.name); }
+  P = { p, U };
+  const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+  texVid = tex(gl.LINEAR);
+  texMask = tex(gl.LINEAR);  gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, 1, 1, 0, gl.RED, gl.UNSIGNED_BYTE, new Uint8Array([0]));
+  texTrace = tex(gl.LINEAR); gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, 1, 1, 0, gl.RED, gl.UNSIGNED_BYTE, new Uint8Array([0]));
+  texFace = tex(gl.LINEAR_MIPMAP_LINEAR); texFront = tex(gl.LINEAR);
+}
+
+/* ---------- overlay canvases: face oval (small) and flakes ---------- */
+const front = document.createElement('canvas'), fcx = front.getContext('2d');
+const faceCv = document.createElement('canvas'), fmx = faceCv.getContext('2d');
+let WW = 2, WH = 2, FW = 2, FH = 2;
+
+/* ---------- geometry ---------- */
+let mirror = true, vidW = 1280, vidH = 720, scX = 1, scY = 1, CW = 2, CH = 2;
+// normalized video coords -> normalized screen coords (y down)
+function vToS(x, y, out){
+  if (mirror) x = 1 - x;
+  out[0] = (x - .5)/scX + .5; out[1] = (y - .5)/scY + .5; return out;
+}
+const _a = [0,0], _b = [0,0];
+
+/* ---------- person mask, motion, trace (reused buffers) ---------- */
+const M = { w:0, h:0, f:null, u8:null, tr:null, tu8:null, cover:0, present:false, has:false, lastT:-1e9,
+  cx:.5, cy:.5, vx:0, vy:0, E:0, leaving:0, obs:0 };
+const MAXC = 320, CX = new Float32Array(MAXC), CY = new Float32Array(MAXC); let candN = 0;
+function ingestMask(data, w, h, tMs){
+  if (!data || !(w > 0) || !(h > 0) || data.length < w*h) return;
+  if (!Number.isFinite(tMs)) tMs = performance.now();
+  let fresh = false;
+  if (M.w !== w || M.h !== h){
+    M.w = w; M.h = h; M.f = new Float32Array(w*h); M.u8 = new Uint8Array(w*h); M.tr = new Float32Array(w*h); M.tu8 = new Uint8Array(w*h);
+    fresh = true;
+  }
+  const gap = tMs - M.lastT;
+  if (!(gap > 0) || gap > 450) fresh = true;                 // lost or first frame: no motion from this one
+  const dt = fresh ? 0 : Math.min(.25, gap/1000);
+  const decay = Math.exp(-dt/(.35 + 2.4*S.ghost));
+  const F = M.f, U8 = M.u8, TR = M.tr, TU = M.tu8;
+  let on = 0, sx = 0, sy = 0, sm = 0, diff = 0, leave = 0;
+  candN = 0;
+  for (let y = 0, i = 0; y < h; y++){
+    for (let x = 0; x < w; x++, i++){
+      let m = data[i]; if (!(m >= 0)) m = 0; else if (m > 1) m = 1;
+      const old = F[i], nf = fresh ? m : old*.3 + m*.7;
+      F[i] = nf; U8[i] = nf*255 | 0;
+      if (nf > .5){ on++; sx += x; sy += y; sm++; }
+      if (!fresh){
+        diff += Math.abs(nf - old);
+        if (old > .5 && nf < .4){                        // trailing edge: leaf peels here
+          leave++;
+          if (candN < MAXC){ CX[candN] = (x + .5)/w; CY[candN] = (y + .5)/h; candN++; }
+          else { const j = (Math.random()*leave) | 0; if (j < MAXC){ CX[j] = (x + .5)/w; CY[j] = (y + .5)/h; } }
+        }
+      }
+      const t = fresh ? nf : Math.max(TR[i]*decay, nf);
+      TR[i] = t; TU[i] = t*255 | 0;
+    }
+  }
+  M.cover = on/(w*h); M.present = M.cover > .006; M.has = true;
+  if (sm > 0){
+    const cx = sx/sm/w, cy = sy/sm/h;
+    if (fresh || !M.present){ M.cx = cx; M.cy = cy; M.vx = 0; M.vy = 0; }
+    else { const vx = (cx - M.cx)/dt, vy = (cy - M.cy)/dt; M.vx = M.vx*.5 + vx*.5; M.vy = M.vy*.5 + vy*.5; M.cx = cx; M.cy = cy; }
+  }
+  const raw = fresh || !on ? 0 : diff/(on + 400)/Math.max(.02, dt)*.1;
+  M.E = fresh ? 0 : M.E*.7 + Math.min(1.5, raw)*.3;
+  M.leaving = leave; M.lastT = tMs; M.obs++;
+  if (!fresh && M.present && MODE.fxOn && S.shed > 0) peel(leave, dt);
+  if (P){
+    gl.bindTexture(gl.TEXTURE_2D, texMask);  gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, w, h, 0, gl.RED, gl.UNSIGNED_BYTE, U8);
+    gl.bindTexture(gl.TEXTURE_2D, texTrace); gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, w, h, 0, gl.RED, gl.UNSIGNED_BYTE, TU);
+  }
+}
+
+/* ---------- face: oval for the painted skin, yaw/roll for the light ---------- */
+const OVAL = [10,338,297,332,284,251,389,356,454,323,361,288,397,365,379,378,400,377,152,148,176,149,150,136,172,58,132,93,234,127,162,21,54,103,67,109];
+const FO = new Float32Array(OVAL.length*2), FT = new Float32Array(OVAL.length*2);
+const FC = { ok:false, lastSeen:-1e9, x:.5, y:.4, size:.2, yaw:0, roll:0, seen:0 };
+function lmk(a, i){
+  if (!a || a.length <= i) return null;
+  const p = a[i];
+  if (!p || !Number.isFinite(p.x) || !Number.isFinite(p.y)) return null;
+  return p;
+}
+function loseFace(){ FC.ok = false; }
+function onFace(lms, tMs){
+  if (!Number.isFinite(tMs)) return;
+  if (!lms || lms.length < 468){ if (tMs - FC.lastSeen > 500) loseFace(); return; }
+  let minX = 1e9, maxX = -1e9, minY = 1e9, maxY = -1e9;
+  for (let k = 0; k < OVAL.length; k++){
+    const p = lmk(lms, OVAL[k]);
+    if (!p){ if (tMs - FC.lastSeen > 500) loseFace(); return; }
+    vToS(p.x, p.y, _a); FT[k*2] = _a[0]; FT[k*2+1] = _a[1];
+    if (_a[0] < minX) minX = _a[0]; if (_a[0] > maxX) maxX = _a[0];
+    if (_a[1] < minY) minY = _a[1]; if (_a[1] > maxY) maxY = _a[1];
+  }
+  const nose = lmk(lms, 1), eL = lmk(lms, 33), eR = lmk(lms, 263);
+  const hgt = (maxY - minY)*CH, wid = (maxX - minX)*CW, sh = Math.min(CW, CH);
+  if (!nose || !eL || !eR || !(hgt > sh*.04) || !(hgt < sh*1.6) || !(wid > sh*.02)){ if (tMs - FC.lastSeen > 500) loseFace(); return; }
+  vToS(eL.x, eL.y, _a); vToS(eR.x, eR.y, _b);
+  const ex = (_a[0] + _b[0])/2, ey = (_a[1] + _b[1])/2;
+  const edx = (_b[0] - _a[0])*CW, edy = (_b[1] - _a[1])*CH, ed = Math.hypot(edx, edy);
+  vToS(nose.x, nose.y, _a);
+  let yaw = ed > 1e-6 ? ((_a[0] - ex)*CW)/ed : 0;
+  let roll = Math.atan2(edy, edx); if (roll > Math.PI/2) roll -= Math.PI; if (roll < -Math.PI/2) roll += Math.PI;
+  if (!Number.isFinite(yaw)) yaw = 0;
+  yaw = Math.max(-1.2, Math.min(1.2, yaw));
+  const snap = !FC.ok || tMs - FC.lastSeen > 500, a = snap ? 1 : .6;
+  for (let k = 0; k < FO.length; k++) FO[k] += (FT[k] - FO[k])*a;
+  FC.x += ((minX + maxX)/2 - FC.x)*a; FC.y += ((minY + maxY)/2 - FC.y)*a; FC.size += (hgt/sh - FC.size)*a;
+  FC.yaw += (yaw - FC.yaw)*(snap ? 1 : .5); FC.roll += (roll - FC.roll)*(snap ? 1 : .5);
+  FC.ok = true; FC.lastSeen = tMs; FC.seen++;
+}
+function drawFaceMask(alpha){
+  fmx.clearRect(0, 0, FW, FH);
+  if (!FC.ok || alpha < .01) return;
+  const cx = FC.x*FW, cy = FC.y*FH;
+  fmx.fillStyle = '#fff'; fmx.globalAlpha = alpha;
+  fmx.beginPath();
+  for (let k = 0; k < OVAL.length; k++){
+    const x = cx + (FO[k*2]*FW - cx)*1.04, y = cy + (FO[k*2+1]*FH - cy)*1.04;
+    if (k) fmx.lineTo(x, y); else fmx.moveTo(x, y);
+  }
+  fmx.closePath(); fmx.fill(); fmx.globalAlpha = 1;
+}
+
+/* ---------- gold flakes (fixed pool) ---------- */
+const NF = 520;
+const FL = { x:new Float32Array(NF), y:new Float32Array(NF), vx:new Float32Array(NF), vy:new Float32Array(NF),
+  ph:new Float32Array(NF), w:new Float32Array(NF), rot:new Float32Array(NF), wr:new Float32Array(NF), s:new Float32Array(NF),
+  life:new Float32Array(NF), max:new Float32Array(NF), j:new Float32Array(NF*4) };
+let flNext = 0, flAcc = 0;
+const GOLDS = [];
+for (let i = 0; i < 16; i++){
+  const k = i/15, r = 90 + 165*Math.pow(k, .8), g = 58 + 160*Math.pow(k, 1.05), b = 14 + 150*Math.pow(k, 2.2);
+  GOLDS.push('rgb(' + (r|0) + ',' + (g|0) + ',' + (b|0) + ')');
+}
+function spawnFlake(sx, sy, vx, vy){
+  const i = flNext; flNext = (flNext + 1) % NF;
+  const sh = Math.min(WW, WH);
+  FL.x[i] = sx*WW; FL.y[i] = sy*WH; FL.vx[i] = vx*sh; FL.vy[i] = vy*sh;
+  FL.ph[i] = Math.random()*6.28; FL.w[i] = (Math.random() < .5 ? -1 : 1)*(2 + Math.random()*5);
+  FL.rot[i] = Math.random()*6.28; FL.wr[i] = (Math.random() - .5)*2.4;
+  FL.s[i] = sh*(.004 + Math.random()*Math.random()*.011);
+  FL.max[i] = 2.6 + Math.random()*3; FL.life[i] = FL.max[i];
+  for (let k = 0; k < 4; k++) FL.j[i*4 + k] = (Math.random() - .5)*.45;
+}
+// peel from the trailing edge, in proportion to how much of the body moved
+function peel(leave, dt){
+  if (!candN) return;
+  flAcc += Math.min(30, leave*S.shed*.022);
+  let n = flAcc | 0; flAcc -= n; n = Math.min(n, 24);
+  const vx = Math.max(-2, Math.min(2, M.vx))*(mirror ? -1 : 1)/scX, vy = M.vy/scY;
+  for (let k = 0; k < n; k++){
+    const c = (Math.random()*candN) | 0;
+    vToS(CX[c], CY[c], _a);
+    spawnFlake(_a[0], _a[1], vx*.12 + (Math.random() - .5)*.12, vy*.12 - .03 - Math.random()*.08);
+  }
+}
+// a shower of leaf from anywhere on the body (style change, gilding)
+function burst(n){
+  if (!M.has || !M.present || !M.f) return;
+  const F = M.f, w = M.w, h = M.h;
+  for (let k = 0, tries = 0; k < n && tries < n*12; tries++){
+    const i = (Math.random()*w*h) | 0;
+    if (F[i] < .6) continue;
+    vToS(((i % w) + .5)/w, (((i/w) | 0) + .5)/h, _a);
+    if (_a[0] < 0 || _a[0] > 1 || _a[1] < 0 || _a[1] > 1) continue;
+    spawnFlake(_a[0], _a[1], (Math.random() - .5)*.35, -.05 - Math.random()*.3); k++;
+  }
+}
+function drawFlakes(dt, alpha){
+  fcx.setTransform(1, 0, 0, 1, 0, 0);
+  fcx.clearRect(0, 0, WW, WH);
+  if (alpha < .01){ return; }
+  const sh = Math.min(WW, WH), g = sh*.16;
+  for (let i = 0; i < NF; i++){
+    if (FL.life[i] <= 0) continue;
+    FL.life[i] -= dt;
+    FL.ph[i] += FL.w[i]*dt; FL.rot[i] += FL.wr[i]*dt;
+    const flip = Math.cos(FL.ph[i]);
+    // a flat leaf falls slowly face-on and slides sideways when edge-on
+    FL.vy[i] += g*dt*(.35 + .65*(1 - Math.abs(flip)));
+    FL.vx[i] *= Math.exp(-dt*1.2); FL.vy[i] *= Math.exp(-dt*(1.1 + 1.6*Math.abs(flip)));
+    FL.x[i] += (FL.vx[i] + Math.sin(FL.ph[i]*.5)*sh*.035)*dt; FL.y[i] += FL.vy[i]*dt;
+    if (FL.y[i] > WH + 20){ FL.life[i] = 0; continue; }
+    const k = FL.life[i]/FL.max[i], al = Math.min(1, k*3)*Math.min(1, (1 - k)*10 + .3);
+    if (al <= .01) continue;
+    const glint = Math.pow(Math.abs(Math.sin(FL.ph[i] + FL.rot[i]*.5)), 8);
+    const tone = Math.min(15, (3 + Math.abs(flip)*6 + glint*7) | 0);
+    const s = FL.s[i], wx = s*(.12 + .88*Math.abs(flip)), j = i*4;
+    const c = Math.cos(FL.rot[i]), sn = Math.sin(FL.rot[i]);
+    fcx.setTransform(c, sn, -sn, c, FL.x[i], FL.y[i]);
+    fcx.globalAlpha = al*alpha;
+    fcx.fillStyle = GOLDS[tone];
+    fcx.beginPath();
+    fcx.moveTo(-wx*(1 + FL.j[j]), -s*(1 + FL.j[j+1]));
+    fcx.lineTo( wx*(1 + FL.j[j+1]), -s*(1 + FL.j[j+2]));
+    fcx.lineTo( wx*(1 + FL.j[j+2]),  s*(1 + FL.j[j+3]));
+    fcx.lineTo(-wx*(1 + FL.j[j+3]),  s*(1 + FL.j[j]));
+    fcx.closePath(); fcx.fill();
+    if (glint > .7 && FL.s[i] > sh*.007){
+      fcx.globalAlpha = al*alpha*(glint - .7)*2.4;
+      fcx.fillStyle = '#fff6dc';
+      fcx.fillRect(-s*1.6, -s*.08, s*3.2, s*.16); fcx.fillRect(-s*.08, -s*1.6, s*.16, s*3.2);
+    }
+  }
+  fcx.setTransform(1, 0, 0, 1, 0, 0); fcx.globalAlpha = 1;
+}
+
+/* ---------- MediaPipe (dynamic import; the camera still runs without it) ---------- */
+let segmenter = null, facer = null, lastTs = 0, lastVT = -1, modelState = 'loading';
+async function initModel(){
+  try{
+    const vision = await import(VISION_URL);
+    const fs = await vision.FilesetResolver.forVisionTasks(WASM_URL);
+    const mk = async (Cls, o) => { try { return await Cls.createFromOptions(fs, { ...o, baseOptions:{ ...o.baseOptions, delegate:'GPU' } }); }
+                                   catch(e){ return await Cls.createFromOptions(fs, { ...o, baseOptions:{ ...o.baseOptions, delegate:'CPU' } }); } };
+    segmenter = await mk(vision.ImageSegmenter, { baseOptions:{ modelAssetPath:SEG_MODEL }, runningMode:'VIDEO', outputConfidenceMasks:true, outputCategoryMask:false });
+    facer = await mk(vision.FaceLandmarker, { baseOptions:{ modelAssetPath:FACE_MODEL }, runningMode:'VIDEO', numFaces:1,
+      minFaceDetectionConfidence:.5, minFacePresenceConfidence:.5, minTrackingConfidence:.5 });
+    modelState = 'ok';
+  }catch(e){
+    if (EXT) return;
+    modelState = segmenter ? 'ok' : 'fail';
+  }
+}
+function track(now){
+  if (video.readyState < 2) return;
+  const vt = video.currentTime; if (vt === lastVT) return; lastVT = vt;
+  const ts = Math.max(lastTs + 1, Math.round(now)); lastTs = ts;
+  if (segmenter){
+    try{
+      segmenter.segmentForVideo(video, ts, res => {
+        const ms = res && res.confidenceMasks;
+        if (!ms || !ms.length) return;
+        const mk = ms[ms.length - 1];
+        ingestMask(mk.getAsFloat32Array(), mk.width, mk.height, ts);
+      });
+    }catch(e){}
+  }
+  if (facer){
+    try{ const r = facer.detectForVideo(video, ts); onFace(r && r.faceLandmarks && r.faceLandmarks[0], ts); }catch(e){}
+  }
+}
+
+/* ---------- camera ---------- */
+let stream = null, facing = 'user', started = false, EXT = false;
+function setStatus(t){ $('status').textContent = t || ''; }
+function camError(e){
+  const msg = (e && (e.message || e.name)) ? (e.message || e.name) : String(e || 'unknown');
+  const text = 'カメラを起動できませんでした：' + msg + '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+  $('err').textContent = text;
+  if (started) setStatus(text);
+}
+async function startCam(){
+  const md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) throw new Error('getUserMedia is unavailable');
+  const s = await md.getUserMedia({ video:{ facingMode:{ ideal:facing }, width:{ ideal:1280 }, height:{ ideal:720 } }, audio:false });
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = s; mirror = facing === 'user';
+  video.srcObject = s;
+  await new Promise(r => { if (video.readyState >= 1) r(); else video.onloadedmetadata = () => r(); });
+  await video.play().catch(()=>{});
+  vidW = video.videoWidth || 1280; vidH = video.videoHeight || 720;
+  M.lastT = -1e9; M.E = 0; M.vx = M.vy = 0; loseFace();
+}
+
+/* ---------- audio: leaf shimmer ---------- */
+let actx = null, bus = null, recDest = null;
+function ensureAudio(){
+  if (actx){ if (actx.state === 'suspended') actx.resume().catch(()=>{}); return; }
+  const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+  actx = new AC(); bus = actx.createGain(); bus.gain.value = .4; bus.connect(actx.destination);
+  recDest = actx.createMediaStreamDestination(); bus.connect(recDest);
+  actx.resume().catch(()=>{});
+}
+// thin metal: many tiny high pings, densest at the start
+function shimmer(n, dur, vol){
+  if (!actx || actx.state !== 'running') return;
+  const t0 = actx.currentTime;
+  for (let i = 0; i < n; i++){
+    const t = t0 + dur*Math.pow(Math.random(), 1.8), f = 2300 + Math.random()*5200;
+    const o = actx.createOscillator(), g = actx.createGain();
+    o.type = 'sine'; o.frequency.value = f;
+    g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(vol*(.4 + Math.random()*.6), t + .004);
+    g.gain.exponentialRampToValueAtTime(.0005, t + .25 + Math.random()*.5);
+    o.connect(g); g.connect(bus); o.start(t); o.stop(t + .8);
+  }
+}
+function swell(){
+  if (!actx || actx.state !== 'running') return;
+  const t = actx.currentTime;
+  [196, 293.7, 392, 587.3].forEach((f, k) => {
+    const o = actx.createOscillator(), g = actx.createGain();
+    o.type = 'triangle'; o.frequency.value = f;
+    g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(.05/(k + 1), t + .5); g.gain.exponentialRampToValueAtTime(.0005, t + 2.6);
+    o.connect(g); g.connect(bus); o.start(t); o.stop(t + 2.7);
+  });
+}
+function click(){
+  if (!actx || actx.state !== 'running') return;
+  const t = actx.currentTime, len = actx.sampleRate*.025 | 0, b = actx.createBuffer(1, len, actx.sampleRate), d = b.getChannelData(0);
+  for (let i = 0; i < len; i++) d[i] = (Math.random()*2 - 1)*Math.pow(1 - i/len, 5);
+  const s = actx.createBufferSource(); s.buffer = b;
+  const f = actx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 2400; f.Q.value = 1.2;
+  s.connect(f); f.connect(bus); s.start(t);
+}
+
+/* ---------- mode: plain camera ⇄ gold (laid leaf by leaf) ---------- */
+const MODE = { on:false, t0:-1e9, from:0, reveal:0, fxOn:false };
+const WIPE = { a:0, b:0, t0:-1e9 };
+function setMode(on){
+  MODE.from = MODE.reveal; MODE.on = on; MODE.t0 = performance.now();
+  $('mode').textContent = on ? 'カメラにもどる' : '金箔を貼る';
+  if (on){ swell(); shimmer(46, 1.7, .05); setTimeout(() => burst(70*(.3 + S.shed)), 900); }
+  else shimmer(14, .8, .03);
+}
+function setStyle(i, animate){
+  i = ((i % 3) + 3) % 3;
+  if (animate && MODE.reveal > .99){ WIPE.a = S.style; WIPE.b = i; WIPE.t0 = performance.now(); shimmer(30, 1.2, .04); burst(50*(.3 + S.shed)); }
+  else { WIPE.a = WIPE.b = i; WIPE.t0 = -1e9; }
+  S.style = i;
+  [...$('styles').children].forEach(x => x.classList.toggle('on', +x.dataset.s === i));
+}
+
+$('go').onclick = async () => {
+  $('err').textContent = '';
+  ensureAudio();
+  try{
+    if (!gl) throw new Error('WebGL2 に未対応のブラウザです');
+    if (!P) initGL();
+    await startCam();
+  }catch(e){ camError(e); return; }
+  $('start').style.display = 'none';
+  ['gear','flip','bar','rec','shoot','mode','hud'].forEach(id => $(id).classList.add('show'));
+  if (!started){ started = true; if (!EXT) initModel(); requestAnimationFrame(loop); }
+};
+$('flip').onclick = async () => {
+  const prev = facing; facing = facing === 'user' ? 'environment' : 'user';
+  try { await startCam(); } catch(e){ facing = prev; camError(e); }
+};
+$('gear').onclick = () => $('panel').classList.toggle('hide');
+$('mode').onclick = () => { ensureAudio(); setMode(!MODE.on); };
+canvas.addEventListener('pointerdown', () => {
+  if (!started) return;
+  ensureAudio();
+  if (!$('panel').classList.contains('hide')){ $('panel').classList.add('hide'); return; }
+  if (MODE.on && MODE.reveal > .99 && performance.now() - WIPE.t0 > 1300) setStyle(S.style + 1, true);
+});
+addEventListener('keydown', e => { if (started && (e.key === ' ' || e.key === 'Enter') && document.activeElement.tagName !== 'INPUT'){ e.preventDefault(); setMode(!MODE.on); } });
+$('styles').onclick = e => { const b = e.target.closest('button'); if (b) setStyle(+b.dataset.s, true); };
+[['sPat','pat'],['sShed','shed'],['sGhost','ghost'],['sShine','shine'],['sGrain','grain']].forEach(([id,k]) => { $(id).oninput = e => { S[k] = +e.target.value; }; });
+
+$('shoot').onclick = () => {
+  click();
+  try{
+    canvas.toBlob(b => { if (!b) return; const a = document.createElement('a'); a.href = URL.createObjectURL(b);
+      a.download = 'kinpaku-' + Date.now() + '.png'; a.click(); }, 'image/png');
+  }catch(e){ setStatus('保存できませんでした。'); }
+};
+let rec = null, chunks = [];
+$('rec').onclick = () => {
+  if (rec && rec.state === 'recording'){ rec.stop(); return; }
+  try{
+    ensureAudio();
+    const tracks = [...canvas.captureStream(30).getVideoTracks()];
+    if (recDest) tracks.push(...recDest.stream.getAudioTracks());
+    const mime = ['video/mp4;codecs=avc1','video/webm;codecs=vp9,opus','video/webm'].find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || '';
+    rec = new MediaRecorder(new MediaStream(tracks), mime ? { mimeType:mime } : {});
+    chunks = [];
+    rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+    rec.onstop = () => {
+      $('rec').classList.remove('on'); $('rec').textContent = '● REC';
+      const ext = (rec.mimeType || '').includes('mp4') ? 'mp4' : 'webm';
+      const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(chunks, { type:rec.mimeType || 'video/webm' }));
+      a.download = 'kinpaku.' + ext; a.click();
+    };
+    rec.start(); $('rec').classList.add('on'); $('rec').textContent = '■ STOP';
+  }catch(e){ setStatus('録画を開始できませんでした。'); }
+};
+
+/* ---------- render ---------- */
+let lastT = 0, hudT = 0;
+const AN = { x:0, y:0, ok:false }, LT = { sweep:0, lx:0, ly:.4, roll:0, E:0 };
+function loop(now){
+  requestAnimationFrame(loop);
+  const dt = lastT ? Math.min(.1, (now - lastT)/1000) : 1/60; lastT = now;
+  const t = now/1000;
+  if (video.videoWidth){ vidW = video.videoWidth; vidH = video.videoHeight; }
+  const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+  let W = Math.round(innerWidth*dpr), H = Math.round(innerHeight*dpr);
+  const kk = Math.min(1, 1500/Math.max(W, H)); W = Math.round(W*kk); H = Math.round(H*kk);
+  if (canvas.width !== W || canvas.height !== H){ canvas.width = W; canvas.height = H; }
+  CW = W; CH = H;
+  const ww = Math.max(64, Math.round(W*.6)), wh = Math.max(64, Math.round(H*.6));
+  if (ww !== WW || wh !== WH){
+    const sx = ww/WW, sy = wh/WH;
+    for (let i = 0; i < NF; i++){ FL.x[i] *= sx; FL.y[i] *= sy; }
+    WW = front.width = ww; WH = front.height = wh;
+  }
+  const fw = Math.max(32, Math.round(W*.25)), fh = Math.max(32, Math.round(H*.25));
+  if (fw !== FW || fh !== FH){ FW = faceCv.width = fw; FH = faceCv.height = fh; }
+  const sa = W/H, va = vidW/vidH; scX = sa < va ? sa/va : 1; scY = sa < va ? 1 : va/sa;
+  if (!EXT) track(now);
+  if (video.readyState < 2) return;
+
+  // gilding progress (laid leaf by leaf, lifted faster)
+  const dur = MODE.on ? 1700 : 900;
+  const k = Math.min(1, (now - MODE.t0)/dur), ke = k*k*(3 - 2*k);
+  MODE.reveal = MODE.from + ((MODE.on ? 1 : 0) - MODE.from)*ke;
+  MODE.fxOn = MODE.reveal > .02;
+  const wk = Math.min(1, (now - WIPE.t0)/1300);
+  if (wk >= 1){ WIPE.a = WIPE.b; }
+
+  // body anchor (pattern pinned to the body) in short-edge units, y up
+  const sh = Math.min(W, H);
+  if (M.present){
+    vToS(M.cx, M.cy, _a);
+    const ax = (_a[0] - .5)*W/sh, ay = -(_a[1] - .5)*H/sh;
+    if (!AN.ok){ AN.x = ax; AN.y = ay; AN.ok = true; }
+    const ka = 1 - Math.exp(-dt*6); AN.x += (ax - AN.x)*ka; AN.y += (ay - AN.y)*ka;
+  }
+  // light: follows the head; without a face it drifts slowly
+  const faceLive = FC.ok && now - FC.lastSeen < 1500;
+  if (FC.ok && !faceLive) loseFace();
+  const yaw = FC.ok ? FC.yaw : 0;
+  const tgtSweep = FC.ok ? -yaw*1.9 + (FC.x - .5)*W/sh*.6 : Math.sin(t*.23)*1.1;
+  const kl = 1 - Math.exp(-dt*4);
+  LT.sweep += (tgtSweep - LT.sweep)*kl;
+  LT.lx += ((FC.ok ? -yaw*1.4 : Math.sin(t*.31)*.6) - LT.lx)*kl;
+  LT.ly += ((FC.ok ? .45 - (FC.y - .35)*.8 : .4 + Math.cos(t*.27)*.25) - LT.ly)*kl;
+  LT.roll += ((FC.ok ? FC.roll*.5 : 0) - LT.roll)*kl;
+  LT.E += (Math.min(1, M.E) - LT.E)*(1 - Math.exp(-dt*5));
+  if (!M.present){ LT.E *= Math.exp(-dt*3); }
+
+  drawFaceMask(1);
+  drawFlakes(dt, MODE.fxOn ? 1 : Math.max(0, MODE.reveal*20));
+
+  // upload & compose
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, texVid);
+  try { gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video); } catch(e){ return; }
+  gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, texMask);
+  gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, texTrace);
+  gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, texFace);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, faceCv); gl.generateMipmap(gl.TEXTURE_2D);
+  gl.activeTexture(gl.TEXTURE4); gl.bindTexture(gl.TEXTURE_2D, texFront);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, front);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, 0, W, H);
+  gl.useProgram(P.p); const U = P.U;
+  gl.uniform1i(U.uVid, 0); gl.uniform1i(U.uMask, 1); gl.uniform1i(U.uTrace, 2); gl.uniform1i(U.uFace, 3); gl.uniform1i(U.uFront, 4);
+  gl.uniform2f(U.uScale, scX, scY); gl.uniform2f(U.uRes, W, H); gl.uniform2f(U.uVTex, vidW, vidH);
+  gl.uniform2f(U.uAnchor, AN.x, AN.y);
+  gl.uniform3f(U.uL, LT.lx, LT.ly, 1);
+  if (FC.ok){
+    const hx = (FC.x - .5)*W/sh, hy = -(FC.y - .5)*H/sh + FC.size*.2;
+    gl.uniform3f(U.uHair, hx, hy, FC.size*.78);
+  } else gl.uniform3f(U.uHair, 0, 0, 0);
+  gl.uniform1f(U.uMirror, mirror ? 1 : 0); gl.uniform1f(U.uHas, M.has && M.present ? 1 : 0);
+  gl.uniform1f(U.uT, t); gl.uniform1f(U.uReveal, MODE.reveal); gl.uniform1f(U.uWipe, WIPE.a === WIPE.b ? 0 : wk);
+  gl.uniform1i(U.uStA, WIPE.a); gl.uniform1i(U.uStB, WIPE.b);
+  gl.uniform1f(U.uE, LT.E); gl.uniform1f(U.uPat, .088*S.pat); gl.uniform1f(U.uGhost, S.ghost); gl.uniform1f(U.uShine, S.shine);
+  gl.uniform1f(U.uGrain, S.grain); gl.uniform1f(U.uFaceOn, FC.ok ? 1 : 0); gl.uniform1f(U.uSweep, LT.sweep); gl.uniform1f(U.uRoll, LT.roll);
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+  hudT += dt;
+  if (hudT > .25){ hudT = 0;
+    $('hud').innerHTML = '<b>KINPAKU</b>\n' + (MODE.fxOn ? STYLES[S.style] : 'CAMERA');
+    let st = '';
+    if (modelState === 'fail' && !EXT) st = '人物検出モデルを読み込めませんでした（ネット接続を確認）。';
+    else if (MODE.fxOn && M.has && !M.present) st = '体が映るように、すこし離れてください。';
+    if ($('status').textContent !== st && !$('status').textContent.startsWith('カメラを起動')) setStatus(st);
+  }
+}
+
+/* ---------- test hook (used by the local verification harness) ---------- */
+window.__KINPAKU = {
+  external(){ EXT = true; },
+  ingestMask(d, w, h, tMs){ EXT = true; ingestMask(d, w, h, tMs); },
+  face(lms, tMs){ EXT = true; onFace(lms, tMs); },
+  mode(on){ setMode(!!on); },
+  style(i, anim){ setStyle(i, !!anim); },
+  state: () => ({ present:M.present, cover:M.cover, E:M.E, leaving:M.leaving, cand:candN, cx:M.cx, cy:M.cy, obs:M.obs,
+                  face:FC.ok, fx:FC.x, fy:FC.y, yaw:FC.yaw, roll:FC.roll, size:FC.size, sweep:LT.sweep, anchor:[AN.x, AN.y],
+                  reveal:MODE.reveal, style:S.style, flakes:Array.prototype.reduce.call(FL.life, (a, v) => a + (v > 0), 0) }),
+};
+</script>
+</body>
+</html>
