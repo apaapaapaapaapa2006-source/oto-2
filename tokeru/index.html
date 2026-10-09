@@ -1,0 +1,600 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="description" content="画面を指でなぞると、カメラの景色がガラスのように溶けて渦を巻く。手をかざしても溶け、しばらくすると元に戻っていく。">
+<meta name="theme-color" content="#0b0d0c">
+<title>TOKERU ─ とける景色</title>
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  TOKERU とける景色                                   ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  ORIGIN     オーナーが持ち込んだ完成品（tokeru-keshiki.html、作者表記「Apartment」）。
+             機構・シェーダ・配色はオーナーの設計のまま。画廊に揃えたのは
+             開始画面・⚙ の調整パネル・⟲ カメラ・撮影と録画・カメラ失敗時の定型文・
+             ランドマークのガード・手の追跡の自動起動だけ。
+  MOOD       景色が溶けたガラスになる。なぞった跡は自分の流れで引きずられ、
+             渦を巻き、銀色に褪せ、虹色の縁と年輪のような環を浮かべてから冷えて戻る。
+  PALETTE    墨緑の地 #0b0d0c ／ 硝子の UI rgba(16,20,18,.52) ／ 文字 #e9efe9 ／ 差し色 #c9f0dc
+  TYPE       Zen Kaku Gothic New（UI）・IBM Plex Mono（数字）── オーナーの指定のまま。
+  MOTION     溶けは指の速さで深くなり、ゆっくり拡散して冷める。触れずにいると
+             見えない手がゆっくり景色をなぞりつづける。音はない（オーナーの設計）。
+  TECH       WebGL2。変位ベクトルと熱を持つ場（300px 長辺）を毎フレーム自己移流・拡散・
+             回転させ、描画パスで法線・色ずれ・虹色・鏡面を合成する。浮動小数の描画先が
+             無い端末では 8bit に符号化して同じ計算をする。手は HandLandmarker（動的 import）。
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{--ink:#0b0d0c;--glass:rgba(16,20,18,.52);--glass-strong:rgba(22,28,25,.86);--line:rgba(225,236,228,.16);
+  --text:#e9efe9;--muted:#a6b3aa;--accent:#c9f0dc;
+  --f-ui:"Zen Kaku Gothic New","Hiragino Sans","Noto Sans JP",system-ui,sans-serif;--f-mono:"IBM Plex Mono",ui-monospace,Menlo,monospace}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none}
+html,body{margin:0;height:100%;background:var(--ink);overflow:hidden;color:var(--text);font-family:var(--f-ui)}
+#gl{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none;background:var(--ink)}
+#cam{position:fixed;left:0;top:0;width:2px;height:2px;opacity:.01;pointer-events:none}
+
+#start{position:fixed;inset:0;z-index:30;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;
+  padding:28px;text-align:center;background:rgba(11,13,12,.42);backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px)}
+#start .t{font-family:var(--f-mono);font-size:10px;letter-spacing:.42em;margin-right:-.42em;color:var(--muted)}
+#start h1{margin:0;font-weight:700;font-size:min(13vw,64px);letter-spacing:.16em;margin-right:-.16em;line-height:1.1;text-shadow:0 2px 18px rgba(0,0,0,.5)}
+#start p{margin:0;font-size:13px;line-height:2;letter-spacing:.06em;text-shadow:0 1px 8px rgba(0,0,0,.6)}
+#go{appearance:none;font:500 14px/1 var(--f-ui);letter-spacing:.3em;color:var(--text);background:var(--glass);border:1px solid var(--accent);
+  border-radius:999px;padding:14px 30px 14px 34px;cursor:pointer;backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}
+#go:active{background:var(--glass-strong)}
+#err{font-size:12px;line-height:1.8;max-width:340px;min-height:1em;white-space:pre-line;color:#f2c2b4;text-shadow:0 1px 8px rgba(0,0,0,.7)}
+
+.btn{position:fixed;z-index:12;appearance:none;border:1px solid var(--line);background:var(--glass);color:var(--text);
+  font:500 12px/1 var(--f-ui);letter-spacing:.08em;padding:10px 13px;border-radius:999px;display:none;cursor:pointer;white-space:nowrap;
+  backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}
+.btn.show{display:block}
+.btn:active{background:var(--glass-strong)}
+.btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+#gear{right:12px;top:calc(env(safe-area-inset-top) + 12px);font-size:14px;padding:9px 11px}
+#flip{right:12px;top:calc(env(safe-area-inset-top) + 56px)}
+#bar{position:fixed;left:0;right:0;bottom:calc(env(safe-area-inset-bottom) + 14px);z-index:12;display:none;justify-content:center;align-items:center;gap:16px}
+#bar.show{display:flex}
+#bar .btn{position:static;display:block}
+#bar #shoot{position:relative;width:46px;height:46px;border-radius:50%;padding:0;border-color:var(--accent)}
+#shoot::after{content:"";position:absolute;inset:7px;border-radius:50%;background:var(--accent);opacity:.85}
+#rec.on{color:#ffb3a0;border-color:#ffb3a0}
+#hud{position:fixed;left:14px;top:calc(env(safe-area-inset-top) + 12px);z-index:11;padding:8px 12px;border-radius:12px;background:var(--glass);
+  border:1px solid var(--line);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);display:none;flex-direction:column;gap:2px;pointer-events:none}
+#hud.show{display:flex}
+#hud b{font-weight:700;font-size:16px;letter-spacing:.12em}
+#hud small{font-family:var(--f-mono);font-size:10px;letter-spacing:.18em;color:var(--muted);text-transform:uppercase}
+#hint{position:fixed;left:50%;top:44%;transform:translate(-50%,-50%);z-index:11;font-size:14px;letter-spacing:.14em;padding:10px 18px;border-radius:999px;
+  background:var(--glass);border:1px solid var(--line);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);pointer-events:none;
+  transition:opacity .8s ease;white-space:nowrap;opacity:0}
+#hint.on{opacity:1}
+#status{position:fixed;left:14px;right:14px;bottom:calc(env(safe-area-inset-bottom) + 76px);z-index:11;font-size:12px;letter-spacing:.04em;
+  color:var(--text);pointer-events:none;line-height:1.7;white-space:pre-line;text-align:center;text-shadow:0 1px 8px rgba(0,0,0,.75)}
+
+#panel{position:fixed;right:12px;top:calc(env(safe-area-inset-top) + 100px);z-index:12;width:min(272px,calc(100vw - 24px));
+  background:var(--glass-strong);border:1px solid var(--line);border-radius:14px;padding:14px 16px;display:flex;flex-direction:column;gap:13px;
+  backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);transition:opacity .25s}
+#panel.hide{opacity:0;pointer-events:none}
+.chips{display:flex;border:1px solid var(--line);border-radius:999px;overflow:hidden}
+.chips button{flex:1;appearance:none;border:0;background:transparent;color:var(--text);padding:8px 2px;font:500 11px var(--f-ui);letter-spacing:.06em;cursor:pointer;opacity:.6}
+.chips button.on{opacity:1;background:rgba(201,240,220,.16);color:var(--accent)}
+#panel label{display:flex;align-items:center;gap:10px;font-size:12px;letter-spacing:.04em}
+#panel label span{width:84px;flex:none;color:var(--muted)}
+#panel input[type=range]{flex:1;accent-color:var(--accent)}
+#panel output{font-family:var(--f-mono);font-size:11px;min-width:3ch;font-variant-numeric:tabular-nums}
+#panel .k{font-size:11px;color:var(--muted);letter-spacing:.06em;margin-bottom:-6px}
+#panel .wide{appearance:none;border:1px solid var(--line);background:transparent;color:var(--text);border-radius:999px;padding:9px;font:500 12px var(--f-ui);letter-spacing:.08em;cursor:pointer}
+#panel .note{font-size:11px;color:var(--muted);line-height:1.7;letter-spacing:.03em}
+@media (prefers-reduced-motion:reduce){#hint{transition:none}}
+</style>
+</head>
+<body>
+<canvas id="gl" aria-label="指でなぞると景色が溶けるキャンバス"></canvas>
+<video id="cam" playsinline muted autoplay></video>
+<div id="hud"><b>とける景色</b><small>TOKERU · Apartment</small></div>
+<div id="hint">画面をなぞると、景色がとける</div>
+<div id="status"></div>
+<button id="gear" class="btn" aria-label="調整">⚙</button>
+<button id="flip" class="btn">⟲ カメラ</button>
+<div id="bar">
+  <button id="rec" class="btn">● REC</button>
+  <button id="shoot" class="btn" aria-label="撮る"></button>
+  <button id="reset" class="btn">もとに戻す</button>
+</div>
+
+<div id="panel" class="hide">
+  <label><span>とけ具合</span><input type="range" id="str" min="10" max="100" value="55"><output id="strOut">55</output></label>
+  <div class="k">手で溶かす</div>
+  <div class="chips" id="handChips"><button data-v="1" class="on">オン</button><button data-v="0">オフ</button></div>
+  <div class="k">さわらないとき</div>
+  <div class="chips" id="ghostChips"><button data-v="1" class="on">ひとりでに溶ける</button><button data-v="0">止める</button></div>
+  <button class="wide" id="reset2">もとに戻す</button>
+  <div class="note">画面を指でなぞるか、カメラに手をかざすと溶ける。しばらくすると冷えて元に戻る。</div>
+</div>
+
+<div id="start">
+  <div class="t">MELTING SCENERY · APARTMENT</div>
+  <h1>とける景色</h1>
+  <p>画面をなぞると、景色がとける。<br>カメラに手をかざしても、とける。</p>
+  <button id="go">はじめる</button>
+  <div id="err"></div>
+</div>
+
+<script>
+'use strict';
+(() => {
+const $ = id => document.getElementById(id);
+const cv = $('gl'), vid = $('cam'), hintEl = $('hint');
+const VISION_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs';
+const WASM_URL   = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm';
+const HAND_MODEL = 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task';
+function setStatus(t){ $('status').textContent = t || ''; }
+
+const gl = cv.getContext('webgl2', { antialias:false, premultipliedAlpha:false, alpha:false, preserveDrawingBuffer:true });
+if (!gl){ $('err').textContent = 'この端末のブラウザは WebGL2 に対応していないため表示できません。'; $('go').disabled = true; return; }
+
+/* ---------- float render target support ---------- */
+let useFloat = !!(gl.getExtension('EXT_color_buffer_float') || gl.getExtension('EXT_color_buffer_half_float'));
+function testFloat(){
+  if (!useFloat) return false;
+  const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, 4, 4, 0, gl.RGBA, gl.HALF_FLOAT, null);
+  const f = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, f);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, t, 0);
+  const ok = gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE;
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.deleteFramebuffer(f); gl.deleteTexture(t);
+  return ok;
+}
+useFloat = testFloat();
+
+const HEAD = '#version 300 es\nprecision highp float;\n' + (useFloat ? '' : '#define ENC 1\n') + `
+vec4 dec(vec4 v){
+#ifdef ENC
+  return vec4((v.rg-.5)*2., v.b*2., 0.);
+#else
+  return v;
+#endif
+}
+vec4 enc(vec4 v){
+  v.rg = clamp(v.rg, -1., 1.); v.b = clamp(v.b, 0., 2.);
+#ifdef ENC
+  return vec4(v.rg*.5+.5, v.b*.5, 1.);
+#else
+  return vec4(v.rgb, 1.);
+#endif
+}
+`;
+
+const VS = `#version 300 es
+out vec2 vUv;
+void main(){ vec2 p = vec2(float((gl_VertexID<<1)&2), float(gl_VertexID&2)); vUv = p; gl_Position = vec4(p*2.-1., 0., 1.); }`;
+
+/* field: rg = displacement vector, b = heat (how "melted" a spot is) */
+const FS_UPDATE = HEAD + `
+in vec2 vUv; out vec4 o;
+uniform sampler2D uF; uniform vec2 uTexel; uniform float uAspect;
+uniform int uN; uniform vec4 uSplat[16]; uniform float uRad[16];
+void main(){
+  vec4 c = dec(texture(uF, vUv));
+  vec2 back = vUv - c.rg * 0.010;                       // self-advection: the melt drags itself along
+  vec4 a = dec(texture(uF, back));
+  vec4 n = dec(texture(uF, back + vec2(uTexel.x,0.))) + dec(texture(uF, back - vec2(uTexel.x,0.)))
+         + dec(texture(uF, back + vec2(0.,uTexel.y))) + dec(texture(uF, back - vec2(0.,uTexel.y)));
+  vec4 v = mix(a, n*0.25, 0.22);                         // diffuse into soft folds
+  float ang = 0.05 * v.b;                                // heat curls the vectors -> swirls
+  float cs = cos(ang), sn = sin(ang);
+  v.rg = mat2(cs, sn, -sn, cs) * v.rg;
+  v.rg *= 0.986; v.b *= 0.978;
+  for (int i = 0; i < 16; i++) {
+    if (i >= uN) break;
+    vec2 d = vUv - uSplat[i].xy; d.x *= uAspect;
+    float g = exp(-dot(d,d) / (uRad[i]*uRad[i]));
+    vec2 vel = uSplat[i].zw;
+    v.rg += vel * 7.0 * g;
+    v.b  += g * (0.02 + min(length(vel) * 5.0, 0.35));
+  }
+  o = enc(v);
+}`;
+
+const FS_RENDER = HEAD + `
+in vec2 vUv; out vec4 o;
+uniform sampler2D uF; uniform sampler2D uSrc; uniform vec2 uTexel;
+uniform vec2 uScale; uniform float uMirror; uniform float uStr; uniform float uTime;
+vec3 src(vec2 uv){
+  vec2 s = (uv - .5) * uScale + .5;
+  if (uMirror > .5) s.x = 1. - s.x;
+  s = clamp(s, vec2(.001), vec2(.999));
+  return texture(uSrc, s).rgb;
+}
+float hgt(vec2 uv){ vec4 f = dec(texture(uF, uv)); return length(f.rg) + f.b * .35; }
+void main(){
+  vec4 f = dec(texture(uF, vUv));
+  float h = f.b;
+  vec2 e = uTexel * 1.5;
+  float gx = hgt(vUv + vec2(e.x,0.)) - hgt(vUv - vec2(e.x,0.));
+  float gy = hgt(vUv + vec2(0.,e.y)) - hgt(vUv - vec2(0.,e.y));
+  vec3 N = normalize(vec3(-gx*6., -gy*6., 1.));
+  float m = smoothstep(0.03, 0.8, h);
+  vec2 wob = vec2(sin(vUv.y*23. + uTime*1.3 + f.r*9.), cos(vUv.x*19. - uTime*1.1 + f.g*9.)) * 0.006 * m;
+  vec2 off = -f.rg * uStr * 0.42 + N.xy * 0.05 * m * uStr + wob;
+  float ca = 0.06 * m;                                   // chromatic split grows with the melt
+  vec3 col = vec3(src(vUv + off*(1.+ca)).r, src(vUv + off).g, src(vUv + off*(1.-ca)).b);
+  float lum = dot(col, vec3(.299,.587,.114));
+  vec3 glass = mix(vec3(lum), col, .55) * 1.12 + .05;    // silvery, slightly bleached
+  col = mix(col, glass, m * .45);
+  vec3 L = normalize(vec3(-.4, .6, .7));
+  float spec = pow(max(dot(reflect(-L, N), vec3(0.,0.,1.)), 0.), 28.);
+  vec3 irid = .5 + .5 * cos(6.2832 * (h*1.4 + (N.x - N.y)*1.2 + vec3(0., .33, .67)));
+  float rings = smoothstep(.72, 1., .5 + .5*sin(length(f.rg)*48. + h*14. - uTime*1.6));
+  float edge = clamp(length(vec2(gx,gy)) * 9., 0., 1.);
+  col += spec * .5 * m;
+  col += (irid - .5) * (.08 * m + .12 * edge * m);
+  col += rings * .07 * m;
+  col += edge * .12 * m;
+  o = vec4(col, 1.);
+}`;
+
+function compile(type, srcTxt){
+  const s = gl.createShader(type); gl.shaderSource(s, srcTxt); gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s));
+  return s;
+}
+function program(fs){
+  const p = gl.createProgram();
+  gl.attachShader(p, compile(gl.VERTEX_SHADER, VS)); gl.attachShader(p, compile(gl.FRAGMENT_SHADER, fs));
+  gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+  const u = {}; const n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+  for (let i = 0; i < n; i++){ const info = gl.getActiveUniform(p, i); const name = info.name.replace(/\[0\]$/, ''); u[name] = gl.getUniformLocation(p, info.name); }
+  return { p, u };
+}
+let P_UP, P_RN;
+try { P_UP = program(FS_UPDATE); P_RN = program(FS_RENDER); }
+catch (err){ $('err').textContent = 'シェーダーの準備に失敗しました：' + err.message; $('go').disabled = true; return; }
+gl.bindVertexArray(gl.createVertexArray());
+
+/* ---------- field ping-pong ---------- */
+let simW = 0, simH = 0, fA = null, fB = null;
+function target(w, h){
+  const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  if (useFloat) gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, w, h, 0, gl.RGBA, gl.HALF_FLOAT, null);
+  else gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+  const fb = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, t, 0);
+  return { t, fb };
+}
+function clearField(tg){
+  gl.bindFramebuffer(gl.FRAMEBUFFER, tg.fb); gl.viewport(0, 0, simW, simH);
+  if (useFloat) gl.clearColor(0, 0, 0, 1); else gl.clearColor(.5, .5, 0, 1);
+  gl.clear(gl.COLOR_BUFFER_BIT);
+}
+function buildField(){
+  const W = cv.width, H = cv.height, longSide = 300;
+  const k = longSide / Math.max(W, H);
+  simW = Math.max(32, Math.round(W * k)); simH = Math.max(32, Math.round(H * k));
+  [fA, fB].forEach(x => { if (x){ gl.deleteTexture(x.t); gl.deleteFramebuffer(x.fb); } });
+  fA = target(simW, simH); fB = target(simW, simH); clearField(fA); clearField(fB);
+}
+
+/* ---------- source texture ---------- */
+const srcTex = gl.createTexture();
+gl.bindTexture(gl.TEXTURE_2D, srcTex);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+let source = { kind:'scene', el:null, w:1, h:1, mirror:false, dirty:true };
+
+function uploadSource(){
+  gl.bindTexture(gl.TEXTURE_2D, srcTex);
+  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+  try { gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, source.el); } catch (e){}
+  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+}
+
+/* procedural misty woodland: shown behind the start screen (and until the camera arrives) */
+function paintScene(){
+  const ar = cv.height / Math.max(1, cv.width);
+  const w = 900, h = Math.round(Math.min(2.4, Math.max(.5, ar)) * 900);
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  const x = c.getContext('2d');
+  let seed = 7; const r = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  const horizon = h * .55;
+  let g = x.createLinearGradient(0, 0, 0, horizon);
+  g.addColorStop(0, '#e9ece8'); g.addColorStop(1, '#cfd6cc');
+  x.fillStyle = g; x.fillRect(0, 0, w, horizon + 4);
+  g = x.createLinearGradient(0, horizon, 0, h);
+  g.addColorStop(0, '#7fa35a'); g.addColorStop(.4, '#5f8f3c'); g.addColorStop(1, '#3f6e27');
+  x.fillStyle = g; x.fillRect(0, horizon, w, h - horizon);
+  const layers = [ { n:46, col:[170,178,170], wmin:3, wmax:7, base:horizon + 6 },
+                   { n:26, col:[118,124,114], wmin:6, wmax:13, base:horizon + 30 },
+                   { n:10, col:[64,66,58], wmin:14, wmax:28, base:horizon + 90 } ];
+  layers.forEach((L, li) => {
+    for (let i = 0; i < L.n; i++){
+      const tx = r() * w, tw = L.wmin + r() * (L.wmax - L.wmin), top = -20;
+      const base = L.base + r() * 30 * (li + 1) + 40;
+      x.strokeStyle = `rgb(${L.col.join(',')})`; x.lineCap = 'round';
+      x.lineWidth = tw; x.beginPath(); x.moveTo(tx, base); x.quadraticCurveTo(tx + (r() - .5) * 30, base * .5, tx + (r() - .5) * 40, top); x.stroke();
+      x.lineWidth = Math.max(1, tw * .18);
+      for (let b = 0; b < 7; b++){
+        const by = base * (.08 + r() * .55), dir = r() < .5 ? -1 : 1;
+        x.beginPath(); x.moveTo(tx, by); x.lineTo(tx + dir * (30 + r() * 90) * (li + 1) * .6, by - 40 - r() * 80); x.stroke();
+      }
+      if (li === 2){ x.strokeStyle = 'rgba(92,120,58,.55)'; x.lineWidth = tw * .45; x.beginPath(); x.moveTo(tx - tw * .2, base); x.lineTo(tx - tw * .15, base * .35); x.stroke(); }
+    }
+    x.fillStyle = `rgba(226,230,224,${.22 - li * .07})`; x.fillRect(0, 0, w, h);
+  });
+  for (let i = 0; i < 2600; i++){
+    const gx = r() * w, gy = horizon + Math.pow(r(), .7) * (h - horizon), len = 4 + (gy - horizon) / (h - horizon) * 22;
+    x.strokeStyle = `rgba(${40 + r() * 70 | 0},${100 + r() * 70 | 0},${30 + r() * 30 | 0},.55)`;
+    x.lineWidth = 1 + r() * 1.2; x.beginPath(); x.moveTo(gx, gy); x.lineTo(gx + (r() - .5) * 6, gy - len); x.stroke();
+  }
+  source = { kind:'scene', el:c, w, h, mirror:false, dirty:true };
+}
+
+/* ---------- sizing ---------- */
+function resize(){
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const W = Math.round(cv.clientWidth * dpr), H = Math.round(cv.clientHeight * dpr);
+  if (W === cv.width && H === cv.height && fA) return;
+  cv.width = W; cv.height = H; buildField();
+  if (source.kind === 'scene') paintScene();
+}
+window.addEventListener('resize', resize);
+
+function coverScale(){
+  const ca = cv.width / cv.height, sa = source.w / source.h;
+  return ca > sa ? [1, sa / ca] : [ca / sa, 1];
+}
+/* map a point in source pixels-normalised (x right, y down) to screen uv (y up) */
+function srcToScreen(nx, ny){
+  const [sx, sy] = coverScale();
+  let ux = nx, uy = 1 - ny;
+  if (source.mirror) ux = 1 - ux;
+  return [(ux - .5) / sx + .5, (uy - .5) / sy + .5];
+}
+
+/* ---------- splats ---------- */
+const queue = [];
+let lastInput = -1e9;
+function addStroke(x0, y0, x1, y1, rad){
+  if (![x0, y0, x1, y1, rad].every(Number.isFinite)) return;
+  const dx = x1 - x0, dy = y1 - y0;
+  const aspect = cv.width / cv.height;
+  const dist = Math.hypot(dx * aspect, dy);
+  const steps = Math.min(8, Math.max(1, Math.ceil(dist / (rad * .5))));
+  for (let i = 1; i <= steps; i++){
+    const t = i / steps;
+    queue.push([x0 + dx * t, y0 + dy * t, dx / steps * 1.6, dy / steps * 1.6, rad]);
+  }
+  if (queue.length > 160) queue.splice(0, queue.length - 160);
+}
+
+/* touch / mouse */
+const pointers = new Map();
+const toUv = (e) => { const r = cv.getBoundingClientRect(); return [(e.clientX - r.left) / r.width, 1 - (e.clientY - r.top) / r.height]; };
+cv.addEventListener('pointerdown', e => {
+  if (!started) return;
+  if (!$('panel').classList.contains('hide')){ $('panel').classList.add('hide'); return; }
+  cv.setPointerCapture?.(e.pointerId); pointers.set(e.pointerId, toUv(e)); lastInput = performance.now(); hintEl.classList.remove('on');
+});
+cv.addEventListener('pointermove', e => {
+  const prev = pointers.get(e.pointerId);
+  const cur = toUv(e);
+  if (prev){ addStroke(prev[0], prev[1], cur[0], cur[1], e.pointerType === 'touch' ? .075 : .06); pointers.set(e.pointerId, cur); lastInput = performance.now(); }
+});
+const up = e => pointers.delete(e.pointerId);
+cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up); cv.addEventListener('pointerleave', up);
+
+/* ---------- camera ---------- */
+let stream = null, facing = 'user', started = false, EXT = false;
+function camError(e){
+  const msg = (e && (e.message || e.name)) ? (e.message || e.name) : String(e || 'unknown');
+  const text = 'カメラを起動できませんでした：' + msg + '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+  $('err').textContent = text;
+  if (started) setStatus(text);
+}
+async function startCam(){
+  const md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) throw new Error('getUserMedia is unavailable');
+  const s = await md.getUserMedia({ video:{ facingMode:{ ideal:facing }, width:{ ideal:1280 }, height:{ ideal:720 } }, audio:false });
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = s;
+  vid.srcObject = s; vid.muted = true;
+  await new Promise(r => { if (vid.readyState >= 1) r(); else vid.onloadedmetadata = () => r(); });
+  await vid.play().catch(() => {});
+  source = { kind:'camera', el:vid, w:vid.videoWidth || 1280, h:vid.videoHeight || 720, mirror:facing === 'user', dirty:true };
+  lastHand = [];
+}
+
+/* ---------- hand tracking (dynamic import; touch still works without it) ---------- */
+let hands = null, handsOn = true, lastHand = [], handState = 'loading';
+const TIPS = [4, 8, 12, 16, 20, 9];
+async function initHands(){
+  try{
+    const mp = await import(VISION_URL);
+    const fileset = await mp.FilesetResolver.forVisionTasks(WASM_URL);
+    const mk = async d => mp.HandLandmarker.createFromOptions(fileset, { baseOptions:{ modelAssetPath:HAND_MODEL, delegate:d }, runningMode:'VIDEO', numHands:2 });
+    try { hands = await mk('GPU'); } catch (e){ hands = await mk('CPU'); }
+    handState = 'ok';
+  }catch(e){ handState = 'fail'; }
+}
+function lmk(a, i){
+  if (!a || a.length <= i) return null;
+  const p = a[i];
+  if (!p || !Number.isFinite(p.x) || !Number.isFinite(p.y)) return null;
+  return p;
+}
+// one call per observed frame of hands; lost or broken hands simply leave no stroke
+function onHands(list, now){
+  const next = [];
+  if (Array.isArray(list)){
+    for (let hi = 0; hi < list.length && hi < 2; hi++){
+      const lm = list[hi];
+      if (!lm || !(lm.length >= 21)) continue;
+      const pts = [];
+      for (const i of TIPS){ const p = lmk(lm, i); if (!p){ pts.length = 0; break; } pts.push(srcToScreen(p.x, p.y)); }
+      if (pts.length !== TIPS.length) continue;
+      next[hi] = pts;
+      const prev = lastHand[hi];
+      // a hand that jumped (re-ordered or re-acquired far away) does not smear across the screen
+      if (prev && Math.hypot(prev[5][0] - pts[5][0], prev[5][1] - pts[5][1]) < .25)
+        pts.forEach((p, k) => addStroke(prev[k][0], prev[k][1], p[0], p[1], k === 5 ? .09 : .055));
+    }
+  }
+  if (next.some(Boolean)){ lastInput = now; hintEl.classList.remove('on'); }
+  lastHand = next;
+}
+let handFrame = 0, lastVT = -1, lastTs = 0;
+function trackHands(now){
+  if (EXT || !handsOn || !hands || source.kind !== 'camera' || vid.readyState < 2) return;
+  if ((handFrame++ & 1) || vid.currentTime === lastVT) return;
+  lastVT = vid.currentTime;
+  const ts = Math.max(lastTs + 1, Math.round(now)); lastTs = ts;
+  let res; try { res = hands.detectForVideo(vid, ts); } catch (e){ return; }
+  onHands(res && res.landmarks, now);
+}
+
+/* ---------- audio: the piece is silent by design; the context exists for the recorder ---------- */
+let actx = null, recDest = null;
+function ensureAudio(){
+  if (actx){ if (actx.state === 'suspended') actx.resume().catch(() => {}); return; }
+  const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+  actx = new AC(); recDest = actx.createMediaStreamDestination();
+  actx.resume().catch(() => {});
+}
+
+/* ---------- controls ---------- */
+let strength = .55, ghostOn = true;
+$('str').addEventListener('input', () => { strength = $('str').value / 100; $('strOut').textContent = $('str').value; });
+function resetField(){ clearField(fA); clearField(fB); queue.length = 0; }
+$('reset').onclick = resetField; $('reset2').onclick = resetField;
+function chips(id, fn){ $(id).onclick = e => { const b = e.target.closest('button'); if (!b) return;
+  [...$(id).children].forEach(x => x.classList.toggle('on', x === b)); fn(b.dataset.v === '1'); }; }
+chips('handChips', v => { handsOn = v; lastHand = []; });
+chips('ghostChips', v => { ghostOn = v; ghostPrev = null; });
+$('gear').onclick = () => $('panel').classList.toggle('hide');
+
+$('go').onclick = async () => {
+  $('err').textContent = '';
+  ensureAudio();
+  try { await startCam(); } catch (e){ camError(e); return; }
+  $('start').style.display = 'none';
+  ['gear','flip','bar','rec','shoot','reset','hud'].forEach(id => $(id).classList.add('show'));
+  if (!started){
+    started = true; if (!EXT) initHands();
+    hintEl.classList.add('on'); setTimeout(() => hintEl.classList.remove('on'), 7000);
+  }
+};
+$('flip').onclick = async () => {
+  const prev = facing; facing = facing === 'user' ? 'environment' : 'user';
+  try { await startCam(); } catch (e){ facing = prev; camError(e); }
+};
+
+$('shoot').onclick = () => {
+  try{
+    cv.toBlob(b => { if (!b) return; const a = document.createElement('a'); a.href = URL.createObjectURL(b);
+      a.download = 'tokeru-' + Date.now() + '.png'; a.click(); }, 'image/png');
+  }catch(e){ setStatus('保存できませんでした。'); }
+};
+let rec = null, chunks = [];
+$('rec').onclick = () => {
+  if (rec && rec.state === 'recording'){ rec.stop(); return; }
+  try{
+    ensureAudio();
+    const tracks = [...cv.captureStream(30).getVideoTracks()];
+    if (recDest) tracks.push(...recDest.stream.getAudioTracks());
+    const mime = ['video/mp4;codecs=avc1','video/webm;codecs=vp9,opus','video/webm'].find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || '';
+    rec = new MediaRecorder(new MediaStream(tracks), mime ? { mimeType:mime } : {});
+    chunks = [];
+    rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+    rec.onstop = () => {
+      $('rec').classList.remove('on'); $('rec').textContent = '● REC';
+      const ext = (rec.mimeType || '').includes('mp4') ? 'mp4' : 'webm';
+      const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(chunks, { type:rec.mimeType || 'video/webm' }));
+      a.download = 'tokeru.' + ext; a.click();
+    };
+    rec.start(); $('rec').classList.add('on'); $('rec').textContent = '■ STOP';
+  }catch(e){ setStatus('録画を開始できませんでした。'); }
+};
+
+/* ---------- idle ghost hand so the effect is visible at rest ---------- */
+let ghostPrev = null;
+function ghost(t){
+  if (!ghostOn || t - lastInput < 3500 || pointers.size){ ghostPrev = null; return; }
+  const s = t / 1000;
+  const p = [.5 + .28 * Math.sin(s * .9), .52 + .2 * Math.sin(s * 1.37 + 1.1)];
+  if (ghostPrev) addStroke(ghostPrev[0], ghostPrev[1], p[0], p[1], .07);
+  ghostPrev = p;
+}
+
+/* ---------- loop ---------- */
+const splatBuf = new Float32Array(64), radBuf = new Float32Array(16);
+const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+let hudT = 0;
+function frame(now){
+  requestAnimationFrame(frame);
+  resize();
+  if (!reduced) ghost(now);
+  trackHands(now);
+  if (source.kind === 'camera'){
+    if (vid.readyState >= 2){ source.w = vid.videoWidth || source.w; source.h = vid.videoHeight || source.h; uploadSource(); }
+  } else if (source.dirty){ uploadSource(); source.dirty = false; }
+
+  // update field
+  const n = Math.min(16, queue.length);
+  for (let i = 0; i < n; i++){ const q = queue.shift(); splatBuf[i*4] = q[0]; splatBuf[i*4+1] = q[1]; splatBuf[i*4+2] = q[2]; splatBuf[i*4+3] = q[3]; radBuf[i] = q[4]; }
+  gl.useProgram(P_UP.p);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, fB.fb); gl.viewport(0, 0, simW, simH);
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, fA.t);
+  gl.uniform1i(P_UP.u.uF, 0);
+  gl.uniform2f(P_UP.u.uTexel, 1 / simW, 1 / simH);
+  gl.uniform1f(P_UP.u.uAspect, cv.width / cv.height);
+  gl.uniform1i(P_UP.u.uN, n);
+  gl.uniform4fv(P_UP.u.uSplat, splatBuf);
+  gl.uniform1fv(P_UP.u.uRad, radBuf);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+  [fA, fB] = [fB, fA];
+
+  // render
+  gl.useProgram(P_RN.p);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, 0, cv.width, cv.height);
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, fA.t);
+  gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, srcTex);
+  gl.uniform1i(P_RN.u.uF, 0); gl.uniform1i(P_RN.u.uSrc, 1);
+  gl.uniform2f(P_RN.u.uTexel, 1 / simW, 1 / simH);
+  const [sx, sy] = coverScale();
+  gl.uniform2f(P_RN.u.uScale, sx, sy);
+  gl.uniform1f(P_RN.u.uMirror, source.mirror ? 1 : 0);
+  gl.uniform1f(P_RN.u.uStr, strength);
+  gl.uniform1f(P_RN.u.uTime, now / 1000);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+  if (started && now - hudT > 400){ hudT = now;
+    let st = '';
+    if (handsOn && handState === 'fail' && !EXT) st = '手の認識を読み込めませんでした。指で画面をなぞって遊べます。';
+    if ($('status').textContent !== st && !$('status').textContent.startsWith('カメラを起動')) setStatus(st);
+  }
+}
+resize(); paintScene();
+lastInput = performance.now() - 3000;
+requestAnimationFrame(frame);
+
+/* ---------- test hook (used by the local verification harness) ---------- */
+window.__TOKERU = {
+  external(){ EXT = true; },
+  hands(list, t){ EXT = true; onHands(list, Number.isFinite(t) ? t : performance.now()); },
+  stroke(x0, y0, x1, y1, r){ addStroke(x0, y0, x1, y1, r || .07); lastInput = performance.now(); },
+  state: () => ({ started, source:source.kind, mirror:source.mirror, queue:queue.length, hands:lastHand.filter(Boolean).length,
+                  handsOn, ghostOn, strength, handState, float:useFloat }),
+};
+})();
+</script>
+</body>
+</html>
