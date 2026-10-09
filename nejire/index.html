@@ -1,0 +1,1026 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="description" content="フランシス・ベーコンの肖像画になる。平らな色の部屋と白い檻の中で、首を振れば顔がねじれ、動いたぶんだけ絵の具が引きずられる。口を大きく開けると絵ごと叫ぶ。タップで三連画。">
+<meta name="theme-color" content="#141011">
+<title>NEJIRE ─ ねじれる肖像</title>
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  NEJIRE 捩れ ─ ねじれる肖像                           ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  SOURCE     フランシス・ベーコン。《磔刑図下部の人物のための三習作》1944 の橙の地、
+             《ベラスケスによるインノケンティウス十世像の習作》1953 の縦に降る筆と叫ぶ口、
+             《ルシアン・フロイドの三習作》1969 の黄土の部屋と白い檻。
+             平らな色面の部屋、透明な檻の線、ぼろ布で拭ったようにねじれた顔、三連画。
+  MOOD       美術館の一室。動かなければ静かな肖像。首を振れば顔が渦にねじれ、
+             腕を振れば絵の具がその向きに引きずられて色面に跡を残し、やがて乾いて消える。
+  PALETTE    ORANGE  地 #d8642a ／ 床 #a9441d ／ 肉 骨白 #ece4d8 → 灰桃 #b9a9a4 → 灰 #6f6a6c → #1f1a19 ／ 檻 #f1e6d3
+             VIOLET  地 #1a1220（縦の筆）／ 肉 #f2e8dc → #b98d86 → 法衣の紫 #4b2a5c → #120c16 ／ 檻 金 #c9a65a
+             OCHRE   地 #cf9a36 ／ 床 #6e4b2e ／ 肉 #f3e2c8 → #c98f74 → 緑灰 #5f6650 → #24201b ／ 檻 #f6f1e6
+  TYPE       Bodoni Moda italic（題字）・Azeret Mono 300（UI）。
+  MOTION     止まれば絵の具は落ち着き、動けば流れの向きに長く引きずられる。首の回転は顔の
+             まわりの渦になる。切り替えは画面を横切る一本の太い刷毛。
+  SIGNATURE  ねじれた顔と、色面に残る引きずりの跡、その手前の細い檻の線。
+  LAYERS     ①平らな色面の部屋（床の弧・足元の影・刷毛むら）と、肉・灰・紫の筆致で塗られた人物
+             ②実際の動き（ブロック照合のオプティカルフロー）で絵の具を移流する引きずり
+             ③首を振る速さで顔のまわりが渦にねじれる・顔を斜めに拭う一筋のぼろ布
+             ④人物をかこむ透明な檻（顔の向きで回る、奥の辺は人物の後ろ）
+             ⑤口を大きく開けると叫ぶ：縦の筆が降りて絵の具が下へ流れる
+             ⑥タップで習作を一枚ずつ残し、二連画・三連画（金の額）に組む
+  TECH       ImageSegmenter の人物マスクと FaceLandmarker（輪郭・目・鼻・唇）。
+             WebGL2：絵の具バッファを往復させる移流パス → 合成パス → 額装パス。
+             フローは 96px の縮小グレーでブロック照合。素のカメラ ⇄ 絵 を刷毛で切り替える。
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:ital,opsz,wght@1,6..96,400&family=Azeret+Mono:wght@300;500&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#141011;--fg:#efe7da;--acc:#d8642a;--dim:rgba(239,231,218,.56);--line:rgba(239,231,218,.26)}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none}
+html,body{margin:0;height:100%;background:var(--bg);overflow:hidden;color:var(--fg);
+  font-family:"Azeret Mono",ui-monospace,"Hiragino Sans","Noto Sans JP",monospace;font-weight:300}
+#gl{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+#cam{position:fixed;left:0;top:0;width:2px;height:2px;opacity:.01;pointer-events:none}
+
+#start{position:fixed;inset:0;z-index:30;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;
+  padding:28px;text-align:center;background:linear-gradient(180deg,#d8642a 0%,#d8642a 64%,#a9441d 64%,#a9441d 100%)}
+#start::before{content:"";position:absolute;left:50%;top:50%;width:min(64vw,330px);height:min(92vh,560px);transform:translate(-50%,-56%);
+  border:1px solid rgba(241,230,211,.55);pointer-events:none}
+#start .t{font-size:10px;letter-spacing:.56em;margin-right:-.56em;color:#1f1a19;opacity:.85;position:relative}
+#start h1{margin:0;font-family:"Bodoni Moda",Didot,Georgia,serif;font-style:italic;font-weight:400;font-size:min(20vw,124px);line-height:1;
+  letter-spacing:.04em;color:#f1e6d3;position:relative}
+#start p{margin:0;font-size:12px;line-height:2.1;color:#1f1a19;letter-spacing:.05em;position:relative;font-weight:500}
+#go{position:relative;appearance:none;border:1px solid #1f1a19;background:#1f1a19;color:#f1e6d3;font:500 10px "Azeret Mono",monospace;
+  letter-spacing:.5em;padding:15px 34px 15px 40px;cursor:pointer}
+#go:hover{background:#2c2523}
+#err{position:relative;font-size:12px;line-height:1.8;max-width:340px;min-height:1em;white-space:pre-line;color:#1f1a19;font-weight:500}
+
+.btn{position:fixed;z-index:12;white-space:nowrap;appearance:none;border:0;background:transparent;color:var(--fg);font:500 10px "Azeret Mono","Hiragino Sans",monospace;
+  letter-spacing:.22em;padding:10px 8px;display:none;cursor:pointer;opacity:.7;transition:opacity .3s;text-shadow:0 0 6px rgba(0,0,0,.5)}
+.btn.show{display:block}
+.btn:hover{opacity:1}
+#gear{right:10px;top:calc(env(safe-area-inset-top) + 6px);font-size:14px;letter-spacing:0}
+#flip{right:10px;top:calc(env(safe-area-inset-top) + 40px);letter-spacing:.1em}
+#bar{position:fixed;left:0;right:0;bottom:calc(env(safe-area-inset-bottom) + 12px);z-index:12;display:none;justify-content:center;align-items:center;gap:24px}
+@media (max-width:480px){#bar{gap:10px}#bar .btn{letter-spacing:.12em}#mode{padding:11px 12px}}
+#bar.show{display:flex}
+#bar .btn{position:static;display:block}
+#bar #shoot{position:relative;width:44px;height:44px;border-radius:50%;border:1px solid var(--fg);padding:0;opacity:.8}
+#shoot::after{content:"";position:absolute;inset:6px;border-radius:50%;background:var(--fg);opacity:.85}
+#rec.on{opacity:1;color:#ff9a6a}
+#mode{border:1px solid var(--line);padding:11px 16px 11px 20px;opacity:.92;background:rgba(20,16,17,.34)}
+#bar #clear{display:none}
+#bar #clear.show{display:block}
+#hud{position:fixed;left:14px;top:calc(env(safe-area-inset-top) + 12px);z-index:11;font-size:9px;letter-spacing:.32em;color:var(--dim);
+  pointer-events:none;display:none;line-height:2;white-space:pre;text-shadow:0 0 6px rgba(0,0,0,.5)}
+#hud.show{display:block}
+#hud b{font-family:"Bodoni Moda",serif;font-style:italic;font-weight:400;font-size:15px;letter-spacing:.06em;color:var(--fg)}
+#status{position:fixed;left:14px;right:14px;bottom:calc(env(safe-area-inset-bottom) + 74px);z-index:11;font-size:11px;letter-spacing:.04em;
+  color:var(--fg);opacity:.82;pointer-events:none;line-height:1.7;white-space:pre-line;text-align:center;text-shadow:0 0 8px rgba(0,0,0,.7)}
+
+#panel{position:fixed;right:10px;top:calc(env(safe-area-inset-top) + 78px);z-index:12;width:min(270px,calc(100vw - 20px));
+  background:rgba(20,16,17,.86);border:1px solid var(--line);padding:14px 16px;display:flex;flex-direction:column;gap:13px;
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);transition:opacity .25s}
+#panel.hide{opacity:0;pointer-events:none}
+.chips{display:flex;border:1px solid var(--line)}
+.chips button{flex:1;appearance:none;border:0;background:transparent;color:var(--fg);padding:8px 2px;font:500 9px "Azeret Mono",monospace;
+  letter-spacing:.16em;cursor:pointer;opacity:.55}
+.chips button.on{opacity:1;background:rgba(216,100,42,.28)}
+#panel label{display:flex;align-items:center;gap:10px;font-size:11px;letter-spacing:.04em}
+#panel label span{width:84px;flex:none;color:var(--dim)}
+#panel input[type=range]{flex:1;accent-color:#d8642a}
+#panel .note{font-size:10px;color:var(--dim);line-height:1.7;letter-spacing:.03em}
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<video id="cam" playsinline muted autoplay></video>
+<div id="hud"></div>
+<div id="status"></div>
+<button id="gear" class="btn" aria-label="調整">⚙</button>
+<button id="flip" class="btn">⟲ カメラ</button>
+<div id="bar">
+  <button id="rec" class="btn">● REC</button>
+  <button id="shoot" class="btn" aria-label="撮る"></button>
+  <button id="mode" class="btn">絵にする</button>
+  <button id="clear" class="btn">一枚にもどす</button>
+</div>
+
+<div id="panel" class="hide">
+  <div class="chips" id="styles">
+    <button data-s="0" class="on">ORANGE</button>
+    <button data-s="1">VIOLET</button>
+    <button data-s="2">OCHRE</button>
+  </div>
+  <label><span>ねじれ</span><input type="range" id="sTwist" min="0" max="1.6" step="0.01" value="1"></label>
+  <label><span>絵の具の引きずり</span><input type="range" id="sDrag" min="0" max="1" step="0.01" value="0.6"></label>
+  <label><span>乾くまで</span><input type="range" id="sDry" min="0" max="1" step="0.01" value="0.5"></label>
+  <label><span>筆致</span><input type="range" id="sBrush" min="0" max="1" step="0.01" value="0.6"></label>
+  <label><span>檻</span><input type="range" id="sCage" min="0" max="1" step="0.01" value="0.85"></label>
+  <label><span>粒子</span><input type="range" id="sGrain" min="0" max="1" step="0.01" value="0.35"></label>
+  <div class="note">画面をタップすると、その瞬間が習作として残り、二連画・三連画に組まれる。口を大きく開けると絵が叫ぶ。</div>
+</div>
+
+<div id="start">
+  <div class="t">STUDY FOR A PORTRAIT · 捩れ</div>
+  <h1>NEJIRE</h1>
+  <p>あなたが、ベーコンの肖像画になる。<br>首を振れば顔がねじれ、動けば絵の具が引きずられる。<br>口を大きく開けると、絵ごと叫ぶ。</p>
+  <button id="go">はじめる</button>
+  <div id="err"></div>
+</div>
+
+<script>
+'use strict';
+/* =====================================================================
+   NEJIRE — a Francis Bacon portrait. The painting lives in a ping-pong
+   paint buffer: every frame the old paint is advected along the real
+   optical flow (block matching on a 96px grey copy) and swirled around
+   the face by the head's turning speed, and fresh paint is laid where
+   things are still. A compose pass adds the canvas, the cage and the
+   scream curtain; a layout pass frames studies into a triptych.
+   ===================================================================== */
+const VISION_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs';
+const WASM_URL   = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm';
+const SEG_MODEL  = 'https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite';
+const FACE_MODEL = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
+
+const $ = id => document.getElementById(id);
+const canvas = $('gl'), video = $('cam');
+const STYLES = ['ORANGE', 'VIOLET', 'OCHRE'];
+const CAGE_COL = ['#f1e6d3', '#c9a65a', '#f6f1e6'];
+const S = { style:0, twist:1, drag:.6, dry:.5, brush:.6, cage:.85, grain:.35 };
+
+/* ---------- GL ---------- */
+const gl = canvas.getContext('webgl2', { antialias:false, alpha:false, preserveDrawingBuffer:true, powerPreference:'high-performance' });
+const VS = `#version 300 es
+in vec2 p; out vec2 uv; void main(){ uv = p*.5+.5; gl_Position = vec4(p,0.,1.); }`;
+const COMMON = `#version 300 es
+precision highp float;
+in vec2 uv; out vec4 o;
+float h21(vec2 p){ p = fract(p*vec2(123.34,456.21)); p += dot(p, p + 45.32); return fract(p.x*p.y); }
+float lum(vec3 c){ return dot(c, vec3(.2126,.7152,.0722)); }
+float vn(vec2 p){ vec2 i = floor(p), f = fract(p); f = f*f*(3. - 2.*f);
+  return mix(mix(h21(i), h21(i + vec2(1,0)), f.x), mix(h21(i + vec2(0,1)), h21(i + 1.), f.x), f.y); }
+float fbm(vec2 p){ return .5*vn(p) + .3*vn(p*2.13 + 3.1) + .2*vn(p*4.37 + 7.7); }
+`;
+/* pass 1: paint (advect old paint, lay fresh paint) */
+const FS_PAINT = COMMON + `
+uniform sampler2D uVid, uMask, uFlow, uPaint;
+uniform vec2 uScale, uAsp, uLvl, uMTex;
+uniform vec3 uFace;          // face centre (su) and size (short-edge units); size 0 = none
+uniform vec4 uSwipe;         // rag swipe: dir.xy, offset, amplitude
+uniform vec4 uShadow;        // floor shadow: x, y (su), radius (short-edge), alpha
+uniform float uMirror, uHas, uT, uDt, uDrag, uDry, uBrush, uScream, uSpin, uReset, uHz;
+uniform int uSt;
+const vec3 FIELD[3] = vec3[3](vec3(.847,.392,.165), vec3(.102,.071,.125), vec3(.812,.604,.212));
+const vec3 FLOOR[3] = vec3[3](vec3(.663,.267,.114), vec3(.075,.05,.09), vec3(.431,.294,.18));
+const vec3 R0[3] = vec3[3](vec3(.122,.102,.098), vec3(.07,.047,.086), vec3(.141,.125,.106));
+const vec3 R1[3] = vec3[3](vec3(.435,.416,.424), vec3(.294,.165,.361), vec3(.373,.4,.314));
+const vec3 R2[3] = vec3[3](vec3(.725,.663,.643), vec3(.725,.553,.525), vec3(.788,.561,.455));
+const vec3 R3[3] = vec3[3](vec3(.925,.894,.847), vec3(.949,.91,.863), vec3(.953,.886,.784));
+vec2 vuv(vec2 su){ vec2 v = (su - .5)*uScale + .5; if (uMirror > .5) v.x = 1. - v.x; return v; }
+// the mask is low-res: blur it a little so its edge is a soft curve, not a staircase
+float maskAt(vec2 v){
+  vec2 e = 1.2/uMTex;
+  float m = texture(uMask, v).r*.36;
+  m += (texture(uMask, v + vec2(e.x, 0.)).r + texture(uMask, v - vec2(e.x, 0.)).r + texture(uMask, v + vec2(0., e.y)).r + texture(uMask, v - vec2(0., e.y)).r)*.1;
+  m += (texture(uMask, v + e).r + texture(uMask, v - e).r + texture(uMask, v + vec2(e.x, -e.y)).r + texture(uMask, v - vec2(e.x, -e.y)).r)*.06;
+  return m;
+}
+vec2 flowS(vec2 su){
+  vec2 f = (texture(uFlow, vuv(su)).rg*255. - 128.)/127.*3.;
+  return vec2(f.x*(uMirror > .5 ? -1. : 1.)/uScale.x, f.y/uScale.y);
+}
+vec3 ramp(float x){
+  x = clamp(x, 0., 1.);
+  vec3 a = mix(R0[uSt], R1[uSt], smoothstep(0., .36, x));
+  a = mix(a, R2[uSt], smoothstep(.36, .7, x));
+  return mix(a, R3[uSt], smoothstep(.7, 1., x));
+}
+vec3 fresh(vec2 su){
+  vec2 Q = (su - .5)*uAsp;
+  // the rag: one diagonal wipe dragged across the face
+  vec2 w = vec2(0.);
+  if (uFace.z > 0.){
+    vec2 d = (su - uFace.xy)*uAsp;
+    vec2 n = vec2(-uSwipe.y, uSwipe.x);
+    float across = dot(d, n) - uSwipe.z*uFace.z;
+    float fall = exp(-dot(d, d)/(uFace.z*uFace.z*.5));
+    w = uSwipe.xy*uSwipe.w*uFace.z*exp(-across*across/(uFace.z*uFace.z*.02))*fall;
+    w /= uAsp;
+  }
+  vec2 v = vuv(su + w);
+  float px = 1.5/360.;
+  vec3 cam = texture(uVid, v).rgb;
+  vec3 cb = (cam*2. + texture(uVid, v + vec2(px, 0.)).rgb + texture(uVid, v - vec2(px, 0.)).rgb
+                    + texture(uVid, v + vec2(0., px)).rgb + texture(uVid, v - vec2(0., px)).rgb)/6.;
+  if (dot(w, w) > 1e-8){   // the rag drags the paint along its path
+    vec3 r1 = texture(uVid, vuv(su + w*.5)).rgb, r2 = texture(uVid, vuv(su + w*1.5)).rgb, r3 = texture(uVid, vuv(su + w*2.2)).rgb;
+    cb = (cb*2. + r1 + r2 + r3)/5.;
+  }
+  float m = uHas > .5 ? smoothstep(.3, .7, maskAt(v)) : 1.;
+  // the room: a flat field, a floor with a curved front edge, brush mottling
+  float hz = uHz + .06*pow(abs(Q.x)/max(uAsp.x*.5, .01), 2.);
+  float onFloor = uSt == 1 ? 0. : smoothstep(hz - .002, hz + .002, su.y);
+  float mott = fbm(Q*vec2(2.2, 9.) + float(uSt)*3.) - .5;
+  vec3 bg = mix(FIELD[uSt], FLOOR[uSt], onFloor)*(1. + mott*.09*uBrush);
+  bg *= 1. - .35*(1. - smoothstep(0., .035, abs(su.y - hz)))*onFloor*step(hz, su.y);
+  if (uSt == 1){  // the pope's curtain: vertical strokes of violet and old gold
+    float s = vn(vec2(Q.x*46., Q.y*1.2)), s2 = vn(vec2(Q.x*13. + 4., Q.y*.6));
+    bg = mix(bg, vec3(.23,.17,.24), smoothstep(.55, .9, s)*.65);
+    bg = mix(bg, vec3(.55,.42,.2), smoothstep(.8, .98, s2)*.35);
+  }
+  vec2 sd = (su - uShadow.xy)*uAsp; sd.y *= 3.2;
+  bg *= 1. - uShadow.w*.55*(1. - smoothstep(uShadow.z*.4, uShadow.z, length(sd)))*onFloor;
+  // the figure: patches of strokes, each patch with its own direction (two offset grids, blended)
+  float stroke = 0., dry = 0.;
+  for (int g = 0; g < 2; g++){
+    vec2 G = Q*7. + float(g)*.5;
+    vec2 id = floor(G), f = fract(G) - .5;
+    float a = h21(id + float(g)*13.)*3.1416;
+    vec2 d = vec2(cos(a), sin(a));
+    vec2 sq = vec2(dot(Q, d), dot(Q, vec2(-d.y, d.x)));
+    float wgt = g == 0 ? 1. - smoothstep(.15, .5, max(abs(f.x), abs(f.y))) : smoothstep(.15, .5, max(abs(fract(Q.x*7.) - .5), abs(fract(Q.y*7.) - .5)));
+    stroke += (vn(sq*vec2(9., 60.) + id*7.) - .5)*wgt;
+    dry += (vn(sq*vec2(16., 190.) + id*3.) - .5)*wgt;
+  }
+  float l = clamp((lum(cb) - uLvl.x)/max(.08, uLvl.y - uLvl.x), 0., 1.);
+  l = pow(l, .9) + stroke*.14*uBrush;
+  float q = l*4.;
+  float lp = (floor(q) + smoothstep(.25, .75, fract(q)))/4.;
+  float lt = mix(l, lp, .4);
+  vec3 fig = ramp(lt);
+  vec3 chroma = cb - lum(cb);
+  fig += chroma*.2;
+  // warm planes lean pink, cool planes lean violet / green-grey
+  float warm = clamp((cb.r - cb.b)*3., -1., 1.);
+  fig += mix(vec3(-.03,.0,.05), vec3(.07,.0,-.02), warm*.5 + .5)*smoothstep(.2, .7, lt)*uBrush;
+  fig += vec3(-.03,.02,-.02)*smoothstep(.2, .5, stroke + .25)*(1. - smoothstep(.3, .7, lt))*uBrush;
+  fig *= 1. + dry*.22*uBrush;
+  // impasto highlight scumbles on the brightest planes
+  fig = mix(fig, R3[uSt]*1.04, smoothstep(.84, .99, l + dry*.3)*.6*uBrush);
+  // a dark contour where the figure meets the room
+  float edge = smoothstep(.12, .45, m)*(1. - smoothstep(.45, .85, m));
+  fig = mix(fig, R0[uSt], edge*.75);
+  return mix(bg, fig, m);
+}
+void main(){
+  vec2 su = vec2(uv.x, 1. - uv.y);
+  vec3 fr = fresh(su);
+  if (uReset > .5){ o = vec4(fr, 0.); return; }
+  vec2 vel = flowS(su);
+  // scream: the paint runs down in vertical strokes
+  vec2 Q = (su - .5)*uAsp;
+  float cn = vn(vec2(Q.x*34., uT*.25));
+  vel.y += uScream*(.15 + .85*cn*cn)*.55;
+  // swirl around the face with the head's turning speed
+  vec2 src = su;
+  float spinA = 0.;
+  if (uFace.z > 0.){
+    vec2 d = (su - uFace.xy)*uAsp;
+    float R = uFace.z*.8;
+    spinA = uSpin*uDt*exp(-dot(d, d)/(R*R));
+    float c = cos(-spinA), s = sin(-spinA);
+    src = uFace.xy + vec2(c*d.x - s*d.y, s*d.x + c*d.y)/uAsp;
+  }
+  vec2 disp = vel*uDt*(.8 + 2.2*uDrag);
+  // bristles: across the stroke, each hair carries the paint a different distance
+  vec2 dv = disp*uAsp; float dl = length(dv);
+  vec2 nrm = dl > 1e-5 ? vec2(-dv.y, dv.x)/dl : vec2(0.);
+  float across = dot(Q, nrm);
+  float bn = vn(vec2(across*260., 1.3))*.65 + vn(vec2(across*45., 7.1))*.35;
+  vec2 dispB = disp*(.35 + 1.3*bn);
+  src -= dispB;
+  vec4 prev = vec4(0.);
+  for (int k = 0; k < 3; k++){
+    vec2 s = src - dispB*float(k)*.3;
+    prev += texture(uPaint, vec2(s.x, 1. - s.y))*(k == 0 ? 2. : 1.);
+  }
+  prev *= .25;
+  float sp = length(vel*uAsp) + abs(spinA)/max(uDt, 1e-3)*uFace.z*.5;
+  float m = uHas > .5 ? smoothstep(.3, .7, maskAt(vuv(su))) : 1.;
+  // smear amount lives in alpha, travels with the paint and dries over time
+  float dryT = .35 + 2.6*uDry;
+  float wetM = uHas > .5 ? texture(uMask, vuv(su)).g : 0.;
+  float sm = max(prev.a*exp(-uDt/dryT), max(clamp(sp*4., 0., 1.), wetM*(.4 + .6*uDrag))*step(.001, uDrag + uScream + abs(uSpin)));
+  // wet paint holds (and keeps being dragged) until it dries; the figure itself repaints faster
+  float keep = mix(mix(.15, .996, smoothstep(0., .5, sm)), mix(.15, .82, smoothstep(0., .6, sm)), m);
+  keep = pow(keep, uDt*60.);              // retention per 1/60 s, compounded over the real frame time
+  o = vec4(mix(fr, prev.rgb, keep), sm);
+}`;
+/* pass 2: compose (canvas, cage, scream curtain, the brush that turns camera into painting) */
+const FS_COMP = COMMON + `
+uniform sampler2D uVid, uMask, uPaint, uOver;
+uniform vec2 uScale, uAsp, uRes;
+uniform vec3 uCage;
+uniform float uMirror, uHas, uT, uReveal, uScream, uCageA, uGrain, uBrush;
+uniform int uSt;
+vec2 vuv(vec2 su){ vec2 v = (su - .5)*uScale + .5; if (uMirror > .5) v.x = 1. - v.x; return v; }
+void main(){
+  vec2 su = vec2(uv.x, 1. - uv.y);
+  vec2 Q = (su - .5)*uAsp;
+  vec3 cam = texture(uVid, vuv(su)).rgb;
+  vec4 p = texture(uPaint, uv);
+  vec3 c = p.rgb;
+  // impasto: light from the upper left catches the ridges of the paint
+  vec2 px = 1./uRes;
+  float lx = lum(texture(uPaint, uv + vec2(px.x*2., 0.)).rgb) - lum(texture(uPaint, uv - vec2(px.x*2., 0.)).rgb);
+  float ly = lum(texture(uPaint, uv + vec2(0., px.y*2.)).rgb) - lum(texture(uPaint, uv - vec2(0., px.y*2.)).rgb);
+  c *= 1. + (ly - lx)*.9*uBrush;
+  // unprimed canvas weave, faint
+  vec2 wv = gl_FragCoord.xy*.5;
+  float weave = (sin(wv.x*2.1)*sin(wv.y*2.1))*.5 + (h21(floor(wv)) - .5)*.6;
+  c *= 1. + weave*.025*uBrush;
+  // the cage: back bars pass behind the figure, front bars in front
+  vec4 ov = texture(uOver, su);
+  float m = uHas > .5 ? smoothstep(.4, .7, texture(uMask, vuv(su)).r) : 0.;
+  c = mix(c, uCage, ov.r*(1. - m)*uCageA);
+  c = mix(c, uCage, ov.g*uCageA);
+  // scream: vertical strokes over everything
+  float s1 = vn(vec2(Q.x*52., Q.y*.9 - uT*.7)), s2 = vn(vec2(Q.x*17. + 2., Q.y*.5 - uT*.4));
+  float cur = (uScream + (uSt == 1 ? .2 : 0.))*(.25 + .75*s2);
+  c = mix(c, c*.45, smoothstep(.5, .85, s1)*cur*.8);
+  c = mix(c, c*1.25 + .04, smoothstep(.75, .95, 1. - s1)*cur*.35);
+  // vignette and grain belong to the painting
+  vec2 r = uv - .5; r.x *= uRes.x/uRes.y;
+  c *= 1. - .3*smoothstep(.5, 1.15, length(r));
+  float gn = h21(floor(gl_FragCoord.xy/1.5) + fract(uT*7.13)*91.7) - .5;
+  c += gn*uGrain*.08;
+  // the brush: one wide stroke crosses the frame and leaves paint behind
+  float bristle = vn(vec2(su.x*2., su.y*70.))*.07 + vn(vec2(su.x*9., su.y*240.))*.03;
+  float pos = su.x*.82 + (1. - su.y)*.18 + bristle;
+  float edgeP = uReveal*1.24 - .12;
+  float rev = smoothstep(edgeP + .006, edgeP - .006, pos);
+  float wet = (1. - smoothstep(0., .05, abs(pos - edgeP)))*step(.001, uReveal)*step(uReveal, .999);
+  vec3 outc = mix(cam, c, rev);
+  outc = mix(outc, c*.7, wet*.6);
+  o = vec4(clamp(outc, 0., 1.), 1.);
+}`;
+/* pass 3: layout (one painting, or a diptych / triptych in gilt frames) */
+const FS_LAY = COMMON + `
+uniform sampler2D uSrc;
+uniform vec4 uCrop;          // x0, y0, w, h in su of the source
+uniform vec4 uRect;          // panel in pixels: x0, y0, w, h (y up)
+uniform float uFrame;
+void main(){
+  vec2 loc = (gl_FragCoord.xy - uRect.xy)/uRect.zw;     // 0..1, y up
+  vec2 su = uCrop.xy + vec2(loc.x, 1. - loc.y)*uCrop.zw;
+  vec3 c = texture(uSrc, vec2(su.x, 1. - su.y)).rgb;
+  if (uFrame > 0.){
+    vec2 e = min(gl_FragCoord.xy - uRect.xy, uRect.xy + uRect.zw - gl_FragCoord.xy);
+    float d = min(e.x, e.y);
+    float g = 1. - smoothstep(uFrame*.55, uFrame*.75, d);
+    vec3 gold = mix(vec3(.42,.31,.12), vec3(.86,.7,.38), .5 + .5*sin(d*.9 + loc.x*3.));
+    c = mix(c, gold, g*.95);
+    c *= mix(1., .82, (1. - smoothstep(uFrame*.75, uFrame*1.6, d)));   // the glass and the shadow of the frame
+  }
+  o = vec4(c, 1.);
+}`;
+function shd(type, src){ const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s; }
+function prog(fs){
+  const p = gl.createProgram(); gl.attachShader(p, shd(gl.VERTEX_SHADER, VS)); gl.attachShader(p, shd(gl.FRAGMENT_SHADER, fs));
+  gl.bindAttribLocation(p, 0, 'p'); gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+  const U = {}, n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+  for (let i = 0; i < n; i++){ const u = gl.getActiveUniform(p, i); U[u.name.replace(/\[0\]$/, '')] = gl.getUniformLocation(p, u.name); }
+  return { p, U };
+}
+function tex(filter){ const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, filter); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, filter);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE); return t; }
+function target(w, h){
+  const t = tex(gl.LINEAR); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+  const f = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, f);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, t, 0);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  return { t, f, w, h };
+}
+function freeTarget(r){ if (r){ gl.deleteTexture(r.t); gl.deleteFramebuffer(r.f); } }
+let PP = null, PC = null, PL = null, texVid, texMask, texFlow, texOver;
+let paintA = null, paintB = null, scene = null, needReset = true;
+function initGL(){
+  PP = prog(FS_PAINT); PC = prog(FS_COMP); PL = prog(FS_LAY);
+  const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+  texVid = tex(gl.LINEAR);
+  texMask = tex(gl.LINEAR); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RG8, 1, 1, 0, gl.RG, gl.UNSIGNED_BYTE, new Uint8Array([0, 0]));
+  texFlow = tex(gl.LINEAR); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RG8, 1, 1, 0, gl.RG, gl.UNSIGNED_BYTE, new Uint8Array([128,128]));
+  texOver = tex(gl.LINEAR);
+}
+
+/* ---------- geometry ---------- */
+let mirror = true, vidW = 1280, vidH = 720, scX = 1, scY = 1, CW = 2, CH = 2;
+function vToS(x, y, out){
+  if (mirror) x = 1 - x;
+  out[0] = (x - .5)/scX + .5; out[1] = (y - .5)/scY + .5; return out;
+}
+const _a = [0,0], _b = [0,0];
+
+/* ---------- optical flow: block matching on a small grey copy (reused buffers) ---------- */
+const FG = { w:96, h:54, B:6, R:6, gx:16, gy:9, cv:document.createElement('canvas'), cx:null,
+  cur:null, prev:null, vx:null, vy:null, tx:null, ty:null, u8:null, lastT:-1e9, lastVT:-1, has:false,
+  E:0, lo:.05, hi:.9, hist:new Uint32Array(64) };
+FG.cx = FG.cv.getContext('2d', { willReadFrequently:true });
+function flowSize(){
+  const h = Math.max(36, Math.min(96, Math.round(96*vidH/Math.max(1, vidW)/FG.B)*FG.B));
+  if (FG.cur && FG.h === h) return;
+  FG.h = h; FG.cv.width = FG.w; FG.cv.height = h;
+  FG.gx = FG.w/FG.B | 0; FG.gy = h/FG.B | 0;
+  FG.cur = new Uint8Array(FG.w*h); FG.prev = new Uint8Array(FG.w*h);
+  const n = FG.gx*FG.gy;
+  FG.vx = new Float32Array(n); FG.vy = new Float32Array(n); FG.tx = new Float32Array(n); FG.ty = new Float32Array(n);
+  FG.u8 = new Uint8Array(n*2).fill(128); FG.has = false;
+}
+function resetFlow(){ if (FG.vx){ FG.vx.fill(0); FG.vy.fill(0); FG.u8.fill(128); } FG.has = false; FG.E = 0; FG.lastT = -1e9; }
+// grey: 0..255 frame in FG.cur (already filled); tMs: time of the frame
+function stepFlow(tMs){
+  const w = FG.w, h = FG.h, B = FG.B, R = FG.R, gx = FG.gx, gy = FG.gy, cur = FG.cur, prev = FG.prev;
+  const gap = tMs - FG.lastT;
+  const fresh = !FG.has || !(gap > 0) || gap > 700;
+  // levels from a histogram (5th / 95th percentile), smoothed
+  const hist = FG.hist; hist.fill(0);
+  for (let i = 0; i < w*h; i += 3) hist[cur[i] >> 2]++;
+  let tot = 0; for (let i = 0; i < 64; i++) tot += hist[i];
+  let acc = 0, lo = 0, hi = 63;
+  for (let i = 0; i < 64; i++){ acc += hist[i]; if (acc < tot*.05) lo = i; if (acc < tot*.97) hi = i; }
+  const kl = fresh ? 1 : .1;
+  FG.lo += ((lo*4)/255 - FG.lo)*kl;
+  FG.hi += (Math.max(FG.lo + .15, (hi*4 + 4)/255) - FG.hi)*kl;
+  if (fresh){
+    FG.vx.fill(0); FG.vy.fill(0);
+  } else {
+    const sec = gap/1000;
+    for (let by = 0; by < gy; by++){
+      for (let bx = 0; bx < gx; bx++){
+        const x0 = bx*B, y0 = by*B, bi = by*gx + bx;
+        // texture check: flat blocks cannot be matched
+        let s = 0, s2 = 0;
+        for (let j = 0; j < B; j++){ const r = (y0 + j)*w + x0; for (let i = 0; i < B; i++){ const v = cur[r + i]; s += v; s2 += v*v; } }
+        const n = B*B, varr = s2/n - (s/n)*(s/n);
+        let bdx = 0, bdy = 0;
+        if (varr > 30){
+          let best = 0;
+          for (let j = 0; j < B; j++){ const r = (y0 + j)*w + x0; for (let i = 0; i < B; i++){ const d = cur[r + i] - prev[r + i]; best += d < 0 ? -d : d; } }
+          best = best*.88 - 40;                                   // stillness wins ties
+          for (let dy = -R; dy <= R; dy++){
+            const yy = y0 - dy; if (yy < 0 || yy + B > h) continue;
+            for (let dx = -R; dx <= R; dx++){
+              if (!dx && !dy) continue;
+              const xx = x0 - dx; if (xx < 0 || xx + B > w) continue;
+              let sad = 0;
+              for (let j = 0; j < B && sad < best; j++){
+                const rc = (y0 + j)*w + x0, rp = (yy + j)*w + xx;
+                for (let i = 0; i < B; i++){ const d = cur[rc + i] - prev[rp + i]; sad += d < 0 ? -d : d; }
+              }
+              if (sad < best){ best = sad; bdx = dx; bdy = dy; }
+            }
+          }
+        }
+        if (varr > 30){ FG.tx[bi] = bdx/w/sec; FG.ty[bi] = bdy/h/sec; }   // video-normalised units per second
+        else if (maskAtV((x0 + B/2)/w, (y0 + B/2)/h) > .5){ FG.tx[bi] = M.vx; FG.ty[bi] = M.vy; }   // flat cloth moves with the body
+        else { FG.tx[bi] = 0; FG.ty[bi] = 0; }
+      }
+    }
+    // smooth: 3x3 neighbourhood, then in time
+    let e = 0;
+    for (let by = 0; by < gy; by++){
+      for (let bx = 0; bx < gx; bx++){
+        let sx = 0, sy = 0, sw = 0;
+        for (let j = -1; j <= 1; j++){ const yy = by + j; if (yy < 0 || yy >= gy) continue;
+          for (let i = -1; i <= 1; i++){ const xx = bx + i; if (xx < 0 || xx >= gx) continue;
+            const wgt = (i || j) ? .5 : 2, k = yy*gx + xx; sx += FG.tx[k]*wgt; sy += FG.ty[k]*wgt; sw += wgt; } }
+        const k = by*gx + bx;
+        let vx = FG.vx[k]*.35 + sx/sw*.65, vy = FG.vy[k]*.35 + sy/sw*.65;
+        if (!Number.isFinite(vx)) vx = 0; if (!Number.isFinite(vy)) vy = 0;
+        vx = Math.max(-3, Math.min(3, vx)); vy = Math.max(-3, Math.min(3, vy));
+        FG.vx[k] = vx; FG.vy[k] = vy; e += Math.hypot(vx, vy);
+      }
+    }
+    FG.E = FG.E*.6 + Math.min(2, e/(gx*gy)*4)*.4;
+  }
+  for (let k = 0; k < gx*gy; k++){
+    FG.u8[k*2] = Math.max(0, Math.min(255, Math.round(128 + FG.vx[k]/3*127)));
+    FG.u8[k*2 + 1] = Math.max(0, Math.min(255, Math.round(128 + FG.vy[k]/3*127)));
+  }
+  const t = FG.prev; FG.prev = FG.cur; FG.cur = t;
+  FG.lastT = tMs; FG.has = true;
+}
+function grabFlow(now){
+  if (video.readyState < 2) return;
+  const vt = video.currentTime; if (vt === FG.lastVT) return; FG.lastVT = vt;
+  flowSize();
+  try{ FG.cx.drawImage(video, 0, 0, FG.w, FG.h); }catch(e){ return; }
+  const d = FG.cx.getImageData(0, 0, FG.w, FG.h).data, c = FG.cur;
+  for (let i = 0, j = 0; i < c.length; i++, j += 4) c[i] = (d[j]*54 + d[j+1]*183 + d[j+2]*19) >> 8;
+  stepFlow(now);
+  if (PP){ gl.bindTexture(gl.TEXTURE_2D, texFlow); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RG8, FG.gx, FG.gy, 0, gl.RG, gl.UNSIGNED_BYTE, FG.u8); }
+}
+
+/* ---------- person mask (reused buffers) ---------- */
+const M = { w:0, h:0, f:null, ch:null, u8:null, cover:0, present:false, has:false, lastT:-1e9, cx:.5, cy:.5,
+  vcx:.5, vcy:.5, vx:0, vy:0, x0:.3, x1:.7, y0:.2, y1:1, obs:0 };
+function ingestMask(data, w, h, tMs){
+  if (!data || !(w > 0) || !(h > 0) || data.length < w*h) return;
+  if (!Number.isFinite(tMs)) tMs = performance.now();
+  let fresh = false;
+  if (M.w !== w || M.h !== h){ M.w = w; M.h = h; M.f = new Float32Array(w*h); M.ch = new Float32Array(w*h); M.u8 = new Uint8Array(w*h*2); fresh = true; }
+  const gap = tMs - M.lastT;
+  if (!(gap > 0) || gap > 450) fresh = true;
+  const sec = fresh ? 0 : gap/1000, decay = Math.exp(-sec/.45);
+  const F = M.f, CH = M.ch, U8 = M.u8;
+  let on = 0, sx = 0, sy = 0, x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9;
+  for (let y = 0, i = 0; y < h; y++){
+    for (let x = 0; x < w; x++, i++){
+      let m = data[i]; if (!(m >= 0)) m = 0; else if (m > 1) m = 1;
+      const old = F[i], nf = fresh ? m : old*.25 + m*.75;
+      // where the body just arrived or just left: the paint there is still wet
+      const c = fresh ? 0 : Math.max(CH[i]*decay, Math.min(1, Math.abs(nf - old)*4));
+      F[i] = nf; CH[i] = c; U8[i*2] = nf*255 | 0; U8[i*2 + 1] = c*255 | 0;
+      if (nf > .5){ on++; sx += x; sy += y; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+    }
+  }
+  M.cover = on/(w*h); M.present = M.cover > .006; M.has = true;
+  if (on){
+    const vcx = sx/on/w, vcy = sy/on/h;
+    if (fresh || !M.present || !(sec > 0)){ M.vx = 0; M.vy = 0; }
+    else {
+      const vx = Math.max(-3, Math.min(3, (vcx - M.vcx)/sec)), vy = Math.max(-3, Math.min(3, (vcy - M.vcy)/sec));
+      M.vx += (vx - M.vx)*.5; M.vy += (vy - M.vy)*.5;
+    }
+    M.vcx = vcx; M.vcy = vcy;
+    // to screen space (mirror flips the box)
+    vToS((x0 + .5)/w, (y0 + .5)/h, _a); vToS((x1 + .5)/w, (y1 + .5)/h, _b);
+    M.x0 = Math.min(_a[0], _b[0]); M.x1 = Math.max(_a[0], _b[0]); M.y0 = _a[1]; M.y1 = _b[1];
+    vToS(vcx, vcy, _a); M.cx = _a[0]; M.cy = _a[1];
+  } else { M.vx = 0; M.vy = 0; }
+  M.lastT = tMs; M.obs++;
+  if (PP){ gl.bindTexture(gl.TEXTURE_2D, texMask); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RG8, w, h, 0, gl.RG, gl.UNSIGNED_BYTE, U8); }
+}
+function maskAtV(x, y){
+  if (!M.f || !M.present || performance.now() - M.lastT > 600 && !EXT) return 0;
+  const i = Math.min(M.h - 1, Math.max(0, y*M.h | 0))*M.w + Math.min(M.w - 1, Math.max(0, x*M.w | 0));
+  return M.f[i];
+}
+
+/* ---------- face: position, turning speed, open mouth ---------- */
+const FC = { ok:false, lastSeen:-1e9, x:.5, y:.4, size:.3, yaw:0, roll:0, yawV:0, rollV:0, mouth:0, openMs:0, seen:0 };
+function lmk(a, i){
+  if (!a || a.length <= i) return null;
+  const p = a[i];
+  if (!p || !Number.isFinite(p.x) || !Number.isFinite(p.y)) return null;
+  return p;
+}
+function loseFace(){ FC.ok = false; FC.yawV = 0; FC.rollV = 0; FC.openMs = 0; FC.mouth = 0; }
+function onFace(lms, tMs){
+  if (!Number.isFinite(tMs)) return;
+  const stale = () => { if (tMs - FC.lastSeen > 500) loseFace(); };
+  if (!lms || !(lms.length >= 468)){ stale(); return; }
+  const top = lmk(lms, 10), chin = lmk(lms, 152), nose = lmk(lms, 1), eL = lmk(lms, 33), eR = lmk(lms, 263);
+  const lu = lmk(lms, 13), ll = lmk(lms, 14);
+  if (!top || !chin || !nose || !eL || !eR || !lu || !ll){ stale(); return; }
+  const sh = Math.min(CW, CH);
+  vToS(top.x, top.y, _a); vToS(chin.x, chin.y, _b);
+  const cx = (_a[0] + _b[0])/2, cy = (_a[1] + _b[1])/2;
+  const fh = Math.hypot((_b[0] - _a[0])*CW, (_b[1] - _a[1])*CH);
+  if (!(fh > sh*.04) || !(fh < sh*2) || !Number.isFinite(cx) || !Number.isFinite(cy)){ stale(); return; }
+  vToS(eL.x, eL.y, _a); vToS(eR.x, eR.y, _b);
+  const ex = (_a[0] + _b[0])/2, edx = (_b[0] - _a[0])*CW, edy = (_b[1] - _a[1])*CH, ed = Math.hypot(edx, edy);
+  if (!(ed > fh*.12)){ stale(); return; }
+  vToS(nose.x, nose.y, _a);
+  let yaw = Math.max(-1.2, Math.min(1.2, ((_a[0] - ex)*CW)/ed));
+  let roll = Math.atan2(edy, edx); if (roll > Math.PI/2) roll -= Math.PI; if (roll < -Math.PI/2) roll += Math.PI;
+  vToS(lu.x, lu.y, _a); vToS(ll.x, ll.y, _b);
+  const mouth = Math.hypot((_b[0] - _a[0])*CW, (_b[1] - _a[1])*CH)/fh;
+  if (!Number.isFinite(yaw) || !Number.isFinite(roll) || !Number.isFinite(mouth)){ stale(); return; }
+  const gap = tMs - FC.lastSeen;
+  const snap = !FC.ok || !(gap > 0) || gap > 500;
+  if (snap){
+    FC.x = cx; FC.y = cy; FC.size = fh/sh; FC.yaw = yaw; FC.roll = roll; FC.yawV = 0; FC.rollV = 0; FC.openMs = 0;
+  } else {
+    const sec = Math.min(.5, gap/1000);
+    const yv = (yaw - FC.yaw)/sec, rv = (roll - FC.roll)/sec;
+    FC.yawV += (Math.max(-8, Math.min(8, yv)) - FC.yawV)*.55;
+    FC.rollV += (Math.max(-8, Math.min(8, rv)) - FC.rollV)*.55;
+    FC.x += (cx - FC.x)*.6; FC.y += (cy - FC.y)*.6; FC.size += (fh/sh - FC.size)*.4;
+    FC.yaw += (yaw - FC.yaw)*.7; FC.roll += (roll - FC.roll)*.7;
+    // the open-mouth hold is counted in observed time, not frames
+    if (mouth > .13) FC.openMs += gap; else FC.openMs = 0;
+  }
+  FC.mouth = mouth; FC.ok = true; FC.lastSeen = tMs; FC.seen++;
+}
+
+/* ---------- the cage (2D overlay: R = back bars, G = front bars) ---------- */
+const over = document.createElement('canvas'), ocx = over.getContext('2d');
+let OW = 2, OH = 2;
+const CG = { cx:.5, top:.15, hw:.3, bot:1.1, ok:false, yaw:0 };
+function drawCage(dt){
+  ocx.setTransform(1, 0, 0, 1, 0, 0);
+  ocx.fillStyle = '#000'; ocx.fillRect(0, 0, OW, OH);
+  const sh = Math.min(OW, OH), ax = OW/sh, ay = OH/sh;     // su -> short-edge units
+  let cx = .5, top = .14, hw = .42*Math.min(1, ax*.9), bot = 1.08;
+  const faceLive = FC.ok;
+  if (faceLive){
+    cx = FC.x; top = FC.y - FC.size*1.05/ay; hw = FC.size*1.45; bot = Math.max(FC.y + FC.size*2.2/ay, M.present ? M.y1 + .02 : 0);
+  } else if (M.present){
+    cx = (M.x0 + M.x1)/2; top = M.y0 - .05; hw = Math.max(.15, (M.x1 - M.x0)*ax*.55); bot = M.y1 + .03;
+  }
+  hw = Math.min(hw, ax*.48); top = Math.max(.04, top); bot = Math.max(bot, top + .3);
+  const k = CG.ok ? 1 - Math.exp(-dt*3.5) : 1;
+  CG.cx += (cx - CG.cx)*k; CG.top += (top - CG.top)*k; CG.hw += (hw - CG.hw)*k; CG.bot += (bot - CG.bot)*k;
+  CG.yaw += ((faceLive ? FC.yaw : 0) - CG.yaw)*(1 - Math.exp(-dt*3)); CG.ok = true;
+  if (S.cage < .01) return;
+  // front rectangle, back rectangle shrunk toward a vanishing point that swings with the head
+  const X = u => u*OW, Y = v => v*OH;
+  const fx0 = CG.cx - CG.hw/ax, fx1 = CG.cx + CG.hw/ax, fy0 = CG.top, fy1 = CG.bot;
+  const vpx = .5 + CG.yaw*.5, vpy = HZ - .12, s = .72;
+  const bx0 = vpx + (fx0 - vpx)*s, bx1 = vpx + (fx1 - vpx)*s, by0 = vpy + (fy0 - vpy)*s, by1 = vpy + (fy1 - vpy)*s;
+  const lw = Math.max(1.1, sh*.0042);
+  ocx.lineCap = 'round'; ocx.lineJoin = 'round';
+  const line = (x0, y0, x1, y1) => { ocx.beginPath(); ocx.moveTo(X(x0), Y(y0)); ocx.lineTo(X(x1), Y(y1)); ocx.stroke(); };
+  ocx.strokeStyle = '#f00'; ocx.lineWidth = lw*.85;
+  line(bx0, by0, bx1, by0); line(bx0, by0, bx0, by1); line(bx1, by0, bx1, by1); line(bx0, by1, bx1, by1);
+  line(fx0, fy0, bx0, by0); line(fx1, fy0, bx1, by0); line(fx0, fy1, bx0, by1); line(fx1, fy1, bx1, by1);
+  ocx.strokeStyle = '#0f0'; ocx.lineWidth = lw;
+  line(fx0, fy0, fx1, fy0); line(fx0, fy0, fx0, fy1); line(fx1, fy0, fx1, fy1); line(fx0, fy1, fx1, fy1);
+  // a second, fainter pass of the front top bar: Bacon's lines are drawn twice
+  ocx.globalAlpha = .45; ocx.lineWidth = lw*.6; line(fx0 + .004, fy0 + .006, fx1 - .01, fy0 + .004); ocx.globalAlpha = 1;
+}
+
+/* ---------- MediaPipe (dynamic import; the camera still runs without it) ---------- */
+let segmenter = null, facer = null, lastTs = 0, lastVT = -1, modelState = 'loading';
+async function initModel(){
+  try{
+    const vision = await import(VISION_URL);
+    const fs = await vision.FilesetResolver.forVisionTasks(WASM_URL);
+    const mk = async (Cls, o) => { try { return await Cls.createFromOptions(fs, { ...o, baseOptions:{ ...o.baseOptions, delegate:'GPU' } }); }
+                                   catch(e){ return await Cls.createFromOptions(fs, { ...o, baseOptions:{ ...o.baseOptions, delegate:'CPU' } }); } };
+    segmenter = await mk(vision.ImageSegmenter, { baseOptions:{ modelAssetPath:SEG_MODEL }, runningMode:'VIDEO', outputConfidenceMasks:true, outputCategoryMask:false });
+    facer = await mk(vision.FaceLandmarker, { baseOptions:{ modelAssetPath:FACE_MODEL }, runningMode:'VIDEO', numFaces:1,
+      minFaceDetectionConfidence:.5, minFacePresenceConfidence:.5, minTrackingConfidence:.5 });
+    modelState = 'ok';
+  }catch(e){
+    if (EXT) return;
+    modelState = segmenter ? 'ok' : 'fail';
+  }
+}
+function track(now){
+  if (video.readyState < 2) return;
+  const vt = video.currentTime; if (vt === lastVT) return; lastVT = vt;
+  const ts = Math.max(lastTs + 1, Math.round(now)); lastTs = ts;
+  if (segmenter){
+    try{
+      segmenter.segmentForVideo(video, ts, res => {
+        const ms = res && res.confidenceMasks;
+        if (!ms || !ms.length) return;
+        const mk = ms[ms.length - 1];
+        ingestMask(mk.getAsFloat32Array(), mk.width, mk.height, ts);
+      });
+    }catch(e){}
+  }
+  if (facer){
+    try{ const r = facer.detectForVideo(video, ts); onFace(r && r.faceLandmarks && r.faceLandmarks[0], ts); }catch(e){}
+  }
+}
+
+/* ---------- camera ---------- */
+let stream = null, facing = 'user', started = false, EXT = false;
+function setStatus(t){ $('status').textContent = t || ''; }
+function camError(e){
+  const msg = (e && (e.message || e.name)) ? (e.message || e.name) : String(e || 'unknown');
+  const text = 'カメラを起動できませんでした：' + msg + '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+  $('err').textContent = text;
+  if (started) setStatus(text);
+}
+async function startCam(){
+  const md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) throw new Error('getUserMedia is unavailable');
+  const s = await md.getUserMedia({ video:{ facingMode:{ ideal:facing }, width:{ ideal:1280 }, height:{ ideal:720 } }, audio:false });
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = s; mirror = facing === 'user';
+  video.srcObject = s;
+  await new Promise(r => { if (video.readyState >= 1) r(); else video.onloadedmetadata = () => r(); });
+  await video.play().catch(()=>{});
+  vidW = video.videoWidth || 1280; vidH = video.videoHeight || 720;
+  M.lastT = -1e9; loseFace(); resetFlow(); needReset = true;
+}
+
+/* ---------- audio: a low string drone that thickens with motion, the scream, the shutter ---------- */
+let actx = null, bus = null, recDest = null, drone = null, cry = null;
+function ensureAudio(){
+  if (actx){ if (actx.state === 'suspended') actx.resume().catch(()=>{}); return; }
+  const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+  actx = new AC(); bus = actx.createGain(); bus.gain.value = .5; bus.connect(actx.destination);
+  recDest = actx.createMediaStreamDestination(); bus.connect(recDest);
+  // drone: two detuned saws through a lowpass
+  const g = actx.createGain(); g.gain.value = 0;
+  const lp = actx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 180; lp.Q.value = 3;
+  [55, 55.35, 82.6].forEach(f => { const o = actx.createOscillator(); o.type = 'sawtooth'; o.frequency.value = f; o.connect(lp); o.start(); });
+  lp.connect(g); g.connect(bus); drone = { g, lp };
+  // scream: a cluster of close strings through a bandpass
+  const cg = actx.createGain(); cg.gain.value = 0;
+  const bp = actx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 700; bp.Q.value = 1.4;
+  [233.1, 246.9, 261.6, 277.2].forEach((f, i) => { const o = actx.createOscillator(); o.type = 'sawtooth'; o.frequency.value = f; o.detune.value = (i - 1.5)*7; o.connect(bp); o.start(); });
+  bp.connect(cg); cg.connect(bus); cry = { g:cg, bp };
+  actx.resume().catch(()=>{});
+}
+function noiseHit(dur, freq, q, vol, sweep){
+  if (!actx || actx.state !== 'running') return;
+  const t = actx.currentTime, len = Math.max(1, actx.sampleRate*dur | 0), b = actx.createBuffer(1, len, actx.sampleRate), d = b.getChannelData(0);
+  for (let i = 0; i < len; i++) d[i] = (Math.random()*2 - 1)*Math.pow(1 - i/len, 1.5);
+  const s = actx.createBufferSource(); s.buffer = b;
+  const f = actx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.setValueAtTime(freq, t); f.Q.value = q;
+  if (sweep) f.frequency.exponentialRampToValueAtTime(sweep, t + dur);
+  const g = actx.createGain(); g.gain.value = vol;
+  s.connect(f); f.connect(g); g.connect(bus); s.start(t);
+}
+function thud(){
+  if (!actx || actx.state !== 'running') return;
+  const t = actx.currentTime, o = actx.createOscillator(), g = actx.createGain();
+  o.type = 'sine'; o.frequency.setValueAtTime(90, t); o.frequency.exponentialRampToValueAtTime(42, t + .4);
+  g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime(.35, t + .01); g.gain.exponentialRampToValueAtTime(.0005, t + .6);
+  o.connect(g); g.connect(bus); o.start(t); o.stop(t + .65);
+}
+function audioTick(motion, scream, fxOn){
+  if (!actx || !drone) return;
+  const t = actx.currentTime;
+  drone.g.gain.setTargetAtTime(fxOn ? .02 + Math.min(.09, motion*.07) : 0, t, .25);
+  drone.lp.frequency.setTargetAtTime(150 + Math.min(900, motion*500), t, .3);
+  cry.g.gain.setTargetAtTime(fxOn ? scream*.05 : 0, t, scream > .05 ? .15 : .5);
+  cry.bp.frequency.setTargetAtTime(500 + scream*1400, t, .4);
+}
+
+/* ---------- studies: up to three panels (two frozen + the live one) ---------- */
+const STUDY = []; // { t:target, cx, cy, w, goal }
+let liveW = 1;
+function snapStudy(){
+  if (!scene) return false;
+  const alive = STUDY.filter(s => s.goal > 0);
+  if (alive.length >= 2) alive[0].goal = 0;                  // the oldest slides out
+  const r = target(scene.w, scene.h);
+  gl.bindFramebuffer(gl.READ_FRAMEBUFFER, scene.f); gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, r.f);
+  gl.blitFramebuffer(0, 0, scene.w, scene.h, 0, 0, scene.w, scene.h, gl.COLOR_BUFFER_BIT, gl.NEAREST);
+  gl.bindFramebuffer(gl.READ_FRAMEBUFFER, null); gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, null);
+  // the frozen study takes the live panel's place; a new live panel grows in after it
+  STUDY.push({ t:r, cx:LV.cx, cy:LV.cy, w:liveW, goal:1 });
+  liveW = 0;
+  $('clear').classList.add('show');
+  return true;
+}
+function clearStudies(){ STUDY.forEach(s => { s.goal = 0; }); }
+function dropStudies(){ while (STUDY.length) freeTarget(STUDY.pop().t); liveW = 1; $('clear').classList.remove('show'); }
+
+/* ---------- mode: plain camera ⇄ painting (one wide brush stroke) ---------- */
+const MODE = { on:false, t0:-1e9, from:0, reveal:0, fxOn:false };
+function setMode(on){
+  MODE.from = MODE.reveal; MODE.on = on; MODE.t0 = performance.now();
+  $('mode').textContent = on ? 'カメラにもどる' : '絵にする';
+  noiseHit(1.1, on ? 500 : 1400, .8, .5, on ? 2600 : 300);
+  if (on){ newSwipe(); setTimeout(thud, 900); }
+  else clearStudies();
+}
+const SW = { dx:.8, dy:.6, off:0, amp:.22 };
+function newSwipe(){
+  const a = (Math.random() < .5 ? -1 : 1)*(.35 + Math.random()*.6);
+  SW.dx = Math.cos(a); SW.dy = Math.sin(a); SW.off = (Math.random() - .5)*.35; SW.amp = .16 + Math.random()*.12;
+}
+function setStyle(i){
+  i = ((i % 3) + 3) % 3; S.style = i;
+  [...$('styles').children].forEach(x => x.classList.toggle('on', +x.dataset.s === i));
+  $('panel').style.setProperty('--acc', CAGE_COL[i]);
+}
+function tapStudy(){
+  if (!MODE.on || MODE.reveal < .99) return false;
+  const ok = snapStudy();
+  if (ok){ noiseHit(.06, 3000, 1, .9); thud(); newSwipe(); }
+  return ok;
+}
+
+$('go').onclick = async () => {
+  $('err').textContent = '';
+  ensureAudio();
+  try{
+    if (!gl) throw new Error('WebGL2 に未対応のブラウザです');
+    if (!PP) initGL();
+    await startCam();
+  }catch(e){ camError(e); return; }
+  $('start').style.display = 'none';
+  ['gear','flip','bar','rec','shoot','mode','hud'].forEach(id => $(id).classList.add('show'));
+  if (!started){ started = true; if (!EXT) initModel(); requestAnimationFrame(loop); }
+};
+$('flip').onclick = async () => {
+  const prev = facing; facing = facing === 'user' ? 'environment' : 'user';
+  try { await startCam(); } catch(e){ facing = prev; camError(e); }
+};
+$('gear').onclick = () => $('panel').classList.toggle('hide');
+$('mode').onclick = () => { ensureAudio(); setMode(!MODE.on); };
+$('clear').onclick = () => { clearStudies(); noiseHit(.5, 900, .7, .3, 300); };
+canvas.addEventListener('pointerdown', () => {
+  if (!started) return;
+  ensureAudio();
+  if (!$('panel').classList.contains('hide')){ $('panel').classList.add('hide'); return; }
+  tapStudy();
+});
+addEventListener('keydown', e => { if (started && (e.key === ' ' || e.key === 'Enter') && document.activeElement.tagName !== 'INPUT'){ e.preventDefault(); setMode(!MODE.on); } });
+$('styles').onclick = e => { const b = e.target.closest('button'); if (b){ setStyle(+b.dataset.s); noiseHit(.7, 700, .8, .3, 2000); } };
+[['sTwist','twist'],['sDrag','drag'],['sDry','dry'],['sBrush','brush'],['sCage','cage'],['sGrain','grain']].forEach(([id,k]) => { $(id).oninput = e => { S[k] = +e.target.value; }; });
+
+$('shoot').onclick = () => {
+  noiseHit(.06, 3000, 1, .9);
+  try{
+    canvas.toBlob(b => { if (!b) return; const a = document.createElement('a'); a.href = URL.createObjectURL(b);
+      a.download = 'nejire-' + Date.now() + '.png'; a.click(); }, 'image/png');
+  }catch(e){ setStatus('保存できませんでした。'); }
+};
+let rec = null, chunks = [];
+$('rec').onclick = () => {
+  if (rec && rec.state === 'recording'){ rec.stop(); return; }
+  try{
+    ensureAudio();
+    const tracks = [...canvas.captureStream(30).getVideoTracks()];
+    if (recDest) tracks.push(...recDest.stream.getAudioTracks());
+    const mime = ['video/mp4;codecs=avc1','video/webm;codecs=vp9,opus','video/webm'].find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || '';
+    rec = new MediaRecorder(new MediaStream(tracks), mime ? { mimeType:mime } : {});
+    chunks = [];
+    rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+    rec.onstop = () => {
+      $('rec').classList.remove('on'); $('rec').textContent = '● REC';
+      const ext = (rec.mimeType || '').includes('mp4') ? 'mp4' : 'webm';
+      const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(chunks, { type:rec.mimeType || 'video/webm' }));
+      a.download = 'nejire.' + ext; a.click();
+    };
+    rec.start(); $('rec').classList.add('on'); $('rec').textContent = '■ STOP';
+  }catch(e){ setStatus('録画を開始できませんでした。'); }
+};
+
+/* ---------- render ---------- */
+let lastT = 0, hudT = 0, HZ = .64;
+const LV = { cx:.5, cy:.5 };
+const FX = { spin:0, scream:0, motion:0 };
+function bindTex(unit, t){ gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, t); }
+function panelCrop(cx, cy, pw, ph, out){
+  // cover-fit a panel of aspect pw:ph into the full frame, centred on the figure
+  const pa = pw/ph, sa = CW/CH;
+  let w = 1, h = 1;
+  if (pa < sa) w = pa/sa; else h = sa/pa;
+  out[0] = Math.max(0, Math.min(1 - w, cx - w/2)); out[1] = Math.max(0, Math.min(1 - h, cy - h/2)); out[2] = w; out[3] = h;
+  return out;
+}
+const CROP = [0,0,1,1];
+function loop(now){
+  requestAnimationFrame(loop);
+  // real elapsed time (bounded): low frame rates must not slow the easing or the drying of the paint
+  const dt = lastT ? Math.min(.25, Math.max(0, (now - lastT)/1000)) : 1/60; lastT = now;
+  const t = now/1000;
+  if (video.videoWidth){ vidW = video.videoWidth; vidH = video.videoHeight; }
+  const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+  let W = Math.round(innerWidth*dpr), H = Math.round(innerHeight*dpr);
+  const kk = Math.min(1, 1400/Math.max(W, H)); W = Math.round(W*kk); H = Math.round(H*kk);
+  if (canvas.width !== W || canvas.height !== H){ canvas.width = W; canvas.height = H; }
+  if (!scene || scene.w !== W || scene.h !== H){
+    freeTarget(scene); scene = target(W, H); dropStudies();
+    const pw = Math.max(64, Math.round(W*.6)), ph = Math.max(64, Math.round(H*.6));
+    freeTarget(paintA); freeTarget(paintB); paintA = target(pw, ph); paintB = target(pw, ph); needReset = true;
+  }
+  CW = W; CH = H;
+  const ow = Math.max(64, Math.round(W*.5)), oh = Math.max(64, Math.round(H*.5));
+  if (ow !== OW || oh !== OH){ OW = over.width = ow; OH = over.height = oh; }
+  const sa = W/H, va = vidW/vidH; scX = sa < va ? sa/va : 1; scY = sa < va ? 1 : va/sa;
+  const sh = Math.min(W, H), asx = W/sh, asy = H/sh;
+  HZ = sa < 1 ? .7 : .64;
+  if (!EXT) track(now);
+  grabFlow(now);
+  if (video.readyState < 2) return;
+
+  // painting progress (the brush crosses in 1.5 s, lifts in 0.9 s)
+  const dur = MODE.on ? 1500 : 900;
+  const k = Math.min(1, (now - MODE.t0)/dur), ke = k*k*(3 - 2*k);
+  MODE.reveal = MODE.from + ((MODE.on ? 1 : 0) - MODE.from)*ke;
+  MODE.fxOn = MODE.reveal > .02;
+
+  // tracking: a face that stops reporting is dropped after 1.5 s of real time
+  if (FC.ok && now - FC.lastSeen > 1500 && !EXT) loseFace();
+  if (FC.ok && EXT && performance.now() - FC.lastSeen > 1500) loseFace();
+  const spinT = FC.ok ? Math.max(-4.5, Math.min(4.5, -FC.yawV*1.3 + FC.rollV*1.0))*S.twist : 0;
+  FX.spin += (spinT - FX.spin)*(1 - Math.exp(-dt*8));
+  const screamT = FC.ok && FC.openMs > 150 ? 1 : 0;
+  FX.scream += (screamT - FX.scream)*(1 - Math.exp(-dt*(screamT ? 3 : 1.1)));
+  FX.motion += (FG.E + Math.abs(FX.spin)*.15 - FX.motion)*(1 - Math.exp(-dt*4));
+  audioTick(FX.motion, FX.scream, MODE.fxOn);
+  if (M.present){ LV.cx += (M.cx - LV.cx)*(1 - Math.exp(-dt*3)); LV.cy += (M.cy - LV.cy)*(1 - Math.exp(-dt*3)); }
+  if (FC.ok){ const kf = 1 - Math.exp(-dt*3); LV.cx += (FC.x - LV.cx)*kf; LV.cy += (FC.y + FC.size*sh/H*.45 - LV.cy)*kf; }
+
+  drawCage(dt);
+
+  // uploads
+  bindTex(0, texVid);
+  try { gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video); } catch(e){ return; }
+  bindTex(1, texMask); bindTex(2, texFlow);
+  bindTex(4, texOver); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, over);
+
+  // pass 1: paint
+  const hasM = M.has && M.present ? 1 : 0;
+  gl.useProgram(PP.p); let U = PP.U;
+  bindTex(3, paintA.t);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, paintB.f); gl.viewport(0, 0, paintB.w, paintB.h);
+  gl.uniform1i(U.uVid, 0); gl.uniform1i(U.uMask, 1); gl.uniform1i(U.uFlow, 2); gl.uniform1i(U.uPaint, 3);
+  gl.uniform2f(U.uScale, scX, scY); gl.uniform2f(U.uAsp, asx, asy); gl.uniform2f(U.uLvl, FG.lo, FG.hi); gl.uniform2f(U.uMTex, Math.max(1, M.w), Math.max(1, M.h));
+  if (FC.ok) gl.uniform3f(U.uFace, FC.x, FC.y, FC.size); else gl.uniform3f(U.uFace, 0, 0, 0);
+  gl.uniform4f(U.uSwipe, SW.dx, SW.dy, SW.off, SW.amp*S.twist);
+  if (M.present && M.y1 < .93){
+    gl.uniform4f(U.uShadow, (M.x0 + M.x1)/2, Math.max(HZ + .03, M.y1), Math.max(.12, (M.x1 - M.x0)*asx*.6), 1);
+  } else gl.uniform4f(U.uShadow, .5, 2, .1, 0);
+  gl.uniform1f(U.uMirror, mirror ? 1 : 0); gl.uniform1f(U.uHas, hasM); gl.uniform1f(U.uT, t); gl.uniform1f(U.uDt, dt);
+  gl.uniform1f(U.uDrag, S.drag); gl.uniform1f(U.uDry, S.dry); gl.uniform1f(U.uBrush, S.brush);
+  gl.uniform1f(U.uScream, FX.scream); gl.uniform1f(U.uSpin, FX.spin); gl.uniform1f(U.uReset, needReset ? 1 : 0); gl.uniform1f(U.uHz, HZ);
+  gl.uniform1i(U.uSt, S.style);
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  needReset = false;
+  const tmp = paintA; paintA = paintB; paintB = tmp;
+
+  // pass 2: compose into the scene
+  gl.useProgram(PC.p); U = PC.U;
+  bindTex(3, paintA.t);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, scene.f); gl.viewport(0, 0, W, H);
+  gl.uniform1i(U.uVid, 0); gl.uniform1i(U.uMask, 1); gl.uniform1i(U.uPaint, 3); gl.uniform1i(U.uOver, 4);
+  gl.uniform2f(U.uScale, scX, scY); gl.uniform2f(U.uAsp, asx, asy); gl.uniform2f(U.uRes, W, H);
+  const cc = CAGE_COL[S.style];
+  gl.uniform3f(U.uCage, parseInt(cc.slice(1,3),16)/255, parseInt(cc.slice(3,5),16)/255, parseInt(cc.slice(5,7),16)/255);
+  gl.uniform1f(U.uMirror, mirror ? 1 : 0); gl.uniform1f(U.uHas, hasM); gl.uniform1f(U.uT, t); gl.uniform1f(U.uReveal, MODE.reveal);
+  gl.uniform1f(U.uScream, FX.scream); gl.uniform1f(U.uCageA, S.cage*.9); gl.uniform1f(U.uGrain, S.grain); gl.uniform1f(U.uBrush, S.brush);
+  gl.uniform1i(U.uSt, S.style);
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+  // pass 3: layout — panel widths ease toward their goals
+  const ke2 = 1 - Math.exp(-dt*6);
+  for (const s of STUDY) s.w += (s.goal - s.w)*ke2;
+  liveW += (1 - liveW)*ke2;
+  for (let i = STUDY.length - 1; i >= 0; i--) if (STUDY[i].goal === 0 && STUDY[i].w < .01){ freeTarget(STUDY[i].t); STUDY.splice(i, 1); }
+  if (!STUDY.length) $('clear').classList.remove('show');
+  gl.useProgram(PL.p); U = PL.U;
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, 0, W, H);
+  gl.uniform1i(U.uSrc, 5);
+  if (!STUDY.length){
+    bindTex(5, scene.t);
+    gl.uniform4f(U.uCrop, 0, 0, 1, 1); gl.uniform4f(U.uRect, 0, 0, W, H); gl.uniform1f(U.uFrame, 0);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  } else {
+    gl.clearColor(.075, .063, .063, 1); gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.enable(gl.SCISSOR_TEST);
+    const vert = H > W*1.05;                                   // portrait: studies stack top to bottom
+    const gap = Math.round(sh*.028), pad = Math.round(sh*.04), padB = Math.max(pad, Math.round(74*dpr*kk));
+    const panels = STUDY.map(s => ({ tex:s.t.t, cx:s.cx, cy:s.cy, w:s.w })).concat([{ tex:scene.t, cx:LV.cx, cy:LV.cy, w:liveW }]);
+    const tw = panels.reduce((a, p) => a + p.w, 0);
+    const span = (vert ? H - pad - padB : W - pad*2) - gap*(tw - 1), cross = vert ? W - pad*2 : H - pad - padB;
+    let pos = pad;
+    for (const p of panels){
+      const len = span*p.w/Math.max(1e-3, tw);
+      if (len >= 2){
+        const x = vert ? pad : Math.round(pos), y = vert ? Math.round(H - pos - len) : padB;
+        const pw = vert ? cross : Math.round(len), ph = vert ? Math.round(len) : cross;
+        gl.viewport(x, y, pw, ph); gl.scissor(x, y, pw, ph);
+        bindTex(5, p.tex);
+        panelCrop(p.cx, p.cy, pw, ph, CROP);
+        gl.uniform4f(U.uCrop, CROP[0], CROP[1], CROP[2], CROP[3]); gl.uniform4f(U.uRect, x, y, pw, ph);
+        gl.uniform1f(U.uFrame, Math.max(3, sh*.012));
+        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+      }
+      pos += len + gap*p.w;
+    }
+    gl.disable(gl.SCISSOR_TEST); gl.viewport(0, 0, W, H);
+  }
+
+  hudT += dt;
+  if (hudT > .25){ hudT = 0;
+    $('hud').innerHTML = '<b>Nejire</b>\n' + (MODE.fxOn ? STYLES[S.style] + (STUDY.length ? ' · ' + ['', 'DIPTYCH', 'TRIPTYCH'][Math.min(2, STUDY.filter(s => s.goal > 0).length)] : '') : 'CAMERA');
+    let st = '';
+    if (modelState === 'fail' && !EXT) st = '人物検出モデルを読み込めませんでした（ネット接続を確認）。';
+    else if (MODE.fxOn && M.has && !M.present) st = '体が映るように、すこし離れてください。';
+    if ($('status').textContent !== st && !$('status').textContent.startsWith('カメラを起動')) setStatus(st);
+  }
+}
+
+/* ---------- test hook (used by the local verification harness) ---------- */
+window.__NEJIRE = {
+  external(){ EXT = true; },
+  ingestMask(d, w, h, tMs){ EXT = true; ingestMask(d, w, h, tMs); },
+  face(lms, tMs){ EXT = true; onFace(lms, tMs); },
+  mode(on){ setMode(!!on); },
+  style(i){ setStyle(i); },
+  tap(){ return tapStudy(); },
+  clear(){ clearStudies(); },
+  set(k, v){ if (k in S) S[k] = v; },
+  state: () => ({ present:M.present, cover:M.cover, cx:M.cx, cy:M.cy, box:[M.x0, M.y0, M.x1, M.y1], obs:M.obs,
+                  face:FC.ok, fx:FC.x, fy:FC.y, size:FC.size, yaw:FC.yaw, yawV:FC.yawV, mouth:FC.mouth, openMs:FC.openMs,
+                  spin:FX.spin, scream:FX.scream, flowE:FG.E, lvl:[FG.lo, FG.hi], reveal:MODE.reveal, style:S.style,
+                  studies:STUDY.filter(s => s.goal > 0).length, panels:STUDY.length, cage:[CG.cx, CG.top, CG.hw, CG.bot] }),
+  flowAt(gxF, gyF){ if (!FG.vx) return null; const i = Math.min(FG.gy - 1, gyF*FG.gy | 0)*FG.gx + Math.min(FG.gx - 1, gxF*FG.gx | 0); return [FG.vx[i], FG.vy[i]]; },
+};
+</script>
+</body>
+</html>
