@@ -28,6 +28,8 @@
              線がばねのように行き過ぎて輪とうねりになり、残光が数秒尾を引く。
              切り替えは、カメラの像が横一本の線へ潰れ、点になり、その点が
              ほどけてあなたを描きはじめる（ブラウン管の電源）。
+  SEE-THROUGH（2026-10-11 オーナーの依頼）⚙「実写の透け」で線の後ろにカメラ映像を薄く透かせる。
+             「背景だけ」なら人物マスクの外だけが透け、自分は暗い硝子と線のまま。既定は 0。
   SIGNATURE  見えている線と鳴っている音が同じもの。声を出すと（任意）
              その波形で輪郭が震える。
   LAYERS     ① 輪郭＋明暗の等高線＋目・虹彩・眉・唇・鼻・顎の線を一筆書きに
@@ -144,12 +146,17 @@ body.cam #bar #shoot{border-color:rgba(255,255,255,.7)}
   <label><span>暴れ</span><input type="range" id="sRing" min="0" max="1" step="0.01" value="0.6"></label>
   <label><span>音量</span><input type="range" id="sVol" min="0" max="1" step="0.01" value="0.3"></label>
   <label><span>音の高さ</span><input type="range" id="sPitch" min="0" max="1" step="0.01" value="0.35"></label>
+  <label><span>実写の透け</span><input type="range" id="sSee" min="0" max="1" step="0.01" value="0"></label>
+  <div class="chips" id="seeMode">
+    <button data-b="0" class="on">全体を透かす</button>
+    <button data-b="1">背景だけ</button>
+  </div>
   <div class="tg">
     <button id="tFace" class="on">顔の線</button>
     <button id="tGrat" class="on">目盛り</button>
     <button id="tVoice">声で揺らす</button>
   </div>
-  <div class="note">タップで今の姿を焼き付ける。ERASE で消える。<br>線はそのまま左右の音として鳴っている。</div>
+  <div class="note">タップで今の姿を焼き付ける。ERASE で消える。<br>「実写の透け」を上げると、線の後ろにカメラの映像がうっすら見える。「背景だけ」なら自分は暗いまま部屋だけが透ける。<br>線はそのまま左右の音として鳴っている。</div>
 </div>
 
 <div id="start">
@@ -185,7 +192,7 @@ const PHOS = [
   { name:'P31', fast:[.30,1.15,.50], slow:[.26,1.0,.44], store:[.16,.72,1.0], grat:[.30,1.0,.55], tauF:.035, tauS:[.12,1.4], css:'#4dff88' },
   { name:'P4',  fast:[.95,1.0,1.1],  slow:[.80,.86,.95],  store:[.55,.70,1.0], grat:[.85,.9,1.0],  tauF:.03,  tauS:[.06,.8],  css:'#e8eef7' },
 ];
-const S = { ph:0, levels:2, inten:.55, focus:.4, persist:.55, ring:.6, vol:.3, pitch:.35, face:true, grat:true, voice:false };
+const S = { see:0, seeBg:0, ph:0, levels:2, inten:.55, focus:.4, persist:.55, ring:.6, vol:.3, pitch:.35, face:true, grat:true, voice:false };
 
 /* ---------- GL ---------- */
 const gl = canvas.getContext('webgl2', { antialias:false, alpha:false, preserveDrawingBuffer:true, powerPreference:'high-performance' });
@@ -234,10 +241,10 @@ void main(){
 }`;
 const FS_COMP = `#version 300 es
 precision highp float;
-uniform sampler2D uP, uB, uB2, uV;
+uniform sampler2D uP, uB, uB2, uV, uM;
 uniform vec2 uRes, uVScale;
 uniform vec3 uCF, uCS, uCT, uCG;
-uniform float uCam, uQx, uQy, uGrat, uT, uFlash, uMirror, uScope, uBloom;
+uniform float uCam, uQx, uQy, uGrat, uT, uFlash, uMirror, uScope, uBloom, uSee, uSeeBg;
 out vec4 o;
 float h21(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
 vec3 tone(vec3 x){ return 1. - exp(-max(x, 0.)); }
@@ -253,6 +260,14 @@ void main(){
   vec3 eb = B.r * uCF + B.g * uCS, eb2 = B2.r * uCF + B2.g * uCS;
   float st = smoothstep(.05, .3, P.b);
   vec3 col = glass;
+  // the live camera seen faintly through the glass (optionally only the room, not you)
+  if (uSee > 0.){
+    vec2 vs = vec2(s.x, 1. - s.y);
+    vec2 v = (vs - .5) * uVScale + .5; if (uMirror > .5) v.x = 1. - v.x;
+    vec3 cv = texture(uV, v).rgb;
+    float a = uSee * mix(1., 1. - smoothstep(.3, .7, texture(uM, vs).r), uSeeBg);
+    col = mix(col, cv * .9 + glass, a);
+  }
   // graticule: 1 cm squares anchored to the short edge, minor ticks on the axes
   if (uGrat > .0){
     float dv = sh / 8.;
@@ -301,7 +316,7 @@ function prog(vs, fs, attrs){ const p = gl.createProgram(); gl.attachShader(p, s
 function tex(){ const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE); return t; }
-let PSEG, PMUL, PBLUR, PCOMP, vaoQuad, vaoSeg, bufSeg, texVid, HALF = false;
+let PSEG, PMUL, PBLUR, PCOMP, vaoQuad, vaoSeg, bufSeg, texVid, texMask, maskBytes = null, HALF = false;
 const FB = { w:0, h:0, P:null, Pt:null, B:[], key:'' };
 const MAXB = 9000;
 const SEGD = new Float32Array(MAXB * 5);
@@ -323,7 +338,8 @@ function initGL(){
   gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 4, gl.FLOAT, false, 20, 0); gl.vertexAttribDivisor(1, 1);
   gl.enableVertexAttribArray(2); gl.vertexAttribPointer(2, 1, gl.FLOAT, false, 20, 16); gl.vertexAttribDivisor(2, 1);
   gl.bindVertexArray(null);
-  texVid = tex();
+  texVid = tex(); texMask = tex();
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, 1, 1, 0, gl.RED, gl.UNSIGNED_BYTE, new Uint8Array(1));
   gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
 }
 function mkTarget(w, h){
@@ -406,6 +422,13 @@ function analyse(fresh){
   boxBlur(A.tmp, A.blur, A.tmp2, A.w, A.h, 1);
   for (let i = 0; i < n; i++) A.lum[i] = first ? A.blur[i] : A.lum[i] * .45 + A.blur[i] * .55;
   A.lumInit = true;
+  // the person mask, as a texture for the "background only" see-through
+  if (S.see > 0 && S.seeBg){
+    if (!maskBytes || maskBytes.length !== n) maskBytes = new Uint8Array(n);
+    for (let i = 0; i < n; i++) maskBytes[i] = A.mask[i] * 255;
+    gl.activeTexture(gl.TEXTURE4); gl.bindTexture(gl.TEXTURE_2D, texMask);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, A.w, A.h, 0, gl.RED, gl.UNSIGNED_BYTE, maskBytes);
+  }
   // luminance range of the person (5th–95th percentile) so the contour levels sit on the face, not on the room
   const H = A.hist; H.fill(0); let cnt = 0;
   for (let i = 0; i < n; i += 2) if (A.mask[i] > .5){ H[Math.min(63, A.lum[i] * 64 | 0)]++; cnt++; }
@@ -881,10 +904,12 @@ function setPhos(i){
   document.documentElement.style.setProperty('--acc', PHOS[i].css);
 }
 $('phos').onclick = e => { const b = e.target.closest('button'); if (b) setPhos(+b.dataset.p); };
-[['sLevels','levels'],['sInten','inten'],['sFocus','focus'],['sPersist','persist'],['sRing','ring'],['sVol','vol'],['sPitch','pitch']]
+[['sLevels','levels'],['sInten','inten'],['sFocus','focus'],['sPersist','persist'],['sRing','ring'],['sVol','vol'],['sPitch','pitch'],['sSee','see']]
   .forEach(([id, k]) => { $(id).oninput = e => { S[k] = +e.target.value; }; });
 $('tFace').onclick = e => { S.face = !S.face; e.target.classList.toggle('on', S.face); };
 $('tGrat').onclick = e => { S.grat = !S.grat; e.target.classList.toggle('on', S.grat); };
+$('seeMode').onclick = e => { const b = e.target.closest('button'); if (!b) return; S.seeBg = +b.dataset.b;
+  [...$('seeMode').children].forEach(x => x.classList.toggle('on', x === b)); };
 $('tVoice').onclick = async e => {
   if (MIC.on){ micOff(); S.voice = false; e.target.classList.remove('on'); return; }
   try { await micOn(); S.voice = true; e.target.classList.add('on'); }
@@ -962,7 +987,7 @@ function loop(now){
   const reveal = Math.max(0, Math.min(1, (MODE.X - .56) / .9));
   const revE = reveal <= 0 ? 0 : 1 - Math.pow(1 - reveal, 3) * Math.cos(reveal * 7.5);   // unfolds with a little overshoot
   VIEW.cam = cc.cam; VIEW.qx = cc.qx; VIEW.qy = cc.qy; VIEW.reveal = reveal; VIEW.scope = MODE.X > .52 ? 1 : 0;
-  if (fresh && cc.cam > 0){
+  if (fresh && (cc.cam > 0 || (S.see > 0 && MODE.X > .52))){
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, texVid);
     try { gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video); } catch(e){}
   }
@@ -1059,6 +1084,8 @@ function composite(dt, t, ph, cc, W, H){
   gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, b2.t); gl.uniform1i(U.uB, 1);
   gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, b4.t); gl.uniform1i(U.uB2, 2);
   gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, texVid); gl.uniform1i(U.uV, 3);
+  gl.activeTexture(gl.TEXTURE4); gl.bindTexture(gl.TEXTURE_2D, texMask); gl.uniform1i(U.uM, 4);
+  gl.uniform1f(U.uSee, MODE.X > .52 ? S.see * Math.min(1, (MODE.X - .52) / .6) : 0); gl.uniform1f(U.uSeeBg, S.seeBg);
   const sa = W / H, va = vidW / vidH;
   gl.uniform2f(U.uRes, W, H); gl.uniform2f(U.uVScale, sa < va ? sa / va : 1, sa < va ? 1 : va / sa);
   gl.uniform3fv(U.uCF, ph.fast); gl.uniform3fv(U.uCS, ph.slow); gl.uniform3fv(U.uCT, ph.store); gl.uniform3fv(U.uCG, ph.grat);
