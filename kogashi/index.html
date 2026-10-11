@@ -1,0 +1,775 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="description" content="映った人が映写機にかかった古いフィルムになる。動いたところからフィルムが熱で焦げ、泡立って白く焼け抜け、やがて冷えて元に戻る。すばやく動くとコマが滑り、タップした場所に火が入る。撮影と録画ができる。">
+<meta name="theme-color" content="#0b0806">
+<title>KOGASHI ─ 映写機の中で焦げるフィルム</title>
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  KOGASHI 焦がし ─ 映写機の中で焦げるフィルム          ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  REFERENCE  ベルイマン『仮面／ペルソナ』（1966）冒頭の、映写機のゲートで
+             フィルムが止まり焼け抜ける場面。MV のフィルムバーン転換。
+             CineStill のハレーション（ハイライトに赤い滲み）。
+  MOOD       暗い試写室。あなたは粒子の粗い温黒調のモノクロ映画の中にいて、
+             画は 24 コマで瞬き、ゲートの中で少し揺れている。動いたところだけ
+             セルロイドに熱が溜まり、茶色く焦げ、ぶくぶくと泡立ち、琥珀色に
+             光る縁をつれて白い穴が開く。止まれば穴は冷えて閉じ、映画は続く。
+  PALETTE    PRINT（既定）温黒調：影 #0f0b08・紙白 #f3e7d2・焦げ #7a4320・
+                         縁の火 #ff8a1e・抜けた光 #fff4e2
+             NITRATE 冷たい銀：影 #07090b・光 #e6ecef・焦げ #5a2f2a・縁 #ff5a2a
+             EKTA    褪せたカラー（影はシアンに、光はマゼンタに寄る）
+             三色まで。原色は焦げの縁だけ。
+  TYPE       Sorts Mill Goudy（イタリック、字幕の題字）＋ Kaisei Opti（和文）。
+             フィルムの縁には等幅のエッジ印字。
+  MOTION     24 コマで瞬く明滅とゲートの揺れ。動きは焦げとして画に溜まり、
+             泡と縁の火を経て白く抜け、数秒かけて冷えて閉じる。
+             すばやく大きく動くとコマが一枚ぶん滑り、枠線が画面を通り過ぎる。
+             切り替えは映写機のランプが数回瞬いて点き、コマが上から降りてきて止まる。
+  SIGNATURE  動いた軌跡がそのままフィルムに焼き穴として残る。
+  LAYERS     ① 温黒調の粒子・明滅・ゲートの揺れ・傷と埃・周辺減光
+             ② 焦げの場：動きが熱になり、熱が広がり、燃えた所が周りを焦がす
+             ③ 焼け抜け：焦げ→泡（ブリスター）→光る縁→白い穴、熱で画が歪む
+             ④ ハレーション：明るい所と穴のまわりが赤く滲む
+             ⑤ コマ滑り：すばやい動きで枠線が通り過ぎる。タップで火を入れる
+             ⑥ フィルムの縁：パーフォレーションとエッジ印字（調整で消せる）
+             ⑦ 版：PRINT / NITRATE / EKTA。映写機の音と焦げる音
+  TECH       WebGL2。焦げの場は長辺 160 の格子で CPU が計算
+             （熱の拡散・冷却・燃料・損傷・回復）、RGBA8 のテクスチャで渡す。
+             描画はフィルム → 1/4 → 1/16 の縮小ぼかし → 合成の三段。
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sorts+Mill+Goudy:ital@0;1&family=Kaisei+Opti&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0b0806;--fg:#efe6d6;--dim:rgba(239,230,214,.52);--line:rgba(239,230,214,.18);--acc:#ff9d3d}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none}
+html,body{margin:0;height:100%;background:var(--bg);overflow:hidden;color:var(--fg);
+  font-family:"Kaisei Opti","Hiragino Mincho ProN","Noto Serif JP",serif}
+#gl{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:crosshair}
+#cam{position:fixed;left:0;top:0;width:2px;height:2px;opacity:.01;pointer-events:none}
+.it{font-family:"Sorts Mill Goudy",Georgia,serif;font-style:italic}
+
+#start{position:fixed;inset:0;z-index:30;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;
+  padding:28px;text-align:center;background:radial-gradient(ellipse at 50% 45%,#2a1d12 0%,#0b0806 62%)}
+#start .t{font:italic 13px "Sorts Mill Goudy",serif;letter-spacing:.3em;margin-right:-.3em;color:var(--dim)}
+#start h1{margin:0;font:italic 400 min(17vw,96px)/1 "Sorts Mill Goudy",serif;letter-spacing:.06em;color:#f6ead6;
+  text-shadow:0 0 22px rgba(255,120,40,.45),0 0 2px rgba(255,220,180,.8)}
+#start .hole{width:min(46vw,200px);height:2px;border-radius:2px;background:linear-gradient(90deg,transparent,#7a4320 18%,#ff8a1e 40%,#fff4e2 50%,#ff8a1e 60%,#7a4320 82%,transparent);
+  box-shadow:0 0 14px rgba(255,138,30,.8)}
+#start p{margin:0;font-size:12.5px;line-height:2.1;color:var(--dim);letter-spacing:.06em}
+#go{appearance:none;border:1px solid var(--line);background:transparent;color:var(--fg);font:italic 15px "Sorts Mill Goudy",serif;
+  letter-spacing:.32em;padding:12px 26px 12px 32px;cursor:pointer;transition:border-color .3s,color .3s}
+#go:hover{border-color:var(--acc);color:#fff}
+#err{font-size:12px;line-height:1.8;max-width:340px;min-height:1em;white-space:pre-line;color:#f0a8a0;font-family:sans-serif}
+
+.btn{position:fixed;z-index:12;appearance:none;border:0;background:transparent;color:var(--fg);font:italic 13px "Sorts Mill Goudy",serif;
+  letter-spacing:.14em;padding:10px 8px;display:none;cursor:pointer;opacity:.66;transition:opacity .3s,color .3s}
+.btn.show{display:block}
+.btn:hover{opacity:1}
+#gear{right:10px;top:calc(env(safe-area-inset-top) + 6px);font:14px sans-serif}
+#flip{right:10px;top:calc(env(safe-area-inset-top) + 40px);font:11px "Kaisei Opti",serif;letter-spacing:.06em}
+#bar{position:fixed;left:0;right:0;bottom:calc(env(safe-area-inset-bottom) + 10px);z-index:12;display:none;justify-content:center;align-items:center;gap:22px}
+#bar.show{display:flex}
+#bar .btn{position:static;display:block}
+#bar #shoot{position:relative;width:42px;height:42px;border-radius:50%;border:1px solid var(--line);padding:0;opacity:.85}
+#shoot::after{content:"";position:absolute;left:50%;top:50%;width:8px;height:8px;margin:-4px 0 0 -4px;border-radius:50%;
+  background:radial-gradient(circle,#fff4e2 0 30%,#ff8a1e 60%,transparent 72%);box-shadow:0 0 8px #ff8a1e}
+#rec.on{opacity:1;color:#ff8f7a}
+#status{position:fixed;left:14px;bottom:calc(env(safe-area-inset-bottom) + 70px);z-index:11;font-size:11px;letter-spacing:.04em;
+  color:var(--dim);pointer-events:none;max-width:76vw;line-height:1.7;white-space:pre-line}
+
+#panel{position:fixed;right:10px;top:calc(env(safe-area-inset-top) + 76px);z-index:12;width:min(272px,calc(100vw - 20px));
+  max-height:calc(100vh - 170px);overflow:auto;
+  background:rgba(14,10,7,.86);border:1px solid var(--line);padding:14px 16px;display:flex;flex-direction:column;gap:12px;
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);transition:opacity .25s}
+#panel.hide{opacity:0;pointer-events:none}
+.chips{display:flex;border:1px solid var(--line)}
+.chips button{flex:1;appearance:none;border:0;background:transparent;color:var(--fg);padding:8px 2px;font:italic 12px "Sorts Mill Goudy",serif;
+  letter-spacing:.1em;cursor:pointer;opacity:.5}
+.chips button.on{opacity:1;color:var(--acc);background:rgba(255,157,61,.07)}
+#panel label{display:flex;align-items:center;gap:10px;font-size:11px;letter-spacing:.04em}
+#panel label span{width:74px;flex:none;color:var(--dim)}
+#panel input[type=range]{flex:1;accent-color:var(--acc)}
+#panel .tg{display:flex;gap:6px}
+#panel .tg button{flex:1;appearance:none;border:1px solid var(--line);background:transparent;color:var(--fg);padding:7px 2px;
+  font:11px "Kaisei Opti",serif;cursor:pointer;opacity:.5}
+#panel .tg button.on{opacity:1;border-color:var(--acc)}
+#panel .note{font-size:10.5px;color:var(--dim);line-height:1.8}
+#mode{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom) + 72px);z-index:13;display:none;
+  appearance:none;border:1px solid var(--line);background:rgba(14,10,7,.5);color:var(--fg);
+  font:italic 14px "Sorts Mill Goudy",serif;letter-spacing:.24em;padding:10px 20px 10px 24px;cursor:pointer;
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);transition:border-color .3s}
+#mode.show{display:block}
+#mode:hover{border-color:var(--acc)}
+body.cam #mode{border-color:rgba(255,255,255,.55);color:#fff;background:rgba(0,0,0,.35)}
+body.cam .btn{color:#fff}
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<video id="cam" playsinline muted autoplay></video>
+<div id="status"></div>
+<button id="gear" class="btn" aria-label="調整">⚙</button>
+<button id="flip" class="btn">⟲ カメラ</button>
+<button id="mode">▸ Kogashi</button>
+<div id="bar">
+  <button id="rec" class="btn">● rec</button>
+  <button id="stock" class="btn">stock</button>
+  <button id="shoot" class="btn" aria-label="撮る"></button>
+  <button id="slip" class="btn">slip</button>
+</div>
+
+<div id="panel" class="hide">
+  <div class="chips" id="stocks">
+    <button data-s="0" class="on">Print</button>
+    <button data-s="1">Nitrate</button>
+    <button data-s="2">Ekta</button>
+  </div>
+  <label><span>焦げやすさ</span><input type="range" id="sSens" min="0" max="1" step="0.01" value="0.55"></label>
+  <label><span>燃え広がり</span><input type="range" id="sSpread" min="0" max="1" step="0.01" value="0.5"></label>
+  <label><span>戻る速さ</span><input type="range" id="sHeal" min="0" max="1" step="0.01" value="0.45"></label>
+  <label><span>粒子</span><input type="range" id="sGrain" min="0" max="1" step="0.01" value="0.55"></label>
+  <label><span>明滅と揺れ</span><input type="range" id="sWeave" min="0" max="1" step="0.01" value="0.5"></label>
+  <label><span>ハレーション</span><input type="range" id="sHal" min="0" max="1" step="0.01" value="0.5"></label>
+  <label><span>背景</span><input type="range" id="sBg" min="0" max="1" step="0.01" value="0.45"></label>
+  <label><span>音量</span><input type="range" id="sVol" min="0" max="1" step="0.01" value="0.35"></label>
+  <div class="tg">
+    <button id="tEdge" class="on">フィルムの縁</button>
+    <button id="tScratch" class="on">傷と埃</button>
+  </div>
+  <div class="note">動いたところからフィルムが焦げて焼け抜ける。止まると冷えて閉じる。<br>すばやく大きく動くとコマが滑る。タップした場所に火が入る。</div>
+</div>
+
+<div id="start">
+  <div class="t">a film in the gate</div>
+  <h1>Kogashi</h1>
+  <div class="hole"></div>
+  <p>まずは、いつものカメラ。<br>ボタンを押すと、あなたは映写機の中のフィルムになる。<br>動いたところから、焦げていく。</p>
+  <button id="go">start</button>
+  <div id="err"></div>
+</div>
+
+<script>
+'use strict';
+/* =====================================================================
+   KOGASHI — you, as a print running through a projector that is too hot.
+   CPU: a 160-cell burn field (heat · fuel · damage) fed by your motion.
+   GPU: film grade + burn shading → ¼ → 1/16 blur → halation composite.
+   ===================================================================== */
+const VISION_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs';
+const WASM_URL   = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm';
+const SEG_MODEL  = 'https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite';
+
+const $ = id => document.getElementById(id);
+const canvas = $('gl'), video = $('cam');
+const S = { stock:0, sens:.55, spread:.5, heal:.45, grain:.55, weave:.5, hal:.5, bg:.45, vol:.35, edge:true, scratch:true };
+
+/* ---------- GL ---------- */
+const gl = canvas.getContext('webgl2', { antialias:false, alpha:false, preserveDrawingBuffer:true, powerPreference:'high-performance' });
+const VS = `#version 300 es
+in vec2 p; void main(){ gl_Position = vec4(p, 0., 1.); }`;
+const FS_FILM = `#version 300 es
+precision highp float;
+uniform sampler2D uVid, uSim;
+uniform vec2 uRes, uK, uWeave, uSimRes;
+uniform float uMirror, uRoll, uFlick, uT, uSeed, uGrain, uBg, uFilm, uFlash, uStock, uScratch, uWarp;
+uniform vec4 uScr;          // x positions of up to 4 scratches (-1 = none)
+out vec4 o;
+float h21(vec2 p){ p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
+float vn(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3. - 2. * f);
+  return mix(mix(h21(i), h21(i + vec2(1, 0)), f.x), mix(h21(i + vec2(0, 1)), h21(i + vec2(1, 1)), f.x), f.y); }
+float fbm(vec2 p){ return .55 * vn(p) + .28 * vn(p * 2.07 + 3.1) + .17 * vn(p * 4.3 + 7.7); }
+vec2 cell(vec2 p){ vec2 i = floor(p), f = fract(p); float d = 9., e = 9.;
+  for (int y = -1; y <= 1; y++) for (int x = -1; x <= 1; x++){
+    vec2 g = vec2(x, y), r = g + vec2(h21(i + g), h21(i + g + 17.)) - f; float q = dot(r, r);
+    if (q < d){ e = d; d = q; } else if (q < e) e = q; }
+  return vec2(sqrt(d), sqrt(e)); }
+vec3 vid(vec2 s){
+  vec2 v = (s - .5) * uK + .5; if (uMirror > .5) v.x = 1. - v.x;
+  return texture(uVid, clamp(v, 0., 1.)).rgb;
+}
+void main(){
+  vec2 s = gl_FragCoord.xy / uRes; s.y = 1. - s.y;
+  float asp = uRes.x / uRes.y;
+  if (uFilm < .001){ vec3 c0 = vid(s); o = vec4(mix(c0, vec3(1., .95, .86) * uFlash, clamp(uFlash, 0., 1.) * .9), 1.); return; }
+  // the gate: weave, and a slipping frame
+  vec2 f = s + uWeave;
+  float fy = f.y + uRoll, fl = fract(fy);
+  float frameLine = (uRoll != 0.) ? smoothstep(.0, .012, fl) * smoothstep(1., .988, fl) : 1.;
+  f.y = fl;
+  vec4 sm = texture(uSim, f);
+  float heat = sm.r, dmg = sm.g, m = sm.b;
+  // heat haze pulls the picture toward the burn
+  vec2 px = 1. / uSimRes;
+  float hx = texture(uSim, f + vec2(px.x, 0)).r - texture(uSim, f - vec2(px.x, 0)).r;
+  float hy = texture(uSim, f + vec2(0, px.y)).r - texture(uSim, f - vec2(0, px.y)).r;
+  vec2 g = f - vec2(hx, hy) * uWarp * (.02 + .03 * vn(f * 30. + uT));
+  vec3 c = vid(g);
+  float l = dot(c, vec3(.299, .587, .114));
+  // print curve; the room sinks, you stay up
+  float lc = smoothstep(.03, .93, l); lc = mix(lc, lc * lc * (3. - 2. * lc), .6);
+  lc *= mix(.35 + .65 * (1. - uBg), 1., smoothstep(.15, .6, m));
+  vec3 col;
+  if (uStock < .5){
+    col = mix(vec3(.06, .043, .032), vec3(.97, .91, .82), lc);
+    col *= mix(vec3(1.), vec3(1.05, .97, .86), (1. - lc) * .5);
+  } else if (uStock < 1.5){
+    col = mix(vec3(.025, .03, .038), vec3(.92, .95, .96), pow(lc, 1.12));
+  } else {
+    vec3 cc = mix(vec3(l), c, .62);
+    cc = (cc - .5) * 1.18 + .5;
+    cc *= mix(.35 + .65 * (1. - uBg), 1., smoothstep(.15, .6, m));
+    col = mix(vec3(.05, .12, .13), vec3(1., .86, .84), cc) * .25 + cc * .8;
+    col = mix(col, vec3(.11, .16, .17), .08);
+  }
+  // grain (24 frames a second), mid-tones hit hardest
+  float gr = (h21(s * uRes / 1.6 + uSeed) + h21(s * uRes / 3.1 - uSeed * 1.7) - 1.);
+  col += gr * uGrain * .16 * (.35 + lc * (1. - lc) * 2.6);
+  // scratches and dust
+  if (uScratch > .5){
+    for (int i = 0; i < 4; i++){
+      float x = uScr[i]; if (x < 0.) continue;
+      float d = abs(s.x - x) * uRes.x;
+      float a = exp(-d * d * .6) * (.55 + .45 * vn(vec2(x * 50., s.y * 9. + uSeed)));
+      col = mix(col, (i == 0) ? vec3(.96, .93, .86) : col * .25, a * .6);
+    }
+    vec2 dc = floor(s * vec2(asp, 1.) * 90.);
+    float dh = h21(dc + uSeed * 3.1);
+    if (dh > .9965){
+      vec2 q = fract(s * vec2(asp, 1.) * 90.) - .5;
+      float r = .18 + .3 * h21(dc + 9.);
+      float dust = smoothstep(r, r * .5, length(q * vec2(1., .6 + h21(dc + 2.))));
+      col = mix(col, vec3(.02), dust * .85);
+    }
+  }
+  col *= uFlick;
+  float vg = length((s - .5) * vec2(asp, 1.) / max(asp, 1.));
+  col *= 1. - .55 * vg * vg;
+  // the burn: scorch → blisters → glowing rim → white hole
+  float n = fbm(f * vec2(asp, 1.) * 9. + 4.3);
+  float b = dmg + (n - .5) * .34;
+  float scorch = smoothstep(.06, .5, heat * .8 + dmg * .6 + (n - .5) * .25);
+  vec3 brown = (uStock > .5 && uStock < 1.5) ? vec3(.36, .19, .17) : vec3(.62, .34, .14);
+  col = mix(col, col * brown * 1.25, scorch * .85);
+  col *= 1. - .75 * smoothstep(.28, .47, b) * (1. - smoothstep(.5, .53, b));
+  vec2 cl = cell(f * vec2(asp, 1.) * 52. + vn(f * 7.) * 2.);
+  float band = smoothstep(.22, .4, b) * (1. - smoothstep(.47, .52, b));
+  float blister = smoothstep(.16, .02, abs(cl.y - cl.x) ) * band;
+  float bub = smoothstep(.42, .1, cl.x) * band;
+  vec3 fire = (uStock > .5 && uStock < 1.5) ? vec3(1., .36, .13) : vec3(1., .55, .12);
+  col = mix(col, col * .35 + fire * .5, bub * .55);
+  col += fire * blister * .8 * (.5 + heat);
+  float rim = exp(-pow((b - .5) / .028, 2.));
+  col += fire * rim * (1.6 + heat * 1.5);
+  float hole = smoothstep(.5, .56, b);
+  vec3 lamp = mix(vec3(1., .78, .48), vec3(1., .97, .9), smoothstep(.56, .8, b));
+  col = mix(col, lamp * (1.02 + .08 * uFlick) - vec3(.05, .07, .09) * (1. - smoothstep(.55, .9, b)) + l * .05, hole);
+  col *= frameLine;
+  // the lamp warming up
+  col = mix(col, vec3(1., .95, .86) * uFlash, clamp(uFlash, 0., 1.) * .9);
+  o = vec4(col, 1.);
+}`;
+const FS_DOWN = `#version 300 es
+precision highp float;
+uniform sampler2D uT; uniform vec2 uTex; out vec4 o;
+void main(){ vec2 u = gl_FragCoord.xy * 2. * uTex;
+  vec2 d = uTex * 1.5;
+  o = .25 * (texture(uT, u + vec2(-d.x, -d.y)) + texture(uT, u + vec2(d.x, -d.y)) + texture(uT, u + vec2(-d.x, d.y)) + texture(uT, u + vec2(d.x, d.y))); }`;
+const FS_COMP = `#version 300 es
+precision highp float;
+uniform sampler2D uA, uB, uC, uEdgeT;
+uniform vec2 uRes; uniform float uHal, uFilm, uEdge, uRoll, uStock, uT;
+out vec4 o;
+void main(){
+  vec2 u = gl_FragCoord.xy / uRes;
+  vec3 a = texture(uA, u).rgb;
+  if (uFilm < .001){ o = vec4(a, 1.); return; }
+  vec3 b = texture(uB, u).rgb, c = texture(uC, u).rgb;
+  vec3 halC = (uStock > 1.5) ? vec3(1., .3, .2) : (uStock > .5 ? vec3(1., .32, .22) : vec3(1., .42, .16));
+  vec3 hb = max(b - .62, 0.), hc = max(c - .5, 0.);
+  vec3 col = a + (hb * .9 + hc * 1.6) * halC * uHal * 1.4 * uFilm;
+  // film edge: black margin, bright perforations, edge print
+  if (uEdge > .5){
+    float sh = min(uRes.x, uRes.y);
+    float ew = sh * .052, x = gl_FragCoord.x, xr = uRes.x - x;
+    float side = min(x, xr);
+    if (side < ew){
+      float y = (uRes.y - gl_FragCoord.y) / sh + uRoll * uRes.y / sh;
+      float py = fract(y / .09) * .09 - .045;
+      float px = side - ew * .48;
+      vec2 q = vec2(px / sh, py);
+      vec2 hs = vec2(ew * .2 / sh, .02);
+      float r = .008, dd = length(max(abs(q) - hs + r, 0.)) - r;
+      float perf = smoothstep(.0012, -.0012, dd);
+      vec3 base = vec3(.018, .014, .011);
+      if (x < ew){
+        vec2 et = vec2((ew - x) / ew * 1.0 - .02, fract(y / 1.6));
+        float ink = texture(uEdgeT, vec2(clamp(et.x * 1.6 - .2, 0., 1.), et.y)).r;
+        base += vec3(.75, .5, .25) * ink * .55 * step(side, ew * .3);
+      }
+      col = mix(base, vec3(1., .93, .78) * 1.05, perf);
+    }
+  }
+  o = vec4(col, 1.);
+}`;
+function sh(type, src){ const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s; }
+function prog(fs){ const p = gl.createProgram(); gl.attachShader(p, sh(gl.VERTEX_SHADER, VS)); gl.attachShader(p, sh(gl.FRAGMENT_SHADER, fs));
+  gl.bindAttribLocation(p, 0, 'p'); gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+  const U = {}, n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+  for (let i = 0; i < n; i++){ const u = gl.getActiveUniform(p, i); U[u.name.replace('[0]', '')] = gl.getUniformLocation(p, u.name); }
+  return { p, U }; }
+function tex(){ const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE); return t; }
+let PF, PD, PC, vao, texVid, texSim, texEdge;
+const FB = { key:'', A:null, B:null, C:null };
+function initGL(){
+  PF = prog(FS_FILM); PD = prog(FS_DOWN); PC = prog(FS_COMP);
+  vao = gl.createVertexArray(); gl.bindVertexArray(vao);
+  const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+  texVid = tex(); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4));
+  texSim = tex(); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4));
+  // edge print, drawn once into a texture: runs down the left margin
+  const ec = document.createElement('canvas'); ec.width = 64; ec.height = 1024;
+  const x = ec.getContext('2d'); x.fillStyle = '#000'; x.fillRect(0, 0, 64, 1024);
+  x.save(); x.translate(44, 0); x.rotate(Math.PI / 2); x.fillStyle = '#fff'; x.font = 'bold 26px ui-monospace, Menlo, monospace';
+  x.fillText('KOGASHI  ▸ 24  5222', 30, 0); x.fillText('◆ 14  ▸  SAFETY FILM', 540, 0); x.restore();
+  texEdge = tex(); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, ec);
+  gl.bindTexture(gl.TEXTURE_2D, texEdge); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+}
+function mkTarget(w, h){
+  const t = tex(); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+  const f = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, f);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, t, 0);
+  return { t, f, w, h };
+}
+function ensureTargets(W, H){
+  const k = W + 'x' + H; if (k === FB.key) return; FB.key = k;
+  for (const n of ['A','B','C']) if (FB[n]){ gl.deleteFramebuffer(FB[n].f); gl.deleteTexture(FB[n].t); }
+  FB.A = mkTarget(W, H); FB.B = mkTarget(Math.max(1, W >> 2), Math.max(1, H >> 2)); FB.C = mkTarget(Math.max(1, W >> 4), Math.max(1, H >> 4));
+}
+
+/* ---------- the burn field ---------- */
+const ana = document.createElement('canvas'), actx2 = ana.getContext('2d', { willReadFrequently:true });
+const F = { room:1, w:0, h:0, n:0, H:null, Hn:null, D:null, fuel:null, th:null, Lp:null, mk:null, mkP:null, bytes:null, have:false, idx:null, idxKey:'', seedMean:0, burnArea:0, heatMean:0 };
+function allocField(w, h){
+  F.w = w; F.h = h; F.n = w * h; ana.width = w; ana.height = h;
+  F.H = new Float32Array(F.n); F.Hn = new Float32Array(F.n); F.D = new Float32Array(F.n); F.fuel = new Float32Array(F.n).fill(1);
+  F.th = new Float32Array(F.n); F.Lp = new Float32Array(F.n); F.mk = new Float32Array(F.n); F.mkP = new Float32Array(F.n);
+  F.bytes = new Uint8Array(F.n * 4); F.have = false; F.idxKey = '';
+  // ragged ignition thresholds: some film burns easier than its neighbour
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++){
+    const v = Math.sin(x * .37 + y * .11) * .5 + Math.sin(x * .13 - y * .29 + 1.7) * .5;
+    F.th[y * w + x] = .42 + .12 * v + .1 * Math.random();
+  }
+}
+const SCR = { W:1, H:1 };
+let vidW = 1280, vidH = 720, mirror = true;
+function coverK(){ const sa = SCR.W / SCR.H, va = vidW / vidH; return sa > va ? [1, va / sa] : [sa / va, 1]; }
+function maskIndex(mw, mh){
+  const k = F.w + 'x' + F.h + ':' + mw + 'x' + mh + ':' + SCR.W + 'x' + SCR.H + ':' + vidW + 'x' + vidH + ':' + mirror;
+  if (k === F.idxKey) return; F.idxKey = k;
+  if (!F.idx || F.idx.length !== F.n) F.idx = new Int32Array(F.n);
+  const [kx, ky] = coverK();
+  for (let y = 0; y < F.h; y++) for (let x = 0; x < F.w; x++){
+    let u = ((x + .5) / F.w - .5) * kx + .5, v = ((y + .5) / F.h - .5) * ky + .5;
+    if (mirror) u = 1 - u;
+    const mx = Math.max(0, Math.min(mw - 1, (u * mw) | 0)), my = Math.max(0, Math.min(mh - 1, (v * mh) | 0));
+    F.idx[y * F.w + x] = my * mw + mx;
+  }
+}
+const IGN = [];                         // pending ignitions from taps {x,y} in 0..1 screen
+function stepField(dt, live, useMask){
+  const w = F.w, h = F.h, n = F.n, H = F.H, Hn = F.Hn, D = F.D, fuel = F.fuel;
+  // camera → cells
+  const [kx, ky] = coverK();
+  actx2.setTransform(1, 0, 0, 1, 0, 0);
+  const dw = w / kx, dh = h / ky;
+  if (mirror){ actx2.translate(w, 0); actx2.scale(-1, 1); }
+  actx2.drawImage(video, (w - dw) / 2, (h - dh) / 2, dw, dh);
+  actx2.setTransform(1, 0, 0, 1, 0, 0);
+  const px = actx2.getImageData(0, 0, w, h).data;
+  const mk = F.mkP; F.mkP = F.mk; F.mk = mk;
+  if (useMask){ maskIndex(M.w, M.h); for (let i = 0; i < n; i++) mk[i] = M.f[F.idx[i]]; }
+  else mk.fill(segFailed ? 1 : 0);
+  const sensK = (.4 + S.sens * 1.6);
+  let seedSum = 0;
+  for (let i = 0, j = 0; i < n; i++, j += 4){
+    const l = (px[j] * .299 + px[j + 1] * .587 + px[j + 2] * .114) / 255;
+    let seed = 0;
+    if (F.have && live){
+      const d = Math.abs(l - F.Lp[i]), dm = Math.abs(mk[i] - F.mkP[i]);
+      const gate = segFailed ? 1 : Math.min(1, mk[i] * 1.6 + dm * 2);
+      seed = Math.max(0, (d - .07) * 3.6) * gate + Math.max(0, dm - .3) * 1.;
+      seed = Math.min(1, seed * sensK * F.room);
+    }
+    F.Lp[i] = l; seedSum += seed;
+    H[i] += seed * .34 * Math.min(2, dt * 30);
+  }
+  F.seedMean = seedSum / n;
+  F.have = true;
+  for (const g of IGN){
+    const cx = g.x * w, cy = g.y * h, r = Math.max(2, Math.min(w, h) * .075);
+    for (let y = Math.max(0, (cy - r * 2) | 0); y < Math.min(h, cy + r * 2); y++)
+      for (let x = Math.max(0, (cx - r * 2) | 0); x < Math.min(w, cx + r * 2); x++){
+        const q = ((x - cx) * (x - cx) + (y - cy) * (y - cy)) / (r * r); H[y * w + x] += 2.8 * Math.exp(-q);
+      }
+  }
+  IGN.length = 0;
+  // burning film feeds its neighbours; heat spreads and cools; the hole heals as fresh film arrives
+  const kap = .1 + S.spread * .1, cool = Math.exp(-dt / (.3 + S.spread * .4));
+  const heal = dt / (.8 + (1 - S.heal) * 3.6), burnK = 4 * dt, emit = (2 + S.spread * 3) * dt * F.room;
+  let area = 0, hs = 0;
+  for (let y = 0; y < h; y++){
+    const y0 = y > 0 ? -w : 0, y1 = y < h - 1 ? w : 0;
+    for (let x = 0; x < w; x++){
+      const i = y * w + x, x0 = x > 0 ? -1 : 0, x1 = x < w - 1 ? 1 : 0;
+      const lap = H[i + x0] + H[i + x1] + H[i + y0] + H[i + y1] - 4 * H[i];
+      let v = (H[i] + lap * kap) * cool;
+      const burning = D[i] > .35 ? fuel[i] : 0;
+      v += burning * emit;
+      Hn[i] = v > 2 ? 2 : v;
+    }
+  }
+  for (let i = 0; i < n; i++){
+    const hh = Hn[i]; H[i] = hh;
+    if (hh > F.th[i]){ D[i] += (hh - F.th[i]) * burnK; if (D[i] > 1) D[i] = 1; }
+    if (D[i] > .35) fuel[i] = Math.max(0, fuel[i] - dt * 1.6);
+    if (hh < .25){ D[i] = Math.max(0, D[i] - heal); fuel[i] = Math.min(1, fuel[i] + heal * .8); }
+    if (D[i] > .5) area++;
+    hs += hh;
+  }
+  F.burnArea = area / n; F.heatMean = hs / n;
+  // the gate can only hold so much fire: new burns get scarce as the frame fills
+  F.room = Math.max(0, Math.min(1, 1 - (F.burnArea - .06) / .14));
+  const B = F.bytes;
+  for (let i = 0, j = 0; i < n; i++, j += 4){
+    B[j] = Math.min(255, H[i] * 200) | 0; B[j + 1] = (D[i] * 255) | 0; B[j + 2] = (mk[i] * 255) | 0; B[j + 3] = 255;
+  }
+  gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, texSim);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, B);
+}
+function resetField(){
+  if (!F.n) return;
+  F.H.fill(0); F.D.fill(0); F.fuel.fill(1); F.have = false; F.seedMean = 0;
+}
+
+/* ---------- segmentation ---------- */
+const M = { f:null, w:0, h:0, has:false, live:false, lastT:0, external:false };
+function ingestMask(data, w, h){
+  if (!data || !(w > 0) || !(h > 0) || !(w * h <= 4e6) || data.length < w * h) return false;
+  if (M.w !== w || M.h !== h || !M.f){ M.w = w; M.h = h; M.f = new Float32Array(w * h); F.idxKey = ''; }
+  for (let i = 0, n = w * h; i < n; i++){ let m = data[i]; if (!(m >= 0)) m = 0; else if (m > 1) m = 1; M.f[i] = m; }
+  M.has = true; M.live = true; M.lastT = performance.now();
+  return true;
+}
+let segmenter = null, segFailed = false, lastTs = 0, lastSegVT = -1;
+async function initModel(){
+  try{
+    const vision = await import(VISION_URL);
+    const fs = await vision.FilesetResolver.forVisionTasks(WASM_URL);
+    const so = d => ({ baseOptions:{ modelAssetPath:SEG_MODEL, delegate:d }, runningMode:'VIDEO', outputConfidenceMasks:true, outputCategoryMask:false });
+    try { segmenter = await vision.ImageSegmenter.createFromOptions(fs, so('GPU')); }
+    catch(e){ segmenter = await vision.ImageSegmenter.createFromOptions(fs, so('CPU')); }
+    setStatus('');
+  }catch(e){
+    if (M.external) return;
+    segFailed = true;
+    setStatus('人物検出モデルを読み込めませんでした（ネット接続を確認）。\n画面全体の動きで焦がして続けます。');
+  }
+}
+function detect(now){
+  if (!segmenter || video.readyState < 2) return;
+  const vt = video.currentTime; if (vt === lastSegVT) return; lastSegVT = vt;
+  const ts = Math.max(lastTs + 1, Math.round(now)); lastTs = ts;
+  try{
+    segmenter.segmentForVideo(video, ts, res => {
+      const ms = res && res.confidenceMasks; if (!ms || !ms.length) return;
+      const mk = ms[ms.length - 1]; ingestMask(mk.getAsFloat32Array(), mk.width, mk.height);
+    });
+  }catch(e){}
+}
+
+/* ---------- camera ---------- */
+let stream = null, facing = 'user', started = false;
+function setStatus(t){ $('status').textContent = t || ''; }
+function camError(e){
+  const msg = (e && (e.message || e.name)) ? (e.message || e.name) : String(e || 'unknown');
+  const text = 'カメラを起動できませんでした：' + msg + '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+  $('err').textContent = text;
+  if (started) setStatus(text);
+}
+async function startCam(){
+  const md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) throw new Error('getUserMedia is unavailable');
+  const s = await md.getUserMedia({ video:{ facingMode:{ ideal:facing }, width:{ ideal:1280 }, height:{ ideal:720 } }, audio:false });
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = s; mirror = facing === 'user';
+  video.srcObject = s;
+  await new Promise(r => { if (video.readyState >= 1) r(); else video.onloadedmetadata = () => r(); });
+  await video.play().catch(()=>{});
+  vidW = video.videoWidth || 1280; vidH = video.videoHeight || 720;
+  F.idxKey = ''; resetField();
+}
+
+/* ---------- audio: the projector, and the crackle of the burn ---------- */
+let actx = null, bus = null, recDest = null, proj = null, crk = null;
+function ensureAudio(){
+  if (actx){ if (actx.state === 'suspended') actx.resume().catch(()=>{}); return; }
+  const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+  try{
+    actx = new AC(); bus = actx.createGain(); bus.connect(actx.destination);
+    recDest = actx.createMediaStreamDestination(); bus.connect(recDest);
+    const sr = actx.sampleRate;
+    // one second of a 24-frame claw: a click and a soft thump each frame
+    const pb = actx.createBuffer(1, sr, sr), pd = pb.getChannelData(0);
+    for (let k = 0; k < 24; k++){
+      const s0 = Math.round(k * sr / 24);
+      for (let i = 0; i < sr * .018 && s0 + i < sr; i++){
+        const e = Math.exp(-i / (sr * .003)), e2 = Math.exp(-i / (sr * .008));
+        pd[s0 + i] += (Math.random() * 2 - 1) * e * .8 + Math.sin(i / sr * 2 * Math.PI * 95) * e2 * .5;
+      }
+    }
+    for (let i = 0; i < sr; i++) pd[i] += (Math.random() * 2 - 1) * .03;
+    const ps = actx.createBufferSource(); ps.buffer = pb; ps.loop = true;
+    const lp = actx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 2600;
+    proj = actx.createGain(); proj.gain.value = 0; ps.connect(lp); lp.connect(proj); proj.connect(bus); ps.start();
+    // crackle: sparse sharp pops
+    const cb = actx.createBuffer(1, sr * 2, sr), cd = cb.getChannelData(0);
+    for (let k = 0; k < 160; k++){
+      const s0 = (Math.random() * (sr * 2 - 400)) | 0, a = .3 + Math.random() * .7;
+      for (let i = 0; i < 300; i++) cd[s0 + i] += (Math.random() * 2 - 1) * a * Math.exp(-i / 40);
+    }
+    const cs = actx.createBufferSource(); cs.buffer = cb; cs.loop = true;
+    const hp = actx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 900;
+    crk = actx.createGain(); crk.gain.value = 0; cs.connect(hp); hp.connect(crk); crk.connect(bus); cs.start();
+    actx.resume().catch(()=>{});
+  }catch(e){ actx = null; }
+}
+function sfx(kind){
+  if (!actx || actx.state !== 'running') return;
+  const t = actx.currentTime, len = kind === 'ignite' ? .9 : .35;
+  const b = actx.createBuffer(1, Math.round(actx.sampleRate * len), actx.sampleRate), d = b.getChannelData(0);
+  for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  const s = actx.createBufferSource(); s.buffer = b;
+  const f = actx.createBiquadFilter(); f.type = 'lowpass';
+  const g = actx.createGain();
+  if (kind === 'ignite'){ f.frequency.setValueAtTime(300, t); f.frequency.exponentialRampToValueAtTime(3200, t + .25); f.frequency.exponentialRampToValueAtTime(500, t + .9); }
+  else { f.frequency.value = kind === 'slip' ? 1400 : 2200; }
+  const pk = (kind === 'ignite' ? .3 : .16) * (.3 + S.vol);
+  g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime(pk, t + (kind === 'ignite' ? .12 : .01)); g.gain.exponentialRampToValueAtTime(.0001, t + len);
+  s.connect(f); f.connect(g); g.connect(bus); s.start(t);
+}
+
+/* ---------- mode, slip, stock ---------- */
+const MODE = { on:false, X:0 };
+const SLIP = { t:-1, dur:.55, cool:0, armed:true };
+function setMode(on){
+  if (on === MODE.on) return;
+  MODE.on = on;
+  $('mode').textContent = on ? '◂ camera' : '▸ Kogashi';
+  document.body.classList.toggle('cam', !on);
+  ['stock','slip'].forEach(id => $(id).style.visibility = on ? 'visible' : 'hidden');
+  if (!on){ SLIP.t = -1; }
+  sfx(on ? 'on' : 'off');
+}
+function slip(){
+  if (!MODE.on || MODE.X < 1.4 || SLIP.t >= 0) return false;
+  SLIP.t = 0; sfx('slip'); return true;
+}
+function ignite(x, y){
+  if (!MODE.on || MODE.X < 1.4 || !Number.isFinite(x) || !Number.isFinite(y)) return false;
+  IGN.push({ x:Math.max(0, Math.min(1, x)), y:Math.max(0, Math.min(1, y)) }); sfx('ignite'); return true;
+}
+function setStock(i){
+  S.stock = ((i % 3) + 3) % 3;
+  [...$('stocks').children].forEach(x => x.classList.toggle('on', +x.dataset.s === S.stock));
+}
+
+/* ---------- UI ---------- */
+$('mode').onclick = () => setMode(!MODE.on);
+addEventListener('keydown', e => {
+  if (!started || document.activeElement.tagName === 'INPUT') return;
+  if (e.key === ' ' || e.key === 'Enter'){ e.preventDefault(); setMode(!MODE.on); }
+  else if (e.key === 's') setStock(S.stock + 1);
+  else if (e.key === 'r') slip();
+});
+$('go').onclick = async () => {
+  $('err').textContent = '';
+  ensureAudio();
+  try{
+    if (!gl) throw new Error('WebGL2 に未対応のブラウザです');
+    if (!PF) initGL();
+    await startCam();
+  }catch(e){ camError(e); return; }
+  $('start').style.display = 'none';
+  ['gear','flip','bar','rec','shoot','stock','slip','mode'].forEach(id => $(id).classList.add('show'));
+  MODE.on = true; setMode(false);
+  if (!started){ started = true; initModel(); requestAnimationFrame(loop); }
+};
+$('flip').onclick = async () => {
+  const prev = facing; facing = facing === 'user' ? 'environment' : 'user';
+  try { await startCam(); } catch(e){ facing = prev; camError(e); }
+};
+$('gear').onclick = () => $('panel').classList.toggle('hide');
+$('stock').onclick = () => setStock(S.stock + 1);
+$('slip').onclick = () => slip();
+$('stocks').onclick = e => { const b = e.target.closest('button'); if (b) setStock(+b.dataset.s); };
+[['sSens','sens'],['sSpread','spread'],['sHeal','heal'],['sGrain','grain'],['sWeave','weave'],['sHal','hal'],['sBg','bg'],['sVol','vol']]
+  .forEach(([id, k]) => { $(id).oninput = e => { S[k] = +e.target.value; }; });
+$('tEdge').onclick = e => { S.edge = !S.edge; e.target.classList.toggle('on', S.edge); };
+$('tScratch').onclick = e => { S.scratch = !S.scratch; e.target.classList.toggle('on', S.scratch); };
+let down = null;
+canvas.addEventListener('pointerdown', e => { down = { x:e.clientX, y:e.clientY, t:performance.now() }; });
+canvas.addEventListener('pointerup', e => {
+  if (down && Math.hypot(e.clientX - down.x, e.clientY - down.y) < 12 && performance.now() - down.t < 600){
+    const r = canvas.getBoundingClientRect(); ignite((e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height);
+  }
+  down = null;
+});
+$('shoot').onclick = () => {
+  try{
+    canvas.toBlob(b => { if (!b) return; const a = document.createElement('a'); a.href = URL.createObjectURL(b);
+      a.download = 'kogashi-' + Date.now() + '.png'; a.click(); }, 'image/png');
+  }catch(e){ setStatus('保存できませんでした。'); }
+};
+let rec = null, chunks = [];
+$('rec').onclick = () => {
+  if (rec && rec.state === 'recording'){ rec.stop(); return; }
+  try{
+    const tracks = [...canvas.captureStream(30).getVideoTracks()];
+    if (recDest) tracks.push(...recDest.stream.getAudioTracks());
+    const mime = ['video/mp4;codecs=avc1','video/webm;codecs=vp9,opus','video/webm'].find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || '';
+    rec = new MediaRecorder(new MediaStream(tracks), mime ? { mimeType:mime } : {});
+    chunks = [];
+    rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+    rec.onstop = () => {
+      $('rec').classList.remove('on'); $('rec').textContent = '● rec';
+      const ext = (rec.mimeType || '').includes('mp4') ? 'mp4' : 'webm';
+      const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(chunks, { type:rec.mimeType || 'video/webm' }));
+      a.download = 'kogashi.' + ext; a.click();
+    };
+    rec.start(); $('rec').classList.add('on'); $('rec').textContent = '■ stop';
+  }catch(e){ setStatus('録画を開始できませんでした。'); }
+};
+
+/* ---------- render ---------- */
+let lastT = 0, lastVT = -1, lastFieldT = 0;
+const FILM = { frame:-1, seed:0, flick:1, wx:0, wy:0, tx:0, ty:0, scr:new Float32Array([-1,-1,-1,-1]), scrLife:[0,0,0,0] };
+const TEST = { hold:null };
+function filmClock(t){
+  const fr = Math.floor(t * 24);
+  if (fr === FILM.frame) return;
+  FILM.frame = fr;
+  FILM.seed = (fr * 13.37) % 997;
+  const wv = S.weave;
+  FILM.flick = 1 - wv * (.03 + .05 * Math.random()) + (Math.random() < .02 ? -.12 * wv : 0);
+  if (Math.random() < .12){ FILM.tx = (Math.random() - .5) * .006 * wv; FILM.ty = (Math.random() - .5) * .009 * wv; }
+  FILM.wx += (FILM.tx - FILM.wx) * .35; FILM.wy += (FILM.ty - FILM.wy) * .35;
+  for (let i = 0; i < 4; i++){
+    if (FILM.scrLife[i] > 0){ FILM.scrLife[i]--; FILM.scr[i] += (Math.random() - .5) * .002; }
+    else if (Math.random() < (i === 0 ? .01 : .03)){ FILM.scrLife[i] = 6 + (Math.random() * 40 | 0); FILM.scr[i] = Math.random(); }
+    else FILM.scr[i] = -1;
+  }
+}
+function loop(now){
+  requestAnimationFrame(loop);
+  const dt = lastT ? Math.min(.5, (now - lastT) / 1000) : 1 / 60; lastT = now;
+  const t = now / 1000;
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  let W = Math.round(innerWidth * dpr), H = Math.round(innerHeight * dpr);
+  const kk = Math.min(1, 1600 / Math.max(W, H)); W = Math.round(W * kk); H = Math.round(H * kk);
+  if (canvas.width !== W || canvas.height !== H){ canvas.width = W; canvas.height = H; }
+  SCR.W = W; SCR.H = H;
+  const fw = W >= H ? 160 : Math.max(40, Math.round(160 * W / H)), fh = W >= H ? Math.max(40, Math.round(160 * H / W)) : 160;
+  if (fw !== F.w || fh !== F.h) allocField(fw, fh);
+  if (video.videoWidth && (video.videoWidth !== vidW || video.videoHeight !== vidH)){ vidW = video.videoWidth; vidH = video.videoHeight; F.idxKey = ''; }
+  ensureTargets(W, H);
+  if (!M.external) detect(now);
+  if (M.live && now - M.lastT > 1500){ M.live = false; F.have = false; SLIP.armed = true; }       // tracking lost: nothing new burns
+  if (video.readyState < 2) return;
+  MODE.X = MODE.on ? Math.min(2, MODE.X + dt) : Math.max(0, MODE.X - dt * 1.6);
+  if (TEST.hold !== null) MODE.X = TEST.hold;
+  const X = MODE.X;
+  const vt = video.currentTime, fresh = vt !== lastVT; lastVT = vt;
+  if (fresh){
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, texVid);
+    try { gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video); } catch(e){}
+  }
+  const live = (M.has && M.live) || segFailed, useMask = M.has && M.live && !segFailed;
+  if (fresh && X > .3){
+    const dtf = lastFieldT ? Math.min(.25, Math.max(.01, t - lastFieldT)) : 1 / 30; lastFieldT = t;
+    stepField(dtf, live && X > 1.4, useMask);
+    // a sharp, big move makes the frame slip once
+    if (F.seedMean > .1 && SLIP.armed && t > SLIP.cool){ if (slip()){ SLIP.cool = t + 3.5; SLIP.armed = false; } }
+    if (F.seedMean < .03) SLIP.armed = true;
+    if (proj && actx){
+      proj.gain.setTargetAtTime(X > .5 ? .07 * S.vol : 0, actx.currentTime, .15);
+      crk.gain.setTargetAtTime(Math.min(1, F.burnArea * 12 + F.heatMean * 2) * .5 * S.vol * (X > 1 ? 1 : 0), actx.currentTime, .1);
+    }
+  } else if (X <= .3) lastFieldT = 0;
+  if (SLIP.t >= 0){ SLIP.t += dt; if (SLIP.t > SLIP.dur) SLIP.t = -1; }
+  filmClock(t);
+  // the switch: lamp blinks on, the frame rolls down into the gate
+  let film = X > 0 ? 1 : 0, flash = 0, roll = 0;
+  if (X > 0 && X < .45){ const k = Math.floor(X / .075); flash = k % 2 ? 0 : .9 * (1 - X / .45); film = X > .15 ? 1 : 0; }
+  if (X > 0 && X < 1.2){ const u = Math.max(0, (X - .15) / 1.05); roll = (1 - (1 - Math.pow(1 - u, 3))) * 1.6; }
+  if (SLIP.t >= 0){ const u = SLIP.t / SLIP.dur; roll += 1 - (1 - Math.pow(1 - u, 2)); if (u >= 1) roll = 0; }
+  if (roll >= .999 || roll <= .001) roll = 0;
+  const [kx, ky] = coverK();
+  // pass 1: film
+  gl.bindVertexArray(vao);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, FB.A.f); gl.viewport(0, 0, W, H);
+  gl.useProgram(PF.p); const U = PF.U;
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, texVid); gl.uniform1i(U.uVid, 0);
+  gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, texSim); gl.uniform1i(U.uSim, 1);
+  gl.uniform2f(U.uRes, W, H); gl.uniform2f(U.uK, kx, ky); gl.uniform2f(U.uSimRes, F.w, F.h);
+  gl.uniform2f(U.uWeave, film ? FILM.wx : 0, film ? FILM.wy : 0);
+  gl.uniform1f(U.uMirror, mirror ? 1 : 0); gl.uniform1f(U.uRoll, film ? roll : 0);
+  gl.uniform1f(U.uFlick, FILM.flick); gl.uniform1f(U.uT, t); gl.uniform1f(U.uSeed, FILM.seed);
+  gl.uniform1f(U.uGrain, S.grain); gl.uniform1f(U.uBg, S.bg); gl.uniform1f(U.uFilm, film); gl.uniform1f(U.uFlash, flash);
+  gl.uniform1f(U.uStock, S.stock); gl.uniform1f(U.uScratch, S.scratch ? 1 : 0); gl.uniform1f(U.uWarp, 1);
+  gl.uniform4fv(U.uScr, FILM.scr);
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  // pass 2: blur pyramid
+  gl.useProgram(PD.p);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, FB.B.f); gl.viewport(0, 0, FB.B.w, FB.B.h);
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, FB.A.t); gl.uniform1i(PD.U.uT, 0);
+  gl.uniform2f(PD.U.uTex, 1 / (FB.B.w * 2), 1 / (FB.B.h * 2));
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, FB.C.f); gl.viewport(0, 0, FB.C.w, FB.C.h);
+  gl.bindTexture(gl.TEXTURE_2D, FB.B.t); gl.uniform2f(PD.U.uTex, 1 / (FB.C.w * 2), 1 / (FB.C.h * 2));
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  // pass 3: composite
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, 0, W, H);
+  gl.useProgram(PC.p); const C = PC.U;
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, FB.A.t); gl.uniform1i(C.uA, 0);
+  gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, FB.B.t); gl.uniform1i(C.uB, 1);
+  gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, FB.C.t); gl.uniform1i(C.uC, 2);
+  gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, texEdge); gl.uniform1i(C.uEdgeT, 3);
+  gl.uniform2f(C.uRes, W, H); gl.uniform1f(C.uHal, S.hal); gl.uniform1f(C.uFilm, film);
+  gl.uniform1f(C.uEdge, S.edge && film ? 1 : 0); gl.uniform1f(C.uRoll, film ? roll : 0); gl.uniform1f(C.uStock, S.stock); gl.uniform1f(C.uT, t);
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+}
+
+/* ---------- test hook (used by the local Playwright check only) ---------- */
+window.__kogashi = {
+  feedMask(arr, w, h){ M.external = true; return ingestMask(arr, w, h); },
+  feedFaces(){ return 0; },
+  setMode, setStock, slip, ignite, hold(x){ TEST.hold = x; },
+  set(k, v){ S[k] = v; },
+  state(){ return { mode:MODE.on, X:MODE.X, live:M.live, seed:F.seedMean, burn:F.burnArea, heat:F.heatMean, slip:SLIP.t, w:F.w, h:F.h }; },
+  heatAt(fx, fy){ if (!F.n) return 0; const x = Math.max(0, Math.min(F.w - 1, (fx * F.w) | 0)), y = Math.max(0, Math.min(F.h - 1, (fy * F.h) | 0)), i = y * F.w + x; return F.H[i] + F.D[i]; },
+};
+</script>
+</body>
+</html>
