@@ -1,0 +1,837 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="description" content="動くたびに少し前の自分が後ろに一列に並び、光って、墨のように溶けていく。動いたところから光の粒と煙が立ちのぼり、動きが音になる。撮影と録画ができる。">
+<meta name="theme-color" content="#05060c">
+<title>AFTERIMAGE ─ 過去の自分が後ろに並んで溶けていく</title>
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  AFTERIMAGE ─ 過去の自分が後ろに並んで溶けていく      ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  ORIGIN     オーナーが持ち込んだ完成品（afterimage.html、作者表記「アパート /
+             APARTMENT」）。機構・シェーダ・配色・音はオーナーの設計のまま。
+             開始画面をギャラリーの形に揃え（モデルとカメラの選択は外して全身向け
+             モデル・前面カメラを既定に）、⟲ カメラ、⚙ で隠せる調整パネル、
+             カメラ失敗時の定型文、撮影と録画を足した。
+  MOOD       明るい灰青のスポットの中に立つ自分。その後ろへ 0.14 秒おきの自分が
+             遠近で縮みながら一列に流れ、光る縁をつれて墨色に沈み、ノイズで
+             蝕まれて溶ける。動いたところは白く発光し、光の粒と墨の煙が昇る。
+  PALETTE    LIGHT（既定）中心 #d6dbeb・周辺 #33384f・墨 #05050b
+             DARK  中心 #121424・周辺 #000003・墨 #291f61
+             差し色は縁の青 #9fb4ff と暖色の逆光。
+  TYPE       システムの細いゴシック（weight 200、字間を大きく）。
+  MOTION     残像は流れながら縮み、上へ少し浮き、縁から崩れる。粒は渦（curl
+             noise）に乗って漂う。
+  SOUND      動きで開く帯域ノイズ、低いドローン、大きく動くと五音音階の鐘が
+             長い残響で鳴る。左右の定位は動いた位置。
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<style>
+:root{--fg:#e8ecff;--dim:#8a91b0;--acc:#9fb4ff}
+html,body{margin:0;height:100%;background:#000;overflow:hidden;font-family:system-ui,-apple-system,"Hiragino Sans","Yu Gothic",sans-serif;color:var(--fg)}
+canvas#gl{position:fixed;inset:0;width:100%;height:100%;display:block}
+body.idle{cursor:none}
+#start{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;background:radial-gradient(ellipse at 50% 38%,#1b2140 0%,#05060c 70%);z-index:20;text-align:center;padding:16px}
+#start h1{margin:0;font-weight:200;letter-spacing:.5em;font-size:clamp(28px,6vw,64px);padding-left:.5em}
+#start .brand{font-size:12px;letter-spacing:.4em;color:var(--dim)}
+#start p{max-width:560px;line-height:1.9;font-size:13px;color:#b8bfdc;margin:0}
+#start button{font:inherit;font-size:15px;letter-spacing:.3em;padding:14px 38px;border-radius:999px;border:1px solid rgba(255,255,255,.35);background:rgba(255,255,255,.06);color:#fff;cursor:pointer}
+#start button:hover{background:rgba(255,255,255,.14)}
+#start select{font:inherit;background:#0d1020;color:#fff;border:1px solid rgba(255,255,255,.25);border-radius:6px;padding:6px 10px}
+#err{color:#ff8a9a;font-size:12px;white-space:pre-wrap;max-width:90vw;max-height:30vh;overflow:auto;text-align:center;line-height:1.8}
+#panel{position:fixed;top:12px;right:12px;width:270px;max-height:calc(100vh - 24px);overflow:auto;background:rgba(8,10,18,.8);backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,.12);border-radius:10px;padding:10px 14px 12px;font-size:12px;z-index:5;box-sizing:border-box}
+#panel.hide,#status.hide{display:none}
+#panel h2{font-size:11px;letter-spacing:.3em;font-weight:500;margin:4px 0 8px;color:var(--acc)}
+.row{display:grid;grid-template-columns:96px 1fr 36px;align-items:center;gap:6px;margin:5px 0}
+.row label{color:#c4cae6}
+.row output{text-align:right;color:var(--dim);font-variant-numeric:tabular-nums}
+.row input[type=range]{width:100%;accent-color:#9fb4ff}
+.btns{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.btns button{font:inherit;font-size:11px;padding:5px 9px;border-radius:6px;border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.05);color:#fff;cursor:pointer}
+.btns button.on{background:rgba(159,180,255,.28);border-color:rgba(159,180,255,.6)}
+.keys{margin-top:10px;color:var(--dim);line-height:1.7;font-size:11px}
+.ui{position:fixed;z-index:6;font:inherit;font-size:12px;letter-spacing:.12em;padding:8px 12px;border-radius:999px;border:1px solid rgba(255,255,255,.25);background:rgba(8,10,18,.45);color:#fff;cursor:pointer;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);display:none}
+.ui.show{display:block}
+#gear{right:12px;top:calc(env(safe-area-inset-top,0px) + 12px);font-size:14px;letter-spacing:0}
+#flip{right:12px;top:calc(env(safe-area-inset-top,0px) + 56px)}
+#rec{left:50%;transform:translateX(calc(-100% - 6px));bottom:calc(env(safe-area-inset-bottom,0px) + 40px)}
+#shot{left:50%;transform:translateX(6px);bottom:calc(env(safe-area-inset-bottom,0px) + 40px)}
+#rec.on{border-color:#ff8a9a;color:#ff8a9a}
+#panel{top:calc(env(safe-area-inset-top,0px) + 100px)!important;max-height:calc(100vh - 170px)!important;width:min(270px,calc(100vw - 24px))!important}
+#status{position:fixed;left:12px;bottom:10px;font-size:11px;color:rgba(230,235,255,.7);z-index:5;text-shadow:0 0 4px #000;font-variant-numeric:tabular-nums}
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+
+<div id="start">
+  <div class="brand">アパート / APARTMENT</div>
+  <h1>AFTERIMAGE</h1>
+  <p>動くたびに過去の自分が後ろに並び、光って、溶けていく。<br>
+  全身が映る距離で。少し明かりがある方が切り抜きが安定します。</p>
+  <button id="go">START</button>
+  <div id="err"></div>
+</div>
+
+<div id="panel" class="hide">
+  <h2>AFTERIMAGE</h2>
+  <div id="sliders"></div>
+  <div class="btns" id="toggles"></div>
+  <div class="keys">⚙ / H パネル表示/非表示　F フルスクリーン<br>M ミラー　B 背景 白/黒　S 音　C リセット<br>← → 流れの向き</div>
+</div>
+<div id="status" class="hide"></div>
+<button id="gear" class="ui" aria-label="調整">⚙</button>
+<button id="flip" class="ui">⟲ カメラ</button>
+<button id="rec" class="ui">● REC</button>
+<button id="shot" class="ui">撮る</button>
+
+<script type="module">
+// ================================================================
+//  AFTERIMAGE — person time-echo / glow / dissolve (WebGL2)
+// ================================================================
+const $ = s => document.querySelector(s);
+const errBox = $('#err');
+const showErr = e => { console.error(e); errBox.textContent = String(e && e.message || e); };
+
+const params = {
+  count: 14,      // number of echoes
+  interval: 0.14, // seconds between captures
+  trail: 0.32,    // horizontal travel of the oldest echo (screen widths)
+  rise: 0.05,     // vertical travel
+  shrink: 0.30,   // perspective shrink at oldest
+  pscale: 0.85,   // person size
+  px: 0.12,       // person horizontal position offset
+  glow: 1.0,
+  bloom: 0.5,
+  spawn: 0.06,
+  curl: 0.18,
+  lift: 1.1,
+  ink: 1.0,
+  lumaW: 0.6,
+  mirror: true,
+  dark: false,
+  dir: -1,
+  sound: true,
+};
+const SLIDERS = [
+  ['count','残像の数',6,16,1],
+  ['interval','残像の間隔',0.05,0.3,0.01],
+  ['trail','流れの長さ',0,0.7,0.01],
+  ['rise','上への流れ',-0.2,0.3,0.01],
+  ['shrink','奥行き',0,0.6,0.01],
+  ['pscale','人物サイズ',0.4,1.4,0.01],
+  ['px','人物の位置',-0.4,0.4,0.01],
+  ['glow','発光',0,2,0.01],
+  ['bloom','にじみ光',0,2.5,0.01],
+  ['spawn','粒子の量',0,0.3,0.005],
+  ['curl','渦の強さ',0,0.6,0.01],
+  ['ink','墨の濃さ',0,2,0.01],
+  ['lift','人物の明るさ',0.5,2,0.01],
+  ['lumaW','明暗の反応',0,3,0.05],
+];
+
+// ---------------------------------------------------------------- GL
+const canvas = $('#gl');
+const gl = canvas.getContext('webgl2', {antialias:false, alpha:false, premultipliedAlpha:false, preserveDrawingBuffer:true});
+if (!gl) showErr('WebGL2 が使えません（Chrome / Edge 推奨）');
+const extCBF = gl && gl.getExtension('EXT_color_buffer_float');
+gl && gl.getExtension('OES_texture_float_linear');
+if (gl && !extCBF) showErr('EXT_color_buffer_float が使えません');
+
+function compile(type, src){
+  const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+    const log = gl.getShaderInfoLog(s);
+    throw new Error(log + '\n' + src.split('\n').map((l,i)=>(i+1)+': '+l).join('\n'));
+  }
+  return s;
+}
+function program(vs, fs){
+  const p = gl.createProgram();
+  gl.attachShader(p, compile(gl.VERTEX_SHADER, vs));
+  gl.attachShader(p, compile(gl.FRAGMENT_SHADER, fs));
+  gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+  const u = {};
+  const n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+  for (let i=0;i<n;i++){ const info = gl.getActiveUniform(p,i); u[info.name.replace(/\[0\]$/,'')] = gl.getUniformLocation(p, info.name); }
+  return {p, u};
+}
+function mkTex(w,h,internal,format,type,filter){
+  const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.texImage2D(gl.TEXTURE_2D,0,internal,w,h,0,format,type,null);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, filter);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, filter);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  return t;
+}
+function mkFbo(texs){
+  const f = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, f);
+  texs.forEach((t,i)=>gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0+i, gl.TEXTURE_2D, t, 0));
+  if (texs.length>1) gl.drawBuffers(texs.map((_,i)=>gl.COLOR_ATTACHMENT0+i));
+  return f;
+}
+function target(w,h,filter=gl.LINEAR){ const t = mkTex(w,h,gl.RGBA16F,gl.RGBA,gl.HALF_FLOAT,filter); return {t, f:mkFbo([t]), w, h}; }
+function delTarget(T){ if(!T) return; gl.deleteTexture(T.t); gl.deleteFramebuffer(T.f); }
+
+// ---------------------------------------------------------------- GLSL
+const VS = `#version 300 es
+out vec2 vUv;
+void main(){ vec2 p = vec2(float((gl_VertexID<<1)&2), float(gl_VertexID&2)); vUv = p; gl_Position = vec4(p*2.-1., 0., 1.); }`;
+
+const COMMON = `
+uniform vec2 uCover; uniform float uPScale; uniform vec2 uCenter; uniform float uMirror;
+uniform vec2 uTrail; uniform float uShrink; uniform vec2 uAnchor;
+vec2 screenToP(vec2 s){ return (s-uCenter)/uPScale*uCover+.5; }
+vec2 personToScreen(vec2 p){ return (p-.5)/uCover*uPScale+uCenter; }
+vec2 tcOf(vec2 p){ return vec2(uMirror>.5?1.-p.x:p.x, 1.-p.y); }
+vec2 ghostFwd(vec2 s,float a){ return uAnchor+(s-uAnchor)*(1.-uShrink*a)+uTrail*a; }
+vec2 ghostInv(vec2 s,float a){ return uAnchor+(s-uTrail*a-uAnchor)/(1.-uShrink*a); }
+`;
+const NOISE = `
+float hash12(vec2 p){ vec3 p3=fract(vec3(p.xyx)*.1031); p3+=dot(p3,p3.yzx+33.33); return fract((p3.x+p3.y)*p3.z); }
+float hash13(vec3 p3){ p3=fract(p3*.1031); p3+=dot(p3,p3.zyx+31.32); return fract((p3.x+p3.y)*p3.z); }
+float vnoise(vec2 p){ vec2 i=floor(p), f=fract(p); vec2 u=f*f*(3.-2.*f);
+  return mix(mix(hash12(i),hash12(i+vec2(1,0)),u.x), mix(hash12(i+vec2(0,1)),hash12(i+vec2(1,1)),u.x), u.y); }
+float fbm(vec2 p){ float s=0., a=.5; for(int i=0;i<4;i++){ s+=a*vnoise(p); p=p*2.03+17.1; a*=.5; } return s; }
+vec2 curl(vec2 p){ float e=.02;
+  float n1=fbm(p+vec2(0,e)), n2=fbm(p-vec2(0,e)), n3=fbm(p+vec2(e,0)), n4=fbm(p-vec2(e,0));
+  return vec2(n1-n2, -(n3-n4))/(2.*e); }
+float erodeN(vec2 p,float layer){ vec2 q=p*vec2(6.,10.)+layer*7.13; q+=vec2(vnoise(q*.7),vnoise(q*.7+5.))*1.5; return clamp((fbm(q)-.2)/.55,0.,1.); }
+`;
+const HEAD = `#version 300 es
+precision highp float; precision highp sampler2DArray;
+`;
+
+// person state: r = smoothed mask, g = motion accumulator, b = luma
+const FS_PERSON = HEAD + `in vec2 vUv; out vec4 o;
+uniform sampler2D uPrev,uMask,uVideo; uniform vec2 uTexel; uniform float uDecay,uLumaW;
+void main(){
+  vec2 tc=vUv;
+  vec4 pr=texture(uPrev,tc);
+  float raw=texture(uMask,tc).r;
+  float m=mix(pr.r,raw,.6);
+  vec3 v=texture(uVideo,tc).rgb; float l=dot(v,vec3(.299,.587,.114));
+  float mot=abs(raw-pr.r)*1.8 + abs(l-pr.b)*smoothstep(.3,.7,raw)*2.5*uLumaW;
+  mot=smoothstep(.06,.5,mot);
+  float nb=(texture(uPrev,tc+vec2(uTexel.x,0)).g+texture(uPrev,tc-vec2(uTexel.x,0)).g
+           +texture(uPrev,tc+vec2(0,uTexel.y)).g+texture(uPrev,tc-vec2(0,uTexel.y)).g)*.25;
+  float acc=max(mix(pr.g,nb,.08)*uDecay, mot);
+  o=vec4(m,acc,l,1.);
+}`;
+
+const FS_CAPTURE = HEAD + `in vec2 vUv; out vec4 o;
+uniform sampler2D uP,uVideo;
+void main(){ float m=texture(uP,vUv).r; o=vec4(texture(uVideo,vUv).rgb, smoothstep(.35,.65,m)); }`;
+
+const FS_SCENE = HEAD + `in vec2 vUv; out vec4 o;
+uniform sampler2D uP,uVideo,uSmoke; uniform sampler2DArray uGhosts;
+uniform int uGN; uniform float uGLayer[16]; uniform float uGAge[16];
+uniform vec3 uBgC,uBgE,uInk; uniform float uTime,uGlow,uLift,uAspect,uInkAmt;
+` + COMMON + NOISE + `
+vec3 liftCol(vec3 v,float py){
+  float l=dot(v,vec3(.299,.587,.114));
+  vec3 c=mix(v,vec3(l),.35)*uLift+.12*uLift;
+  c=mix(c, c*vec3(.45,.6,1.35)+vec3(0.,.02,.08), smoothstep(.55,.12,py)*.75);
+  return c;
+}
+void main(){
+  vec2 uv=vUv;
+  vec2 q=(uv-vec2(.5,.62))*vec2(uAspect,1.);
+  float spot=exp(-dot(q,q)*1.4);
+  vec3 col=mix(uBgE,uBgC,spot);
+  col*=mix(.72,1.,smoothstep(0.,.28,uv.y));
+  float sm=texture(uSmoke,uv).r;
+  col=mix(col,uInk,clamp(sm*uInkAmt,0.,1.)*.92);
+
+  for(int k=0;k<16;k++){
+    if(k>=uGN) break;
+    float a=uGAge[k];
+    if(a>=1.||a<0.) continue;
+    float L=uGLayer[k];
+    vec2 p=screenToP(ghostInv(uv,a));
+    float w=a*a;
+    p+=(vec2(vnoise(p*6.+uTime*.3+L), vnoise(p*6.-uTime*.3+9.+L))-.5)*.08*w;
+    if(p.x<0.||p.x>1.||p.y<0.||p.y>1.) continue;
+    vec4 g=texture(uGhosts,vec3(tcOf(p),L));
+    if(g.a<.02) continue;
+    float n=erodeN(p,L);
+    float thr=a*1.25-.2;
+    float vis=smoothstep(thr,thr+.05,n);
+    float edge=vis*(1.-smoothstep(thr+.05,thr+.14,n));
+    vec3 c=liftCol(g.rgb,p.y);
+    c=mix(c, c*vec3(1.05,.8,1.)+vec3(.14,.03,.1), smoothstep(.08,.35,a)*.6);
+    c=mix(c, uInk+vec3(.05,.06,.15)*c, smoothstep(.3,.8,a)*min(uInkAmt,1.));
+    c+=edge*mix(vec3(1.4,1.3,1.6), uInk-c*.5, smoothstep(.35,.7,a));
+    float al=g.a*vis*(1.-smoothstep(.85,1.,a));
+    col=mix(col,c,al);
+  }
+
+  vec2 p=screenToP(uv);
+  if(p.x>0.&&p.x<1.&&p.y>0.&&p.y<1.){
+    vec2 tc=tcOf(p);
+    vec4 P=texture(uP,tc);
+    vec2 px=1./vec2(textureSize(uP,0));
+    float mo=0.;
+    for(int i=-2;i<=2;i++) for(int j=-2;j<=2;j++) mo+=texture(uP,tc+vec2(i,j)*px*2.).g;
+    mo/=25.;
+    float m=smoothstep(.4,.6,P.r);
+    float gx=texture(uP,tc+vec2(px.x*1.5,0)).r-texture(uP,tc-vec2(px.x*1.5,0)).r;
+    float gy=texture(uP,tc+vec2(0,px.y*1.5)).r-texture(uP,tc-vec2(0,px.y*1.5)).r;
+    vec2 gs=vec2(uMirror>.5?-gx:gx, -gy);
+    float rim=clamp(length(gs)*1.6,0.,1.);
+    vec3 lc=liftCol(texture(uVideo,tc).rgb,p.y);
+    float side=dot(normalize(gs+1e-5),vec2(1.,.3));
+    vec3 rimC=mix(vec3(.3,.5,2.2),vec3(2.4,1.2,.4),smoothstep(-.3,.3,side));
+    lc+=vec3(1.5,1.55,1.8)*smoothstep(.15,.9,mo)*uGlow*.8;
+    col=mix(col,lc,m);
+    col+=rimC*rim*(.25+mo*1.5)*uGlow;
+    col+=vec3(.9,.95,1.2)*smoothstep(.05,.9,mo)*(1.-m)*uGlow*.45;
+  }
+  o=vec4(col,1.);
+}`;
+
+const FS_PUPDATE = HEAD + `
+layout(location=0) out vec4 oA; layout(location=1) out vec4 oB; layout(location=2) out vec4 oC;
+uniform sampler2D uA,uB,uC,uP; uniform sampler2DArray uGhosts;
+uniform int uGN; uniform float uGLayer[16]; uniform float uGAge[16];
+uniform float uTime,uDt,uSpawn,uMotionShare,uCurl; uniform vec2 uDrift;
+` + COMMON + NOISE + `
+void main(){
+  ivec2 id=ivec2(gl_FragCoord.xy);
+  vec4 A=texelFetch(uA,id,0), B=texelFetch(uB,id,0), C=texelFetch(uC,id,0);
+  if(B.x<=0.){
+    vec3 h=vec3(gl_FragCoord.xy, fract(uTime*.371)*997.);
+    A=vec4(0); B=vec4(0); C=vec4(0);
+    if(hash13(h)<uSpawn){
+      float r1=hash13(h+11.1);
+      vec2 p=vec2(hash13(h+2.3),hash13(h+5.7));
+      if(r1<uMotionShare){
+        vec4 P=texture(uP,tcOf(p));
+        float m=P.g*smoothstep(.15,.5,P.r+P.g);
+        if(m>.12+hash13(h+8.1)*.5){
+          float ang=hash13(h+3.3)*6.2832; float sp=(.04+.3*hash13(h+4.4))*min(m,1.5);
+          A=vec4(personToScreen(p), vec2(cos(ang),sin(ang))*sp+vec2(0.,.03));
+          float L=.4+hash13(h+6.6)*1.1;
+          B=vec4(L,L,0.,hash13(h+7.7));
+          C=vec4(mix(vec3(1.,.97,1.05),vec3(.6,.75,1.3),hash13(h+9.9)), 1.2+hash13(h+1.9)*2.);
+        }
+      } else if(uGN>0){
+        int k=min(int(hash13(h+12.3)*float(uGN)),uGN-1);
+        float a=uGAge[k];
+        if(a>.1&&a<.97){
+          vec4 g=texture(uGhosts,vec3(tcOf(p),uGLayer[k]));
+          float n=erodeN(p,uGLayer[k]);
+          float thr=a*1.25-.2;
+          if(g.a>.5 && n>thr-.03 && n<thr+.12){
+            vec2 s=ghostFwd(personToScreen(p),a);
+            vec2 v=uDrift*(.5+hash13(h+3.1))+(vec2(hash13(h+4.2),hash13(h+5.3))-.5)*.06;
+            A=vec4(s,v);
+            float L=1.5+hash13(h+6.4)*3.;
+            B=vec4(L,L,1.,hash13(h+7.5));
+            vec3 c=g.rgb; float l=dot(c,vec3(.3,.59,.11));
+            c=mix(c,vec3(l),.4)*1.2+.15;
+            c=mix(c,vec3(1.,.72,.9)*max(l*1.3,.5),.5);
+            C=vec4(c,1.+hash13(h+8.6)*1.8);
+          }
+        }
+      }
+    }
+  } else {
+    float ink=B.z;
+    vec2 c=curl(A.xy*vec2(3.,2.2)+vec2(uTime*.05,-uTime*.08));
+    A.zw+=c*uCurl*uDt*(ink>.5?1.:.5);
+    if(ink>.5) A.zw+=uDrift*uDt*.6;
+    A.zw*=exp(-uDt*(ink>.5?.8:2.2));
+    A.xy+=A.zw*uDt;
+    B.x-=uDt;
+  }
+  oA=A; oB=B; oC=C;
+}`;
+
+const VS_PART = `#version 300 es
+precision highp float;
+uniform sampler2D uA,uB,uC; uniform int uW; uniform float uPx;
+out vec3 vCol; out float vBright, vInk;
+void main(){
+  ivec2 id=ivec2(gl_VertexID%uW, gl_VertexID/uW);
+  vec4 A=texelFetch(uA,id,0), B=texelFetch(uB,id,0), C=texelFetch(uC,id,0);
+  vCol=C.rgb; vBright=0.; vInk=0.;
+  if(B.x<=0.){ gl_Position=vec4(2.,2.,2.,1.); gl_PointSize=0.; return; }
+  float t=1.-B.x/max(B.y,1e-3);
+  float sz=C.w;
+  if(B.z<.5){ vBright=pow(1.-t,1.5)*2.2; }
+  else { vBright=(1.-smoothstep(0.,.45,t))*1.1*smoothstep(0.,.05,t); vInk=smoothstep(.2,.6,t)*(1.-smoothstep(.8,1.,t)); sz*=mix(1.,2.4,t); }
+  gl_PointSize=sz*uPx;
+  gl_Position=vec4(A.xy*2.-1.,0.,1.);
+}`;
+const FS_PART = `#version 300 es
+precision highp float;
+in vec3 vCol; in float vBright, vInk; out vec4 o;
+uniform vec3 uInk; uniform int uMode; uniform float uInkAmt;
+void main(){
+  float r=length(gl_PointCoord-.5)*2.; float f=1.-smoothstep(.2,1.,r);
+  if(uMode==0){ float ia=vInk*f*.55*min(uInkAmt,1.5); o=vec4(vCol*vBright*f+uInk*ia, ia); }
+  else { o=vec4(vInk*f*.25*uInkAmt,0.,0.,0.); }
+}`;
+
+const FS_SMOKE = HEAD + `in vec2 vUv; out vec4 o;
+uniform sampler2D uPrev; uniform float uTime,uDt,uDecay; uniform vec2 uDrift,uTexel;
+` + NOISE + `
+void main(){
+  vec2 v=curl(vUv*vec2(2.5,1.8)+vec2(0.,uTime*.04))*.035+uDrift*.5;
+  vec2 s=vUv-v*uDt;
+  float a=texture(uPrev,s).r*.6
+    +(texture(uPrev,s+vec2(uTexel.x,0)).r+texture(uPrev,s-vec2(uTexel.x,0)).r
+     +texture(uPrev,s+vec2(0,uTexel.y)).r+texture(uPrev,s-vec2(0,uTexel.y)).r)*.1;
+  o=vec4(a*uDecay,0.,0.,1.);
+}`;
+
+const FS_BRIGHT = HEAD + `in vec2 vUv; out vec4 o; uniform sampler2D uSrc;
+void main(){ vec3 c=texture(uSrc,vUv).rgb; float l=max(c.r,max(c.g,c.b)); o=vec4(c*smoothstep(1.25,2.2,l),1.); }`;
+const FS_BLUR = HEAD + `in vec2 vUv; out vec4 o; uniform sampler2D uSrc; uniform vec2 uDir;
+void main(){
+  vec3 s=texture(uSrc,vUv).rgb*.227027;
+  s+=(texture(uSrc,vUv+uDir*1.3846).rgb+texture(uSrc,vUv-uDir*1.3846).rgb)*.3162162;
+  s+=(texture(uSrc,vUv+uDir*3.2308).rgb+texture(uSrc,vUv-uDir*3.2308).rgb)*.0702703;
+  o=vec4(s,1.);
+}`;
+const FS_FINAL = HEAD + `in vec2 vUv; out vec4 o;
+uniform sampler2D uScene,uB1,uB2,uB3; uniform float uBloom,uTime;
+` + NOISE + `
+void main(){
+  vec3 c=texture(uScene,vUv).rgb;
+  vec3 b=texture(uB1,vUv).rgb*.25+texture(uB2,vUv).rgb*.35+texture(uB3,vUv).rgb*.5;
+  c+=b*uBloom;
+  vec3 x=max(c-.8,0.); c=min(c,vec3(.8))+.2*(1.-exp(-x*2.5));
+  c+=(hash12(vUv*1000.+fract(uTime)*100.)-.5)*.02;
+  o=vec4(c,1.);
+}`;
+
+// ---------------------------------------------------------------- state
+const MAXL = 16;
+const GW = 480, GH = 270;           // ghost layer resolution
+const PW = 480, PH = 270;           // person state resolution
+const NPW = 512, NPH = 256;         // particle grid (131072)
+let P = {}, ghostsTex, ghostFbo, videoTex, maskTex, vao;
+let pState = [], pIdx = 0;
+let sceneT, b1a, b1b, b2a, b2b, b3a, b3b, smokeA, smokeB;
+let W = 0, H = 0;
+const slots = Array.from({length:MAXL}, (_,i)=>({layer:i, t:-1e9}));
+let capCount = 0, lastCap = 0;
+let time = 0;
+
+function initGL(){
+  P.person  = program(VS, FS_PERSON);
+  P.capture = program(VS, FS_CAPTURE);
+  P.scene   = program(VS, FS_SCENE);
+  P.pupdate = program(VS, FS_PUPDATE);
+  P.part    = program(VS_PART, FS_PART);
+  P.smoke   = program(VS, FS_SMOKE);
+  P.bright  = program(VS, FS_BRIGHT);
+  P.blur    = program(VS, FS_BLUR);
+  P.final   = program(VS, FS_FINAL);
+  vao = gl.createVertexArray(); gl.bindVertexArray(vao);
+
+  videoTex = mkTex(2,2,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,gl.LINEAR);
+  maskTex  = mkTex(2,2,gl.R16F,gl.RED,gl.HALF_FLOAT,gl.LINEAR);
+  P.pa = target(PW,PH); P.pb = target(PW,PH);
+
+  ghostsTex = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D_ARRAY, ghostsTex);
+  gl.texImage3D(gl.TEXTURE_2D_ARRAY,0,gl.RGBA8,GW,GH,MAXL,0,gl.RGBA,gl.UNSIGNED_BYTE,null);
+  gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  ghostFbo = gl.createFramebuffer();
+
+  for (let i=0;i<2;i++){
+    const ts = [0,1,2].map(()=>mkTex(NPW,NPH,gl.RGBA32F,gl.RGBA,gl.FLOAT,gl.NEAREST));
+    pState.push({ts, f:mkFbo(ts)});
+  }
+  clearAll();
+}
+
+function resize(){
+  const dpr = Math.min(window.devicePixelRatio||1, 1.5);
+  const w = Math.round(innerWidth*dpr), h = Math.round(innerHeight*dpr);
+  if (w===W && h===H) return;
+  W = w; H = h; canvas.width = W; canvas.height = H;
+  [sceneT,b1a,b1b,b2a,b2b,b3a,b3b,smokeA,smokeB].forEach(delTarget);
+  sceneT = target(W,H);
+  b1a = target(W>>1,H>>1); b1b = target(W>>1,H>>1);
+  b2a = target(W>>2,H>>2); b2b = target(W>>2,H>>2);
+  b3a = target(W>>3,H>>3); b3b = target(W>>3,H>>3);
+  smokeA = target(W>>1,H>>1); smokeB = target(W>>1,H>>1);
+}
+
+function clearTarget(T){ gl.bindFramebuffer(gl.FRAMEBUFFER,T.f); gl.viewport(0,0,T.w,T.h); gl.clearColor(0,0,0,0); gl.clear(gl.COLOR_BUFFER_BIT); }
+function clearAll(){
+  slots.forEach(s=>s.t=-1e9);
+  for (const s of pState){ gl.bindFramebuffer(gl.FRAMEBUFFER,s.f); gl.viewport(0,0,NPW,NPH); gl.clearBufferfv(gl.COLOR,0,[0,0,0,0]); gl.clearBufferfv(gl.COLOR,1,[0,0,0,0]); gl.clearBufferfv(gl.COLOR,2,[0,0,0,0]); }
+  if (smokeA){ clearTarget(smokeA); clearTarget(smokeB); }
+  clearTarget(P.pa); clearTarget(P.pb);
+}
+
+// uniforms helpers
+function tex2(prog, name, t, unit, kind=gl.TEXTURE_2D){ const l=prog.u[name]; if(l==null) return; gl.activeTexture(gl.TEXTURE0+unit); gl.bindTexture(kind,t); gl.uniform1i(l,unit); }
+function f1(prog,n,v){ const l=prog.u[n]; if(l!=null) gl.uniform1f(l,v); }
+function f2(prog,n,a,b){ const l=prog.u[n]; if(l!=null) gl.uniform2f(l,a,b); }
+function f3(prog,n,v){ const l=prog.u[n]; if(l!=null) gl.uniform3fv(l,v); }
+function i1(prog,n,v){ const l=prog.u[n]; if(l!=null) gl.uniform1i(l,v); }
+
+let vidW = 16, vidH = 9;
+function common(prog){
+  const A = W/H, V = vidW/vidH;
+  const cover = A>V ? [1, V/A] : [A/V, 1];
+  const cx = .5 + params.px, cy = .5;
+  f2(prog,'uCover',cover[0],cover[1]);
+  f1(prog,'uPScale',params.pscale);
+  f2(prog,'uCenter',cx,cy);
+  f1(prog,'uMirror',params.mirror?1:0);
+  f2(prog,'uTrail',params.trail*params.dir, params.rise);
+  f1(prog,'uShrink',params.shrink);
+  const anchorY = (0-.5)/cover[1]*params.pscale + cy;
+  f2(prog,'uAnchor',cx,anchorY);
+}
+
+const gLayer = new Float32Array(16), gAge = new Float32Array(16);
+let gN = 0;
+function ghostOrder(){
+  const life = params.interval*params.count;
+  const live = slots.map(s=>({layer:s.layer, a:(time-s.t)/life})).filter(s=>s.a>=0 && s.a<1).sort((x,y)=>y.a-x.a);
+  gN = Math.min(16, live.length);
+  for (let i=0;i<gN;i++){ gLayer[i]=live[i].layer; gAge[i]=live[i].a; }
+}
+function ghostUniforms(prog){
+  i1(prog,'uGN',gN);
+  if (prog.u.uGLayer!=null) gl.uniform1fv(prog.u.uGLayer,gLayer);
+  if (prog.u.uGAge!=null) gl.uniform1fv(prog.u.uGAge,gAge);
+  tex2(prog,'uGhosts',ghostsTex,7,gl.TEXTURE_2D_ARRAY);
+}
+
+function drawTo(T){ gl.bindFramebuffer(gl.FRAMEBUFFER, T?T.f:null); gl.viewport(0,0,T?T.w:W,T?T.h:H); gl.drawArrays(gl.TRIANGLES,0,3); }
+
+let lastMaskT = 0;
+function personPass(now){
+  const pr = P.person, src = P.pa, dst = P.pb;
+  gl.useProgram(pr.p);
+  tex2(pr,'uPrev',src.t,0); tex2(pr,'uMask',maskTex,1); tex2(pr,'uVideo',videoTex,2);
+  f2(pr,'uTexel',1/PW,1/PH);
+  const dt = Math.min(.2,(now-lastMaskT)/1000||.033); lastMaskT = now;
+  f1(pr,'uDecay',Math.exp(-dt*2.8));
+  f1(pr,'uLumaW',params.lumaW);
+  drawTo(dst);
+  P.pa = dst; P.pb = src;
+}
+
+function capture(){
+  const s = slots[capCount % MAXL]; capCount++;
+  s.t = time;
+  gl.bindFramebuffer(gl.FRAMEBUFFER, ghostFbo);
+  gl.framebufferTextureLayer(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, ghostsTex, 0, s.layer);
+  gl.viewport(0,0,GW,GH);
+  const pr = P.capture; gl.useProgram(pr.p);
+  tex2(pr,'uP',P.pa.t,0); tex2(pr,'uVideo',videoTex,1);
+  gl.drawArrays(gl.TRIANGLES,0,3);
+}
+
+const drift = () => [0.05*params.dir, 0.03];
+
+function particlesUpdate(dt){
+  const src = pState[pIdx], dst = pState[1-pIdx];
+  const pr = P.pupdate; gl.useProgram(pr.p);
+  tex2(pr,'uA',src.ts[0],0); tex2(pr,'uB',src.ts[1],1); tex2(pr,'uC',src.ts[2],2); tex2(pr,'uP',P.pa.t,3);
+  ghostUniforms(pr); common(pr);
+  f1(pr,'uTime',time); f1(pr,'uDt',dt); f1(pr,'uSpawn',params.spawn); f1(pr,'uMotionShare',.45); f1(pr,'uCurl',params.curl);
+  const d = drift(); f2(pr,'uDrift',d[0],d[1]);
+  gl.bindFramebuffer(gl.FRAMEBUFFER,dst.f); gl.viewport(0,0,NPW,NPH);
+  gl.drawArrays(gl.TRIANGLES,0,3);
+  pIdx = 1-pIdx;
+}
+function particlesDraw(T, mode, pxScale){
+  const s = pState[pIdx];
+  const pr = P.part; gl.useProgram(pr.p);
+  tex2(pr,'uA',s.ts[0],0); tex2(pr,'uB',s.ts[1],1); tex2(pr,'uC',s.ts[2],2);
+  i1(pr,'uW',NPW); f1(pr,'uPx',H/1080*pxScale); i1(pr,'uMode',mode);
+  f3(pr,'uInk',theme().ink); f1(pr,'uInkAmt',params.ink);
+  gl.bindFramebuffer(gl.FRAMEBUFFER,T.f); gl.viewport(0,0,T.w,T.h);
+  gl.enable(gl.BLEND);
+  if (mode===0) gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA); else gl.blendFunc(gl.ONE, gl.ONE);
+  gl.drawArrays(gl.POINTS,0,NPW*NPH);
+  gl.disable(gl.BLEND);
+}
+
+function smokePass(dt){
+  const pr = P.smoke; gl.useProgram(pr.p);
+  tex2(pr,'uPrev',smokeA.t,0);
+  f1(pr,'uTime',time); f1(pr,'uDt',dt); f1(pr,'uDecay',Math.exp(-dt*0.45));
+  const d = drift(); f2(pr,'uDrift',d[0],d[1]); f2(pr,'uTexel',1/smokeA.w,1/smokeA.h);
+  drawTo(smokeB);
+  [smokeA,smokeB] = [smokeB,smokeA];
+  particlesDraw(smokeA, 1, .5);
+}
+
+const THEMES = {
+  light: { bgC:[.84,.86,.92], bgE:[.20,.22,.31], ink:[.02,.02,.045] },
+  dark:  { bgC:[.07,.08,.14], bgE:[0,0,.012],   ink:[.16,.12,.38] },
+};
+const theme = () => params.dark ? THEMES.dark : THEMES.light;
+
+function scenePass(){
+  const pr = P.scene; gl.useProgram(pr.p);
+  tex2(pr,'uP',P.pa.t,0); tex2(pr,'uVideo',videoTex,1); tex2(pr,'uSmoke',smokeA.t,2);
+  ghostUniforms(pr); common(pr);
+  const th = theme();
+  f3(pr,'uBgC',th.bgC); f3(pr,'uBgE',th.bgE); f3(pr,'uInk',th.ink);
+  f1(pr,'uTime',time); f1(pr,'uGlow',params.glow); f1(pr,'uLift',params.lift); f1(pr,'uAspect',W/H); f1(pr,'uInkAmt',params.ink);
+  drawTo(sceneT);
+}
+function blur(src, tmp, dst){
+  const pr = P.blur; gl.useProgram(pr.p);
+  tex2(pr,'uSrc',src.t,0); f2(pr,'uDir',1/tmp.w,0); drawTo(tmp);
+  tex2(pr,'uSrc',tmp.t,0); f2(pr,'uDir',0,1/dst.h); drawTo(dst);
+}
+function bloomAndFinal(){
+  let pr = P.bright; gl.useProgram(pr.p); tex2(pr,'uSrc',sceneT.t,0); drawTo(b1b);
+  blur(b1b, b1a, b1b);
+  blur(b1b, b2a, b2b);
+  blur(b2b, b3a, b3b);
+  // blur pass once more on small levels for width
+  blur(b3b, b3a, b3b);
+  pr = P.final; gl.useProgram(pr.p);
+  tex2(pr,'uScene',sceneT.t,0); tex2(pr,'uB1',b1b.t,1); tex2(pr,'uB2',b2b.t,2); tex2(pr,'uB3',b3b.t,3);
+  f1(pr,'uBloom',params.bloom); f1(pr,'uTime',time);
+  drawTo(null);
+}
+
+// ---------------------------------------------------------------- camera + segmentation
+const video = document.createElement('video'); video.playsInline = true; video.muted = true;
+const SW = 320, SH = 180;
+const segCanvas = document.createElement('canvas'); segCanvas.width = SW; segCanvas.height = SH;
+const segCtx = segCanvas.getContext('2d', {willReadFrequently:false});
+let segmenter = null, segKind = 'full', segReady = false, segMsg = 'loading model…';
+let maskBuf = new Float32Array(SW*SH), prevMask = new Float32Array(SW*SH);
+let newMask = false, motionAmt = 0, motionCx = .5, motionCy = .5, segMs = 0;
+
+const MP = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14';
+const MODELS = {
+  full: 'https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_multiclass_256x256/float32/latest/selfie_multiclass_256x256.tflite',
+  lite: 'https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite',
+};
+async function initSeg(kind){
+  segKind = kind;
+  const {FilesetResolver, ImageSegmenter} = await import(MP + '/vision_bundle.mjs');
+  const fs = await FilesetResolver.forVisionTasks(MP + '/wasm');
+  let lastErr;
+  for (const delegate of ['GPU','CPU']){
+    try {
+      segmenter = await ImageSegmenter.createFromOptions(fs, {
+        baseOptions:{ modelAssetPath: MODELS[kind], delegate },
+        runningMode:'VIDEO', outputCategoryMask:false, outputConfidenceMasks:true,
+      });
+      segMsg = kind + ' / ' + delegate; segReady = true; return;
+    } catch(e){ lastErr = e; }
+  }
+  throw lastErr;
+}
+
+let lastTs = 0;
+function runSeg(now){
+  if (!segReady) return;
+  segCtx.drawImage(video, 0, 0, SW, SH);
+  const ts = Math.max(now, lastTs+1); lastTs = ts;
+  const t0 = performance.now();
+  segmenter.segmentForVideo(segCanvas, ts, res => {
+    const ms = res.confidenceMasks; if (!ms || !ms.length) return;
+    const mw = ms[0].width, mh = ms[0].height, n = mw*mh;
+    if (!(n > 0)) return;
+    if (ms.length > 1){ const bg = ms[0].getAsFloat32Array(); if (bg.length < n) return; ingestMask(mw, mh, i => 1-bg[i]); }
+    else { const f = ms[0].getAsFloat32Array(); if (f.length < n) return; ingestMask(mw, mh, i => f[i]); }
+  });
+  segMs = segMs*.9 + (performance.now()-t0)*.1;
+}
+function ingestMask(mw, mh, at){
+    const n = mw*mh;
+    if (maskBuf.length !== n){ maskBuf = new Float32Array(n); prevMask = new Float32Array(n); }
+    prevMask.set(maskBuf);
+    for (let i=0;i<n;i++){ const v = at(i); maskBuf[i] = v >= 0 ? (v > 1 ? 1 : v) : 0; }
+    // motion stats for audio
+    let sum=0, sx=0, sy=0;
+    for (let y=0;y<mh;y+=2) for (let x=0;x<mw;x+=2){ const i=y*mw+x; const d=Math.abs(maskBuf[i]-prevMask[i]); if (d>.15){ sum+=d; sx+=x*d; sy+=y*d; } }
+    const norm = sum/(n/4);
+    motionAmt += (Math.min(1, norm*30) - motionAmt)*.35;
+    if (sum>0){ motionCx += (sx/sum/mw - motionCx)*.3; motionCy += (sy/sum/mh - motionCy)*.3; }
+    gl.bindTexture(gl.TEXTURE_2D, maskTex);
+    gl.texImage2D(gl.TEXTURE_2D,0,gl.R16F,mw,mh,0,gl.RED,gl.FLOAT,maskBuf);
+    newMask = true;
+}
+// test hook (used by the local Playwright check only)
+window.__afterimage = {
+  feedMask(arr, w, h){ if (!arr || !(w > 0) || !(h > 0) || w*h > 4e6 || arr.length < w*h || !P.scene) return false; ingestMask(w, h, i => +arr[i]); return true; },
+  state(){ return { motion:motionAmt, ghosts:gN, captures:capCount }; },
+};
+
+let facing = 'user', camStream = null;
+async function startCamera(){
+  const md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) throw new Error('getUserMedia is unavailable');
+  const c = { width:{ideal:1280}, height:{ideal:720}, frameRate:{ideal:30}, facingMode:{ideal:facing} };
+  const stream = await md.getUserMedia({video:c, audio:false});
+  if (camStream) camStream.getTracks().forEach(t=>t.stop());
+  camStream = stream; params.mirror = facing === 'user'; if (typeof refreshToggles === 'function') refreshToggles();
+  video.srcObject = stream; await video.play().catch(()=>{});
+  vidW = video.videoWidth || 1280; vidH = video.videoHeight || 720;
+}
+const camErrText = e => 'カメラを起動できませんでした：' + ((e && (e.message || e.name)) || String(e || 'unknown')) + '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+
+// ---------------------------------------------------------------- audio
+const AU = {on:false};
+function audioInit(){
+  const ctx = new (window.AudioContext||window.webkitAudioContext)();
+  const master = ctx.createGain(); master.gain.value = .8;
+  const comp = ctx.createDynamicsCompressor(); master.connect(comp); comp.connect(ctx.destination);
+  const recDest = ctx.createMediaStreamDestination(); comp.connect(recDest);
+  const conv = ctx.createConvolver(); const len = ctx.sampleRate*3.2;
+  const ir = ctx.createBuffer(2,len,ctx.sampleRate);
+  for (let c=0;c<2;c++){ const d=ir.getChannelData(c); for (let i=0;i<len;i++) d[i]=(Math.random()*2-1)*Math.pow(1-i/len,3.2); }
+  conv.buffer = ir; const wet = ctx.createGain(); wet.gain.value = .55; conv.connect(wet); wet.connect(master);
+  const nb = ctx.createBuffer(1,ctx.sampleRate*2,ctx.sampleRate); const nd = nb.getChannelData(0); for (let i=0;i<nd.length;i++) nd[i]=Math.random()*2-1;
+  const src = ctx.createBufferSource(); src.buffer = nb; src.loop = true;
+  const bp = ctx.createBiquadFilter(); bp.type='bandpass'; bp.Q.value=.7; bp.frequency.value=400;
+  const wg = ctx.createGain(); wg.gain.value=0;
+  const pan = ctx.createStereoPanner();
+  src.connect(bp); bp.connect(wg); wg.connect(pan); pan.connect(master); pan.connect(conv);
+  const hp = ctx.createBiquadFilter(); hp.type='highpass'; hp.frequency.value=7000;
+  const hg = ctx.createGain(); hg.gain.value=0; src.connect(hp); hp.connect(hg); hg.connect(pan);
+  // low drone
+  const lp = ctx.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value=260;
+  const dg = ctx.createGain(); dg.gain.value=.035; lp.connect(dg); dg.connect(master); dg.connect(conv);
+  [55, 55.4, 82.4].forEach(f=>{ const o=ctx.createOscillator(); o.type='sawtooth'; o.frequency.value=f; const g=ctx.createGain(); g.gain.value=.33; o.connect(g); g.connect(lp); o.start(); });
+  src.start();
+  Object.assign(AU,{ctx,master,conv,bp,wg,hg,pan,dg,recDest,lastChime:0,on:true});
+}
+function chime(cy, amt){
+  const ctx = AU.ctx, t = ctx.currentTime;
+  const scale = [0,3,5,7,10];
+  const idx = Math.max(0, Math.min(14, Math.floor((1-cy)*15)));
+  const note = 57 + 12*Math.floor(idx/5) + scale[idx%5];
+  const f = 440*Math.pow(2,(note-69)/12);
+  const g = ctx.createGain(); g.gain.setValueAtTime(0,t); g.gain.linearRampToValueAtTime(.05+.08*amt,t+.01); g.gain.exponentialRampToValueAtTime(.0001,t+2.6);
+  [[1,1],[2.756,.3],[5.4,.12]].forEach(([r,a])=>{ const o=ctx.createOscillator(); o.type='sine'; o.frequency.value=f*r; const og=ctx.createGain(); og.gain.value=a; o.connect(og); og.connect(g); o.start(t); o.stop(t+2.7); });
+  g.connect(AU.pan); g.connect(AU.conv);
+}
+function audioUpdate(now){
+  if (!AU.on) return;
+  const t = AU.ctx.currentTime, on = params.sound ? 1 : 0;
+  AU.master.gain.setTargetAtTime(.8*on, t, .1);
+  const m = motionAmt;
+  AU.wg.gain.setTargetAtTime(.012+m*.35, t, .08);
+  AU.hg.gain.setTargetAtTime(m*.1, t, .05);
+  AU.bp.frequency.setTargetAtTime(250+m*2600, t, .1);
+  const cx = params.mirror ? 1-motionCx : motionCx;
+  AU.pan.pan.setTargetAtTime((cx-.5)*1.4, t, .1);
+  if (on && m>.22 && now-AU.lastChime>150){ AU.lastChime = now; chime(motionCy, m); }
+}
+
+// ---------------------------------------------------------------- UI
+const sl = $('#sliders');
+const fmt = (v,s)=> s>=1 ? String(v) : (+v).toFixed(s<0.01?3:2);
+SLIDERS.forEach(([k,label,min,max,step])=>{
+  const row = document.createElement('div'); row.className='row';
+  row.innerHTML = `<label>${label}</label><input type="range" min="${min}" max="${max}" step="${step}" value="${params[k]}"><output>${fmt(params[k],step)}</output>`;
+  const inp = row.querySelector('input'), out = row.querySelector('output');
+  inp.addEventListener('input', ()=>{ params[k] = +inp.value; out.textContent = fmt(inp.value,step); });
+  sl.appendChild(row);
+});
+const TOGGLES = [['mirror','ミラー'],['dark','黒背景'],['sound','音']];
+const tg = $('#toggles');
+function refreshToggles(){ tg.querySelectorAll('button[data-k]').forEach(b=>b.classList.toggle('on', !!params[b.dataset.k])); }
+TOGGLES.forEach(([k,label])=>{ const b=document.createElement('button'); b.textContent=label; b.dataset.k=k; b.onclick=()=>{ params[k]=!params[k]; refreshToggles(); }; tg.appendChild(b); });
+const flip = document.createElement('button'); flip.textContent='向き反転'; flip.onclick=()=>{ params.dir*=-1; }; tg.appendChild(flip);
+const rst = document.createElement('button'); rst.textContent='リセット'; rst.onclick=()=>clearAll(); tg.appendChild(rst);
+const fsb = document.createElement('button'); fsb.textContent='全画面'; fsb.onclick=toggleFS; tg.appendChild(fsb);
+refreshToggles();
+
+function toggleFS(){ if (!document.fullscreenElement) document.documentElement.requestFullscreen?.(); else document.exitFullscreen?.(); }
+addEventListener('keydown', e=>{
+  if (e.target.tagName==='INPUT' || e.target.tagName==='SELECT') { if (e.key!=='h'&&e.key!=='H') return; }
+  const k = e.key.toLowerCase();
+  if (k==='h'){ $('#panel').classList.toggle('hide'); $('#status').classList.toggle('hide'); }
+  else if (k==='f') toggleFS();
+  else if (k==='m'){ params.mirror=!params.mirror; refreshToggles(); }
+  else if (k==='b'){ params.dark=!params.dark; refreshToggles(); }
+  else if (k==='s'){ params.sound=!params.sound; refreshToggles(); }
+  else if (k==='c') clearAll();
+  else if (e.key==='ArrowLeft') params.dir=-1;
+  else if (e.key==='ArrowRight') params.dir=1;
+});
+let idleT; addEventListener('mousemove', ()=>{ document.body.classList.remove('idle'); clearTimeout(idleT); idleT=setTimeout(()=>document.body.classList.add('idle'),2500); });
+
+// ---------------------------------------------------------------- loop
+let last = performance.now(), lastVT = -1, fps = 60;
+function frame(now){
+  const dt = Math.min(.05, (now-last)/1000); last = now; time += dt;
+  fps = fps*.95 + (1/Math.max(dt,1e-3))*.05;
+  resize();
+  if (video.readyState>=2 && video.currentTime!==lastVT){
+    lastVT = video.currentTime;
+    if (video.videoWidth){ vidW = video.videoWidth; vidH = video.videoHeight; }
+    gl.bindTexture(gl.TEXTURE_2D, videoTex);
+    gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,video);
+    runSeg(now);
+  }
+  if (newMask){ personPass(now); newMask = false; }
+  if (time-lastCap >= params.interval){ lastCap = time; capture(); }
+  ghostOrder();
+  particlesUpdate(dt);
+  smokePass(dt);
+  scenePass();
+  particlesDraw(sceneT, 0, 1);
+  bloomAndFinal();
+  audioUpdate(now);
+  if (!(capCount%15)) $('#status').textContent = `${fps.toFixed(0)} fps · seg ${segMs.toFixed(1)}ms · ${segMsg}`;
+  requestAnimationFrame(frame);
+}
+
+$('#go').onclick = async ()=>{
+  errBox.textContent = '';
+  try {
+    if (!gl || !extCBF) throw new Error('このブラウザでは動きません（PC版 Chrome / Edge 推奨）');
+    if (!P.scene) initGL();
+    if (!AU.ctx){ try { audioInit(); } catch(e){ console.warn(e); } }
+    if (AU.ctx && AU.ctx.state !== 'running') AU.ctx.resume().catch(()=>{});
+  } catch(e){ showErr(e); return; }
+  try { await startCamera(); } catch(e){ errBox.textContent = camErrText(e); return; }
+  $('#start').style.display = 'none';
+  $('#status').classList.remove('hide');
+  ['#gear','#flip','#rec','#shot'].forEach(id=>$(id).classList.add('show'));
+  requestAnimationFrame(t=>{ last=t; frame(t); });
+  initSeg('full').catch(e=>{ segMsg = '切り抜きモデル読込失敗: '+(e.message||e); $('#status').textContent = '人物の切り抜きモデルを読み込めませんでした（ネット接続を確認）。'; console.error(e); });
+};
+$('#gear').onclick = ()=>{ $('#panel').classList.toggle('hide'); };
+$('#flip').onclick = async ()=>{ const prev = facing; facing = facing === 'user' ? 'environment' : 'user';
+  try { await startCamera(); } catch(e){ facing = prev; $('#status').textContent = camErrText(e); } };
+$('#shot').onclick = ()=>{ try { canvas.toBlob(b=>{ if(!b) return; const a=document.createElement('a'); a.href=URL.createObjectURL(b); a.download='afterimage-'+Date.now()+'.png'; a.click(); }, 'image/png'); } catch(e){} };
+let rec = null, chunks = [];
+$('#rec').onclick = ()=>{
+  if (rec && rec.state === 'recording'){ rec.stop(); return; }
+  try{
+    const tr = [...canvas.captureStream(30).getVideoTracks()];
+    if (AU.recDest) tr.push(...AU.recDest.stream.getAudioTracks());
+    const mime = ['video/mp4;codecs=avc1','video/webm;codecs=vp9,opus','video/webm'].find(m=>window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || '';
+    rec = new MediaRecorder(new MediaStream(tr), mime ? {mimeType:mime} : {}); chunks = [];
+    rec.ondataavailable = e=>{ if (e.data && e.data.size) chunks.push(e.data); };
+    rec.onstop = ()=>{ $('#rec').classList.remove('on'); $('#rec').textContent='● REC';
+      const ext = (rec.mimeType||'').includes('mp4') ? 'mp4' : 'webm';
+      const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob(chunks,{type:rec.mimeType||'video/webm'})); a.download='afterimage.'+ext; a.click(); };
+    rec.start(); $('#rec').classList.add('on'); $('#rec').textContent='■ STOP';
+  }catch(e){ $('#status').textContent = '録画を開始できませんでした。'; }
+};
+</script>
+</body>
+</html>
