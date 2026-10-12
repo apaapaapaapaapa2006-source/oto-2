@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="description" content="カメラに映った動きに J0925 のような追跡 ID が次々に振られ、点どうしが線で結ばれ、動いたかたまりが枠で囲まれ、動いた場所から ID の付いた霧が立ちのぼる。撮影と録画ができる。">
+<meta name="theme-color" content="#0b0907">
+<title>MIST TRACKER ─ 動きに ID が振られて霧になる</title>
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  MIST TRACKER ─ 動きに ID が振られて霧になる          ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  ORIGIN     オーナーが持ち込んだ完成品（mist-tracker.html）。機構・配色・書体・
+             音はオーナーの設計のまま。ギャラリーの決まり（開始画面、⟲ カメラ、
+             カメラ失敗時の定型文、撮影と録画）だけを足し、動画の読み込みと
+             デモ映像は他の作品に合わせて外した。
+  REFERENCE  コンピュータビジョンの追跡デバッグ画面（特徴点・ID・バウンディング
+             ボックス）を、そのまま映像作品として見せるもの。
+  PALETTE    地 #0b0907・文字 #f3eee6・薄字 #a39a8c・差し色 #ff7a1a・グリッチ #3a6dff
+  TYPE       Share Tech Mono（ID と計器の数字）＋ Zen Kaku Gothic New（和文 UI）
+  MOTION     動いた点や細かい模様に追跡 ID が振られ、近い点どうしが細い線で結ばれ、
+             ときどき一点から放射状に線が伸びる。動きのかたまりは枠で囲まれ、
+             動いた場所から ID 付きの粒子が霧のように立ちのぼる。動きが強いほど
+             青いグリッチの帯が増える。
+  SOUND      新しい点は五音音階のはじく音、霧の粒は高いデータ音、枠は息のような
+             ノイズ、グリッチは短い矩形波、底に動きで開く低いうなり。
+  UI         画面をタップすると UI が消える（画面収録用）。もう一度で戻る。
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Zen+Kaku+Gothic+New:wght@500;700&display=swap">
+<style>
+/* Layout: full-bleed live canvas; HUD readout top-left; control dock at the bottom that hides on tap for clean screen recording */
+:root{
+  --bg:#0b0907;
+  --ink:#f3eee6;
+  --dim:#a39a8c;
+  --hair:rgba(243,238,230,.22);
+  --accent:#ff7a1a;
+  --signal:#3a6dff;
+  --mono:"Share Tech Mono", ui-monospace, Menlo, Consolas, monospace;
+  --ui:"Zen Kaku Gothic New", "Hiragino Sans", "Hiragino Kaku Gothic ProN", system-ui, sans-serif;
+  color-scheme:dark;
+}
+[hidden]{display:none!important}
+html,body{height:100%}
+body{background:var(--bg);color:var(--ink);font-family:var(--ui);overflow:hidden;-webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent}
+#stage{position:fixed;inset:0;background:var(--bg)}
+#cv{display:block;width:100%;height:100%;touch-action:manipulation}
+
+.hud{position:fixed;left:0;top:0;padding:calc(env(safe-area-inset-top,0px) + 12px) 16px 0;font-family:var(--mono);font-size:12px;letter-spacing:.08em;line-height:1.45;pointer-events:none;text-shadow:0 0 6px rgba(0,0,0,.7);transition:opacity .25s}
+.hud .name{font-size:15px;letter-spacing:.22em;color:var(--ink)}
+.hud .name em{font-style:normal;color:var(--accent)}
+.hud .k{color:var(--dim)}
+.hud .v{color:var(--ink);font-variant-numeric:tabular-nums}
+
+.dock{position:fixed;left:0;right:0;bottom:0;padding:28px 16px calc(env(safe-area-inset-bottom,0px) + 14px);display:grid;gap:12px;background:linear-gradient(to top,rgba(11,9,7,.94),rgba(11,9,7,.72) 65%,rgba(11,9,7,0));transition:opacity .25s}
+body.clean .dock, body.clean .hud{opacity:0;pointer-events:none}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.spacer{flex:1 1 auto}
+
+button,.filebtn{font:500 13px/1 var(--ui);color:var(--ink);background:rgba(243,238,230,.06);border:1px solid var(--hair);border-radius:3px;padding:10px 12px;cursor:pointer;letter-spacing:.04em;display:inline-flex;align-items:center;gap:6px;min-height:40px}
+button:focus-visible,.filebtn:focus-within{outline:2px solid var(--accent);outline-offset:2px}
+button[aria-pressed="true"]{border-color:var(--ink);background:rgba(243,238,230,.14)}
+.src[aria-pressed="true"]{border-color:var(--accent);color:var(--accent);background:rgba(255,122,26,.1)}
+#snd{border-color:var(--accent);color:var(--bg);background:var(--accent);font-weight:700}
+#snd[aria-pressed="true"]{background:transparent;color:var(--accent)}
+.filebtn{position:relative;overflow:hidden}
+.filebtn input{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer;font-size:16px}
+#vid{position:fixed;left:0;top:0;width:2px;height:2px;opacity:0;pointer-events:none}
+.transport{display:flex;gap:10px;align-items:center}
+.transport input[type=range]{flex:1 1 auto;min-width:0}
+.transport .tm{font-family:var(--mono);font-size:12px;color:var(--dim);font-variant-numeric:tabular-nums;white-space:nowrap}
+#bPlay{min-width:44px;justify-content:center;font-family:var(--mono)}
+button{white-space:nowrap;flex:none}
+.chip{font-family:var(--mono);font-size:12px;letter-spacing:.12em;padding:8px 10px;min-height:34px}
+
+#more{display:grid;gap:12px;max-width:560px}
+.sl{display:grid;grid-template-columns:4.5em 1fr 3em;gap:10px;align-items:center;font-size:12px;color:var(--dim)}
+.sl output{font-family:var(--mono);color:var(--ink);text-align:right;font-variant-numeric:tabular-nums}
+input[type=range]{width:100%;accent-color:var(--accent)}
+.legend{font-size:12px;line-height:1.7;color:var(--dim);max-width:60ch}
+.legend b{font-family:var(--mono);font-weight:400;color:var(--ink);letter-spacing:.06em}
+.hint{font-size:11px;color:var(--dim)}
+
+#start{position:fixed;inset:0;z-index:30;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;padding:28px;text-align:center;background:var(--bg)}
+#start h1{margin:0;font:400 min(11vw,58px)/1 var(--mono);letter-spacing:.22em;margin-right:-.22em;color:var(--ink)}
+#start h1 em{font-style:normal;color:var(--accent)}
+#start p{margin:0;font-size:13px;line-height:2;color:var(--dim)}
+#go{border-color:var(--accent);color:var(--bg);background:var(--accent);font-weight:700;padding:12px 26px;font-family:var(--mono);letter-spacing:.2em}
+#err{font-size:12px;line-height:1.8;max-width:360px;min-height:1em;white-space:pre-line;color:#f0a8a0}
+#bRec[aria-pressed="true"]{border-color:#ff6a5a;color:#ff6a5a}
+#msg{position:fixed;left:16px;right:16px;top:calc(env(safe-area-inset-top,0px) + 100px);margin:auto;max-width:440px;background:rgba(11,9,7,.9);border:1px solid var(--hair);border-left:3px solid var(--accent);padding:12px 14px;font-size:13px;line-height:1.6}
+@media (prefers-reduced-motion: reduce){.hud,.dock{transition:none}}
+</style>
+</head>
+<body>
+
+<div id="stage"><canvas id="cv" aria-label="トラッキング表示"></canvas></div>
+
+<div class="hud" aria-live="off">
+  <div class="name">MIST <em>TRACKER</em></div>
+  <div><span class="k">SRC </span><span class="v" id="hSrc">CAM</span></div>
+  <div><span class="k">TRK </span><span class="v" id="hTrk">0</span><span class="k">  PRT </span><span class="v" id="hPrt">0</span></div>
+  <div><span class="k">IDS </span><span class="v" id="hIds">0</span><span class="k">  MOV </span><span class="v" id="hMov">0.0</span></div>
+  <div><span class="k">FPS </span><span class="v" id="hFps">0</span></div>
+</div>
+
+<div id="msg" hidden></div>
+
+<div id="start">
+  <h1>MIST <em>TRACKER</em></h1>
+  <p>映った動きに、追跡 ID が次々に振られていく。<br>動いた場所から、ID の付いた霧が立ちのぼる。</p>
+  <button id="go">START</button>
+  <div id="err"></div>
+</div>
+
+<video id="vid" playsinline webkit-playsinline muted preload="auto"></video>
+
+<div class="dock">
+  <div class="row">
+    <button id="bFlip">⟲ カメラ</button>
+    <button id="bRec" aria-pressed="false">● 録画</button>
+    <button id="bShot">撮る</button>
+    <span class="spacer"></span>
+    <button id="bMore" aria-expanded="false" aria-controls="more">設定</button>
+    <button id="snd" aria-pressed="false">音を出す</button>
+  </div>
+  <div id="more" hidden>
+    <div class="row">
+      <button class="chip" data-k="labels" aria-pressed="true">ID</button>
+      <button class="chip" data-k="lines" aria-pressed="true">LINE</button>
+      <button class="chip" data-k="boxes" aria-pressed="true">BOX</button>
+      <button class="chip" data-k="mist" aria-pressed="true">MIST</button>
+      <button class="chip" data-k="glitch" aria-pressed="true">GLITCH</button>
+    </div>
+    <label class="sl">感度<input type="range" id="rSens" min="0" max="100" value="55"><output id="oSens">55</output></label>
+    <label class="sl">点の数<input type="range" id="rDen" min="30" max="260" value="140"><output id="oDen">140</output></label>
+    <label class="sl">霧の量<input type="range" id="rMist" min="0" max="100" value="60"><output id="oMist">60</output></label>
+    <p class="legend"><b>J0925</b> などの数字は、動いている点や細かい模様に振った追跡ID。<b>LINE</b> は近い点どうしと、ときどき一点から放射状に結ぶ線。<b>BOX</b> は動きのかたまりを囲む枠。<b>MIST</b> は動いた場所から立ちのぼるID付きの粒子。</p>
+    <p class="hint">画面をタップするとUIが消えます（画面収録用）。もう一度タップで戻ります。</p>
+  </div>
+</div>
+
+<script>
+(()=>{
+'use strict';
+const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
+const an=document.createElement('canvas'), actx=an.getContext('2d',{willReadFrequently:true});
+// The video stays in the DOM (invisible): iOS Safari won't decode frames for a detached <video>, so drawImage would stay black.
+const vid=document.getElementById('vid');
+vid.setAttribute('playsinline','');vid.playsInline=true;vid.muted=true;
+
+const MONO='"Share Tech Mono", ui-monospace, Menlo, monospace';
+const S={labels:true,lines:true,boxes:true,mist:true,glitch:true,sens:.55,density:140,mistAmt:.6};
+
+let W=1,H=1,DPR=1,AW=128,AH=128,CS=6,cols=1,rows=1;
+let lum,prev,dif,cellMot,mask,hasPrev=false;
+function resize(){
+  DPR=Math.min(2,window.devicePixelRatio||1);
+  W=Math.max(1,Math.round(innerWidth*DPR));H=Math.max(1,Math.round(innerHeight*DPR));
+  cv.width=W;cv.height=H;
+  AW=128;AH=Math.max(64,Math.min(280,Math.round(AW*H/W)));
+  an.width=AW;an.height=AH;
+  lum=new Float32Array(AW*AH);prev=new Float32Array(AW*AH);dif=new Float32Array(AW*AH);
+  cols=Math.floor(AW/CS);rows=Math.floor(AH/CS);
+  cellMot=new Float32Array(cols*rows);mask=new Uint8Array(cols*rows);
+  hasPrev=false;
+}
+addEventListener('resize',resize);resize();
+
+function drawCover(c,el,sw,sh,dw,dh,mirror){
+  if(!sw||!sh)return;
+  const s=Math.max(dw/sw,dh/sh),w=sw*s,h=sh*s;
+  c.save();
+  if(mirror){c.translate(dw,0);c.scale(-1,1);}
+  c.drawImage(el,(dw-w)/2,(dh-h)/2,w,h);
+  c.restore();
+}
+
+/* ---------- source management ---------- */
+let src={kind:'none',el:null,w:()=>0,h:()=>0,mirror:false};
+let stream=null,facing='user';
+const msg=document.getElementById('msg');
+let msgT=0;
+function toast(t,ms){msg.textContent=t;msg.hidden=!t;clearTimeout(msgT);if(t&&ms)msgT=setTimeout(()=>msg.hidden=true,ms);}
+function stopStream(){if(stream){stream.getTracks().forEach(t=>t.stop());stream=null;}}
+function setActive(kind){
+  document.getElementById('hSrc').textContent=facing==='user'?'CAM FRONT':'CAM BACK';
+}
+function camErrText(e){
+  const m=(e&&(e.message||e.name))?(e.message||e.name):String(e||'unknown');
+  return 'カメラを起動できませんでした：'+m+'\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+}
+function resetTracking(){tracks=[];parts=[];boxes=[];hubs=[];glitches=[];minis=[];hasPrev=false;}
+async function startCamera(){
+  const md=navigator.mediaDevices;
+  if(!md||!md.getUserMedia)throw new Error('getUserMedia is unavailable');
+  const s2=await md.getUserMedia({video:{facingMode:{ideal:facing},width:{ideal:1280},height:{ideal:720}},audio:false});
+  stopStream();stream=s2;
+  vid.srcObject=stream;vid.removeAttribute('src');vid.loop=false;await vid.play().catch(()=>{});
+  src={kind:'camera',el:vid,w:()=>vid.videoWidth,h:()=>vid.videoHeight,mirror:facing==='user'};
+  resetTracking();setActive('camera');toast('');
+}
+document.getElementById('bFlip').onclick=async e=>{e.stopPropagation();const prev=facing;facing=facing==='user'?'environment':'user';
+  try{await startCamera();}catch(err){facing=prev;toast(camErrText(err),9000);}};
+document.getElementById('go').onclick=async()=>{
+  document.getElementById('err').textContent='';
+  if(!A.ctx)A.init();
+  if(A.ctx&&A.ctx.state!=='running')A.ctx.resume().catch(()=>{});
+  try{await startCamera();}catch(err){document.getElementById('err').textContent=camErrText(err);return;}
+  document.getElementById('start').hidden=true;
+};
+/* ---------- UI ---------- */
+const bMore=document.getElementById('bMore'),more=document.getElementById('more');
+bMore.onclick=()=>{more.hidden=!more.hidden;bMore.setAttribute('aria-expanded',!more.hidden);};
+document.querySelectorAll('.chip').forEach(b=>b.onclick=()=>{const k=b.dataset.k;S[k]=!S[k];b.setAttribute('aria-pressed',S[k]);});
+function bindRange(id,out,fn){const r=document.getElementById(id),o=document.getElementById(out);const u=()=>{o.textContent=r.value;fn(+r.value);};r.oninput=u;u();}
+bindRange('rSens','oSens',v=>S.sens=v/100);
+bindRange('rDen','oDen',v=>S.density=v);
+bindRange('rMist','oMist',v=>S.mistAmt=v/100);
+cv.addEventListener('click',()=>document.body.classList.toggle('clean'));
+/* ---------- shoot & record ---------- */
+document.getElementById('bShot').onclick=()=>{
+  try{cv.toBlob(b=>{if(!b)return;const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='mist-tracker-'+Date.now()+'.png';a.click();},'image/png');}
+  catch(e){toast('保存できませんでした。',4000);}
+};
+let rec=null,chunks=[];
+const bRec=document.getElementById('bRec');
+bRec.onclick=()=>{
+  if(rec&&rec.state==='recording'){rec.stop();return;}
+  try{
+    const tr=[...cv.captureStream(30).getVideoTracks()];
+    if(A.rec)tr.push(...A.rec.stream.getAudioTracks());
+    const mime=['video/mp4;codecs=avc1','video/webm;codecs=vp9,opus','video/webm'].find(m=>window.MediaRecorder&&MediaRecorder.isTypeSupported(m))||'';
+    rec=new MediaRecorder(new MediaStream(tr),mime?{mimeType:mime}:{});chunks=[];
+    rec.ondataavailable=e=>{if(e.data&&e.data.size)chunks.push(e.data);};
+    rec.onstop=()=>{bRec.setAttribute('aria-pressed','false');bRec.textContent='● 録画';
+      const ext=(rec.mimeType||'').includes('mp4')?'mp4':'webm';
+      const a=document.createElement('a');a.href=URL.createObjectURL(new Blob(chunks,{type:rec.mimeType||'video/webm'}));a.download='mist-tracker.'+ext;a.click();};
+    rec.start();bRec.setAttribute('aria-pressed','true');bRec.textContent='■ 停止';
+  }catch(e){toast('録画を開始できませんでした。',4000);}
+};
+
+/* ---------- audio ---------- */
+const A={ctx:null,on:false,last:0,lastTick:0,noise:null,
+  init(){
+    const C=window.AudioContext||window.webkitAudioContext;if(!C)return false;
+    const a=this.ctx=new C();
+    this.master=a.createGain();this.master.gain.value=.9;
+    const comp=a.createDynamicsCompressor();comp.threshold.value=-18;comp.ratio.value=4;
+    this.master.connect(comp);comp.connect(a.destination);
+    this.rec=a.createMediaStreamDestination();comp.connect(this.rec);
+    this.lp=a.createBiquadFilter();this.lp.type='lowpass';this.lp.frequency.value=200;this.lp.Q.value=6;
+    this.dg=a.createGain();this.dg.gain.value=0;this.lp.connect(this.dg);this.dg.connect(this.master);
+    [55,55.35,82.4].forEach(f=>{const o=a.createOscillator();o.type='sawtooth';o.frequency.value=f;o.connect(this.lp);o.start();});
+    const len=a.sampleRate*.4,b=a.createBuffer(1,len,a.sampleRate),d=b.getChannelData(0);for(let i=0;i<len;i++)d[i]=Math.random()*2-1;this.noise=b;
+    return true;
+  },
+  pan(x){const p=this.ctx.createStereoPanner?this.ctx.createStereoPanner():null;if(p)p.pan.value=Math.max(-1,Math.min(1,x/W*2-1));return p;},
+  out(node,x){const p=this.pan(x);if(p){node.connect(p);p.connect(this.master);}else node.connect(this.master);},
+  blip(x,y){ // new tracked point: pentatonic pluck, higher toward top
+    if(!this.on)return;const a=this.ctx,n=a.currentTime;if(n-this.last<.045)return;this.last=n;
+    const sc=[0,3,5,7,10],k=Math.floor((1-y/H)*15),f=196*Math.pow(2,(Math.floor(k/5)*12+sc[k%5])/12);
+    const o=a.createOscillator(),g=a.createGain();o.type='triangle';o.frequency.value=f;
+    g.gain.setValueAtTime(0,n);g.gain.linearRampToValueAtTime(.07,n+.004);g.gain.exponentialRampToValueAtTime(.0001,n+.22);
+    o.connect(g);this.out(g,x);o.start(n);o.stop(n+.25);
+  },
+  tick(x,y){ // mist particle born: tiny high data tick
+    if(!this.on)return;const a=this.ctx,n=a.currentTime;if(n-this.lastTick<.03)return;this.lastTick=n;
+    const o=a.createOscillator(),g=a.createGain();o.type='sine';o.frequency.value=2400+(1-y/H)*3600+Math.random()*200;
+    g.gain.setValueAtTime(0,n);g.gain.linearRampToValueAtTime(.025,n+.002);g.gain.exponentialRampToValueAtTime(.0001,n+.05);
+    o.connect(g);this.out(g,x);o.start(n);o.stop(n+.06);
+  },
+  box(x,y){ // new motion box: band-passed noise breath
+    if(!this.on)return;const a=this.ctx,n=a.currentTime;
+    const s=a.createBufferSource();s.buffer=this.noise;const bp=a.createBiquadFilter();bp.type='bandpass';bp.Q.value=8;bp.frequency.value=300+(1-y/H)*2600;
+    const g=a.createGain();g.gain.setValueAtTime(0,n);g.gain.linearRampToValueAtTime(.12,n+.02);g.gain.exponentialRampToValueAtTime(.0001,n+.35);
+    s.connect(bp);bp.connect(g);this.out(g,x);s.start(n);s.stop(n+.4);
+  },
+  glitch(x){
+    if(!this.on)return;const a=this.ctx,n=a.currentTime;
+    const o=a.createOscillator(),g=a.createGain();o.type='square';o.frequency.setValueAtTime(120+Math.random()*500,n);o.frequency.exponentialRampToValueAtTime(40,n+.07);
+    g.gain.setValueAtTime(.035,n);g.gain.exponentialRampToValueAtTime(.0001,n+.08);
+    o.connect(g);this.out(g,x);o.start(n);o.stop(n+.09);
+  },
+  update(motion,lines){
+    if(!this.ctx)return;const n=this.ctx.currentTime;
+    this.lp.frequency.setTargetAtTime(140+Math.min(1,motion/14)*2200,n,.15);
+    this.dg.gain.setTargetAtTime(this.on?(.015+Math.min(1,lines/220)*.05):0,n,.2);
+  }
+};
+const snd=document.getElementById('snd');
+snd.onclick=async()=>{
+  if(!A.ctx&&!A.init()){toast('このブラウザでは音が出せません。',5000);return;}
+  if(A.ctx.state!=='running')await A.ctx.resume();
+  A.on=!A.on;snd.setAttribute('aria-pressed',A.on);snd.textContent=A.on?'音を止める':'音を出す';
+  if(A.on)toast('iPhoneで音が出ないときは、本体の消音スイッチを確認してください。',4000);
+};
+
+/* ---------- tracking ---------- */
+let tracks=[],parts=[],boxes=[],hubs=[],glitches=[],minis=[];
+let idsIssued=0,motion=0,lineCount=0,hubTimer=0;
+function newLabel(){idsIssued++;const n=Math.floor(Math.random()*3000);return (Math.random()<.08?'':'J')+String(n).padStart(4,'0');}
+
+function analyze(){
+  actx.clearRect(0,0,AW,AH);
+  drawCover(actx,src.el,src.w(),src.h(),AW,AH,src.mirror);
+  const d=actx.getImageData(0,0,AW,AH).data,N=AW*AH;
+  let tot=0;
+  for(let i=0,p=0;i<N;i++,p+=4){const l=d[p]*.3+d[p+1]*.59+d[p+2]*.11;lum[i]=l;const df=hasPrev?Math.abs(l-prev[i]):0;dif[i]=df;tot+=df;}
+  prev.set(lum);hasPrev=true;
+  motion=motion*.8+(tot/N)*.2;
+  const thr=60-S.sens*50,mthr=14-S.sens*10,cands=[];
+  for(let cy=0;cy<rows;cy++)for(let cx=0;cx<cols;cx++){
+    let best=0,bx=0,by=0,bm=0,sum=0;
+    const x0=cx*CS,y0=cy*CS;
+    for(let y=y0;y<y0+CS;y++){if(y<2||y>=AH-2)continue;const o=y*AW;
+      for(let x=x0;x<x0+CS;x++){if(x<2||x>=AW-2)continue;const i=o+x;
+        const lap=Math.abs(4*lum[i]-lum[i-2]-lum[i+2]-lum[i-2*AW]-lum[i+2*AW])*.25;
+        const s=dif[i]*1.6+lap;sum+=dif[i];
+        if(s>best){best=s;bx=x;by=y;bm=dif[i];}}}
+    const ci=cy*cols+cx;cellMot[ci]=sum/(CS*CS);mask[ci]=cellMot[ci]>mthr?1:0;
+    if(best>thr)cands.push({x:bx,y:by,s:best,m:bm});
+  }
+  cands.sort((a,b)=>b.s-a.s);
+  return cands;
+}
+
+function update(cands,dt){
+  const sx=W/AW,sy=H/AH,R=.06*Math.min(W,H),R2=R*R;
+  for(const t of tracks)t.hit=false;
+  const lim=Math.min(cands.length,Math.round(S.density*1.2));
+  const mistThr=18-S.sens*10;
+  for(let k=0;k<lim;k++){
+    const c=cands[k],px=(c.x+.5)*sx,py=(c.y+.5)*sy;
+    let bi=-1,bd=R2;
+    for(let j=0;j<tracks.length;j++){const t=tracks[j];if(t.hit)continue;const dx=t.x-px,dy=t.y-py,d2=dx*dx+dy*dy;if(d2<bd){bd=d2;bi=j;}}
+    if(bi>=0){const t=tracks[bi];t.vx=t.vx*.5+(px-t.x)*.5;t.vy=t.vy*.5+(py-t.y)*.5;t.x+=(px-t.x)*.6;t.y+=(py-t.y)*.6;t.miss=0;t.age++;t.hit=true;}
+    else if(tracks.length<S.density){tracks.push({id:newLabel(),x:px,y:py,vx:0,vy:0,age:0,miss:0,hit:true});A.blip(px,py);}
+    if(S.mist&&c.m>mistThr&&parts.length<450&&Math.random()<S.mistAmt*.16){
+      parts.push({id:newLabel(),x:px+(Math.random()-.5)*8*DPR,y:py,vx:(Math.random()-.5)*40*DPR,vy:-(20+Math.random()*60)*DPR,a:0,L:1.5+Math.random()*2.8});
+      A.tick(px,py);
+    }
+  }
+  for(let j=tracks.length-1;j>=0;j--){const t=tracks[j];if(!t.hit){t.miss++;t.x+=t.vx*.4;t.y+=t.vy*.4;t.vx*=.7;t.vy*=.7;}if(t.miss>10)tracks.splice(j,1);}
+  while(tracks.length>S.density)tracks.shift();
+  for(let j=parts.length-1;j>=0;j--){const p=parts[j];p.a+=dt;p.vx+=(Math.random()-.5)*60*DPR*dt;p.vy-=10*DPR*dt;p.vx*=.99;p.x+=p.vx*dt;p.y+=p.vy*dt;
+    if(p.a>p.L||p.y<-20||p.x<-60||p.x>W+20)parts.splice(j,1);}
+
+  // motion boxes: connected regions on the cell grid
+  if(S.boxes){
+    const seen=new Uint8Array(cols*rows),found=[];
+    for(let i=0;i<cols*rows;i++){if(!mask[i]||seen[i])continue;
+      let st=[i],n=0,x0=1e9,y0=1e9,x1=-1,y1=-1;seen[i]=1;
+      while(st.length){const q=st.pop();n++;const qx=q%cols,qy=(q/cols)|0;
+        if(qx<x0)x0=qx;if(qx>x1)x1=qx;if(qy<y0)y0=qy;if(qy>y1)y1=qy;
+        const nb=[q-1,q+1,q-cols,q+cols];
+        for(const r of nb){if(r<0||r>=cols*rows)continue;if((r===q-1&&qx===0)||(r===q+1&&qx===cols-1))continue;if(mask[r]&&!seen[r]){seen[r]=1;st.push(r);}}}
+      if(n>=3&&n<cols*rows*.5)found.push({n,x:x0*CS*sx,y:y0*CS*sy,w:(x1-x0+1)*CS*sx,h:(y1-y0+1)*CS*sy});}
+    found.sort((a,b)=>b.n-a.n);
+    for(const f of found.slice(0,6)){
+      const fx=f.x+f.w/2,fy=f.y+f.h/2;let m=null;
+      for(const b of boxes){const bx=b.x+b.w/2,by=b.y+b.h/2;if(Math.hypot(bx-fx,by-fy)<Math.max(b.w,b.h,f.w,f.h)*.5){m=b;break;}}
+      if(m){m.x+=(f.x-m.x)*.35;m.y+=(f.y-m.y)*.35;m.w+=(f.w-m.w)*.35;m.h+=(f.h-m.h)*.35;m.life=.5;}
+      else if(boxes.length<8){boxes.push({...f,life:.5,id:String(Math.floor(1000+Math.random()*9000)),id2:newLabel()});A.box(fx,fy);}
+    }
+  }
+  for(let j=boxes.length-1;j>=0;j--){boxes[j].life-=dt;if(boxes[j].life<=0)boxes.splice(j,1);}
+
+  // small square markers that ride individual points
+  if(tracks.length&&minis.length<14&&Math.random()<.2){const t=tracks[(Math.random()*tracks.length)|0];
+    minis.push({t,w:(8+Math.random()*40)*DPR,h:(8+Math.random()*30)*DPR,life:.4+Math.random()*.8,lab:Math.random()<.4?newLabel():''});}
+  for(let j=minis.length-1;j>=0;j--){minis[j].life-=dt;if(minis[j].life<=0)minis.splice(j,1);}
+
+  // hubs: one point fanning lines out to many others
+  hubTimer-=dt;
+  if(S.lines&&hubTimer<=0&&tracks.length+parts.length>10){
+    hubTimer=.9-Math.min(1,motion/12)*.6;
+    const pool=tracks.concat(parts),anchor=tracks.length?tracks[(Math.random()*tracks.length)|0]:pool[0];
+    const k=6+((Math.random()*10)|0),tg=[];for(let i=0;i<k;i++)tg.push(pool[(Math.random()*pool.length)|0]);
+    hubs.push({a:anchor,x:anchor.x,y:anchor.y,tg,life:.8+Math.random()*1.6});
+    if(hubs.length>4)hubs.shift();
+  }
+  for(let j=hubs.length-1;j>=0;j--){const h=hubs[j];h.life-=dt;if(tracks.includes(h.a)){h.x=h.a.x;h.y=h.a.y;}if(h.life<=0)hubs.splice(j,1);}
+
+  // glitch blocks
+  if(S.glitch&&glitches.length<6&&Math.random()<.03+Math.min(1,motion/15)*.12){
+    const t=tracks.length?tracks[(Math.random()*tracks.length)|0]:{x:Math.random()*W,y:Math.random()*H};
+    const kind=Math.random();
+    glitches.push({x:t.x+(Math.random()-.5)*60*DPR,y:t.y+(Math.random()-.5)*40*DPR,w:(16+Math.random()*110)*DPR,h:(5+Math.random()*26)*DPR,dx:(Math.random()-.5)*50*DPR,kind:kind<.55?0:kind<.8?1:2,life:.06+Math.random()*.3});
+    A.glitch(t.x);
+  }
+  for(let j=glitches.length-1;j>=0;j--){glitches[j].life-=dt;if(glitches[j].life<=0)glitches.splice(j,1);}
+}
+
+function drawGlitches(){
+  for(const g of glitches){
+    const x=Math.round(g.x),y=Math.round(g.y),w=Math.round(g.w),h=Math.round(g.h);
+    if(x<0||y<0||x+w>W||y+h>H)continue;
+    if(g.kind===0){
+      const sxp=Math.max(0,Math.min(W-w,x+g.dx));
+      ctx.drawImage(cv,sxp,y,w,h,x,y,w,h);
+      ctx.globalCompositeOperation='color';ctx.fillStyle='#1f55ff';ctx.fillRect(x,y,w,h);ctx.globalCompositeOperation='source-over';
+      ctx.fillStyle='rgba(60,120,255,.35)';ctx.fillRect(x,y,w,h);
+    }else if(g.kind===1){ctx.fillStyle='#070b22';ctx.fillRect(x,y,w,h);ctx.fillStyle='#1f55ff';ctx.fillRect(x,y+h-2*DPR,w*.6,2*DPR);}
+    else{for(let i=0;i<4;i++){ctx.fillStyle=i%2?'#2a64ff':'#0d1a55';ctx.fillRect(x+i*w/6,y+(i%2)*h*.3,w/7,h*.6);}}
+  }
+}
+
+function drawOverlay(){
+  const fs=Math.round(9.5*DPR),fsP=Math.round(8.5*DPR);
+  ctx.lineWidth=Math.max(1,.7*DPR);
+  lineCount=0;
+  if(S.lines){
+    const L=.13*Math.min(W,H),L2=L*L,deg=new Uint8Array(tracks.length);
+    ctx.strokeStyle='rgba(255,255,255,.42)';ctx.beginPath();
+    for(let i=0;i<tracks.length;i++){if(deg[i]>=3)continue;const a=tracks[i];
+      for(let j=i+1;j<tracks.length;j++){if(deg[j]>=3)continue;const b=tracks[j],dx=a.x-b.x,dy=a.y-b.y;
+        if(dx*dx+dy*dy<L2){ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);deg[i]++;deg[j]++;lineCount++;if(deg[i]>=3)break;}}}
+    ctx.stroke();
+    ctx.strokeStyle='rgba(255,255,255,.55)';ctx.beginPath();
+    for(const h of hubs){for(const t of h.tg){ctx.moveTo(h.x,h.y);ctx.lineTo(t.x,t.y);lineCount++;}}
+    ctx.stroke();
+    ctx.fillStyle='#ffffff';for(const h of hubs)ctx.fillRect(h.x-2*DPR,h.y-2*DPR,4*DPR,4*DPR);
+  }
+  ctx.strokeStyle='rgba(255,255,255,.7)';
+  const q=2*DPR;
+  ctx.beginPath();for(const t of tracks)ctx.rect(t.x-q,t.y-q,q*2,q*2);ctx.stroke();
+
+  if(S.boxes){
+    ctx.strokeStyle='rgba(255,255,255,.62)';ctx.beginPath();
+    for(const b of boxes)ctx.rect(b.x,b.y,b.w,b.h);
+    for(const m of minis)ctx.rect(m.t.x-m.w/2,m.t.y-m.h/2,m.w,m.h);
+    ctx.stroke();
+  }
+  ctx.textBaseline='alphabetic';
+  if(S.labels){
+    ctx.font=fs+'px '+MONO;ctx.fillStyle='rgba(255,255,255,.9)';
+    for(const t of tracks)ctx.fillText(t.id,t.x+4*DPR,t.y-3*DPR);
+    if(S.boxes){
+      for(const b of boxes){ctx.fillText(b.id,b.x+b.w-ctx.measureText(b.id).width-2*DPR,b.y+fs);ctx.fillText(b.id2,b.x+2*DPR,b.y+b.h-3*DPR);}
+      for(const m of minis)if(m.lab)ctx.fillText(m.lab,m.t.x+m.w/2+2*DPR,m.t.y+m.h/2);
+    }
+  }
+  if(S.mist&&parts.length){
+    ctx.font=fsP+'px '+MONO;ctx.fillStyle='#fff8ec';
+    for(const p of parts){const u=p.a/p.L,al=u<.1?u*10:1-Math.pow(u,2);ctx.globalAlpha=Math.max(0,al)*.85;
+      if(S.labels)ctx.fillText(p.id,p.x,p.y);else ctx.fillRect(p.x,p.y,1.5*DPR,1.5*DPR);}
+    ctx.globalAlpha=1;
+  }
+}
+
+/* ---------- loop ---------- */
+const hTrk=document.getElementById('hTrk'),hPrt=document.getElementById('hPrt'),hIds=document.getElementById('hIds'),hMov=document.getElementById('hMov'),hFps=document.getElementById('hFps');
+let last=performance.now(),T=0,fpsAcc=0,fpsN=0,hudT=0;
+function ready(){return src.kind==='camera'&&vid.readyState>=2&&vid.videoWidth>0;}
+function frame(now){
+  const dt=Math.min(.05,Math.max(.001,(now-last)/1000));last=now;T+=dt;
+  fpsAcc+=dt;fpsN++;
+  if(ready()){
+    ctx.fillStyle='#0b0907';ctx.fillRect(0,0,W,H);
+    drawCover(ctx,src.el,src.w(),src.h(),W,H,src.mirror);
+    const c=analyze();update(c,dt);drawGlitches();drawOverlay();
+  }
+  A.update(motion,lineCount);
+  hudT+=dt;
+  if(hudT>.25){hudT=0;hTrk.textContent=tracks.length;hPrt.textContent=parts.length;hIds.textContent=idsIssued.toLocaleString('en-US');hMov.textContent=motion.toFixed(1);hFps.textContent=Math.round(fpsN/fpsAcc);fpsAcc=0;fpsN=0;}
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+document.addEventListener('visibilitychange',()=>{if(document.hidden&&A.ctx)A.ctx.suspend();else if(A.ctx&&A.on)A.ctx.resume();});
+})();
+</script>
+</body>
+</html>
