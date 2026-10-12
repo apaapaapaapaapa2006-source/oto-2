@@ -1,0 +1,709 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<script>/* REC-FIX (2026-10-12) — iPhone Safari で録画が途中で止まる・壊れる対策。どの作品でも同じ内容。
+   ・mp4 は映像と音声の両方のコーデックを宣言する（avc1 だけだと音声付きで止まることがある）
+   ・1 秒ごとにデータを受け取る（最後に一括で書き出さない）／ビットレートに上限
+   ・保存が終わる前に次の録画を始めない（前のファイルが消えるのを防ぐ）
+   ・録画中は AudioContext を止めない（音声トラックが止まると mp4 ごと止まる） */
+(()=>{const MR=window.MediaRecorder;if(!MR||MR.__recfix)return;let busy=0,active=0;
+class R extends MR{
+  constructor(s,o){if(busy)throw new Error('前の録画を保存しています');o=Object.assign({},o||{});
+    const au=s&&s.getAudioTracks&&s.getAudioTracks().length>0;
+    if(!o.mimeType||/^video\/mp4/.test(o.mimeType)){
+      const c=[au?'video/mp4;codecs="avc1.42E01E,mp4a.40.2"':'video/mp4;codecs="avc1.42E01E"','video/mp4'].find(m=>MR.isTypeSupported(m));
+      if(c)o.mimeType=c;else if(o.mimeType&&!MR.isTypeSupported(o.mimeType))delete o.mimeType;}
+    if(!o.videoBitsPerSecond&&!o.bitsPerSecond)o.videoBitsPerSecond=6e6;
+    super(s,o);this.addEventListener('stop',()=>{active=Math.max(0,active-1);setTimeout(()=>{busy=0;},0);});}
+  start(t){const r=super.start(t==null?1000:t);active++;return r;}
+  stop(){if(this.state!=='inactive'){busy=1;setTimeout(()=>{busy=0;},15000);}return super.stop();}}
+R.__recfix=1;window.MediaRecorder=R;
+const AC=window.AudioContext||window.webkitAudioContext;
+if(AC&&AC.prototype.suspend){const sus=AC.prototype.suspend;AC.prototype.suspend=function(){return active?Promise.resolve():sus.call(this);};}
+/* 録音用の出口には常に無音を流しておく（何も鳴っていないと音声トラックにデータが来ず、録画全体が止まる） */
+if(AC&&AC.prototype.createMediaStreamDestination){const cmd=AC.prototype.createMediaStreamDestination;AC.prototype.createMediaStreamDestination=function(){const d=cmd.apply(this,arguments);
+  try{const c=this.createConstantSource();c.offset.value=0;c.connect(d);c.start();}catch(e){}return d;};}})();</script>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="description" content="部屋の明かりが落ち、画面の手前に並ぶカメラマンたちのフラッシュがあなたを撮りまくる。焚かれるたびに白黒の硬い光で照らされた一瞬が止まり、白い壁にくっきり影が落ちる。動いてからポーズを決めると連写の嵐。撮影と録画ができる。">
+<meta name="theme-color" content="#0a0a0a">
+<title>MABAYUI ─ フラッシュの嵐の主役になる</title>
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  MABAYUI 眩い ─ フラッシュの嵐の主役になる             ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  REFERENCE  レッドカーペットとプレスウォール、直焚きのフラッシュで撮った
+             モノクロのファッション写真（白い壁に落ちる硬い影）、
+             ストロボで止まったコマが連なるミュージックビデオ。
+  MOOD       明かりの落ちた撮影会場。画面の手前、ぼけた黒い人だかりの頭上で
+             カメラが一斉に焚かれる。光った瞬間だけ、あなたは白く飛んだ
+             硬いモノクロ写真として止まり、壁に影がくっきり落ちる。
+             光が消えると、また薄暗がりに沈む。
+  PALETTE    PRESS（既定）骨白の壁 #e7e3da ／ 墨の黒 #0a0a0a ／ 白い閃光
+             NIGHT   黒の壁、人物は素の色を少し褪せさせて暖かい閃光
+             TUNGSTEN 琥珀の薄明かり #b0652a に、青白い閃光 #dfe9ff
+             差し色は使わない。光そのものが色。
+  TYPE       DM Serif Display（題字とラベル、雑誌の見出しの細いセリフ）
+             ＋ Zen Old Mincho（和文）。
+  MOTION     暗がりは静か。閃光はコマ単位で止まり（ストロボのカクつき）、
+             減衰は速い。連写の嵐は 1.5 秒ほど、左右と手前から入り乱れる。
+             切り替えは、暗転 → 正面からの大きな一発で会場が現れる。
+  SIGNATURE  動いてから止まってポーズを決めると、カメラマンが一斉に焚く。
+  LAYERS     ① 閃光ごとの再照明：光の来る向きで体に陰影がつき、白黒の硬い写真になる
+             ② 白い壁に落ちる影：光源の位置で影の向きと長さが変わる
+             ③ ストロボの静止：光った瞬間のコマが止まり、動くとコマ撮りになる
+             ④ 手前の人だかり（ぼけた黒い頭と掲げたカメラ）と光芒の十字
+             ⑤ ポーズ → 連写の嵐／タップした場所から一発
+             ⑥ 版：PRESS / NIGHT / TUNGSTEN
+             ⑦ 素のカメラ ⇄ 作品 の切り替え（暗転→正面の一発）
+             ⑧ ハレーション（明部のにじみ）とフィルムの粒子
+  TECH       WebGL2。合成 1 枚（FBO・ミップマップ）＋仕上げ 1 枚。
+             セルフィーセグメンタのマスクをミップでぼかし、法線と影に使う。
+             マスクの差分で動き→静止を見てポーズを判定（観測時間で数える）。
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Zen+Old+Mincho:wght@400&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0a0a0a;--fg:#ece8df;--dim:rgba(236,232,223,.52);--line:rgba(236,232,223,.2);--acc:#ffffff}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none}
+html,body{margin:0;height:100%;background:var(--bg);overflow:hidden;color:var(--fg);
+  font-family:"Zen Old Mincho","Hiragino Mincho ProN","Noto Serif JP",serif}
+#view{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:crosshair}
+#cam{position:fixed;left:0;top:0;width:2px;height:2px;opacity:.01;pointer-events:none}
+.serif{font-family:"DM Serif Display",serif}
+
+#start{position:fixed;inset:0;z-index:30;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;
+  padding:28px;text-align:center;background:#0a0a0a;overflow:hidden}
+#start .t{font:italic 400 12px "DM Serif Display",serif;letter-spacing:.32em;margin-right:-.32em;color:var(--dim)}
+#start h1{margin:0;font:400 min(15vw,92px)/1 "DM Serif Display",serif;letter-spacing:.06em;color:#f6f3ec}
+#start p{margin:0;font-size:12.5px;line-height:2.1;color:var(--dim);letter-spacing:.08em}
+#start .fl{position:absolute;width:6px;height:6px;border-radius:50%;background:#fff;opacity:0;pointer-events:none;
+  box-shadow:0 0 30px 12px rgba(255,255,255,.6),0 0 0 1px #fff}
+#start .fl::before,#start .fl::after{content:"";position:absolute;left:50%;top:50%;background:linear-gradient(90deg,transparent,#fff,transparent)}
+#start .fl::before{width:160px;height:1px;margin:-.5px 0 0 -80px}
+#start .fl::after{width:1px;height:90px;margin:-45px 0 0 -.5px;background:linear-gradient(transparent,#fff,transparent)}
+#start .fl{animation:pop 3.1s infinite}
+@keyframes pop{0%,100%{opacity:0}1%{opacity:1}5%{opacity:0}}
+#go{appearance:none;border:1px solid var(--line);background:transparent;color:var(--fg);font:italic 400 15px "DM Serif Display",serif;
+  letter-spacing:.24em;padding:12px 30px 12px 34px;cursor:pointer;transition:border-color .3s,background .3s}
+#go:hover{border-color:#fff;background:rgba(255,255,255,.05)}
+#err{font-size:12px;line-height:1.8;max-width:340px;min-height:1em;white-space:pre-line;color:#f0a8a0;font-family:sans-serif}
+
+.btn{position:fixed;z-index:12;appearance:none;border:0;background:transparent;color:var(--fg);font:italic 400 13px "DM Serif Display",serif;
+  letter-spacing:.14em;padding:10px 8px;display:none;cursor:pointer;opacity:.7;transition:opacity .3s,color .3s;
+  text-shadow:0 0 6px rgba(0,0,0,.6)}
+.btn.show{display:block}
+.btn:hover{opacity:1}
+#gear{right:10px;top:calc(env(safe-area-inset-top) + 6px);font:14px sans-serif;letter-spacing:0}
+#flip{right:10px;top:calc(env(safe-area-inset-top) + 40px);letter-spacing:.06em;font:400 11px "Zen Old Mincho",serif}
+#bar{position:fixed;left:0;right:0;bottom:calc(env(safe-area-inset-bottom) + 10px);z-index:12;display:none;justify-content:center;align-items:center;gap:20px}
+#bar.show{display:flex}
+#bar .btn{position:static;display:block}
+#bar #shoot{position:relative;width:44px;height:44px;border-radius:50%;border:1px solid var(--line);padding:0;opacity:.9}
+#shoot::after{content:"";position:absolute;inset:9px;border-radius:50%;background:#f4f1ea}
+#rec.on{opacity:1;color:#ff8f7a}
+#status{position:fixed;left:14px;top:calc(env(safe-area-inset-top) + 14px);z-index:11;font:11px sans-serif;letter-spacing:.04em;
+  color:var(--dim);pointer-events:none;max-width:76vw;line-height:1.7;white-space:pre-line;text-shadow:0 0 6px #000}
+
+#panel{position:fixed;right:10px;top:calc(env(safe-area-inset-top) + 76px);z-index:12;width:min(272px,calc(100vw - 20px));
+  max-height:calc(100vh - 170px);overflow:auto;
+  background:rgba(10,10,10,.86);border:1px solid var(--line);padding:14px 16px;display:flex;flex-direction:column;gap:12px;
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);transition:opacity .25s}
+#panel.hide{opacity:0;pointer-events:none}
+.chips{display:flex;border:1px solid var(--line)}
+.chips button{flex:1;appearance:none;border:0;background:transparent;color:var(--fg);padding:8px 2px;font:italic 400 12px "DM Serif Display",serif;
+  letter-spacing:.08em;cursor:pointer;opacity:.5}
+.chips button.on{opacity:1;background:rgba(236,232,223,.1);color:#fff}
+#panel label{display:flex;align-items:center;gap:10px;font-size:11px;letter-spacing:.04em}
+#panel label span{width:74px;flex:none;color:var(--dim)}
+#panel input[type=range]{flex:1;accent-color:#e9e5dc}
+#panel .tg{display:flex;gap:6px}
+#panel .tg button{flex:1;appearance:none;border:1px solid var(--line);background:transparent;color:var(--fg);padding:7px 2px;
+  font:400 10px "Zen Old Mincho",serif;cursor:pointer;opacity:.5}
+#panel .tg button.on{opacity:1;border-color:#e9e5dc}
+#panel .note{font-size:10px;color:var(--dim);line-height:1.8}
+#mode{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom) + 74px);z-index:13;display:none;
+  appearance:none;border:1px solid var(--line);background:rgba(10,10,10,.45);color:var(--fg);
+  font:italic 400 14px "DM Serif Display",serif;letter-spacing:.2em;padding:10px 22px 10px 26px;cursor:pointer;
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);transition:border-color .3s}
+#mode.show{display:block}
+#mode:hover{border-color:#fff}
+body.cam #mode{border-color:rgba(255,255,255,.55);color:#fff;background:rgba(0,0,0,.35)}
+body.cam .btn{color:#fff}
+</style>
+</head>
+<body>
+<canvas id="view"></canvas>
+<video id="cam" playsinline muted autoplay></video>
+<div id="status"></div>
+<button id="gear" class="btn" aria-label="調整">⚙</button>
+<button id="flip" class="btn">⟲ カメラ</button>
+<button id="mode">Lights out</button>
+<div id="bar">
+  <button id="rec" class="btn">● Rec</button>
+  <button id="film" class="btn">Press</button>
+  <button id="shoot" class="btn" aria-label="撮る"></button>
+  <button id="burst" class="btn">Flash</button>
+</div>
+
+<div id="panel" class="hide">
+  <div class="chips" id="films">
+    <button data-f="0" class="on">Press</button>
+    <button data-f="1">Night</button>
+    <button data-f="2">Tungsten</button>
+  </div>
+  <label><span>カメラマン</span><input type="range" id="sRate" min="0" max="1" step="0.01" value="0.5"></label>
+  <label><span>影の長さ</span><input type="range" id="sShadow" min="0" max="1" step="0.01" value="0.5"></label>
+  <label><span>暗がり</span><input type="range" id="sAmb" min="0" max="1" step="0.01" value="0.35"></label>
+  <label><span>閃光の強さ</span><input type="range" id="sPow" min="0" max="1" step="0.01" value="0.6"></label>
+  <label><span>にじみ</span><input type="range" id="sBloom" min="0" max="1" step="0.01" value="0.5"></label>
+  <label><span>粒子</span><input type="range" id="sGrain" min="0" max="1" step="0.01" value="0.5"></label>
+  <label><span>音量</span><input type="range" id="sVol" min="0" max="1" step="0.01" value="0.45"></label>
+  <div class="tg">
+    <button id="tPose" class="on">ポーズで連写</button>
+    <button id="tCrowd" class="on">人だかり</button>
+  </div>
+  <div class="note">動いてから止まってポーズを決めると、カメラマンが一斉に焚く。<br>画面をタップすると、その場所から一発焚く。<br>光の来る向きで影の向きと長さが変わる。</div>
+</div>
+
+<div id="start">
+  <i class="fl" style="left:14%;top:72%;animation-delay:.2s"></i>
+  <i class="fl" style="left:84%;top:78%;animation-delay:1.1s"></i>
+  <i class="fl" style="left:30%;top:86%;animation-delay:1.9s"></i>
+  <i class="fl" style="left:70%;top:66%;animation-delay:2.5s"></i>
+  <div class="t">the press is waiting</div>
+  <h1>MABAYUI</h1>
+  <p>まずは、いつものカメラ。<br>ボタンを押すと明かりが落ち、フラッシュが焚かれはじめる。<br>動いて、止まって、ポーズを決めて。</p>
+  <button id="go">Enter</button>
+  <div id="err"></div>
+</div>
+
+<script>
+'use strict';
+/* =====================================================================
+   MABAYUI — a dark room, a crowd of photographers, and you.
+   per frame:
+     flashes (CPU schedule) → pass A (FBO): ambient + per-flash relight of the
+     frozen or live frame, hard shadows on a seamless wall, foreground crowd,
+     starbursts → mipmaps → pass B: halation + grain + mode transition.
+   ===================================================================== */
+const VISION_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs';
+const WASM_URL   = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm';
+const SEG_MODEL  = 'https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite';
+
+const $ = id => document.getElementById(id);
+const view = $('view'), video = $('cam');
+const S = { film:0, rate:.5, shadow:.5, amb:.35, pow:.6, bloom:.5, grain:.5, vol:.45, pose:true, crowd:true };
+const FILMS = ['Press', 'Night', 'Tungsten'];
+const NF = 6;                                   // flashes live at once
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+
+/* ---------- WebGL2 ---------- */
+const gl = view.getContext('webgl2', { alpha:false, antialias:false, preserveDrawingBuffer:true });
+const VS = `#version 300 es
+in vec2 aP; void main(){ gl_Position = vec4(aP, 0., 1.); }`;
+const FS_A = `#version 300 es
+precision highp float;
+uniform sampler2D uLive, uFrz, uMask, uMFrz;
+uniform vec2 uRes; uniform vec4 uMap; uniform float uMirror, uHasMask, uFrzOn, uT;
+uniform int uFilm;
+uniform vec4 uFl[${NF}];     // x, y (px), intensity, size
+uniform float uAmb, uShadow, uCrowd, uShort;
+uniform vec4 uCr[7];         // crowd: x, y, r, lit
+out vec4 o;
+vec2 vuv(vec2 p){ vec2 u = (p - uMap.xy) / uMap.zw; if (uMirror > .5) u.x = 1. - u.x; return u; }
+float mk(sampler2D t, vec2 uv, float lod){ return uHasMask > .5 ? textureLod(t, uv, lod).r : 1.; }
+void main(){
+  vec2 p = vec2(gl_FragCoord.x, uRes.y - gl_FragCoord.y);
+  vec2 uv = vuv(p);
+  bool frz = uFrzOn > .5;
+  vec3 cam = frz ? texture(uFrz, uv).rgb : texture(uLive, uv).rgb;
+  float l = dot(cam, vec3(.299, .587, .114));
+  float m = frz ? mk(uMFrz, uv, 0.) : mk(uMask, uv, 0.);
+  m = smoothstep(.3, .7, m);
+  // a soft dome from the blurred mask → normals for the relight
+  float px = 1.0 / uMap.z;
+  const float lodN = 2.5;
+  vec2 dx = vec2(px * uShort * .02, 0.), dy = vec2(0., px * uShort * .02 * uMap.z / uMap.w);
+  float hx = (frz ? mk(uMFrz, uv + dx, lodN) - mk(uMFrz, uv - dx, lodN) : mk(uMask, uv + dx, lodN) - mk(uMask, uv - dx, lodN));
+  float hy = (frz ? mk(uMFrz, uv + dy, lodN) - mk(uMFrz, uv - dy, lodN) : mk(uMask, uv + dy, lodN) - mk(uMask, uv - dy, lodN));
+  if (uMirror > .5) hx = -hx;
+  vec3 n = normalize(vec3(-hx * 2.2, -hy * 2.2, 1.));
+  // flash light
+  float litP = 0., litW = 0.; vec3 flare = vec3(0.);
+  for (int j = 0; j < ${NF}; j++){
+    vec4 f = uFl[j];
+    if (f.z <= .002) continue;
+    vec2 d = f.xy - p;
+    float dist = length(d);
+    vec3 L = normalize(vec3(d, uShort * .9));
+    float lam = max(dot(n, L), 0.);
+    float fall = 1. / (1. + dist * dist / (uShort * uShort * .45));
+    litP += f.z * fall * (.25 + 1.05 * lam);
+    // hard shadow on the wall: the person between this wall point and the flash
+    vec2 q = p + d * (.05 + uShadow * .22);
+    float sh = frz ? mk(uMFrz, vuv(q), 1.) : mk(uMask, vuv(q), 1.);
+    litW += f.z * fall * 1.05 * (1. - .93 * smoothstep(.25, .6, sh));
+    // starburst at the flash head
+    vec2 a = abs(d) / uShort;
+    float s = f.w;
+    flare += f.z * (exp(-dot(a, a) / (.0009 * s)) * 2.5
+           + exp(-a.x / (.25 * s)) * exp(-a.y / .0028) * .9
+           + exp(-a.y / (.13 * s)) * exp(-a.x / .0028) * .6
+           + exp(-dist / (uShort * .09 * s)) * .35);
+  }
+  // grade
+  float lc = smoothstep(.02, .95, l);
+  float hard = smoothstep(.12, .85, lc); hard = mix(lc, hard * hard * (3. - 2. * hard), .7);
+  vec3 col;
+  if (uFilm == 0){            // PRESS — bone-white wall, silver gelatin
+    vec3 wall = vec3(.84, .825, .79);
+    vec3 per = vec3(hard) * vec3(1., .99, .97);
+    vec3 ambP = vec3(pow(lc, 1.3)) * uAmb * .55, ambW = wall * uAmb * .16 * (1. - .4 * smoothstep(.0, 1., abs(p.y / uRes.y - .3)));
+    vec3 P = ambP + per * litP * 1.25;
+    vec3 W = ambW + wall * litW * (1. - .25 * smoothstep(.55, 1., p.y / uRes.y));
+    col = mix(W, P, m);
+    flare *= vec3(1., .99, .96);
+  } else if (uFilm == 1){     // NIGHT — black wall, faded colour, warm flash
+    vec3 c = mix(vec3(l), cam, .62) * vec3(1.05, .98, .9);
+    c = pow(c, vec3(1.15));
+    vec3 P = c * uAmb * .45 + c * litP * .85;
+    vec3 W = vec3(.01) + cam * uAmb * .05 + vec3(.035, .03, .027) * litW;
+    col = mix(W, P, m);
+    flare *= vec3(1., .93, .82);
+  } else {                    // TUNGSTEN — amber dusk, blue-white flash
+    vec3 amber = vec3(1., .5, .18);
+    vec3 per = vec3(hard);
+    float glowW = 1. - smoothstep(.0, .9, length((p - vec2(uRes.x * .5, uRes.y * .35)) / uShort));
+    vec3 P = vec3(pow(lc, 1.1)) * amber * uAmb * 1.1 + per * vec3(.86, .93, 1.08) * litP * 1.2;
+    vec3 W = amber * uAmb * (.08 + .5 * glowW) + vec3(.62, .7, .82) * litW;
+    col = mix(W, P, m);
+    flare *= vec3(.85, .93, 1.1);
+  }
+  // foreground crowd: soft black heads, shoulders and raised cameras, rim-lit by their own flashes
+  if (uCrowd > .5){
+    float cr = 0., rim = 0.;
+    for (int k = 0; k < 7; k++){
+      vec4 c = uCr[k];
+      vec2 d = (p - c.xy) / c.z;
+      float head = length(d * vec2(1., .92)) - 1.;
+      vec2 bq = abs(d - vec2(0., 2.9)) - vec2(1.75, 1.5);
+      float body = length(max(bq, 0.)) + min(max(bq.x, bq.y), 0.) - .75;
+      float sd = min(head, body);
+      float a = smoothstep(.55, -.55, sd);
+      cr = max(cr, a);
+      rim += c.w * smoothstep(.45, 0., abs(sd + .15)) * a * smoothstep(1.5, -2.5, d.y);
+    }
+    col = mix(col, vec3(.004), cr) + vec3(1.) * rim * .45;
+  }
+  col += flare;
+  o = vec4(col, 1.);
+}`;
+const FS_B = `#version 300 es
+precision highp float;
+uniform sampler2D uA, uLive; uniform vec2 uRes; uniform vec4 uMap; uniform float uMirror, uMix, uDark, uBloom, uGrain, uT, uWhite;
+out vec4 o;
+float hash(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233)) + uT * 31.7) * 43758.5453); }
+void main(){
+  vec2 tu = gl_FragCoord.xy / uRes;
+  vec3 c = texture(uA, tu).rgb;
+  vec3 b = textureLod(uA, tu, 3.).rgb * .35 + textureLod(uA, tu, 5.).rgb * .4 + textureLod(uA, tu, 6.5).rgb * .25;
+  c += max(b - .45, 0.) * (.4 + uBloom * 1.4);
+  vec2 q = tu - .5;
+  c *= 1. - .35 * smoothstep(.3, .9, length(q * vec2(uRes.x / max(uRes.x, uRes.y), uRes.y / max(uRes.x, uRes.y)) * 1.5));
+  float g = hash(floor(gl_FragCoord.xy / 1.5)) - .5;
+  c += g * .13 * uGrain * (.35 + .65 * (1. - abs(dot(c, vec3(.33)) - .5) * 2.));
+  c = min(c, vec3(.85)) + .15 * (1. - exp(-max(c - .85, 0.) / .15));   // soft shoulder for the blown highlights
+  vec2 p = vec2(gl_FragCoord.x, uRes.y - gl_FragCoord.y);
+  vec2 u = (p - uMap.xy) / uMap.zw; if (uMirror > .5) u.x = 1. - u.x;
+  vec3 cam = texture(uLive, u).rgb;
+  vec3 outc = mix(cam, clamp(c, 0., 1.), uMix) * (1. - uDark) + vec3(uWhite);
+  o = vec4(clamp(outc, 0., 1.), 1.);
+}`;
+let GL = null;
+function glSetup(){
+  if (!gl) return false;
+  const sh = (t, s) => { const o = gl.createShader(t); gl.shaderSource(o, s); gl.compileShader(o);
+    if (!gl.getShaderParameter(o, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(o)); return o; };
+  const prog = fs => { const p = gl.createProgram(); gl.attachShader(p, sh(gl.VERTEX_SHADER, VS)); gl.attachShader(p, sh(gl.FRAGMENT_SHADER, fs));
+    gl.bindAttribLocation(p, 0, 'aP'); gl.linkProgram(p);
+    if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+    const u = {}; const n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+    for (let k = 0; k < n; k++){ const inf = gl.getActiveUniform(p, k); u[inf.name.replace(/\[0\]$/, '')] = gl.getUniformLocation(p, inf.name); }
+    return { p, u }; };
+  const tex = (minF) => { const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, minF); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE); return t; };
+  const buf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 3,-1, -1,3]), gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+  const MM = gl.LINEAR_MIPMAP_LINEAR;
+  GL = { A:prog(FS_A), B:prog(FS_B), live:tex(gl.LINEAR), frz:tex(gl.LINEAR), mask:tex(MM), mfrz:tex(MM), comp:tex(MM),
+    fb:gl.createFramebuffer(), cw:0, ch:0 };
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+  for (const t of [GL.mask, GL.mfrz]){ gl.bindTexture(gl.TEXTURE_2D, t); gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, 1, 1, 0, gl.RED, gl.UNSIGNED_BYTE, new Uint8Array([255])); gl.generateMipmap(gl.TEXTURE_2D); }
+  for (const t of [GL.live, GL.frz]){ gl.bindTexture(gl.TEXTURE_2D, t); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0,0,0,255])); }
+  return true;
+}
+function compAlloc(w, h){
+  if (GL.cw === w && GL.ch === h) return;
+  GL.cw = w; GL.ch = h;
+  gl.bindTexture(gl.TEXTURE_2D, GL.comp); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, GL.fb); gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, GL.comp, 0);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+}
+
+/* ---------- geometry ---------- */
+const G = { W:0, H:0, ox:0, oy:0, dw:0, dh:0, short:1 };
+const TEST = { maxDt:.1, res:1600, flashSpeed:1 };
+function resize(){
+  const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+  let w = Math.round(innerWidth * dpr), h = Math.round(innerHeight * dpr);
+  const k = Math.min(1, TEST.res / Math.max(w, h)); w = Math.round(w * k); h = Math.round(h * k);
+  if (w !== G.W || h !== G.H){ G.W = view.width = w; G.H = view.height = h; layoutCrowd(); }
+  const va = (vidW || 16) / (vidH || 9), ca = G.W / G.H;
+  if (va > ca){ G.dh = G.H; G.dw = G.H * va; } else { G.dw = G.W; G.dh = G.W / va; }
+  G.ox = (G.W - G.dw) / 2; G.oy = (G.H - G.dh) / 2; G.short = Math.min(G.W, G.H);
+}
+
+/* ---------- the crowd in front (anchored to the short edge, along the bottom) ---------- */
+const CROWD = [];
+function layoutCrowd(){
+  CROWD.length = 0;
+  const W = G.W, H = G.H, s = Math.min(W, H);
+  const spots = [[.02, .92, .1], [.17, .99, .08], [.32, .97, .065], [.68, .97, .065], [.84, .99, .08], [.99, .92, .1], [.5, 1.06, .06]];
+  for (const [fx, fy, r] of spots) CROWD.push({ x:fx * W, y:H - (1 - fy) * s, r:r * s, lit:0 });
+}
+// where a photographer's flash sits: just above their raised camera
+function camPos(c){ const k = CROWD.indexOf(c), cx = k % 2 === 0 ? .35 : -.35; return [c.x + cx * c.r, c.y - c.r * 1.75]; }
+
+/* ---------- flashes ---------- */
+const FL = [];          // { x, y, t, pow, size, crowd }
+const QUEUE = [];       // scheduled { at, ... }
+let freezeT = -1, needFreeze = false;
+function fire(x, y, pow, size, crowd){
+  if (FL.length >= NF) FL.shift();
+  FL.push({ x, y, t:0, pow, size:size || 1, crowd:crowd == null ? -1 : crowd });
+  needFreeze = true; freezeT = 0;
+  if (crowd != null && crowd >= 0 && CROWD[crowd]) CROWD[crowd].lit = 1;
+  shutter(pow);
+  STATS.flashes++;
+}
+function randomSource(){
+  // mostly the crowd; sometimes from the sides, high
+  const r = Math.random();
+  if (S.crowd && CROWD.length && r < .72){ const k = (Math.random() * CROWD.length) | 0; const [x, y] = camPos(CROWD[k]); return [x, y, k]; }
+  const side = Math.random() < .5 ? -1 : 1;
+  return [side < 0 ? -G.short * .04 : G.W + G.short * .04, G.H * (.2 + Math.random() * .45), -1];
+}
+function scheduleBurst(n, span){
+  const now = performance.now();
+  for (let i = 0; i < n; i++) QUEUE.push({ at:now + Math.pow(Math.random(), .8) * span * 1000 + i * 25, pow:.8 + Math.random() * .4 });
+  QUEUE.sort((a, b) => a.at - b.at);
+}
+const STATS = { flashes:0, poses:0 };
+
+/* ---------- mask & motion → pose ---------- */
+const M = { buf:null, prev:null, w:0, h:0, has:false, external:false, t:-1e9, dirty:false, motion:0, area:0, lastObs:-1 };
+const POSE = { moving:0, still:0, armed:false, cool:0 };
+function ingestMask(arr, w, h, now){
+  if (!arr || !(w > 0) || !(h > 0) || arr.length < w * h) return false;
+  now = now == null ? performance.now() : now;
+  if (!M.buf || M.buf.length !== w * h){ M.buf = new Uint8Array(w * h); M.prev = new Uint8Array(w * h); M.lastObs = -1; }
+  let diff = 0, area = 0;
+  for (let i = 0; i < w * h; i++){
+    const v = arr[i], b = v >= 1 ? 255 : v > 0 ? (v * 255) | 0 : 0;
+    const d = b - M.prev[i]; diff += d < 0 ? -d : d; area += b;
+    M.prev[i] = b; M.buf[i] = b;
+  }
+  M.w = w; M.h = h; M.has = true; M.t = now; M.dirty = true;
+  const dtObs = M.lastObs < 0 ? 0 : clamp((now - M.lastObs) / 1000, 0, .25); M.lastObs = now;
+  M.area = area / 255 / (w * h);
+  const mot = area > 255 * 40 ? diff / area / Math.max(dtObs, 1 / 60) * (1 / 30) : 0;     // fraction of the body changing per 1/30 s
+  M.motion += (mot - M.motion) * .5;
+  if (dtObs > 0) poseStep(dtObs);
+  return true;
+}
+function poseStep(dtObs){
+  if (M.area < .02){ POSE.moving = POSE.still = 0; POSE.armed = false; return; }
+  if (M.motion > .06){ POSE.moving += dtObs; POSE.still = 0; if (POSE.moving > .35) POSE.armed = true; }
+  else if (M.motion < .025){ POSE.still += dtObs; if (POSE.still > .3) POSE.moving = 0; }
+  if (POSE.armed && POSE.still > .3){
+    POSE.armed = false; POSE.moving = 0;
+    if (S.pose && MODE.on && POSE.cool <= 0){ scheduleBurst(8 + ((S.rate * 8) | 0), 1.5); POSE.cool = 2.2; STATS.poses++; }
+  }
+}
+let segmenter = null, lastTs = 0, lastVT = -1;
+async function initModel(){
+  try{
+    const vision = await import(VISION_URL);
+    const fs = await vision.FilesetResolver.forVisionTasks(WASM_URL);
+    const so = d => ({ baseOptions:{ modelAssetPath:SEG_MODEL, delegate:d }, runningMode:'VIDEO', outputConfidenceMasks:true, outputCategoryMask:false });
+    try { segmenter = await vision.ImageSegmenter.createFromOptions(fs, so('GPU')); }
+    catch(e){ segmenter = await vision.ImageSegmenter.createFromOptions(fs, so('CPU')); }
+    setStatus('');
+  }catch(e){
+    if (M.external) return;
+    setStatus('人物検出モデルを読み込めませんでした（ネット接続を確認）。\n壁と影なしで続けます。');
+  }
+}
+function detect(now){
+  if (!segmenter || M.external || video.readyState < 2) return;
+  const vt = video.currentTime; if (vt === lastVT) return; lastVT = vt;
+  const ts = Math.max(lastTs + 1, Math.round(now)); lastTs = ts;
+  try{
+    segmenter.segmentForVideo(video, ts, res => {
+      const ms = res && res.confidenceMasks; if (!ms || !ms.length) return;
+      const mk = ms[ms.length - 1]; ingestMask(mk.getAsFloat32Array(), mk.width, mk.height, now);
+    });
+  }catch(e){}
+}
+
+/* ---------- camera ---------- */
+let stream = null, facing = 'user', mirror = true, started = false, vidW = 1280, vidH = 720;
+function setStatus(t){ $('status').textContent = t || ''; }
+function camError(e){
+  const msg = (e && (e.message || e.name)) ? (e.message || e.name) : String(e || 'unknown');
+  const text = 'カメラを起動できませんでした：' + msg + '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+  $('err').textContent = text;
+  if (started) setStatus(text);
+}
+async function startCam(){
+  const md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) throw new Error('getUserMedia is unavailable');
+  const s = await md.getUserMedia({ video:{ facingMode:{ ideal:facing }, width:{ ideal:1280 }, height:{ ideal:720 } }, audio:false });
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = s; mirror = facing === 'user';
+  video.srcObject = s;
+  await new Promise(r => { if (video.readyState >= 1) r(); else video.onloadedmetadata = () => r(); });
+  await video.play().catch(()=>{});
+  vidW = video.videoWidth || 1280; vidH = video.videoHeight || 720;
+  M.lastObs = -1; POSE.moving = POSE.still = 0; POSE.armed = false;
+  resize();
+}
+
+/* ---------- audio: shutters, the whine of recharging flashes ---------- */
+let actx = null, bus = null, recDest = null, noiseBuf = null;
+function ensureAudio(){
+  if (actx){ if (actx.state === 'suspended') actx.resume().catch(()=>{}); return; }
+  const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+  try{
+    actx = new AC(); bus = actx.createGain(); bus.gain.value = 1; bus.connect(actx.destination);
+    recDest = actx.createMediaStreamDestination(); bus.connect(recDest);
+    const len = actx.sampleRate * .25 | 0; noiseBuf = actx.createBuffer(1, len, actx.sampleRate);
+    const d = noiseBuf.getChannelData(0); for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+    actx.resume().catch(()=>{});
+  }catch(e){ actx = null; }
+}
+function click(at, f, dur, pk, pan){
+  const t = actx.currentTime + at, s = actx.createBufferSource(), hp = actx.createBiquadFilter(), g = actx.createGain();
+  s.buffer = noiseBuf; hp.type = 'bandpass'; hp.frequency.value = f; hp.Q.value = 1.2;
+  g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime(pk * (.15 + S.vol), t + .002); g.gain.exponentialRampToValueAtTime(.0001, t + dur);
+  let node = g;
+  if (actx.createStereoPanner){ const p = actx.createStereoPanner(); p.pan.value = pan; g.connect(p); node = p; }
+  s.connect(hp); hp.connect(g); node.connect(bus); s.start(t, Math.random() * .1); s.stop(t + dur + .02);
+}
+function shutter(pow){
+  if (!actx || actx.state !== 'running') return;
+  const pan = (Math.random() * 2 - 1) * .7;
+  click(0, 3200 + Math.random() * 1500, .03, .35 * pow, pan);           // mirror up
+  click(.045 + Math.random() * .03, 2200 + Math.random() * 800, .04, .28 * pow, pan);   // shutter
+  const t = actx.currentTime + .08, o = actx.createOscillator(), g = actx.createGain();       // recharge whine
+  o.type = 'sine'; o.frequency.setValueAtTime(2400, t); o.frequency.exponentialRampToValueAtTime(7600, t + .9);
+  g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime(.006 * (.2 + S.vol), t + .1); g.gain.exponentialRampToValueAtTime(.0001, t + .9);
+  o.connect(g); g.connect(bus); o.start(t); o.stop(t + .95);
+}
+function thump(){
+  if (!actx || actx.state !== 'running') return;
+  const t = actx.currentTime, o = actx.createOscillator(), g = actx.createGain();
+  o.type = 'sine'; o.frequency.setValueAtTime(90, t); o.frequency.exponentialRampToValueAtTime(30, t + .5);
+  g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime(.25 * (.2 + S.vol), t + .01); g.gain.exponentialRampToValueAtTime(.0001, t + .6);
+  o.connect(g); g.connect(bus); o.start(t); o.stop(t + .65);
+}
+
+/* ---------- mode ---------- */
+const MODE = { on:false, X:0, big:false };
+function setMode(on){
+  if (on === MODE.on) return;
+  MODE.on = on; MODE.X = 0; MODE.big = false;
+  $('mode').textContent = on ? 'Lights on' : 'Lights out';
+  document.body.classList.toggle('cam', !on);
+  ['film','burst'].forEach(id => $(id).style.visibility = on ? 'visible' : 'hidden');
+  FL.length = 0; QUEUE.length = 0;
+  thump();
+}
+function setFilm(i){
+  S.film = ((i % 3) + 3) % 3;
+  [...$('films').children].forEach(x => x.classList.toggle('on', +x.dataset.f === S.film));
+  $('film').textContent = FILMS[S.film];
+}
+
+/* ---------- UI ---------- */
+$('mode').onclick = () => setMode(!MODE.on);
+addEventListener('keydown', e => {
+  if (!started || document.activeElement.tagName === 'INPUT') return;
+  if (e.key === ' ' || e.key === 'Enter'){ e.preventDefault(); setMode(!MODE.on); }
+  else if (e.key === 'f') setFilm(S.film + 1);
+  else if (e.key === 'b' && MODE.on) scheduleBurst(10, 1.4);
+});
+$('go').onclick = async () => {
+  $('err').textContent = '';
+  ensureAudio();
+  if (!GL){
+    try { if (!glSetup()) throw new Error('WebGL2 が使えません'); }
+    catch(e){ $('err').textContent = 'この端末では描画（WebGL2）を開始できませんでした：' + (e.message || e); return; }
+  }
+  try { await startCam(); } catch(e){ camError(e); return; }
+  $('start').style.display = 'none';
+  ['gear','flip','bar','rec','shoot','film','burst','mode'].forEach(id => $(id).classList.add('show'));
+  MODE.on = true; setMode(false);
+  if (!started){ started = true; initModel(); requestAnimationFrame(loop); }
+};
+$('flip').onclick = async () => {
+  const prev = facing; facing = facing === 'user' ? 'environment' : 'user';
+  try { await startCam(); } catch(e){ facing = prev; camError(e); }
+};
+$('gear').onclick = () => $('panel').classList.toggle('hide');
+$('film').onclick = () => setFilm(S.film + 1);
+$('burst').onclick = () => { if (MODE.on) scheduleBurst(9 + ((S.rate * 6) | 0), 1.4); };
+$('films').onclick = e => { const b = e.target.closest('button'); if (b) setFilm(+b.dataset.f); };
+[['sRate','rate'],['sShadow','shadow'],['sAmb','amb'],['sPow','pow'],['sBloom','bloom'],['sGrain','grain'],['sVol','vol']]
+  .forEach(([id, k]) => { $(id).oninput = e => { S[k] = +e.target.value; }; });
+$('tPose').onclick = e => { S.pose = !S.pose; e.target.classList.toggle('on', S.pose); };
+$('tCrowd').onclick = e => { S.crowd = !S.crowd; e.target.classList.toggle('on', S.crowd); };
+let down = null;
+view.addEventListener('pointerdown', e => { down = { x:e.clientX, y:e.clientY, t:performance.now() }; });
+view.addEventListener('pointerup', e => {
+  if (down && Math.hypot(e.clientX - down.x, e.clientY - down.y) < 12 && performance.now() - down.t < 600){
+    if (!$('panel').classList.contains('hide')) $('panel').classList.add('hide');
+    else if (MODE.on){
+      const r = view.getBoundingClientRect(), x = (e.clientX - r.left) / r.width * G.W, y = (e.clientY - r.top) / r.height * G.H;
+      fire(x, y, 1.1, 1.2, -1);
+    }
+  }
+  down = null;
+});
+$('shoot').onclick = () => {
+  try{
+    view.toBlob(b => { if (!b) return; const a = document.createElement('a'); a.href = URL.createObjectURL(b);
+      a.download = 'mabayui-' + Date.now() + '.png'; a.click(); }, 'image/png');
+  }catch(e){ setStatus('保存できませんでした。'); }
+};
+let rec = null, chunks = [];
+$('rec').onclick = () => {
+  if (rec && rec.state === 'recording'){ rec.stop(); return; }
+  try{
+    const tracks = [...view.captureStream(30).getVideoTracks()];
+    if (recDest) tracks.push(...recDest.stream.getAudioTracks());
+    const mime = ['video/mp4;codecs=avc1','video/webm;codecs=vp9,opus','video/webm'].find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || '';
+    rec = new MediaRecorder(new MediaStream(tracks), mime ? { mimeType:mime } : {});
+    chunks = [];
+    rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+    rec.onstop = () => {
+      $('rec').classList.remove('on'); $('rec').textContent = '● Rec';
+      const ext = (rec.mimeType || '').includes('mp4') ? 'mp4' : 'webm';
+      const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(chunks, { type:rec.mimeType || 'video/webm' }));
+      a.download = 'mabayui.' + ext; a.click();
+    };
+    rec.start(); $('rec').classList.add('on'); $('rec').textContent = '■ Stop';
+  }catch(e){ setStatus('録画を開始できませんでした。' + (e && e.message ? '\n' + e.message : '')); }
+};
+addEventListener('resize', () => { if (started) resize(); });
+
+/* ---------- frame ---------- */
+const UF = new Float32Array(NF * 4), UC = new Float32Array(28);
+let lastT = 0, frameN = 0, idleNext = 0;
+const ease = t => 1 - Math.pow(1 - clamp(t, 0, 1), 3);
+function loop(now){
+  requestAnimationFrame(loop);
+  const dt = clamp((now - (lastT || now)) / 1000, 0, TEST.maxDt); lastT = now; frameN++;
+  resize();
+  detect(now);
+  MODE.X += dt;
+  POSE.cool -= dt;
+  // the opening flash, then the room settles
+  if (MODE.on && !MODE.big && MODE.X > .55){ MODE.big = true; fire(G.W / 2, G.H * .45, 1.6, 2.2, -1); }
+  // scheduled bursts, and the odd photographer on their own
+  if (MODE.on){
+    while (QUEUE.length && QUEUE[0].at <= now){ const q = QUEUE.shift(); const [x, y, k] = randomSource(); fire(x, y, q.pow, .8 + Math.random() * .5, k); }
+    if (MODE.big && now > idleNext){
+      const base = .15 + S.rate * .9, rate = base * (M.motion > .06 ? .5 : 1);
+      if (idleNext) { const [x, y, k] = randomSource(); fire(x, y, .7 + Math.random() * .4, .7 + Math.random() * .5, k); }
+      idleNext = now + (-Math.log(1 - Math.random() * .98) / rate) * 1000;
+    }
+  }
+  // flash envelopes: a held bright frame, then a fast fall
+  const hold = .085;
+  for (let i = FL.length - 1; i >= 0; i--){ FL[i].t += dt * TEST.flashSpeed; if (FL[i].t > hold + .5) FL.splice(i, 1); }
+  let anyBright = false;
+  for (let j = 0; j < NF; j++){
+    const f = FL[j];
+    if (!f){ UF[j * 4 + 2] = 0; continue; }
+    const env = f.t < hold ? 1 - .25 * f.t / hold : .75 * Math.exp(-(f.t - hold) / .05);
+    if (f.t < hold) anyBright = true;
+    UF[j * 4] = f.x; UF[j * 4 + 1] = f.y; UF[j * 4 + 2] = env * f.pow * (.55 + S.pow * .9); UF[j * 4 + 3] = f.size;
+  }
+  for (let k = 0; k < 7; k++){
+    const c = CROWD[k];
+    if (!c){ UC[k * 4 + 2] = 1; UC[k * 4 + 3] = 0; continue; }
+    c.lit *= Math.exp(-dt / .07);
+    UC[k * 4] = c.x; UC[k * 4 + 1] = c.y; UC[k * 4 + 2] = c.r; UC[k * 4 + 3] = c.lit;
+  }
+  if (!GL) return;
+  // textures
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, GL.live);
+  if (video.readyState >= 2){ try{ gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video); }catch(e){} }
+  gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, GL.mask);
+  if (M.dirty){ gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, M.w, M.h, 0, gl.RED, gl.UNSIGNED_BYTE, M.buf); gl.generateMipmap(gl.TEXTURE_2D); M.dirty = false; }
+  if (needFreeze){
+    needFreeze = false;
+    gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, GL.frz);
+    if (video.readyState >= 2){ try{ gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video); }catch(e){} }
+    if (M.has){ gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, GL.mfrz);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, M.w, M.h, 0, gl.RED, gl.UNSIGNED_BYTE, M.buf); gl.generateMipmap(gl.TEXTURE_2D); }
+  }
+  gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, GL.frz);
+  gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, GL.mfrz);
+  const hasMask = M.has && (now - M.t < 1500 || M.external) ? 1 : 0;
+  // pass A
+  compAlloc(G.W, G.H);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, GL.fb); gl.viewport(0, 0, G.W, G.H);
+  let u = GL.A.u; gl.useProgram(GL.A.p);
+  gl.uniform1i(u.uLive, 0); gl.uniform1i(u.uFrz, 1); gl.uniform1i(u.uMask, 2); gl.uniform1i(u.uMFrz, 3);
+  gl.uniform2f(u.uRes, G.W, G.H); gl.uniform4f(u.uMap, G.ox, G.oy, G.dw, G.dh); gl.uniform1f(u.uMirror, mirror ? 1 : 0);
+  gl.uniform1f(u.uHasMask, hasMask); gl.uniform1f(u.uFrzOn, MODE.on && anyBright ? 1 : 0); gl.uniform1f(u.uT, (now / 1000) % 100);
+  gl.uniform1i(u.uFilm, S.film);
+  gl.uniform4fv(u.uFl, UF); gl.uniform4fv(u.uCr, UC);
+  gl.uniform1f(u.uAmb, .08 + S.amb * .9); gl.uniform1f(u.uShadow, S.shadow); gl.uniform1f(u.uCrowd, S.crowd ? 1 : 0); gl.uniform1f(u.uShort, G.short);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+  gl.activeTexture(gl.TEXTURE4); gl.bindTexture(gl.TEXTURE_2D, GL.comp); gl.generateMipmap(gl.TEXTURE_2D);
+  // pass B
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, 0, G.W, G.H);
+  u = GL.B.u; gl.useProgram(GL.B.p);
+  gl.uniform1i(u.uA, 4); gl.uniform1i(u.uLive, 0);
+  gl.uniform2f(u.uRes, G.W, G.H); gl.uniform4f(u.uMap, G.ox, G.oy, G.dw, G.dh); gl.uniform1f(u.uMirror, mirror ? 1 : 0);
+  let mix, dark, white = 0;
+  const tx = MODE.X;
+  if (MODE.on){ mix = tx < .4 ? 0 : 1; dark = tx < .4 ? ease(tx / .4) : 0; }
+  else { mix = tx < .3 ? 1 : 0; dark = tx < .3 ? ease(tx / .3) : 1 - ease((tx - .3) / .35); }
+  gl.uniform1f(u.uMix, mix); gl.uniform1f(u.uDark, dark); gl.uniform1f(u.uWhite, white);
+  gl.uniform1f(u.uBloom, S.bloom); gl.uniform1f(u.uGrain, S.grain); gl.uniform1f(u.uT, (now / 1000) % 100);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+}
+
+/* ---------- test hook ---------- */
+window.__mabayui = {
+  feedMask(arr, w, h, t){ if (!M.external) setStatus(''); M.external = true; return ingestMask(arr, w, h, t); },
+  fire(x, y, pow, crowd){ fire(x, y, pow == null ? 1 : pow, 1, crowd); },
+  crowdCam(k){ return CROWD[k] ? camPos(CROWD[k]) : null; },
+  clear(){ FL.length = 0; QUEUE.length = 0; },
+  burst(n){ scheduleBurst(n || 10, 1.4); },
+  setMode, setFilm, test:TEST, S,
+  state(){ return { frame:frameN, mode:MODE.on, X:MODE.X, film:S.film, flashes:STATS.flashes, poses:STATS.poses, live:FL.length, queued:QUEUE.length,
+    motion:+M.motion.toFixed(3), area:+M.area.toFixed(3), pose:{ ...POSE }, G:{ ...G } }; },
+};
+</script>
+</body>
+</html>
