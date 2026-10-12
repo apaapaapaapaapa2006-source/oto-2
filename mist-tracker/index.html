@@ -159,7 +159,7 @@ let W=1,H=1,DPR=1,AW=128,AH=128,CS=6,cols=1,rows=1;
 let lum,prev,dif,cellMot,mask,hasPrev=false;
 function resize(){
   DPR=Math.min(2,window.devicePixelRatio||1);
-  W=Math.max(1,Math.round(innerWidth*DPR));H=Math.max(1,Math.round(innerHeight*DPR));
+  W=Math.max(2,Math.round(innerWidth*DPR/2)*2);H=Math.max(2,Math.round(innerHeight*DPR/2)*2);  // even: the iPhone H.264 encoder needs it
   cv.width=W;cv.height=H;
   AW=128;AH=Math.max(64,Math.min(280,Math.round(AW*H/W)));
   an.width=AW;an.height=AH;
@@ -226,21 +226,35 @@ document.getElementById('bShot').onclick=()=>{
   try{cv.toBlob(b=>{if(!b)return;const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='mist-tracker-'+Date.now()+'.png';a.click();},'image/png');}
   catch(e){toast('保存できませんでした。',4000);}
 };
-let rec=null,chunks=[];
+let rec=null,recBusy=false;
 const bRec=document.getElementById('bRec');
+// Recording notes for iPhone Safari:
+//  · mp4 is declared with BOTH codecs (avc1 + AAC); declaring only avc1 while an audio track is attached can stall the muxer
+//  · a 1 s timeslice hands data out as it is recorded instead of one huge buffer at the end
+//  · each recording keeps its own chunks, and REC is locked until the file is written, so a quick re-tap can't wipe it
+//  · the audio clock must keep running while recording (a suspended AudioContext freezes the audio track and the mp4 with it)
 bRec.onclick=()=>{
-  if(rec&&rec.state==='recording'){rec.stop();return;}
+  if(recBusy)return;
+  if(rec&&rec.state==='recording'){recBusy=true;bRec.textContent='保存中…';rec.stop();return;}
   try{
+    if(A.ctx&&A.ctx.state!=='running')A.ctx.resume().catch(()=>{});
     const tr=[...cv.captureStream(30).getVideoTracks()];
-    if(A.rec)tr.push(...A.rec.stream.getAudioTracks());
-    const mime=['video/mp4;codecs=avc1','video/webm;codecs=vp9,opus','video/webm'].find(m=>window.MediaRecorder&&MediaRecorder.isTypeSupported(m))||'';
-    rec=new MediaRecorder(new MediaStream(tr),mime?{mimeType:mime}:{});chunks=[];
-    rec.ondataavailable=e=>{if(e.data&&e.data.size)chunks.push(e.data);};
-    rec.onstop=()=>{bRec.setAttribute('aria-pressed','false');bRec.textContent='● 録画';
-      const ext=(rec.mimeType||'').includes('mp4')?'mp4':'webm';
-      const a=document.createElement('a');a.href=URL.createObjectURL(new Blob(chunks,{type:rec.mimeType||'video/webm'}));a.download='mist-tracker.'+ext;a.click();};
-    rec.start();bRec.setAttribute('aria-pressed','true');bRec.textContent='■ 停止';
-  }catch(e){toast('録画を開始できませんでした。',4000);}
+    if(A.rec&&A.ctx&&A.ctx.state!=='closed')tr.push(...A.rec.stream.getAudioTracks());
+    const mime=['video/mp4;codecs="avc1.42E01E,mp4a.40.2"','video/mp4','video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm']
+      .find(m=>window.MediaRecorder&&MediaRecorder.isTypeSupported(m))||'';
+    const opt={videoBitsPerSecond:6e6,audioBitsPerSecond:128e3};if(mime)opt.mimeType=mime;
+    const r=new MediaRecorder(new MediaStream(tr),opt),parts=[];
+    r.ondataavailable=e=>{if(e.data&&e.data.size)parts.push(e.data);};
+    r.onerror=()=>{toast('録画中にエラーが起きました。',5000);};
+    r.onstop=()=>{
+      const type=r.mimeType||mime||'video/mp4',ext=type.includes('mp4')?'mp4':'webm';
+      if(parts.length){const url=URL.createObjectURL(new Blob(parts,{type}));const a=document.createElement('a');a.href=url;a.download='mist-tracker-'+Date.now()+'.'+ext;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);}
+      else toast('録画データが空でした。もう一度お試しください。',5000);
+      tr.forEach(t=>{if(t.kind==='video')t.stop();});
+      if(rec===r)rec=null;recBusy=false;bRec.setAttribute('aria-pressed','false');bRec.textContent='● 録画';
+    };
+    rec=r;r.start(1000);bRec.setAttribute('aria-pressed','true');bRec.textContent='■ 停止';
+  }catch(e){recBusy=false;toast('録画を開始できませんでした。',4000);}
 };
 
 /* ---------- audio ---------- */
@@ -470,7 +484,8 @@ function frame(now){
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
-document.addEventListener('visibilitychange',()=>{if(document.hidden&&A.ctx)A.ctx.suspend();else if(A.ctx&&A.on)A.ctx.resume();});
+document.addEventListener('visibilitychange',()=>{if(!A.ctx)return;const recording=rec&&rec.state==='recording';
+  if(document.hidden&&!recording)A.ctx.suspend();else if(!document.hidden)A.ctx.resume();});
 })();
 </script>
 </body>
