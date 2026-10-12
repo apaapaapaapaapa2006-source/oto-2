@@ -135,10 +135,17 @@ input[type=range]{width:100%;accent-color:var(--accent)}
       <button class="chip" data-k="mist" aria-pressed="true">MIST</button>
       <button class="chip" data-k="glitch" aria-pressed="true">GLITCH</button>
     </div>
+    <div class="row" id="sndMode" role="group" aria-label="音のモード">
+      <span class="hint" style="width:2.5em">音</span>
+      <button class="chip" data-m="data" aria-pressed="true">DATA</button>
+      <button class="chip" data-m="ambient" aria-pressed="false">AMBIENT</button>
+      <button class="chip" data-m="melt" aria-pressed="false">MELT</button>
+    </div>
     <label class="sl">感度<input type="range" id="rSens" min="0" max="100" value="55"><output id="oSens">55</output></label>
     <label class="sl">点の数<input type="range" id="rDen" min="30" max="260" value="140"><output id="oDen">140</output></label>
     <label class="sl">霧の量<input type="range" id="rMist" min="0" max="100" value="60"><output id="oMist">60</output></label>
     <p class="legend"><b>J0925</b> などの数字は、動いている点や細かい模様に振った追跡ID。<b>LINE</b> は近い点どうしと、ときどき一点から放射状に結ぶ線。<b>BOX</b> は動きのかたまりを囲む枠。<b>MIST</b> は動いた場所から立ちのぼるID付きの粒子。</p>
+    <p class="legend">音（「音を出す」で鳴る）：<b>DATA</b> は元の電子音。<b>AMBIENT</b> はゆっくり移ろう和音と、点が生まれるたびに鳴る鐘、霧のきらめきが長い残響に溶ける。<b>MELT</b> はゆらいで溶けるような柔らかいエレクトロニカ（レイ・ハラカミのような）── 点がはね返る音色で鳴り、少し跳ねたリズムに乗ってディレイで揺れ、枠が生まれるとゴムのようなベースが鳴る。</p>
     <p class="hint">画面をタップするとUIが消えます（画面収録用）。もう一度タップで戻ります。</p>
   </div>
 </div>
@@ -207,7 +214,7 @@ document.getElementById('bFlip').onclick=async e=>{e.stopPropagation();const pre
   try{await startCamera();}catch(err){facing=prev;toast(camErrText(err),9000);}};
 document.getElementById('go').onclick=async()=>{
   document.getElementById('err').textContent='';
-  if(!A.ctx)A.init();
+  if(!A.ctx){A.init();if(A.ctx&&A.mode!=='data')SND.setMode(A.mode);}
   if(A.ctx&&A.ctx.state!=='running')A.ctx.resume().catch(()=>{});
   try{await startCamera();}catch(err){document.getElementById('err').textContent=camErrText(err);return;}
   document.getElementById('start').hidden=true;
@@ -215,7 +222,7 @@ document.getElementById('go').onclick=async()=>{
 /* ---------- UI ---------- */
 const bMore=document.getElementById('bMore'),more=document.getElementById('more');
 bMore.onclick=()=>{more.hidden=!more.hidden;bMore.setAttribute('aria-expanded',!more.hidden);};
-document.querySelectorAll('.chip').forEach(b=>b.onclick=()=>{const k=b.dataset.k;S[k]=!S[k];b.setAttribute('aria-pressed',S[k]);});
+document.querySelectorAll('.chip[data-k]').forEach(b=>b.onclick=()=>{const k=b.dataset.k;S[k]=!S[k];b.setAttribute('aria-pressed',S[k]);});
 function bindRange(id,out,fn){const r=document.getElementById(id),o=document.getElementById(out);const u=()=>{o.textContent=r.value;fn(+r.value);};r.oninput=u;u();}
 bindRange('rSens','oSens',v=>S.sens=v/100);
 bindRange('rDen','oDen',v=>S.density=v);
@@ -258,7 +265,7 @@ bRec.onclick=()=>{
 };
 
 /* ---------- audio ---------- */
-const A={ctx:null,on:false,last:0,lastTick:0,noise:null,
+const A={ctx:null,on:false,last:0,lastTick:0,noise:null,mode:'data',
   init(){
     const C=window.AudioContext||window.webkitAudioContext;if(!C)return false;
     const a=this.ctx=new C();
@@ -275,26 +282,26 @@ const A={ctx:null,on:false,last:0,lastTick:0,noise:null,
   pan(x){const p=this.ctx.createStereoPanner?this.ctx.createStereoPanner():null;if(p)p.pan.value=Math.max(-1,Math.min(1,x/W*2-1));return p;},
   out(node,x){const p=this.pan(x);if(p){node.connect(p);p.connect(this.master);}else node.connect(this.master);},
   blip(x,y){ // new tracked point: pentatonic pluck, higher toward top
-    if(!this.on)return;const a=this.ctx,n=a.currentTime;if(n-this.last<.045)return;this.last=n;
+    if(!this.on)return;if(this.mode!=='data')return SND[this.mode].blip(x,y);const a=this.ctx,n=a.currentTime;if(n-this.last<.045)return;this.last=n;
     const sc=[0,3,5,7,10],k=Math.floor((1-y/H)*15),f=196*Math.pow(2,(Math.floor(k/5)*12+sc[k%5])/12);
     const o=a.createOscillator(),g=a.createGain();o.type='triangle';o.frequency.value=f;
     g.gain.setValueAtTime(0,n);g.gain.linearRampToValueAtTime(.07,n+.004);g.gain.exponentialRampToValueAtTime(.0001,n+.22);
     o.connect(g);this.out(g,x);o.start(n);o.stop(n+.25);
   },
   tick(x,y){ // mist particle born: tiny high data tick
-    if(!this.on)return;const a=this.ctx,n=a.currentTime;if(n-this.lastTick<.03)return;this.lastTick=n;
+    if(!this.on)return;if(this.mode!=='data')return SND[this.mode].tick(x,y);const a=this.ctx,n=a.currentTime;if(n-this.lastTick<.03)return;this.lastTick=n;
     const o=a.createOscillator(),g=a.createGain();o.type='sine';o.frequency.value=2400+(1-y/H)*3600+Math.random()*200;
     g.gain.setValueAtTime(0,n);g.gain.linearRampToValueAtTime(.025,n+.002);g.gain.exponentialRampToValueAtTime(.0001,n+.05);
     o.connect(g);this.out(g,x);o.start(n);o.stop(n+.06);
   },
   box(x,y){ // new motion box: band-passed noise breath
-    if(!this.on)return;const a=this.ctx,n=a.currentTime;
+    if(!this.on)return;if(this.mode!=='data')return SND[this.mode].box(x,y);const a=this.ctx,n=a.currentTime;
     const s=a.createBufferSource();s.buffer=this.noise;const bp=a.createBiquadFilter();bp.type='bandpass';bp.Q.value=8;bp.frequency.value=300+(1-y/H)*2600;
     const g=a.createGain();g.gain.setValueAtTime(0,n);g.gain.linearRampToValueAtTime(.12,n+.02);g.gain.exponentialRampToValueAtTime(.0001,n+.35);
     s.connect(bp);bp.connect(g);this.out(g,x);s.start(n);s.stop(n+.4);
   },
   glitch(x){
-    if(!this.on)return;const a=this.ctx,n=a.currentTime;
+    if(!this.on)return;if(this.mode!=='data')return SND[this.mode].glitch(x);const a=this.ctx,n=a.currentTime;
     const o=a.createOscillator(),g=a.createGain();o.type='square';o.frequency.setValueAtTime(120+Math.random()*500,n);o.frequency.exponentialRampToValueAtTime(40,n+.07);
     g.gain.setValueAtTime(.035,n);g.gain.exponentialRampToValueAtTime(.0001,n+.08);
     o.connect(g);this.out(g,x);o.start(n);o.stop(n+.09);
@@ -302,9 +309,176 @@ const A={ctx:null,on:false,last:0,lastTick:0,noise:null,
   update(motion,lines){
     if(!this.ctx)return;const n=this.ctx.currentTime;
     this.lp.frequency.setTargetAtTime(140+Math.min(1,motion/14)*2200,n,.15);
-    this.dg.gain.setTargetAtTime(this.on?(.015+Math.min(1,lines/220)*.05):0,n,.2);
+    this.dg.gain.setTargetAtTime(this.on&&this.mode==='data'?(.015+Math.min(1,lines/220)*.05):0,n,.2);
+    if(this.fxReady)SND.update(motion,lines);
   }
 };
+
+/* ---------- sound modes: AMBIENT / MELT (added 2026-10-12 at the owner's request) ----------
+   shared: a long stereo reverb, a filtered ping-pong delay and a pad of detuned oscillators that
+   glide between chords. AMBIENT = slow chords, bells, sparkles. MELT = soft electronica in the way
+   of Rei Harakami: wobbly pitch-bent FM plucks on a swung 16th grid, rubbery gliding bass, a pad
+   whose filter breathes, everything through a dark ping-pong delay. */
+const mtof=m=>440*Math.pow(2,(m-69)/12);
+const SND={
+  setup(){
+    const a=A.ctx;if(A.fxReady)return;
+    const sr=a.sampleRate,len=Math.floor(sr*4.6),ir=a.createBuffer(2,len,sr);
+    for(let c=0;c<2;c++){const d=ir.getChannelData(c);for(let i=0;i<len;i++){const t=i/len;d[i]=(Math.random()*2-1)*Math.pow(1-t,2.4)*Math.min(1,i/(sr*.02));}}
+    A.verb=a.createConvolver();A.verb.buffer=ir;const vo=a.createGain();vo.gain.value=.8;A.verb.connect(vo);vo.connect(A.master);
+    A.dIn=a.createGain();const dl=a.createDelay(2),dr=a.createDelay(2),fb=a.createGain(),lp=a.createBiquadFilter(),mg=a.createChannelMerger(2),dOut=a.createGain();
+    lp.type='lowpass';lp.frequency.value=1800;lp.Q.value=.7;fb.gain.value=.45;dOut.gain.value=.75;
+    A.dIn.connect(dl);dl.connect(lp);lp.connect(dr);dr.connect(fb);fb.connect(dl);
+    dl.connect(mg,0,0);dr.connect(mg,0,1);mg.connect(dOut);dOut.connect(A.master);dOut.connect(A.verb);
+    Object.assign(A,{dl,dr,dfb:fb,dlp:lp});
+    // pad: 4 voices × 2 detuned oscillators → breathing lowpass
+    A.padF=a.createBiquadFilter();A.padF.type='lowpass';A.padF.frequency.value=500;A.padF.Q.value=1.2;
+    A.padG=a.createGain();A.padG.gain.value=0;A.padF.connect(A.padG);A.padG.connect(A.master);A.padG.connect(A.verb);
+    const lfo=a.createOscillator(),lg=a.createGain();lfo.frequency.value=.09;lg.gain.value=0;lfo.connect(lg);lg.connect(A.padF.frequency);lfo.start();A.padLfoG=lg;
+    A.padO=[];for(let i=0;i<8;i++){const o=a.createOscillator(),g=a.createGain();o.type=i%2?'sawtooth':'triangle';o.detune.value=(i%2?7:-7);o.frequency.value=110;g.gain.value=.12;o.connect(g);g.connect(A.padF);o.start();A.padO.push(o);}
+    // a slow wow shared by the MELT voices (cents)
+    A.wow=a.createOscillator();A.wowG=a.createGain();A.wow.frequency.value=4.6;A.wowG.gain.value=9;A.wow.connect(A.wowG);A.wow.start();
+    // MELT bass: one voice that glides
+    A.bassO=a.createOscillator();A.bassO.type='triangle';A.bassO.frequency.value=55;
+    A.bassF=a.createBiquadFilter();A.bassF.type='lowpass';A.bassF.frequency.value=420;A.bassF.Q.value=4;
+    A.bassG=a.createGain();A.bassG.gain.value=0;A.bassO.connect(A.bassF);A.bassF.connect(A.bassG);A.bassG.connect(A.master);A.bassO.start();
+    A.fxReady=true;
+  },
+  // route a voice: pan by screen x, then dry / delay / reverb sends
+  send(node,x,dry,del,rev){
+    const a=A.ctx;let src=node;
+    if(a.createStereoPanner){const p=a.createStereoPanner();p.pan.value=Math.max(-.9,Math.min(.9,x/W*1.8-.9));node.connect(p);src=p;}
+    if(dry){const g=a.createGain();g.gain.value=dry;src.connect(g);g.connect(A.master);}
+    if(del){const g=a.createGain();g.gain.value=del;src.connect(g);g.connect(A.dIn);}
+    if(rev){const g=a.createGain();g.gain.value=rev;src.connect(g);g.connect(A.verb);}
+  },
+  chordIdx:0,chordT:0,
+  chord(){return this[A.mode].chords[this.chordIdx%this[A.mode].chords.length];},
+  setPad(glide){
+    const c=this.chord(),n=A.ctx.currentTime;
+    for(let i=0;i<8;i++){const m=c[Math.floor(i/2)%c.length]+(A.mode==='melt'?0:-12);A.padO[i].frequency.setTargetAtTime(mtof(m),n,glide);}
+  },
+  setMode(m){
+    if(!A.ctx)return;this.setup();A.mode=m;
+    const n=A.ctx.currentTime;this.chordIdx=0;this.chordT=n;
+    if(m==='ambient'){A.dl.delayTime.setTargetAtTime(.62,n,.05);A.dr.delayTime.setTargetAtTime(.93,n,.05);A.dfb.gain.setTargetAtTime(.5,n,.05);A.dlp.frequency.setTargetAtTime(1500,n,.1);A.padLfoG.gain.setTargetAtTime(120,n,.2);}
+    if(m==='melt'){const st=60/MELT.bpm/4;A.dl.delayTime.setTargetAtTime(st*3,n,.05);A.dr.delayTime.setTargetAtTime(st*3,n,.05);A.dfb.gain.setTargetAtTime(.42,n,.05);A.dlp.frequency.setTargetAtTime(1300,n,.1);A.padLfoG.gain.setTargetAtTime(420,n,.2);}
+    if(m!=='data')this.setPad(.05);
+    if(m!=='melt')A.bassG.gain.setTargetAtTime(0,n,.05);
+    MELT.reset();
+  },
+  update(motion){
+    const a=A.ctx,n=a.currentTime,on=A.on&&A.mode!=='data',k=Math.min(1,motion/12);
+    if(A.mode==='ambient'){
+      A.padG.gain.setTargetAtTime(on?.09+.05*k:0,n,.6);A.padF.frequency.setTargetAtTime(420+k*1800,n,.8);
+      if(n-this.chordT>9){this.chordT=n;this.chordIdx++;this.setPad(1.6);}
+    }else if(A.mode==='melt'){
+      A.padG.gain.setTargetAtTime(on?.03+.015*k:0,n,.6);A.padF.frequency.setTargetAtTime(520+k*600,n,.8);
+      A.dlp.frequency.setTargetAtTime(1100+k*1600,n,.3);
+    }else A.padG.gain.setTargetAtTime(0,n,.3);
+  },
+  ambient:{
+    chords:[[45,52,56,59,61,64,68],[42,49,52,56,57,61,64],[50,57,61,64,66,68,73],[40,47,54,56,59,63,66]],
+    lb:0,lt:0,lx:0,
+    blip(x,y){ // a soft bell from the chord's upper tones
+      const a=A.ctx,n=a.currentTime;if(n-this.lb<.16)return;this.lb=n;
+      const c=SND.chord(),k=Math.max(0,Math.min(13,Math.floor((1-y/H)*14))),m=c[k%c.length]+12+12*Math.floor(k/c.length),f=mtof(m);
+      const g=a.createGain();g.gain.setValueAtTime(0,n);g.gain.linearRampToValueAtTime(.085,n+.01);g.gain.exponentialRampToValueAtTime(.0001,n+3.2);
+      [[1,1],[2.76,.18],[5.4,.06]].forEach(([r,v])=>{const o=a.createOscillator(),og=a.createGain();o.frequency.value=f*r;og.gain.value=v;o.connect(og);og.connect(g);o.start(n);o.stop(n+3.3);});
+      SND.send(g,x,.35,.3,.9);
+    },
+    tick(x,y){ // sparkles in the reverb
+      const a=A.ctx,n=a.currentTime;if(n-this.lt<.07)return;this.lt=n;
+      const c=SND.chord(),m=c[(Math.random()*c.length)|0]+24+(y<H*.4?12:0);
+      const o=a.createOscillator(),g=a.createGain();o.frequency.value=mtof(m);
+      g.gain.setValueAtTime(0,n);g.gain.linearRampToValueAtTime(.02,n+.004);g.gain.exponentialRampToValueAtTime(.0001,n+.25);
+      o.connect(g);o.start(n);o.stop(n+.3);SND.send(g,x,.15,.25,1);
+    },
+    box(x,y){ // a slow swell of a low chord tone
+      const a=A.ctx,n=a.currentTime,c=SND.chord(),m=c[(Math.random()*3)|0]+(y<H*.5?12:0);
+      const o=a.createOscillator(),f=a.createBiquadFilter(),g=a.createGain();o.type='triangle';o.frequency.value=mtof(m);f.type='lowpass';f.frequency.value=900;
+      g.gain.setValueAtTime(0,n);g.gain.linearRampToValueAtTime(.08,n+.6);g.gain.exponentialRampToValueAtTime(.0001,n+3.8);
+      o.connect(f);f.connect(g);o.start(n);o.stop(n+4);SND.send(g,x,.3,.1,.8);
+    },
+    glitch(x){ // a breath of air instead of a click
+      const a=A.ctx,n=a.currentTime;if(n-this.lx<.5)return;this.lx=n;
+      const s=a.createBufferSource();s.buffer=A.noise;const bp=a.createBiquadFilter();bp.type='bandpass';bp.Q.value=2;bp.frequency.value=1200+Math.random()*2400;
+      const g=a.createGain();g.gain.setValueAtTime(0,n);g.gain.linearRampToValueAtTime(.018,n+.12);g.gain.exponentialRampToValueAtTime(.0001,n+.4);
+      s.connect(bp);bp.connect(g);s.start(n);s.stop(n+.42);SND.send(g,x,.2,0,.9);
+    }
+  },
+  melt:{
+    chords:[[50,54,57,61,64,66],[47,50,54,57,61,64],[43,47,50,54,57,61],[45,50,52,55,59,62]],   // Dmaj9 · Bm9 · Gmaj9#11 · A9sus4
+    blip(x,y){MELT.req.pluck={x,y};MELT.req.n++;MELT.last=A.ctx.currentTime;},
+    tick(x,y){MELT.req.drop={x,y};},
+    box(x,y){MELT.req.bass=true;MELT.last=A.ctx.currentTime;},
+    glitch(x){MELT.req.wob={x};}
+  }
+};
+/* MELT: a swung 16th-note clock; the tracker's events are queued and played on the grid */
+const MELT={bpm:94,swing:.17,step:0,next:0,timer:0,last:-9,req:{pluck:null,n:0,drop:null,bass:false,wob:null},
+  reset(){this.req={pluck:null,n:0,drop:null,bass:false,wob:null};this.step=0;this.next=A.ctx?A.ctx.currentTime+.05:0;
+    clearInterval(this.timer);if(A.mode==='melt')this.timer=setInterval(()=>this.pump(),25);},
+  pump(){
+    const a=A.ctx;if(!a||A.mode!=='melt')return;
+    const st=60/this.bpm/4;
+    if(this.next<a.currentTime-.2)this.next=a.currentTime+.02;
+    while(this.next<a.currentTime+.12){
+      const t=this.next+(this.step%2?st*this.swing:0);
+      if(A.on)this.play(this.step,t);
+      this.next+=st;this.step=(this.step+1)%64;
+      if(this.step%32===0){SND.chordIdx++;SND.setPad(.9);}
+    }
+  },
+  play(s,t){
+    const a=A.ctx,R=this.req,c=SND.chord(),active=a.currentTime-this.last<2.5;
+    if(R.pluck&&(s%2===0||R.n>2)){const p=R.pluck;R.pluck=null;R.n=Math.max(0,R.n-1);this.pluck(p.x,p.y,t,c);}
+    if(R.bass||(active&&(s%16===0||s%16===6||s%16===10))){R.bass=false;this.bass(t,c,s);}
+    if(R.drop&&s%2===1){const p=R.drop;R.drop=null;this.drop(p.x,p.y,t,c);}
+    if(R.wob&&s%4===3){const p=R.wob;R.wob=null;this.wobble(p.x,t);}
+  },
+  pluck(x,y,t,c){ // FM e-piano/marimba with a pitch bend into the note and a wow
+    const a=A.ctx,k=Math.max(0,Math.min(11,Math.floor((1-y/H)*12))),m=c[k%c.length]+12*Math.floor(k/c.length)+12,f=mtof(m);
+    const car=a.createOscillator(),mod=a.createOscillator(),mg=a.createGain(),flt=a.createBiquadFilter(),g=a.createGain();
+    car.type='sine';mod.type='sine';mod.frequency.value=f*(Math.random()<.3?3:2);
+    car.frequency.setValueAtTime(f*Math.pow(2,-(.6+Math.random()*1.4)/12),t);car.frequency.exponentialRampToValueAtTime(f,t+.06+Math.random()*.05);
+    mg.gain.setValueAtTime(f*2.4,t);mg.gain.exponentialRampToValueAtTime(f*.08,t+.35);
+    A.wowG.connect(car.detune);
+    flt.type='lowpass';flt.Q.value=7;flt.frequency.setValueAtTime(4200,t);flt.frequency.setTargetAtTime(520,t+.01,.14);
+    g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(.085,t+.006);g.gain.exponentialRampToValueAtTime(.0001,t+1.1);
+    mod.connect(mg);mg.connect(car.frequency);car.connect(flt);flt.connect(g);
+    car.onended=()=>{try{A.wowG.disconnect(car.detune);}catch(e){}};
+    car.start(t);mod.start(t);car.stop(t+1.2);mod.stop(t+1.2);
+    SND.send(g,x,.55,.5,.3);
+  },
+  bass(t,c,s){ // rubbery: glide to the note, quick lowpass pluck
+    const r=c[0]-12+((s%16===10)?7:(s%16===6&&Math.random()<.5?12:0));
+    A.bassO.frequency.setTargetAtTime(mtof(r),t,.035);
+    A.bassF.frequency.setValueAtTime(900,t);A.bassF.frequency.setTargetAtTime(260,t+.01,.12);
+    A.bassG.gain.cancelScheduledValues(t);A.bassG.gain.setValueAtTime(.0001,t);A.bassG.gain.linearRampToValueAtTime(.16,t+.012);A.bassG.gain.setTargetAtTime(0,t+.05,.16);
+  },
+  drop(x,y,t,c){ // a water-drop blip, mostly in the delay
+    const a=A.ctx,m=c[(Math.random()*c.length)|0]+24,o=a.createOscillator(),g=a.createGain();
+    o.frequency.setValueAtTime(mtof(m+5),t);o.frequency.exponentialRampToValueAtTime(mtof(m),t+.04);
+    g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(.022,t+.003);g.gain.exponentialRampToValueAtTime(.0001,t+.18);
+    o.connect(g);o.start(t);o.stop(t+.2);SND.send(g,x,.25,.6,.2);
+  },
+  wobble(x,t){ // a soft downward tape-wobble
+    const a=A.ctx,o=a.createOscillator(),g=a.createGain(),f=a.createBiquadFilter();o.type='triangle';f.type='lowpass';f.frequency.value=1200;
+    o.frequency.setValueAtTime(520,t);o.frequency.exponentialRampToValueAtTime(130,t+.28);
+    g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(.03,t+.01);g.gain.exponentialRampToValueAtTime(.0001,t+.3);
+    o.connect(f);f.connect(g);o.start(t);o.stop(t+.32);SND.send(g,x,.3,.4,.3);
+  }
+};
+const sndMode=document.getElementById('sndMode');
+function pickSound(m){
+  if(!['data','ambient','melt'].includes(m))m='data';
+  A.mode=m;sndMode.querySelectorAll('button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.m===m));
+  if(A.ctx)SND.setMode(m);
+  try{localStorage.setItem('mist-tracker.sound',m);}catch(e){}
+}
+sndMode.addEventListener('click',e=>{const b=e.target.closest('button[data-m]');if(b)pickSound(b.dataset.m);});
+try{const m=localStorage.getItem('mist-tracker.sound');if(m)pickSound(m);}catch(e){}
 const snd=document.getElementById('snd');
 snd.onclick=async()=>{
   if(!A.ctx&&!A.init()){toast('このブラウザでは音が出せません。',5000);return;}
