@@ -1,0 +1,1045 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<script>/* REC-FIX (2026-10-12) — iPhone Safari で録画が途中で止まる・壊れる対策。どの作品でも同じ内容。
+   ・mp4 は映像と音声の両方のコーデックを宣言する（avc1 だけだと音声付きで止まることがある）
+   ・1 秒ごとにデータを受け取る（最後に一括で書き出さない）／ビットレートに上限
+   ・保存が終わる前に次の録画を始めない（前のファイルが消えるのを防ぐ）
+   ・録画中は AudioContext を止めない（音声トラックが止まると mp4 ごと止まる） */
+(()=>{const MR=window.MediaRecorder;if(!MR||MR.__recfix)return;let busy=0,active=0;
+class R extends MR{
+  constructor(s,o){if(busy)throw new Error('前の録画を保存しています');o=Object.assign({},o||{});
+    const au=s&&s.getAudioTracks&&s.getAudioTracks().length>0;
+    if(!o.mimeType||/^video\/mp4/.test(o.mimeType)){
+      const c=[au?'video/mp4;codecs="avc1.42E01E,mp4a.40.2"':'video/mp4;codecs="avc1.42E01E"','video/mp4'].find(m=>MR.isTypeSupported(m));
+      if(c)o.mimeType=c;else if(o.mimeType&&!MR.isTypeSupported(o.mimeType))delete o.mimeType;}
+    if(!o.videoBitsPerSecond&&!o.bitsPerSecond)o.videoBitsPerSecond=6e6;
+    super(s,o);this.addEventListener('stop',()=>{active=Math.max(0,active-1);setTimeout(()=>{busy=0;},0);});}
+  start(t){const r=super.start(t==null?1000:t);active++;return r;}
+  stop(){if(this.state!=='inactive'){busy=1;setTimeout(()=>{busy=0;},15000);}return super.stop();}}
+R.__recfix=1;window.MediaRecorder=R;
+const AC=window.AudioContext||window.webkitAudioContext;
+if(AC&&AC.prototype.suspend){const sus=AC.prototype.suspend;AC.prototype.suspend=function(){return active?Promise.resolve():sus.call(this);};}
+/* 録音用の出口には常に無音を流しておく（何も鳴っていないと音声トラックにデータが来ず、録画全体が止まる） */
+if(AC&&AC.prototype.createMediaStreamDestination){const cmd=AC.prototype.createMediaStreamDestination;AC.prototype.createMediaStreamDestination=function(){const d=cmd.apply(this,arguments);
+  try{const c=this.createConstantSource();c.offset.value=0;c.connect(d);c.start();}catch(e){}return d;};}})();</script>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="description" content="頭がクロームのヘルメットになり、黒いバイザーの LED があなたの目と口と声をそのまま映す。首を振ると LED の光が尾を引き、ウインクすると光がヘルメットをなでる。撮影と録画ができる。">
+<meta name="theme-color" content="#050506">
+<title>DENKOU ─ 顔が光るヘルメットになる</title>
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  DENKOU 電光 ─ 顔が光るヘルメットになる               ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  REFERENCE  フレンチハウスのロボット二人組のヘルメット、2000 年代の
+             クロームのプロダクト広告、暗いスタジオのファッションフィルム。
+             顔は見えないのに、LED の目と口で表情だけが伝わる。
+  MOOD       暗転したスタジオ。体は冷たいモノクロに沈み、頭だけが磨かれた
+             クロームのヘルメットになる。黒いガラスのバイザーの奥で LED の
+             目がまばたきし、口が声に合わせて波打つ。その光が肩を赤く照らす。
+  PALETTE    SILVER（既定）鏡面クローム ＋ LED は信号の赤 #ff2b1c
+             GOLD   金のクローム ＋ LED は氷の白 #e9f4ff
+             NOIR   漆黒の艶 ＋ LED は琥珀 #ffae3a
+             体と背景はモノクロ。差し色は LED の一色だけ。
+             二人で映ると、二人目は次の仕上げになる（銀と金の二人組）。
+  TYPE       Unbounded 200/400（幅広の幾何学体、題字と小さなラベル）
+             ＋ Zen Kaku Gothic New 300（和文）。
+  MOTION     ヘルメットは顔の向きに完全に追従し、スタジオの照明の映り込みが
+             首の動きにあわせて表面を滑る。LED には残光があり、首を振ると
+             目と口が遅れて流れ、画面にも光の軌跡が残る。
+             切り替えは、暗転 → ヘルメットが上から降りて頭に収まる →
+             LED が左から一列ずつ点灯する。
+  SIGNATURE  ウインクすると、ひとすじの光がヘルメットの表面をなでる。
+  LAYERS     ① 顔の向き・位置・大きさに追従する 3D のヘルメット（GPU で光線を
+                楕円体に当てて描く：鏡面、ガラスのバイザー、耳の円盤、溝）
+             ② LED の表情：まばたき・視線・口の開き・笑み。マイクがあれば口が声の波形に
+             ③ 残光：首を振ると LED が遅れて流れ、画面に光の軌跡が残る
+             ④ LED の光がバイザーから体と背景にこぼれる／体はモノクロ・背景は沈む
+             ⑤ 表示（タップで切替）：FACE ／ VOICE（声のオシロ）／ SCAN（走る光）
+             ⑥ 仕上げ：SILVER / GOLD / NOIR、二人なら二人目は別の仕上げ
+             ⑦ 素のカメラ ⇄ 作品 の切り替え：暗転→降下→LED 点灯
+             ⑧ ウインクで光のスイープ
+  TECH       WebGL2。全画面シェーダ 1 枚＋残光用の 1/4 解像度のピンポン。
+             FaceLandmarker（2 人）とセルフィーセグメンタ。LED は 44×15 の
+             CPU グリッドを 1 枚のテクスチャで渡す。配列はすべて使い回す。
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@200;400&family=Zen+Kaku+Gothic+New:wght@300&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#050506;--fg:#e8e8e6;--dim:rgba(232,232,230,.5);--line:rgba(232,232,230,.16);--acc:#ff2b1c}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none}
+html,body{margin:0;height:100%;background:var(--bg);overflow:hidden;color:var(--fg);
+  font-family:"Zen Kaku Gothic New","Hiragino Sans","Noto Sans JP",sans-serif;font-weight:300}
+#view{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:pointer}
+#cam{position:fixed;left:0;top:0;width:2px;height:2px;opacity:.01;pointer-events:none}
+
+#start{position:fixed;inset:0;z-index:30;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;
+  padding:28px;text-align:center;background:radial-gradient(ellipse at 50% 40%,#16161a 0%,#050506 62%)}
+#start .t{font:200 9px "Unbounded",sans-serif;letter-spacing:.6em;margin-right:-.6em;color:var(--dim)}
+#start h1{margin:0;font:200 min(11vw,64px)/1 "Unbounded",sans-serif;letter-spacing:.32em;margin-right:-.32em;color:#f3f3f1}
+#leds{width:min(62vw,300px);height:auto;aspect-ratio:44/15;display:block}
+#start p{margin:0;font-size:12px;line-height:2.1;color:var(--dim);letter-spacing:.06em}
+#go{appearance:none;border:1px solid var(--line);background:transparent;color:var(--fg);font:400 9px "Unbounded",sans-serif;
+  letter-spacing:.5em;padding:15px 28px 15px 34px;cursor:pointer;transition:border-color .3s,color .3s;border-radius:40px}
+#go:hover{border-color:var(--acc);color:#fff}
+#err{font-size:12px;line-height:1.8;max-width:340px;min-height:1em;white-space:pre-line;color:#f0a8a0}
+
+.btn{position:fixed;z-index:12;appearance:none;border:0;background:transparent;color:var(--fg);font:400 8.5px "Unbounded",sans-serif;
+  letter-spacing:.26em;padding:10px 8px;display:none;cursor:pointer;opacity:.62;transition:opacity .3s,color .3s}
+.btn.show{display:block}
+.btn:hover{opacity:1}
+#gear{right:10px;top:calc(env(safe-area-inset-top) + 6px);font-size:14px;letter-spacing:0}
+#flip{right:10px;top:calc(env(safe-area-inset-top) + 40px);letter-spacing:.08em;font-family:"Zen Kaku Gothic New",sans-serif;font-size:11px}
+#bar{position:fixed;left:0;right:0;bottom:calc(env(safe-area-inset-bottom) + 10px);z-index:12;display:none;justify-content:center;align-items:center;gap:20px}
+#bar.show{display:flex}
+#bar .btn{position:static;display:block}
+#bar #shoot{position:relative;width:42px;height:42px;border-radius:50%;border:1px solid var(--line);padding:0;opacity:.85}
+#shoot::after{content:"";position:absolute;left:50%;top:50%;width:8px;height:8px;margin:-4px 0 0 -4px;border-radius:50%;
+  background:var(--acc);box-shadow:0 0 10px var(--acc)}
+#rec.on{opacity:1;color:#ff8f7a}
+#status{position:fixed;left:14px;top:calc(env(safe-area-inset-top) + 38px);z-index:11;font-size:11px;letter-spacing:.04em;
+  color:var(--dim);pointer-events:none;max-width:76vw;line-height:1.7;white-space:pre-line}
+#tag{position:fixed;left:14px;top:calc(env(safe-area-inset-top) + 14px);z-index:11;font:200 8.5px "Unbounded",sans-serif;letter-spacing:.42em;
+  color:rgba(255,255,255,.55);pointer-events:none;display:none}
+#tag b{font-weight:400;color:var(--acc)}
+#tag.show{display:block}
+
+#panel{position:fixed;right:10px;top:calc(env(safe-area-inset-top) + 76px);z-index:12;width:min(272px,calc(100vw - 20px));
+  max-height:calc(100vh - 170px);overflow:auto;
+  background:rgba(6,6,8,.84);border:1px solid var(--line);padding:14px 16px;display:flex;flex-direction:column;gap:12px;
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);transition:opacity .25s;border-radius:6px}
+#panel.hide{opacity:0;pointer-events:none}
+.chips{display:flex;border:1px solid var(--line);border-radius:20px;overflow:hidden}
+.chips button{flex:1;appearance:none;border:0;background:transparent;color:var(--fg);padding:8px 2px;font:400 8px "Unbounded",sans-serif;
+  letter-spacing:.14em;cursor:pointer;opacity:.5}
+.chips button.on{opacity:1;background:rgba(232,232,230,.08);color:#fff;box-shadow:inset 0 -1px 0 var(--acc)}
+#panel label{display:flex;align-items:center;gap:10px;font-size:11px;letter-spacing:.04em}
+#panel label span{width:74px;flex:none;color:var(--dim)}
+#panel input[type=range]{flex:1;accent-color:var(--acc)}
+#panel .tg{display:flex;gap:6px}
+#panel .tg button{flex:1;appearance:none;border:1px solid var(--line);background:transparent;color:var(--fg);padding:7px 2px;
+  font:300 10px "Zen Kaku Gothic New",sans-serif;cursor:pointer;opacity:.5;border-radius:14px}
+#panel .tg button.on{opacity:1;border-color:var(--acc)}
+#panel .note{font-size:10px;color:var(--dim);line-height:1.8}
+#mode{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom) + 72px);z-index:13;display:none;
+  appearance:none;border:1px solid var(--line);background:rgba(6,6,8,.5);color:var(--fg);border-radius:40px;
+  font:400 8.5px "Unbounded",sans-serif;letter-spacing:.42em;padding:13px 20px 13px 26px;cursor:pointer;
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);transition:border-color .3s}
+#mode.show{display:block}
+#mode:hover{border-color:var(--acc)}
+body.cam #mode{border-color:rgba(255,255,255,.55);color:#fff;background:rgba(0,0,0,.35)}
+body.cam .btn{color:#fff}
+</style>
+</head>
+<body>
+<canvas id="view"></canvas>
+<video id="cam" playsinline muted autoplay></video>
+<div id="tag">DENKOU · <b id="tagProg">FACE</b></div>
+<div id="status"></div>
+<button id="gear" class="btn" aria-label="調整">⚙</button>
+<button id="flip" class="btn">⟲ カメラ</button>
+<button id="mode">▸ DENKOU</button>
+<div id="bar">
+  <button id="rec" class="btn">● REC</button>
+  <button id="fin" class="btn">SILVER</button>
+  <button id="shoot" class="btn" aria-label="撮る"></button>
+  <button id="prog" class="btn">FACE</button>
+</div>
+
+<div id="panel" class="hide">
+  <div class="chips" id="fins">
+    <button data-f="0" class="on">SILVER</button>
+    <button data-f="1">GOLD</button>
+    <button data-f="2">NOIR</button>
+  </div>
+  <div class="chips" id="progs">
+    <button data-p="0" class="on">FACE</button>
+    <button data-p="1">VOICE</button>
+    <button data-p="2">SCAN</button>
+  </div>
+  <label><span>残光</span><input type="range" id="sTrail" min="0" max="1" step="0.01" value="0.55"></label>
+  <label><span>発光</span><input type="range" id="sGlow" min="0" max="1" step="0.01" value="0.6"></label>
+  <label><span>大きさ</span><input type="range" id="sSize" min="0" max="1" step="0.01" value="0.5"></label>
+  <label><span>体の明るさ</span><input type="range" id="sBody" min="0" max="1" step="0.01" value="0.5"></label>
+  <label><span>背景</span><input type="range" id="sBg" min="0" max="1" step="0.01" value="0.22"></label>
+  <label><span>粒子</span><input type="range" id="sGrain" min="0" max="1" step="0.01" value="0.4"></label>
+  <label><span>音量</span><input type="range" id="sVol" min="0" max="1" step="0.01" value="0.4"></label>
+  <div class="tg">
+    <button id="tMic" class="on">マイク</button>
+    <button id="tWink" class="on">ウインクで光</button>
+  </div>
+  <div class="note">バイザーの LED が、まばたき・視線・口の開き・笑みをそのまま映す。マイクを許可すると口が声の波形になる。<br>画面をタップすると表示が FACE → VOICE → SCAN と変わる。<br>二人で映ると二人目は別の仕上げになる。</div>
+</div>
+
+<div id="start">
+  <div class="t">CHROME · GLASS · LIGHT</div>
+  <h1>DENKOU</h1>
+  <canvas id="leds" width="440" height="150"></canvas>
+  <p>まずは、いつものカメラ。<br>ボタンを押すと、頭がクロームのヘルメットになる。</p>
+  <button id="go">START</button>
+  <div id="err"></div>
+</div>
+
+<script>
+'use strict';
+/* =====================================================================
+   DENKOU — the head becomes a chrome helmet; an LED visor shows the face.
+   per frame:
+     FaceLandmarker → head frame (right / up / front, scale) per person
+     → LED grid (CPU, persistence) → trail pass (¼ res ping-pong, glow only)
+     → main pass: graded camera + light spill + ray-cast ellipsoid helmets.
+   ===================================================================== */
+const VISION_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs';
+const WASM_URL   = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm';
+const SEG_MODEL  = 'https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite';
+const FACE_MODEL = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
+
+const $ = id => document.getElementById(id);
+const view = $('view'), video = $('cam');
+const S = { fin:0, prog:0, trail:.55, glow:.6, size:.5, body:.5, bg:.22, grain:.4, vol:.4, mic:true, wink:true };
+const FINISH = [
+  { name:'SILVER', led:[1.0,.17,.11], css:'#ff2b1c' },
+  { name:'GOLD',   led:[.91,.96,1.0], css:'#cfe6ff' },
+  { name:'NOIR',   led:[1.0,.68,.23], css:'#ffae3a' },
+];
+const PROGS = ['FACE','VOICE','SCAN'];
+const COLS = 44, ROWS = 15, MAXH = 2;
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+
+/* ---------- start-screen LED eyes ---------- */
+const startLed = (() => {
+  const c = $('leds'), x = c.getContext('2d'); let on = true;
+  function f(t){
+    if (!on) return;
+    x.clearRect(0, 0, 440, 150);
+    const blink = (t / 1000) % 3.6 > 3.45 ? .12 : 1, gx = Math.sin(t / 1300) * 1.6;
+    for (let r = 0; r < ROWS; r++) for (let q = 0; q < COLS; q++){
+      let v = 0;
+      for (const ex of [12.5, 31.5]){ const dx = (q - ex - gx) / 3.6, dy = (r - 5.2) / (2.2 * blink + .25); if (dx * dx + dy * dy < 1) v = 1; }
+      const mx = (q - 22) / 8, my = r - (10.6 + .9 * mx * mx);
+      if (Math.abs(mx) < 1 && Math.abs(my) < .6) v = Math.max(v, .9);
+      x.fillStyle = v ? 'rgba(255,43,28,' + (.35 + .65 * v) + ')' : 'rgba(255,43,28,.07)';
+      x.beginPath(); x.arc(q * 10 + 5, r * 10 + 5, 3.4, 0, 6.283); x.fill();
+    }
+    requestAnimationFrame(f);
+  }
+  requestAnimationFrame(f);
+  return { stop(){ on = false; } };
+})();
+
+/* ---------- WebGL2 ---------- */
+const gl = view.getContext('webgl2', { alpha:false, antialias:false, preserveDrawingBuffer:true, premultipliedAlpha:false });
+const VS = `#version 300 es
+in vec2 aP; void main(){ gl_Position = vec4(aP, 0., 1.); }`;
+// a quad over one helmet's screen bound (no attributes: gl_VertexID)
+const VS_BOX = `#version 300 es
+uniform vec4 uBoxN; uniform vec2 uRes;
+void main(){
+  int id = gl_VertexID;
+  vec2 a = vec2((id == 1 || id == 2 || id == 4) ? 1. : 0., (id == 2 || id == 4 || id == 5) ? 1. : 0.);
+  vec2 px = mix(uBoxN.xy, uBoxN.zw, a);
+  gl_Position = vec4(px.x / uRes.x * 2. - 1., 1. - px.y / uRes.y * 2., 0., 1.);
+}`;
+const BASE = `#version 300 es
+precision highp float;
+uniform sampler2D uVid, uMask, uLedN, uLedL, uTrail, uPrev;
+uniform vec2 uRes;          // canvas px
+uniform vec2 uRT;           // render-target px
+uniform float uPS;          // canvas px per fragment
+uniform vec4 uMap;          // ox, oy, dw, dh  (video cover rect on canvas)
+uniform float uMirror, uT, uHasMask;
+const float COLS = ${COLS}.0, ROWS = ${ROWS}.0;
+vec2 vuv(vec2 p){ vec2 u = (p - uMap.xy) / uMap.zw; if (uMirror > .5) u.x = 1. - u.x; return u; }
+float hash(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233)) + uT * 17.) * 43758.5453); }
+`;
+const HELM = BASE + `
+uniform vec3 uC;            // helmet centre, canvas px (z into screen)
+uniform mat3 uR;            // columns: right, up, front  (canvas space)
+uniform float uS;           // px per cm
+uniform float uA;           // presence
+uniform vec4 uF;            // finish id, glint 0..1 (-1 none), boot 0..1, led level
+uniform vec3 uLC;           // led colour
+uniform float uSlot;        // row block in LED texture
+uniform float uScale;
+const vec3 RAD = vec3(9.6, 12.8, 11.6);
+vec3 env(vec3 r, vec2 p){
+  float up = -r.y;
+  float az = atan(r.x, -r.z);
+  vec3 lo = vec3(.02,.021,.025) + vec3(.04) * smoothstep(-1., -.2, up);
+  vec3 hi = mix(vec3(.16,.165,.18), vec3(.62,.63,.66), pow(max(up, 0.), .9));
+  vec3 c = mix(lo, hi, smoothstep(-.015, .02, up));
+  c *= 1. - .75 * exp(-abs(up - .01) * 70.);
+  float sb = smoothstep(.13, .07, abs(abs(az) - 1.15)) * smoothstep(-.25, -.05, up) * smoothstep(.8, .55, up);
+  c += vec3(2.2) * sb;
+  c += vec3(1.15) * (smoothstep(.88, .91, up) - smoothstep(.93, .96, up));   // ring light
+  c += vec3(1.1) * smoothstep(.06, .02, abs(up - .35)) * smoothstep(.9, .5, abs(az));  // a long strip behind the camera
+  c += vec3(.6) * smoothstep(.06, .0, abs(az - 2.6)) * smoothstep(.1, .3, up);
+  // the room in front, from the camera, faintly
+  vec2 ru = clamp(vec2(.5 + r.x * .42, .55 + r.y * .42), .01, .99);
+  if (uMirror > .5) ru.x = 1. - ru.x;
+  float rl = dot(texture(uVid, ru).rgb, vec3(.3,.59,.11));
+  c += vec3(rl) * .22 * smoothstep(.3, -.3, up);
+  return c;
+}
+// ray-cast one helmet; returns alpha, writes colour and emission
+float helm(vec2 p, out vec3 col, out vec3 emi, bool full){
+  col = vec3(0.); emi = vec3(0.);
+  if (uA < .002) return 0.;
+  mat3 Rt = transpose(uR);
+  vec3 rad = RAD * uScale;
+  vec3 q = Rt * (vec3(p, 0.) - uC) / uS;
+  vec3 D = Rt * vec3(0., 0., 1.);
+  vec3 o = q / rad, d = D / rad;
+  float A = dot(d, d), B = dot(o, d), C = dot(o, o) - 1.;
+  float disc = B * B - A * C;
+  if (disc <= 0.) return 0.;
+  float sq = sqrt(disc);
+  vec3 h = o + d * ((-B - sq) / A);
+  float a = smoothstep(0., .02 + .9 / (uS * rad.x), sq / sqrt(A));
+  a *= smoothstep(-.84, -.8, h.y);
+  if (a <= 0.) return 0.;
+  vec3 nl = normalize(h / rad);
+  vec3 n = normalize(uR * nl);
+  vec3 rr = reflect(vec3(0., 0., 1.), n);
+  float facing = clamp(-n.z, 0., 1.);
+  float fres = pow(1. - facing, 4.);
+  float fin = uF.x;
+  vec3 e = env(rr, p);
+  // shell
+  vec3 sh;
+  if (fin < .5) sh = e * vec3(.86,.88,.92) + fres * .25;
+  else if (fin < 1.5) sh = e * mix(vec3(1.,.70,.30), vec3(1.,.93,.75), fres) * 1.05;
+  else sh = vec3(.012) + pow(e, vec3(1.6)) * .28 + fres * .08;
+  // details: collar shade, crown groove, ear discs
+  sh *= mix(.25, 1., smoothstep(-.8, -.45, h.y));
+  float crown = smoothstep(.016, .006, abs(h.x)) * smoothstep(.2, .45, h.y) * step(h.z, .55);
+  sh *= 1. - .75 * crown;
+  float ear = length(h.yz - vec2(.04, -.05));
+  float earR = .43;
+  if (abs(h.x) > .7){
+    float g = smoothstep(.014, .0, abs(ear - earR)) + .6 * smoothstep(.01, .0, abs(ear - earR * .62));
+    sh *= 1. - .8 * g;
+    if (ear < earR * .62) sh = mix(sh, sh * vec3(.55) + vec3(.02), .5);
+  }
+  // visor
+  float az = atan(h.x, h.z);
+  float u = az / .98;
+  float top = .34 - .10 * u * u, bot = -.56 + .28 * u * u * u * u;
+  float inV = step(abs(u), 1.) * step(h.y, top) * step(bot, h.y);
+  float edge = min(min(top - h.y, h.y - bot), (1. - abs(u)) * .55);
+  vec3 c = sh;
+  if (inV > .5){
+    vec3 glass = vec3(.006) + e * (.06 + .5 * fres) * (fin > 1.5 ? .7 : 1.);
+    float cu = (u * .5 + .5) * COLS, cv = (.31 - h.y) / .84 * ROWS;
+    vec3 lc = uLC;
+    if (cv > 0. && cv < ROWS){
+      vec2 cell = floor(vec2(cu, cv));
+      float ty = (uSlot * ROWS + cell.y + .5) / (ROWS * 2.);
+      float b = texture(uLedN, vec2((cell.x + .5) / COLS, ty)).r;
+      float gl = texture(uLedL, vec2(cu / COLS, (uSlot * ROWS + clamp(cv, .5, ROWS - .5)) / (ROWS * 2.))).r;
+      float boot = uF.z;
+      float bootCut = step(cell.x, boot * (COLS + 4.) - 2.);
+      float scanCol = smoothstep(2.5, 0., abs(cell.x - (boot * (COLS + 4.) - 2.))) * step(boot, .999);
+      b = b * bootCut + scanCol * .9;
+      gl = gl * bootCut;
+      if (full){
+        vec2 f = fract(vec2(cu, cv)) - .5;
+        float w = clamp(COLS / (2.2 * rad.x * uS), .02, .5);   // LED cells per px (no derivatives in branches)
+        float dt = smoothstep(.36 + w * .6, .36 - w * .6, length(f));
+        glass += lc * .055 * dt * step(.0, boot - .01);          // dark LEDs, just visible
+        emi = lc * (dt * b * 1.7 + gl * .55) * uF.w;
+      } else emi = lc * (gl * 1.7 + b * .5) * uF.w;
+    }
+    float bevel = smoothstep(.03, .0, edge);
+    c = mix(glass, sh * .35, bevel);
+    c += vec3(.5) * smoothstep(.012, .0, abs(edge - .02)) * facing;   // bevel highlight
+  } else {
+    float near = smoothstep(.05, .0, -min(top - h.y, h.y - bot)) * step(abs(u), 1.06);
+    c *= 1. - .6 * near * smoothstep(1.06, .9, abs(u));
+  }
+  // glint sweep
+  float gt = uF.y;
+  if (gt >= 0. && inV < .5){
+    float band = (h.x * .6 + h.y * .8) - (gt * 3.4 - 1.7);
+    c += vec3(1.6, 1.55, 1.45) * exp(-band * band * 260.) * (.4 + facing);
+  }
+  emi *= a;
+  col = c;
+  return a * uA;
+}
+`;
+const FS_HELM = HELM + `
+uniform float uTrailMode, uDark, uGain, uGrain;
+out vec4 o;
+void main(){
+  vec2 p = vec2(gl_FragCoord.x, uRT.y - gl_FragCoord.y) * uPS;
+  vec3 c, e; float a = helm(p, c, e, uTrailMode < .5);
+  if (uTrailMode > .5){ o = vec4(e * uA * uGain, 0.); return; }
+  c += (hash(p) - .5) * .07 * uGrain;
+  o = vec4((c * a + e * uA) * (1. - uDark), a);
+}`;
+const FS_DECAY = BASE + `
+uniform float uDecay;
+out vec4 o;
+void main(){ o = vec4(max(texture(uPrev, gl_FragCoord.xy / uRT).rgb * uDecay - 1.5 / 255., 0.), 1.); }`;
+const FS_MAIN = BASE + `
+uniform int uN;
+uniform vec4 uSp[2];        // spill: x, y, px per cm, strength
+uniform vec3 uSpC[2];
+uniform float uMix, uDark, uBody, uBgL, uGrain, uGlow;
+out vec4 o;
+void main(){
+  vec2 p = vec2(gl_FragCoord.x, uRes.y - gl_FragCoord.y);
+  vec2 uv = vuv(p);
+  vec3 cam = texture(uVid, uv).rgb;
+  float l = dot(cam, vec3(.299, .587, .114));
+  float m = uHasMask > .5 ? texture(uMask, uv).r : 1.;
+  m = smoothstep(.25, .75, m);
+  // body: cold silver gelatin; background: sunk
+  float lc = smoothstep(.04, .92, l); lc = lc * lc * (3. - 2. * lc);
+  vec3 person = vec3(pow(lc, 1.25)) * vec3(.92, .955, 1.03) * (.3 + uBody * .9);
+  vec3 bgc = vec3(pow(l, 1.4)) * vec3(.55, .6, .7) * uBgL * .8;
+  vec2 q = p / uRes - .5;
+  bgc += vec3(.018, .019, .024) * (1. - length(q) * 1.2);
+  vec3 fx = mix(bgc, person, m);
+  // rim from the mask edge
+  if (uHasMask > .5){
+    vec2 e = vec2(2.5 / uMap.z, 0.);
+    float gx = texture(uMask, uv + e.xy).r - texture(uMask, uv - e.xy).r;
+    float gy = texture(uMask, uv + e.yx * uMap.z / uMap.w).r - texture(uMask, uv - e.yx * uMap.z / uMap.w).r;
+    fx += vec3(.55, .58, .64) * clamp(length(vec2(gx, gy)) * 1.6, 0., 1.) * .35 * (.4 + lc);
+  }
+  // LED light spilling onto shoulders and wall
+  for (int i = 0; i < 2; i++){
+    if (i >= uN) break;
+    float dd = length(p - uSp[i].xy) / uSp[i].z;
+    float sp = uSp[i].w * exp(-max(dd - 9., 0.) / 13.);
+    fx += uSpC[i] * sp * (m * (.12 + .5 * lc) + (1. - m) * .07) * .9;
+    // the helmet's shadow on the neck and collar
+    vec2 d = (p - uSp[i].xy) / uSp[i].z;
+    float cs = exp(-d.x * d.x / 70.) * smoothstep(8., 12., d.y) * (1. - smoothstep(16., 32., d.y));
+    fx *= 1. - .9 * cs * step(.001, uSp[i].w) * m;
+  }
+  // after-glow (also the bloom)
+  vec2 tu = gl_FragCoord.xy / uRes;
+  vec2 px = 3. / uRes;
+  vec3 tr = texture(uTrail, tu).rgb * .5
+          + (texture(uTrail, tu + vec2(px.x, 0.)).rgb + texture(uTrail, tu - vec2(px.x, 0.)).rgb
+          +  texture(uTrail, tu + vec2(0., px.y)).rgb + texture(uTrail, tu - vec2(0., px.y)).rgb) * .125;
+  fx += tr * uGlow;
+  fx *= 1. - .55 * smoothstep(.35, .95, length(q * vec2(uRes.x / max(uRes.x, uRes.y), uRes.y / max(uRes.x, uRes.y)) * 1.6));
+  fx += (hash(p) - .5) * .09 * uGrain;
+  vec3 outc = mix(cam, fx, uMix) * (1. - uDark);
+  o = vec4(clamp(outc, 0., 1.), 1.);
+}`;
+let GL = null;
+function glSetup(){
+  if (!gl) return false;
+  const sh = (t, s) => { const o = gl.createShader(t); gl.shaderSource(o, s); gl.compileShader(o);
+    if (!gl.getShaderParameter(o, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(o)); return o; };
+  const prog = (vs, fs) => { const p = gl.createProgram(); gl.attachShader(p, sh(gl.VERTEX_SHADER, vs)); gl.attachShader(p, sh(gl.FRAGMENT_SHADER, fs));
+    gl.bindAttribLocation(p, 0, 'aP'); gl.linkProgram(p);
+    if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+    const u = {}; const n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+    for (let k = 0; k < n; k++){ const inf = gl.getActiveUniform(p, k); const nm = inf.name.replace(/\[0\]$/, ''); u[nm] = gl.getUniformLocation(p, inf.name); }
+    return { p, u }; };
+  const tex = (filter) => { const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, filter); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, filter);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE); return t; };
+  const buf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 3,-1, -1,3, 0,0, 0,0, 0,0]), gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+  GL = { main:prog(VS, FS_MAIN), decay:prog(VS, FS_DECAY), helm:prog(VS_BOX, FS_HELM),
+    vid:tex(gl.LINEAR), mask:tex(gl.LINEAR), ledN:tex(gl.NEAREST), ledL:tex(gl.LINEAR),
+    tr:[tex(gl.LINEAR), tex(gl.LINEAR)], fb:[gl.createFramebuffer(), gl.createFramebuffer()], tw:0, th:0, ping:0 };
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+  for (const t of [GL.ledN, GL.ledL]){ gl.bindTexture(gl.TEXTURE_2D, t); gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, COLS, ROWS * 2, 0, gl.RED, gl.UNSIGNED_BYTE, null); }
+  gl.bindTexture(gl.TEXTURE_2D, GL.mask); gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, 1, 1, 0, gl.RED, gl.UNSIGNED_BYTE, new Uint8Array([255]));
+  gl.bindTexture(gl.TEXTURE_2D, GL.vid); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0,0,0,255]));
+  return true;
+}
+function trailAlloc(w, h){
+  if (GL.tw === w && GL.th === h) return;
+  GL.tw = w; GL.th = h;
+  for (let k = 0; k < 2; k++){
+    gl.bindTexture(gl.TEXTURE_2D, GL.tr[k]); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, GL.fb[k]); gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, GL.tr[k], 0);
+    gl.clearColor(0, 0, 0, 1); gl.clear(gl.COLOR_BUFFER_BIT);
+  }
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+}
+
+/* ---------- geometry ---------- */
+const G = { W:0, H:0, ox:0, oy:0, dw:0, dh:0 };
+const TEST = { maxDt:.1, res:1600 };
+function resize(){
+  const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+  let w = Math.round(innerWidth * dpr), h = Math.round(innerHeight * dpr);
+  const k = Math.min(1, TEST.res / Math.max(w, h)); w = Math.round(w * k); h = Math.round(h * k);
+  if (w !== G.W || h !== G.H){ G.W = view.width = w; G.H = view.height = h; }
+  const va = (vidW || 16) / (vidH || 9), ca = G.W / G.H;
+  if (va > ca){ G.dh = G.H; G.dw = G.H * va; } else { G.dw = G.W; G.dh = G.W / va; }
+  G.ox = (G.W - G.dw) / 2; G.oy = (G.H - G.dh) / 2;
+}
+
+/* ---------- heads ---------- */
+const v3 = () => new Float32Array(3);
+function mkHead(){
+  return { on:false, a:0, seen:-1e9, firstT:0, C:v3(), r:v3(), u:v3(), f:v3(), s:1, tC:v3(), tr:v3(), tu:v3(), tf:v3(), ts:1,
+    eyeL:1, eyeR:1, mouth:0, smile:0, gx:0, gy:0, tEyeL:1, tEyeR:1, tMouth:0, tSmile:0, tgx:0, tgy:0,
+    yaw:0, yawV:0, lastObs:-1, wink:0, glint:-1, drop:1, boot:1, led:new Float32Array(COLS * ROWS), fresh:false };
+}
+const HEADS = [mkHead(), mkHead()];
+const FACE = { external:false, lastObs:-1, count:0 };
+const P = new Float32Array(478 * 3);
+const tmp = { a:v3(), b:v3(), c:v3() };
+function sub(o, a, b){ o[0] = a[0] - b[0]; o[1] = a[1] - b[1]; o[2] = a[2] - b[2]; return o; }
+function len(a){ return Math.hypot(a[0], a[1], a[2]); }
+function norm(a){ const l = len(a) || 1; a[0] /= l; a[1] /= l; a[2] /= l; return a; }
+function dot(a, b){ return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; }
+function cross(o, a, b){ const x = a[1] * b[2] - a[2] * b[1], y = a[2] * b[0] - a[0] * b[2], z = a[0] * b[1] - a[1] * b[0]; o[0] = x; o[1] = y; o[2] = z; return o; }
+const pt = (i, o) => { o[0] = P[i * 3]; o[1] = P[i * 3 + 1]; o[2] = P[i * 3 + 2]; return o; };
+const pd = (i, j) => Math.hypot(P[i * 3] - P[j * 3], P[i * 3 + 1] - P[j * 3 + 1], P[i * 3 + 2] - P[j * 3 + 2]);
+const NEED = [1, 10, 13, 14, 33, 61, 133, 145, 152, 159, 234, 263, 291, 362, 374, 386, 454];
+const OBS = [];
+for (let k = 0; k < MAXH; k++) OBS.push({ C:v3(), r:v3(), u:v3(), f:v3(), s:1, eyeA:1, eyeB:1, mouth:0, smile:0, gx:0, gy:0, used:false });
+
+function readFace(lm, o){
+  if (!Array.isArray(lm) && !(lm && typeof lm.length === 'number')) return false;
+  if (lm.length < 468) return false;
+  for (const i of NEED){ const q = lm[i]; if (!q || !isFinite(q.x) || !isFinite(q.y)) return false; }
+  const n = Math.min(lm.length, 478);
+  for (let i = 0; i < n; i++){
+    const q = lm[i];
+    if (!q || !isFinite(q.x) || !isFinite(q.y)){ P[i * 3] = P[i * 3 + 1] = P[i * 3 + 2] = NaN; continue; }
+    const x = mirror ? 1 - q.x : q.x;
+    P[i * 3] = G.ox + x * G.dw; P[i * 3 + 1] = G.oy + q.y * G.dh; P[i * 3 + 2] = (isFinite(q.z) ? q.z : 0) * G.dw;
+  }
+  const A = tmp.a, Bv = tmp.b;
+  // scale from the outer eye corners (8.89 cm on the canonical face)
+  const eyeW = pd(33, 263); if (!(eyeW > 4)) return false;
+  o.s = eyeW / 8.89;
+  sub(o.u, pt(10, A), pt(152, Bv)); norm(o.u);                    // up (forehead − chin)
+  sub(A, pt(263, A), pt(33, Bv));                                  // across the eyes
+  cross(o.f, A, o.u); norm(o.f);
+  // front must point at the viewer (−z), using the nose
+  pt(1, A); pt(234, Bv); const ex = (P[454 * 3] + Bv[0]) / 2, ey = (P[454 * 3 + 1] + Bv[1]) / 2, ez = (P[454 * 3 + 2] + Bv[2]) / 2;
+  const nx = A[0] - ex, ny = A[1] - ey, nz = A[2] - ez;
+  if (o.f[0] * nx + o.f[1] * ny + o.f[2] * nz < 0){ o.f[0] = -o.f[0]; o.f[1] = -o.f[1]; o.f[2] = -o.f[2]; }
+  cross(o.r, o.u, o.f); norm(o.r); cross(o.u, o.f, o.r); norm(o.u);
+  if (!(isFinite(o.r[0]) && isFinite(o.u[1]) && isFinite(o.f[2]))) return false;
+  // centre: canonical (0, 1.5, −4) relative to the eye midpoint (0, 2.66, 3.17)
+  const mx = (P[33 * 3] + P[263 * 3]) / 2, my = (P[33 * 3 + 1] + P[263 * 3 + 1]) / 2, mz = (P[33 * 3 + 2] + P[263 * 3 + 2]) / 2;
+  const du = -1.16 * o.s, df = -7.17 * o.s;
+  o.C[0] = mx + o.u[0] * du + o.f[0] * df; o.C[1] = my + o.u[1] * du + o.f[1] * df; o.C[2] = mz + o.u[2] * du + o.f[2] * df;
+  // expression
+  const eA = pd(159, 145) / Math.max(1e-3, pd(33, 133)), eB = pd(386, 374) / Math.max(1e-3, pd(263, 362));
+  const openA = clamp((eA - .08) / .16, 0, 1), openB = clamp((eB - .08) / .16, 0, 1);
+  // which eye is on the screen-left of the helmet
+  const aLeft = (P[33 * 3] - P[263 * 3]) * o.r[0] + (P[33 * 3 + 1] - P[263 * 3 + 1]) * o.r[1] < 0;
+  o.eyeA = aLeft ? openA : openB; o.eyeB = aLeft ? openB : openA;
+  o.mouth = clamp((pd(13, 14) / Math.max(1e-3, pd(61, 291)) - .12) / .4, 0, 1);
+  const cmx = (P[61 * 3] + P[291 * 3]) / 2 - (P[13 * 3] + P[14 * 3]) / 2, cmy = (P[61 * 3 + 1] + P[291 * 3 + 1]) / 2 - (P[13 * 3 + 1] + P[14 * 3 + 1]) / 2,
+        cmz = (P[61 * 3 + 2] + P[291 * 3 + 2]) / 2 - (P[13 * 3 + 2] + P[14 * 3 + 2]) / 2;
+  o.smile = clamp(((cmx * o.u[0] + cmy * o.u[1] + cmz * o.u[2]) / o.s + .07 + o.mouth * .35) / .7, -1, 1);
+  // gaze from the irises (if present)
+  o.gx = 0; o.gy = 0;
+  if (n >= 478 && isFinite(P[468 * 3]) && isFinite(P[473 * 3])){
+    let gx = 0, gy = 0;
+    for (const [ir, a, b] of [[468, 33, 133], [473, 263, 362]]){
+      const cx = (P[a * 3] + P[b * 3]) / 2, cy = (P[a * 3 + 1] + P[b * 3 + 1]) / 2, w = Math.max(1e-3, pd(a, b));
+      const dx = P[ir * 3] - cx, dy = P[ir * 3 + 1] - cy;
+      gx += (dx * o.r[0] + dy * o.r[1]) / w; gy += -(dx * o.u[0] + dy * o.u[1]) / w;
+    }
+    o.gx = clamp(gx / 2 / .22, -1, 1); o.gy = clamp(gy / 2 / .18, -1, 1);
+  }
+  return true;
+}
+function ingestFaces(list, now){
+  now = now == null ? performance.now() : now;
+  let k = 0;
+  if (Array.isArray(list)) for (const lm of list){ if (k >= MAXH) break; try{ if (readFace(lm, OBS[k])){ OBS[k].used = false; k++; } }catch(e){} }
+  FACE.count = k;
+  const dtObs = FACE.lastObs < 0 ? 0 : clamp((now - FACE.lastObs) / 1000, 0, .25);
+  FACE.lastObs = now;
+  // match observations to slots by distance
+  for (const h of HEADS) h.fresh = false;
+  for (let pass = 0; pass < 2; pass++){
+    for (const h of HEADS){
+      if (h.fresh || (pass === 0 && !h.on)) continue;
+      let best = -1, bd = 1e18;
+      for (let j = 0; j < k; j++){ const o = OBS[j]; if (o.used) continue;
+        const d = h.on ? Math.hypot(o.C[0] - h.tC[0], o.C[1] - h.tC[1]) : 0; if (d < bd){ bd = d; best = j; } }
+      if (best < 0) continue;
+      const o = OBS[best];
+      if (h.on && bd > o.s * 30 && pass === 0) continue;
+      o.used = true; observe(h, o, now, dtObs);
+    }
+  }
+  for (const h of HEADS) if (!h.fresh){ h.wink = 0; h.yawV = 0; h.lastObs = -1; }
+  return k;
+}
+function observe(h, o, now, dtObs){
+  const wasOn = h.on;
+  h.fresh = true; h.seen = now;
+  h.tC.set(o.C); h.tr.set(o.r); h.tu.set(o.u); h.tf.set(o.f); h.ts = o.s;
+  h.tEyeL = o.eyeA; h.tEyeR = o.eyeB; h.tMouth = o.mouth; h.tSmile = o.smile; h.tgx = o.gx; h.tgy = o.gy;
+  const yaw = Math.atan2(o.f[0], -o.f[2]);
+  if (!wasOn || h.lastObs < 0){
+    h.C.set(o.C); h.r.set(o.r); h.u.set(o.u); h.f.set(o.f); h.s = o.s; h.yaw = yaw; h.yawV = 0;
+    h.eyeL = o.eyeA; h.eyeR = o.eyeB; h.mouth = o.mouth; h.smile = o.smile;
+    if (!wasOn){ h.on = true; h.a = 0; h.firstT = now; h.led.fill(0); if (MODE.on && MODE.X > 1.6){ h.drop = 0; h.boot = 0; } }
+  } else if (dtObs > 0){
+    let dy = yaw - h.yaw; while (dy > Math.PI) dy -= 2 * Math.PI; while (dy < -Math.PI) dy += 2 * Math.PI;
+    h.yawV += (dy / dtObs - h.yawV) * .5; h.yaw = yaw;
+    // wink: one eye shut, the other open, held for observed time
+    const w = S.wink && ((o.eyeA < .3 && o.eyeB > .55) || (o.eyeB < .3 && o.eyeA > .55));
+    h.wink = w ? h.wink + dtObs : 0;
+    if (h.wink > .16 && h.glint < 0 && MODE.on && now - (h.lastGlint || -1e9) > 1400){ h.glint = 0; h.lastGlint = now; sfx('glint'); }
+  }
+  h.lastObs = now;
+}
+
+/* ---------- LED grid ---------- */
+const LEDBYTES = new Uint8Array(COLS * ROWS * 2);
+const WAVE = new Float32Array(1024), SPEC = new Uint8Array(512);
+const MIC = { an:null, level:0, live:false, ext:false, extWave:null };
+function ledEllipse(g, cx, cy, rx, ry, v){
+  const x0 = Math.max(0, Math.floor(cx - rx - 1)), x1 = Math.min(COLS - 1, Math.ceil(cx + rx + 1));
+  const y0 = Math.max(0, Math.floor(cy - ry - 1)), y1 = Math.min(ROWS - 1, Math.ceil(cy + ry + 1));
+  for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++){
+    const dx = (x + .5 - cx) / rx, dy = (y + .5 - cy) / ry, d = dx * dx + dy * dy;
+    if (d < 1.15){ const q = d < .8 ? v : v * (1.15 - d) / .35, i = y * COLS + x; if (q > g[i]) g[i] = q; }
+  }
+}
+function ledDot(g, x, y, v){
+  x = Math.round(x - .5); y = Math.round(y - .5);
+  if (x < 0 || y < 0 || x >= COLS || y >= ROWS) return; const i = y * COLS + x; if (v > g[i]) g[i] = v;
+}
+function ledLine(g, x0, y0, x1, y1, v){
+  const n = Math.ceil(Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0))) + 1;
+  for (let k = 0; k <= n; k++){ const t = k / n; ledDot(g, x0 + (x1 - x0) * t, y0 + (y1 - y0) * t, v); }
+}
+function waveAt(t){                 // t 0..1 across the visor → −1..1
+  if (MIC.ext && MIC.extWave) return MIC.extWave[Math.min(MIC.extWave.length - 1, (t * MIC.extWave.length) | 0)] || 0;
+  if (!MIC.live) return 0;
+  return WAVE[Math.min(1023, (t * 1023) | 0)];
+}
+function drawLed(h, slot, dt, nowS){
+  const g = h.led;
+  const decay = Math.exp(-dt / (S.prog === 1 ? .03 + S.trail * .06 : .04 + S.trail * .5));
+  for (let i = 0; i < g.length; i++) g[i] *= decay;
+  const lag = clamp(-h.yawV * (.6 + S.trail * 1.8), -7, 7);        // turning the head drags the face
+  const cx = COLS / 2 + lag + h.gx * 1.4, eyeY = 5.0 - h.gy * .8;
+  const voice = MIC.level;
+  if (S.prog === 0){
+    const ew = 3.8, eh = 2.4;
+    // an open eye is an oval; a shut one is a crisp line (the wink reads)
+    if (h.eyeL > .25) ledEllipse(g, cx - 9.6, eyeY, ew, Math.max(.6, eh * h.eyeL), 1);
+    else ledLine(g, cx - 9.6 - ew + .5, eyeY + .9, cx - 9.6 + ew - .5, eyeY + .9, 1);
+    if (h.eyeR > .25) ledEllipse(g, cx + 9.6, eyeY, ew, Math.max(.6, eh * h.eyeR), 1);
+    else ledLine(g, cx + 9.6 - ew + .5, eyeY + .9, cx + 9.6 + ew - .5, eyeY + .9, 1);
+    // mouth: an arc that smiles, opens, and carries the voice
+    const my = 11.3, hw = 8.5 + h.mouth * 1.5, open = h.mouth * 2.6, sm = h.smile;
+    let px = -1, py = 0;
+    for (let x = -hw; x <= hw + .01; x += .5){
+      const t = x / hw, curve = -sm * 1.9 * t * t + sm * .8;
+      const w = waveAt((t + 1) / 2) * clamp(voice * 7, 0, 1) * 1.7 * (1 - t * t);
+      const yT = my + curve - open * (1 - t * t) * .55 + w, yB = my + curve + open * (1 - t * t) * .55 + w;
+      const X = cx + x;
+      if (px >= 0) ledLine(g, px, py, X, yT, 1);
+      if (open > .4){ ledDot(g, X, yB, 1); for (let yy = yT + 1; yy < yB - .6; yy += 1) ledDot(g, X, yy, .32); }
+      px = X; py = yT;
+    }
+  } else if (S.prog === 1){
+    // oscilloscope across the whole visor; without a mic, the mouth drives a sine
+    const amp = MIC.live || MIC.ext ? clamp(voice * 10, .05, .85) : .15 + h.mouth * .7;
+    let py = -1;
+    for (let x = 0; x < COLS; x++){
+      const t = x / (COLS - 1);
+      const w = MIC.live || MIC.ext ? waveAt(t) * 3 : Math.sin(t * 18 + nowS * 9) * Math.sin(t * Math.PI);
+      const y = ROWS / 2 + clamp(w * amp, -1, 1) * (ROWS / 2 - 1) + lag * .2;
+      if (py >= 0) ledLine(g, x - 1 + .5, py, x + .5, y, 1); py = y;
+    }
+    ledEllipse(g, cx - 9.6, 2.2, 3, Math.max(.25, .9 * h.eyeL), .35);
+    ledEllipse(g, cx + 9.6, 2.2, 3, Math.max(.25, .9 * h.eyeR), .35);
+  } else {
+    // a single light running across, Cylon style, with the eyes dim behind it
+    const ph = (nowS * .62) % 2, x = (ph < 1 ? ph : 2 - ph) * (COLS - 4) + 2 + lag * .5;
+    for (let y = 3; y < ROWS - 3; y++) for (let k = -1; k <= 1; k++) ledDot(g, x + k + .5, y + .5, k ? .7 : 1);
+    ledEllipse(g, cx - 9.6, eyeY, 3.6, Math.max(.3, 2 * h.eyeL), .22);
+    ledEllipse(g, cx + 9.6, eyeY, 3.6, Math.max(.3, 2 * h.eyeR), .22);
+  }
+  const off = slot * COLS * ROWS;
+  for (let i = 0; i < g.length; i++){ const v = g[i]; LEDBYTES[off + i] = v >= 1 ? 255 : v <= 0 ? 0 : (v * 255) | 0; }
+}
+
+/* ---------- models ---------- */
+const M = { buf:null, w:0, h:0, has:false, external:false, t:-1e9 };
+function ingestMask(arr, w, h){
+  if (!arr || !(w > 0) || !(h > 0) || arr.length < w * h) return false;
+  if (!M.buf || M.buf.length !== w * h) M.buf = new Uint8Array(w * h);
+  for (let i = 0; i < w * h; i++){ const v = arr[i]; M.buf[i] = v >= 1 ? 255 : v > 0 ? (v * 255) | 0 : 0; }
+  M.w = w; M.h = h; M.has = true; M.t = performance.now(); M.dirty = true;
+  return true;
+}
+let segmenter = null, faceLM = null, lastTs = 0, lastVT = -1, modelFailed = false;
+async function initModel(){
+  try{
+    const vision = await import(VISION_URL);
+    const fs = await vision.FilesetResolver.forVisionTasks(WASM_URL);
+    const fo = d => ({ baseOptions:{ modelAssetPath:FACE_MODEL, delegate:d }, runningMode:'VIDEO', numFaces:MAXH });
+    try { faceLM = await vision.FaceLandmarker.createFromOptions(fs, fo('GPU')); }
+    catch(e){ faceLM = await vision.FaceLandmarker.createFromOptions(fs, fo('CPU')); }
+    setStatus('');
+    const so = d => ({ baseOptions:{ modelAssetPath:SEG_MODEL, delegate:d }, runningMode:'VIDEO', outputConfidenceMasks:true, outputCategoryMask:false });
+    try { segmenter = await vision.ImageSegmenter.createFromOptions(fs, so('GPU')); }
+    catch(e){ try { segmenter = await vision.ImageSegmenter.createFromOptions(fs, so('CPU')); } catch(e2){} }
+  }catch(e){
+    if (FACE.external) return;
+    modelFailed = true;
+    setStatus('顔の検出モデルを読み込めませんでした（ネット接続を確認）。\nヘルメットは出せませんが、カメラは使えます。');
+  }
+}
+function detect(now){
+  if (video.readyState < 2) return;
+  const vt = video.currentTime; if (vt === lastVT) return; lastVT = vt;
+  const ts = Math.max(lastTs + 1, Math.round(now)); lastTs = ts;
+  if (faceLM && !FACE.external){
+    try{ const r = faceLM.detectForVideo(video, ts); ingestFaces(r && r.faceLandmarks, now); }catch(e){}
+  }
+  if (segmenter && !M.external){
+    try{
+      segmenter.segmentForVideo(video, ts, res => {
+        const ms = res && res.confidenceMasks; if (!ms || !ms.length) return;
+        const mk = ms[ms.length - 1]; ingestMask(mk.getAsFloat32Array(), mk.width, mk.height);
+      });
+    }catch(e){}
+  }
+}
+
+/* ---------- camera & mic ---------- */
+let stream = null, micStream = null, facing = 'user', mirror = true, started = false, vidW = 1280, vidH = 720;
+function setStatus(t){ $('status').textContent = t || ''; }
+function camError(e){
+  const msg = (e && (e.message || e.name)) ? (e.message || e.name) : String(e || 'unknown');
+  const text = 'カメラを起動できませんでした：' + msg + '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+  $('err').textContent = text;
+  if (started) setStatus(text);
+}
+async function startCam(){
+  const md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) throw new Error('getUserMedia is unavailable');
+  const s = await md.getUserMedia({ video:{ facingMode:{ ideal:facing }, width:{ ideal:1280 }, height:{ ideal:720 } }, audio:false });
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = s; mirror = facing === 'user';
+  video.srcObject = s;
+  await new Promise(r => { if (video.readyState >= 1) r(); else video.onloadedmetadata = () => r(); });
+  await video.play().catch(()=>{});
+  vidW = video.videoWidth || 1280; vidH = video.videoHeight || 720;
+  for (const h of HEADS){ h.on = false; h.a = 0; h.lastObs = -1; }
+  resize();
+}
+async function startMic(){
+  if (micStream || !S.mic || !actx) return;
+  try{
+    const md = navigator.mediaDevices;
+    micStream = await md.getUserMedia({ audio:{ echoCancellation:true, noiseSuppression:true }, video:false });
+    const src = actx.createMediaStreamSource(micStream);
+    MIC.an = actx.createAnalyser(); MIC.an.fftSize = 1024; MIC.an.smoothingTimeConstant = .5;
+    src.connect(MIC.an);
+    const vg = actx.createGain(); vg.gain.value = 1; src.connect(vg); vg.connect(recDest);   // your voice goes into the recording, not the speakers
+    MIC.live = true;
+  }catch(e){ MIC.live = false; }
+}
+
+/* ---------- audio ---------- */
+let actx = null, bus = null, recDest = null;
+function ensureAudio(){
+  if (actx){ if (actx.state === 'suspended') actx.resume().catch(()=>{}); return; }
+  const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+  try{
+    actx = new AC(); bus = actx.createGain(); bus.gain.value = 1; bus.connect(actx.destination);
+    recDest = actx.createMediaStreamDestination(); bus.connect(recDest);
+    actx.resume().catch(()=>{});
+  }catch(e){ actx = null; }
+}
+function tone(type, f0, f1, dur, pk, at, lp){
+  const t = actx.currentTime + (at || 0), o = actx.createOscillator(), g = actx.createGain(), f = actx.createBiquadFilter();
+  f.type = 'lowpass'; f.frequency.value = lp || 3000;
+  o.type = type; o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(f1, t + dur);
+  g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime(pk * (.2 + S.vol), t + .012); g.gain.exponentialRampToValueAtTime(.0001, t + dur);
+  o.connect(f); f.connect(g); g.connect(bus); o.start(t); o.stop(t + dur + .05);
+}
+function sfx(kind){
+  if (!actx || actx.state !== 'running') return;
+  if (kind === 'on'){ tone('sawtooth', 55, 38, 1.1, .16, 0, 500); tone('sine', 900, 1800, .5, .03, .35, 4000); }
+  else if (kind === 'land'){ tone('sine', 120, 42, .35, .3, 0, 900); tone('square', 2400, 2400, .03, .02, .05, 6000); }
+  else if (kind === 'boot'){ for (let k = 0; k < 6; k++) tone('square', 1760 + k * 110, 1760 + k * 110, .025, .025, k * .07, 7000); }
+  else if (kind === 'glint'){ tone('sine', 2600, 5200, .6, .05, 0, 9000); tone('sine', 3900, 7800, .5, .025, .05, 9000); }
+  else if (kind === 'prog'){ tone('square', 1320, 1320, .035, .03, 0, 5000); tone('square', 1980, 1980, .03, .025, .05, 5000); }
+  else if (kind === 'off'){ tone('sine', 300, 60, .45, .14, 0, 1200); }
+}
+
+/* ---------- mode: plain camera ⇄ helmet ---------- */
+const MODE = { on:false, X:0, t0:0 };
+function setMode(on){
+  if (on === MODE.on) return;
+  MODE.on = on; MODE.X = 0; MODE.t0 = performance.now();
+  $('mode').textContent = on ? '◂ CAMERA' : '▸ DENKOU';
+  document.body.classList.toggle('cam', !on);
+  ['fin','prog'].forEach(id => $(id).style.visibility = on ? 'visible' : 'hidden');
+  $('tag').classList.toggle('show', on);
+  if (on) for (const h of HEADS){ h.drop = 0; h.boot = 0; h.glint = -1; h.led.fill(0); }
+  sfx(on ? 'on' : 'off');
+}
+function setFin(i){
+  S.fin = ((i % 3) + 3) % 3;
+  [...$('fins').children].forEach(x => x.classList.toggle('on', +x.dataset.f === S.fin));
+  $('fin').textContent = FINISH[S.fin].name;
+  document.documentElement.style.setProperty('--acc', FINISH[S.fin].css);
+  for (const h of HEADS) if (h.on && h.glint < 0) h.glint = 0;
+}
+function setProg(i){
+  S.prog = ((i % 3) + 3) % 3;
+  [...$('progs').children].forEach(x => x.classList.toggle('on', +x.dataset.p === S.prog));
+  $('prog').textContent = PROGS[S.prog]; $('tagProg').textContent = PROGS[S.prog];
+}
+
+/* ---------- UI ---------- */
+$('mode').onclick = () => setMode(!MODE.on);
+addEventListener('keydown', e => {
+  if (!started || document.activeElement.tagName === 'INPUT') return;
+  if (e.key === ' ' || e.key === 'Enter'){ e.preventDefault(); setMode(!MODE.on); }
+  else if (e.key === 'f'){ setFin(S.fin + 1); sfx('prog'); }
+  else if (e.key === 'p'){ setProg(S.prog + 1); sfx('prog'); }
+});
+$('go').onclick = async () => {
+  $('err').textContent = '';
+  ensureAudio();
+  if (!GL){
+    try { if (!glSetup()) throw new Error('WebGL2 が使えません'); }
+    catch(e){ $('err').textContent = 'この端末では描画（WebGL2）を開始できませんでした：' + (e.message || e); return; }
+  }
+  try { await startCam(); } catch(e){ camError(e); return; }
+  $('start').style.display = 'none'; startLed.stop();
+  ['gear','flip','bar','rec','shoot','fin','prog','mode'].forEach(id => $(id).classList.add('show'));
+  MODE.on = true; setMode(false);
+  if (!started){ started = true; initModel(); startMic(); requestAnimationFrame(loop); }
+};
+$('flip').onclick = async () => {
+  const prev = facing; facing = facing === 'user' ? 'environment' : 'user';
+  try { await startCam(); } catch(e){ facing = prev; camError(e); }
+};
+$('gear').onclick = () => $('panel').classList.toggle('hide');
+$('fin').onclick = () => { setFin(S.fin + 1); sfx('prog'); };
+$('prog').onclick = () => { setProg(S.prog + 1); sfx('prog'); };
+$('fins').onclick = e => { const b = e.target.closest('button'); if (b){ setFin(+b.dataset.f); sfx('prog'); } };
+$('progs').onclick = e => { const b = e.target.closest('button'); if (b){ setProg(+b.dataset.p); sfx('prog'); } };
+[['sTrail','trail'],['sGlow','glow'],['sSize','size'],['sBody','body'],['sBg','bg'],['sGrain','grain'],['sVol','vol']]
+  .forEach(([id, k]) => { $(id).oninput = e => { S[k] = +e.target.value; }; });
+$('tMic').onclick = e => { S.mic = !S.mic; e.target.classList.toggle('on', S.mic);
+  if (S.mic) startMic(); else { MIC.live = false; if (micStream){ micStream.getTracks().forEach(t => t.stop()); micStream = null; } } };
+$('tWink').onclick = e => { S.wink = !S.wink; e.target.classList.toggle('on', S.wink); };
+let down = null;
+view.addEventListener('pointerdown', e => { down = { x:e.clientX, y:e.clientY, t:performance.now() }; });
+view.addEventListener('pointerup', e => {
+  if (down && Math.hypot(e.clientX - down.x, e.clientY - down.y) < 12 && performance.now() - down.t < 600){
+    if (!$('panel').classList.contains('hide')) $('panel').classList.add('hide');
+    else if (MODE.on){ setProg(S.prog + 1); sfx('prog'); }
+  }
+  down = null;
+});
+$('shoot').onclick = () => {
+  try{
+    view.toBlob(b => { if (!b) return; const a = document.createElement('a'); a.href = URL.createObjectURL(b);
+      a.download = 'denkou-' + Date.now() + '.png'; a.click(); }, 'image/png');
+  }catch(e){ setStatus('保存できませんでした。'); }
+};
+let rec = null, chunks = [];
+$('rec').onclick = () => {
+  if (rec && rec.state === 'recording'){ rec.stop(); return; }
+  try{
+    const tracks = [...view.captureStream(30).getVideoTracks()];
+    if (recDest) tracks.push(...recDest.stream.getAudioTracks());
+    const mime = ['video/mp4;codecs=avc1','video/webm;codecs=vp9,opus','video/webm'].find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || '';
+    rec = new MediaRecorder(new MediaStream(tracks), mime ? { mimeType:mime } : {});
+    chunks = [];
+    rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+    rec.onstop = () => {
+      $('rec').classList.remove('on'); $('rec').textContent = '● REC';
+      const ext = (rec.mimeType || '').includes('mp4') ? 'mp4' : 'webm';
+      const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(chunks, { type:rec.mimeType || 'video/webm' }));
+      a.download = 'denkou.' + ext; a.click();
+    };
+    rec.start(); $('rec').classList.add('on'); $('rec').textContent = '■ STOP';
+  }catch(e){ setStatus('録画を開始できませんでした。' + (e && e.message ? '\n' + e.message : '')); }
+};
+addEventListener('resize', () => { if (started) resize(); });
+
+/* ---------- frame ---------- */
+const U = { C:new Float32Array(6), R:new Float32Array(18), S:new Float32Array(2), A:new Float32Array(2), F:new Float32Array(8),
+  LC:new Float32Array(6), SL:new Float32Array(2), BX:new Float32Array(8) };
+const SP = new Float32Array(8);
+const ORDER = [0, 1];
+let lastT = 0, frameN = 0;
+const ease = t => 1 - Math.pow(1 - clamp(t, 0, 1), 3);
+function updateHeads(dt, now, nowS){
+  const k = 1 - Math.exp(-dt / .045), ke = 1 - Math.exp(-dt / .06);
+  let n = 0;
+  for (let si = 0; si < MAXH; si++){
+    const h = HEADS[si];
+    if (!h.on) continue;
+    const age = (now - h.seen) / 1000;
+    const want = age < .3 ? 1 : 0;
+    h.a += (want - h.a) * (1 - Math.exp(-dt / (want ? .12 : .25)));
+    if (!want && h.a < .01 && age > 1.2){ h.on = false; h.a = 0; continue; }
+    for (let j = 0; j < 3; j++){
+      h.C[j] += (h.tC[j] - h.C[j]) * k; h.r[j] += (h.tr[j] - h.r[j]) * k; h.u[j] += (h.tu[j] - h.u[j]) * k; h.f[j] += (h.tf[j] - h.f[j]) * k;
+    }
+    norm(h.f); cross(h.r, h.u, h.f); norm(h.r); cross(h.u, h.f, h.r); norm(h.u);
+    h.s += (h.ts - h.s) * k;
+    h.eyeL += (h.tEyeL - h.eyeL) * Math.min(1, ke * 2); h.eyeR += (h.tEyeR - h.eyeR) * Math.min(1, ke * 2);
+    h.mouth += (h.tMouth - h.mouth) * ke; h.smile += (h.tSmile - h.smile) * ke;
+    h.gx += (h.tgx - h.gx) * ke; h.gy += (h.tgy - h.gy) * ke;
+    if (!h.fresh) h.yawV *= Math.exp(-dt / .15);
+    // entrance: drop, then boot the LEDs
+    if (h.drop < 1){
+      h.drop = Math.min(1, h.drop + dt / .95);
+      if (h.drop >= 1){ sfx('land'); }
+    } else if (h.boot < 1){
+      if (h.boot === 0) sfx('boot');
+      h.boot = Math.min(1, h.boot + dt / .6);
+    }
+    if (h.glint >= 0){ h.glint += dt / .85; if (h.glint > 1) h.glint = -1; }
+    drawLed(h, n, dt, nowS);
+    // uniforms
+    const sc = .9 + S.size * .3;
+    const dropPx = (1 - ease(h.drop)) * (h.C[1] + 14 * h.s * sc * 2.2);
+    const sway = (1 - ease(h.drop)) * .5;
+    U.C[n * 3] = h.C[0]; U.C[n * 3 + 1] = h.C[1] - dropPx; U.C[n * 3 + 2] = h.C[2];
+    const c = Math.cos(sway), s = Math.sin(sway);
+    // basis columns right, up, front (a slight tilt while falling)
+    const R = U.R, o = n * 9;
+    for (let j = 0; j < 3; j++){
+      R[o + j] = h.r[j] * c + h.u[j] * s; R[o + 3 + j] = -h.r[j] * s + h.u[j] * c; R[o + 6 + j] = h.f[j];
+    }
+    const br = 13.2 * h.s * sc;
+    U.BX[n * 4] = U.C[n * 3] - br; U.BX[n * 4 + 1] = U.C[n * 3 + 1] - br; U.BX[n * 4 + 2] = U.C[n * 3] + br; U.BX[n * 4 + 3] = U.C[n * 3 + 1] + br;
+    U.S[n] = h.s; U.A[n] = h.a * (MODE.on ? 1 : 0);
+    const fin = (S.fin + si) % 3, L = FINISH[fin].led;
+    U.F[n * 4] = fin; U.F[n * 4 + 1] = h.glint; U.F[n * 4 + 2] = h.drop < 1 ? 0 : h.boot; U.F[n * 4 + 3] = .55 + S.glow * .9;
+    U.LC[n * 3] = L[0]; U.LC[n * 3 + 1] = L[1]; U.LC[n * 3 + 2] = L[2];
+    U.SL[n] = n;
+    n++;
+  }
+  // farther (smaller) head first
+  if (n === 2 && U.S[0] > U.S[1]){
+    const sw = (arr, w) => { for (let j = 0; j < w; j++){ const t = arr[j]; arr[j] = arr[w + j]; arr[w + j] = t; } };
+    sw(U.C, 3); sw(U.R, 9); sw(U.S, 1); sw(U.A, 1); sw(U.F, 4); sw(U.LC, 3); sw(U.SL, 1); sw(U.BX, 4);
+  }
+  return n;
+}
+function loop(now){
+  requestAnimationFrame(loop);
+  const dt = clamp((now - (lastT || now)) / 1000, 0, TEST.maxDt); lastT = now; frameN++;
+  const nowS = now / 1000;
+  resize();
+  if (!FACE.external || !M.external) detect(now);
+  MODE.X += dt;
+  // mic
+  if (MIC.live && MIC.an){
+    MIC.an.getFloatTimeDomainData(WAVE);
+    let s = 0; for (let i = 0; i < 1024; i += 4) s += WAVE[i] * WAVE[i];
+    const rms = Math.sqrt(s / 256); MIC.level += (rms - MIC.level) * (rms > MIC.level ? .5 : .12);
+  } else if (!MIC.ext) MIC.level *= .9;
+  const n = updateHeads(dt, now, nowS);
+  if (!GL) return;
+  // textures
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, GL.vid);
+  if (video.readyState >= 2){ try{ gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video); }catch(e){} }
+  gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, GL.mask);
+  if (M.dirty){ gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, M.w, M.h, 0, gl.RED, gl.UNSIGNED_BYTE, M.buf); M.dirty = false; }
+  gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, GL.ledN);
+  gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, COLS, ROWS * 2, gl.RED, gl.UNSIGNED_BYTE, LEDBYTES);
+  gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, GL.ledL);
+  gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, COLS, ROWS * 2, gl.RED, gl.UNSIGNED_BYTE, LEDBYTES);
+  // mode transition: dip to black, then the effect
+  let mix, dark;
+  const tx = MODE.X;
+  if (MODE.on){ mix = tx < .35 ? 0 : 1; dark = tx < .35 ? ease(tx / .35) : 1 - ease((tx - .35) / .5); }
+  else { mix = tx < .25 ? 1 : 0; dark = tx < .25 ? ease(tx / .25) * .9 : .9 * (1 - ease((tx - .25) / .35)); }
+  const hasMask = M.has && (performance.now() - M.t < 1500 || M.external) ? 1 : 0;
+  const base = (pr, rtw, rth) => {
+    const u = pr.u; gl.useProgram(pr.p);
+    gl.uniform1i(u.uVid, 0); gl.uniform1i(u.uMask, 1); gl.uniform1i(u.uLedN, 2); gl.uniform1i(u.uLedL, 3); gl.uniform1i(u.uTrail, 4); gl.uniform1i(u.uPrev, 5);
+    gl.uniform2f(u.uRes, G.W, G.H); gl.uniform2f(u.uRT, rtw, rth); gl.uniform1f(u.uPS, G.W / rtw);
+    gl.uniform4f(u.uMap, G.ox, G.oy, G.dw, G.dh); gl.uniform1f(u.uMirror, mirror ? 1 : 0);
+    gl.uniform1f(u.uT, nowS % 100); gl.uniform1f(u.uHasMask, hasMask);
+    gl.viewport(0, 0, rtw, rth);
+    return u;
+  };
+  const drawHelms = (rtw, rth, trailMode, gain) => {
+    if (!n || !MODE.on || mix < .5) return;
+    const u = base(GL.helm, rtw, rth);
+    gl.uniform1f(u.uTrailMode, trailMode); gl.uniform1f(u.uDark, dark); gl.uniform1f(u.uGain, gain); gl.uniform1f(u.uGrain, S.grain);
+    gl.uniform1f(u.uScale, .9 + S.size * .3);
+    gl.enable(gl.BLEND);
+    if (trailMode) gl.blendFunc(gl.ONE, gl.ONE); else gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+    for (let k = 0; k < n; k++){
+      if (U.A[k] < .002) continue;
+      gl.uniform4fv(u.uBoxN, U.BX.subarray(k * 4, k * 4 + 4));
+      gl.uniform3fv(u.uC, U.C.subarray(k * 3, k * 3 + 3)); gl.uniformMatrix3fv(u.uR, false, U.R.subarray(k * 9, k * 9 + 9));
+      gl.uniform1f(u.uS, U.S[k]); gl.uniform1f(u.uA, U.A[k]); gl.uniform4fv(u.uF, U.F.subarray(k * 4, k * 4 + 4));
+      gl.uniform3fv(u.uLC, U.LC.subarray(k * 3, k * 3 + 3)); gl.uniform1f(u.uSlot, U.SL[k]);
+      gl.drawArrays(gl.TRIANGLES, 0, 6);
+    }
+    gl.disable(gl.BLEND);
+  };
+  // trail (¼ res): decay, then add the LED glow of each helmet
+  const tw = Math.max(8, G.W >> 2), th = Math.max(8, G.H >> 2);
+  trailAlloc(tw, th);
+  const src = GL.ping, dst = 1 - src;
+  gl.bindFramebuffer(gl.FRAMEBUFFER, GL.fb[dst]);
+  gl.activeTexture(gl.TEXTURE4); gl.bindTexture(gl.TEXTURE_2D, null);
+  gl.activeTexture(gl.TEXTURE5); gl.bindTexture(gl.TEXTURE_2D, GL.tr[src]);
+  let u = base(GL.decay, tw, th);
+  gl.uniform1f(u.uDecay, Math.exp(-dt / (.06 + S.trail * .9)));
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+  drawHelms(tw, th, 1, 1 - Math.exp(-dt / .05));
+  GL.ping = dst;
+  // main: graded camera, spill, glow; then the helmets on top
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  gl.activeTexture(gl.TEXTURE5); gl.bindTexture(gl.TEXTURE_2D, null);
+  gl.activeTexture(gl.TEXTURE4); gl.bindTexture(gl.TEXTURE_2D, GL.tr[dst]);
+  u = base(GL.main, G.W, G.H);
+  gl.uniform1i(u.uN, n);
+  for (let k = 0; k < n; k++){
+    const sc = .9 + S.size * .3;
+    SP[k * 4] = U.C[k * 3]; SP[k * 4 + 1] = U.C[k * 3 + 1]; SP[k * 4 + 2] = U.S[k] * sc;
+    SP[k * 4 + 3] = U.A[k] * U.F[k * 4 + 3] * (U.F[k * 4 + 2] > .02 ? 1 : 0);
+  }
+  if (n){ gl.uniform4fv(u.uSp, SP.subarray(0, n * 4)); gl.uniform3fv(u.uSpC, U.LC.subarray(0, n * 3)); }
+  gl.uniform1f(u.uMix, mix); gl.uniform1f(u.uDark, dark);
+  gl.uniform1f(u.uBody, S.body); gl.uniform1f(u.uBgL, S.bg); gl.uniform1f(u.uGrain, S.grain); gl.uniform1f(u.uGlow, .8 + S.glow * 2.2);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+  drawHelms(G.W, G.H, 0, 1);
+}
+
+/* ---------- test hook ---------- */
+window.__denkou = {
+  feedFaces(list, t){ if (!FACE.external && modelFailed) setStatus(''); FACE.external = true; return ingestFaces(list, t); },
+  feedMask(arr, w, h){ M.external = true; return ingestMask(arr, w, h); },
+  feedVoice(level, wave){ MIC.ext = true; MIC.level = level; MIC.extWave = wave || null; },
+  setMode, setFin, setProg, test:TEST,
+  state(){ return { frame:frameN, mode:MODE.on, X:MODE.X, prog:S.prog, fin:S.fin, faces:FACE.count,
+    heads:HEADS.map(h => ({ on:h.on, a:+h.a.toFixed(3), C:[...h.C].map(v => +v.toFixed(1)), s:+h.s.toFixed(2), glint:h.glint, drop:h.drop, boot:h.boot,
+      eyeL:+h.eyeL.toFixed(2), eyeR:+h.eyeR.toFixed(2), mouth:+h.mouth.toFixed(2), yawV:+h.yawV.toFixed(2), wink:+h.wink.toFixed(2) })),
+    G:{ ...G } }; },
+};
+</script>
+</body>
+</html>
