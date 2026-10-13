@@ -1,0 +1,704 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<script>/* REC-FIX (2026-10-12) — iPhone Safari で録画が途中で止まる・壊れる対策。どの作品でも同じ内容。
+   ・mp4 は映像と音声の両方のコーデックを宣言する（avc1 だけだと音声付きで止まることがある）
+   ・1 秒ごとにデータを受け取る（最後に一括で書き出さない）／ビットレートに上限
+   ・保存が終わる前に次の録画を始めない（前のファイルが消えるのを防ぐ）
+   ・録画中は AudioContext を止めない（音声トラックが止まると mp4 ごと止まる） */
+(()=>{const MR=window.MediaRecorder;if(!MR||MR.__recfix)return;let busy=0,active=0;
+class R extends MR{
+  constructor(s,o){if(busy)throw new Error('前の録画を保存しています');o=Object.assign({},o||{});
+    const au=s&&s.getAudioTracks&&s.getAudioTracks().length>0;
+    if(!o.mimeType||/^video\/mp4/.test(o.mimeType)){
+      const c=[au?'video/mp4;codecs="avc1.42E01E,mp4a.40.2"':'video/mp4;codecs="avc1.42E01E"','video/mp4'].find(m=>MR.isTypeSupported(m));
+      if(c)o.mimeType=c;else if(o.mimeType&&!MR.isTypeSupported(o.mimeType))delete o.mimeType;}
+    if(!o.videoBitsPerSecond&&!o.bitsPerSecond)o.videoBitsPerSecond=6e6;
+    super(s,o);this.addEventListener('stop',()=>{active=Math.max(0,active-1);setTimeout(()=>{busy=0;},0);});}
+  start(t){const r=super.start(t==null?1000:t);active++;return r;}
+  stop(){if(this.state!=='inactive'){busy=1;setTimeout(()=>{busy=0;},15000);}return super.stop();}}
+R.__recfix=1;window.MediaRecorder=R;
+const AC=window.AudioContext||window.webkitAudioContext;
+if(AC&&AC.prototype.suspend){const sus=AC.prototype.suspend;AC.prototype.suspend=function(){return active?Promise.resolve():sus.call(this);};}
+/* 録音用の出口には常に無音を流しておく（何も鳴っていないと音声トラックにデータが来ず、録画全体が止まる） */
+if(AC&&AC.prototype.createMediaStreamDestination){const cmd=AC.prototype.createMediaStreamDestination;AC.prototype.createMediaStreamDestination=function(){const d=cmd.apply(this,arguments);
+  try{const c=this.createConstantSource();c.offset.value=0;c.connect(d);c.start();}catch(e){}return d;};}})();</script>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="description" content="めだかの群れのシルエットが、カメラに映った顔や手のまわりをぐるぐる泳ぐ。速く動くと散って、また戻ってくる。タップした場所にはえさが落ちて集まる。数と速さを調整でき、撮影と録画ができる。">
+<meta name="theme-color" content="#0b0d0c">
+<title>MEDAKA ─ めだかの群れが顔のまわりを泳ぐ</title>
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  MEDAKA めだか ─ めだかの群れが顔のまわりを泳ぐ        ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  ORIGIN     オーナーの依頼「TOKERU のグラフィックのめだか（シルエット）が顔や他の
+             周りにくるエフェクト。量やスピードは調整できるように」。
+             UI は TOKERU と同じ硝子のパネル・配色・書体に揃えた。
+  MOOD       水槽を真上からのぞいたように、カメラの映像の上を小さなめだかの影が
+             群れで泳ぐ。魚の下には水底に落ちる淡い影がずれて付き、浮いて見える。
+  PALETTE    墨緑の地 #0b0d0c ／ 硝子の UI rgba(16,20,18,.52) ／ 文字 #e9efe9 ／ 差し色 #c9f0dc
+             魚：黒めだか #101814 ／ 緋めだか #ef8a2c ／ 白めだか #f3f1ea
+  TYPE       Zen Kaku Gothic New（UI）・IBM Plex Mono（数字）── TOKERU と同じ。
+  MOTION     群れ（分離・整列・結合）のまま、顔や手のまわりを一方向に周回する。
+             体は背骨にそって尾まで波打ち、曲がるときはしなる。
+             顔や手を速く動かすと近くの魚がぱっと散り、少しして戻ってくる。
+  SIGNATURE  タップするとえさが落ちて波紋が広がり、群れがつつきに集まる。
+  TECH       2D canvas。FaceLandmarker（2 人）と HandLandmarker（2 手）を動的 import。
+             魚は型付き配列で持ち、近傍は格子で探す。影は 1/4 解像度に描いて
+             拡大するのでぼける。
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{--ink:#0b0d0c;--glass:rgba(16,20,18,.52);--glass-strong:rgba(22,28,25,.86);--line:rgba(225,236,228,.16);
+  --text:#e9efe9;--muted:#a6b3aa;--accent:#c9f0dc;
+  --f-ui:"Zen Kaku Gothic New","Hiragino Sans","Noto Sans JP",system-ui,sans-serif;--f-mono:"IBM Plex Mono",ui-monospace,Menlo,monospace}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none}
+html,body{margin:0;height:100%;background:var(--ink);overflow:hidden;color:var(--text);font-family:var(--f-ui)}
+#view{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none;background:var(--ink)}
+#cam{position:fixed;left:0;top:0;width:2px;height:2px;opacity:.01;pointer-events:none}
+#start{position:fixed;inset:0;z-index:30;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;
+  padding:28px;text-align:center;background:radial-gradient(ellipse at 50% 45%,#1d2a24 0%,#0b0d0c 70%)}
+#start .t{font-family:var(--f-mono);font-size:10px;letter-spacing:.42em;margin-right:-.42em;color:var(--muted)}
+#start h1{margin:0;font-weight:700;font-size:min(13vw,64px);letter-spacing:.16em;margin-right:-.16em;line-height:1.1}
+#school{width:min(70vw,320px);height:auto;aspect-ratio:2/1;display:block}
+#start p{margin:0;font-size:13px;line-height:2;letter-spacing:.06em;color:var(--muted)}
+#go{appearance:none;font:500 14px/1 var(--f-ui);letter-spacing:.3em;color:var(--text);background:var(--glass);border:1px solid var(--accent);
+  border-radius:999px;padding:14px 30px 14px 34px;cursor:pointer;backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}
+#go:active{background:var(--glass-strong)}
+#err{font-size:12px;line-height:1.8;max-width:340px;min-height:1em;white-space:pre-line;color:#f2c2b4}
+.btn{position:fixed;z-index:12;appearance:none;border:1px solid var(--line);background:var(--glass);color:var(--text);
+  font:500 12px/1 var(--f-ui);letter-spacing:.08em;padding:10px 13px;border-radius:999px;display:none;cursor:pointer;white-space:nowrap;
+  backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}
+.btn.show{display:block}
+.btn:active{background:var(--glass-strong)}
+.btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+#gear{right:12px;top:calc(env(safe-area-inset-top) + 12px);font-size:14px;padding:9px 11px}
+#flip{right:12px;top:calc(env(safe-area-inset-top) + 56px)}
+#bar{position:fixed;left:0;right:0;bottom:calc(env(safe-area-inset-bottom) + 14px);z-index:12;display:none;justify-content:center;align-items:center;gap:16px}
+#bar.show{display:flex}
+#bar .btn{position:static;display:block}
+#bar #shoot{position:relative;width:46px;height:46px;border-radius:50%;padding:0;border-color:var(--accent)}
+#shoot::after{content:"";position:absolute;inset:7px;border-radius:50%;background:var(--accent);opacity:.85}
+#rec.on{color:#ffb3a0;border-color:#ffb3a0}
+#status{position:fixed;left:14px;right:14px;top:calc(env(safe-area-inset-top) + 14px);z-index:11;font-size:12px;letter-spacing:.04em;
+  color:var(--text);pointer-events:none;line-height:1.7;white-space:pre-line;text-shadow:0 1px 8px rgba(0,0,0,.75);padding-right:70px}
+#panel{position:fixed;right:12px;top:calc(env(safe-area-inset-top) + 100px);z-index:12;width:min(280px,calc(100vw - 24px));
+  max-height:calc(100vh - 200px);overflow:auto;
+  background:var(--glass-strong);border:1px solid var(--line);border-radius:14px;padding:14px 16px;display:flex;flex-direction:column;gap:13px;
+  backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);transition:opacity .25s}
+#panel.hide{opacity:0;pointer-events:none}
+.chips{display:flex;border:1px solid var(--line);border-radius:999px;overflow:hidden}
+.chips button{flex:1;appearance:none;border:0;background:transparent;color:var(--text);padding:8px 2px;font:500 11px var(--f-ui);letter-spacing:.04em;cursor:pointer;opacity:.6}
+.chips button.on{opacity:1;background:rgba(201,240,220,.16);color:var(--accent)}
+#panel label{display:flex;align-items:center;gap:10px;font-size:12px;letter-spacing:.04em}
+#panel label span{width:72px;flex:none;color:var(--muted)}
+#panel input[type=range]{flex:1;accent-color:var(--accent)}
+#panel output{font-family:var(--f-mono);font-size:11px;min-width:3.5ch;text-align:right;font-variant-numeric:tabular-nums}
+#panel .k{font-size:11px;color:var(--muted);letter-spacing:.06em;margin-bottom:-6px}
+#panel .note{font-size:11px;color:var(--muted);line-height:1.7;letter-spacing:.03em}
+</style>
+</head>
+<body>
+<canvas id="view" aria-label="めだかが顔のまわりを泳ぐキャンバス"></canvas>
+<video id="cam" playsinline muted autoplay></video>
+<div id="status"></div>
+<button id="gear" class="btn" aria-label="調整">⚙</button>
+<button id="flip" class="btn">⟲ カメラ</button>
+<div id="bar">
+  <button id="rec" class="btn">● REC</button>
+  <button id="shoot" class="btn" aria-label="撮る"></button>
+  <button id="kind" class="btn">黒めだか ▸</button>
+</div>
+<div id="panel" class="hide">
+  <label><span>数</span><input type="range" id="sCount" min="10" max="400" step="1" value="90"><output id="oCount">90</output></label>
+  <label><span>速さ</span><input type="range" id="sSpeed" min="20" max="300" step="1" value="100"><output id="oSpeed">100</output></label>
+  <label><span>大きさ</span><input type="range" id="sSize" min="40" max="220" step="1" value="100"><output id="oSize">100</output></label>
+  <label><span>輪の広さ</span><input type="range" id="sRing" min="60" max="220" step="1" value="100"><output id="oRing">100</output></label>
+  <div class="k">めだか</div>
+  <div class="chips" id="kinds"><button data-v="0" class="on">黒</button><button data-v="1">緋</button><button data-v="2">白</button><button data-v="3">まぜる</button></div>
+  <div class="k">集まる場所</div>
+  <div class="chips" id="targets"><button data-v="0" class="on">顔と手</button><button data-v="1">顔だけ</button><button data-v="2">手だけ</button></div>
+  <div class="k">背景</div>
+  <div class="chips" id="waters"><button data-v="0">そのまま</button><button data-v="1" class="on">水の中</button></div>
+  <div class="note">めだかが顔や手のまわりを群れで回る。顔や手を速く動かすと散って、また戻ってくる。<br>画面をタップすると、えさが落ちて集まる。</div>
+</div>
+
+<div id="start">
+  <div class="t">A SCHOOL OF MEDAKA</div>
+  <h1>めだか</h1>
+  <canvas id="school" width="640" height="320"></canvas>
+  <p>めだかの群れが、あなたの顔や手のまわりを泳ぐ。<br>タップすると、えさが落ちる。</p>
+  <button id="go">はじめる</button>
+  <div id="err"></div>
+</div>
+
+<script>
+'use strict';
+/* =====================================================================
+   MEDAKA — a school of medaka silhouettes circling faces and hands.
+   per frame: landmarks → attractors (circles, in canvas px) → boids with an
+   orbit steer (typed arrays, grid neighbours) → shadow pass at ¼ res →
+   fish bodies built from a bending spine.
+   ===================================================================== */
+const VISION_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs';
+const WASM_URL   = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm';
+const FACE_MODEL = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
+const HAND_MODEL = 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task';
+
+const $ = id => document.getElementById(id);
+const view = $('view'), video = $('cam');
+const ctx = view.getContext('2d', { alpha:false });
+const S = { count:90, speed:1, size:1, ring:1, kind:0, target:0, water:1, vol:.4 };
+const KINDS = [
+  { name:'黒めだか', body:'#101814', fin:'rgba(16,24,20,.55)' },
+  { name:'緋めだか', body:'#ef8a2c', fin:'rgba(239,138,44,.5)' },
+  { name:'白めだか', body:'#f3f1ea', fin:'rgba(243,241,234,.55)' },
+];
+const MAXF = 400;
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+const TAU = Math.PI * 2;
+
+/* ---------- the medaka silhouette (top view), built along a bending spine ---------- */
+const SEG = 10;
+// half-width along the body, t: 0 head → 1 tail base (fraction of length)
+const WIDTH = [.075, .105, .115, .11, .098, .082, .064, .047, .034, .026, .022];
+const SP = new Float32Array((SEG + 1) * 2), NX = new Float32Array(SEG + 1), NY = new Float32Array(SEG + 1);
+function fishPath(c, x, y, ang, L, phase, bend, amp){
+  // spine: head at (x, y), heading ang; points go backwards toward the tail
+  const ca = Math.cos(ang), sa = Math.sin(ang);
+  for (let i = 0; i <= SEG; i++){
+    const t = i / SEG, back = t * L * .78;
+    const lat = (Math.sin(phase - t * 4.2) * amp * t * t + bend * t * t) * L;
+    SP[i * 2] = x - ca * back - sa * lat; SP[i * 2 + 1] = y - sa * back + ca * lat;
+  }
+  for (let i = 0; i <= SEG; i++){
+    const a = Math.max(0, i - 1), b = Math.min(SEG, i + 1);
+    let dx = SP[a * 2] - SP[b * 2], dy = SP[a * 2 + 1] - SP[b * 2 + 1]; const l = Math.hypot(dx, dy) || 1;
+    NX[i] = -dy / l; NY[i] = dx / l;
+  }
+  c.moveTo(SP[0] + (SP[0] - SP[2]) * .25, SP[1] + (SP[1] - SP[3]) * .25);           // snout
+  for (let i = 0; i <= SEG; i++){ const w = WIDTH[i] * L; c.lineTo(SP[i * 2] + NX[i] * w, SP[i * 2 + 1] + NY[i] * w); }
+  // caudal fin: a soft fan behind the tail base
+  const tx = SP[SEG * 2], ty = SP[SEG * 2 + 1];
+  let dx = SP[SEG * 2] - SP[(SEG - 1) * 2], dy = SP[SEG * 2 + 1] - SP[(SEG - 1) * 2 + 1]; const l = Math.hypot(dx, dy) || 1; dx /= l; dy /= l;
+  const fl = L * .2, fw = L * .1, sw = Math.sin(phase - 4.6) * amp * L * .5;
+  c.quadraticCurveTo(tx + dx * fl * .6 + NX[SEG] * fw * 1.1 + -dy * sw * .3, ty + dy * fl * .6 + NY[SEG] * fw * 1.1 + dx * sw * .3,
+                     tx + dx * fl + NX[SEG] * fw + -dy * sw, ty + dy * fl + NY[SEG] * fw + dx * sw);
+  c.lineTo(tx + dx * fl * .8 + -dy * sw, ty + dy * fl * .8 + dx * sw);
+  c.lineTo(tx + dx * fl - NX[SEG] * fw + -dy * sw, ty + dy * fl - NY[SEG] * fw + dx * sw);
+  c.quadraticCurveTo(tx + dx * fl * .6 - NX[SEG] * fw * 1.1 + -dy * sw * .3, ty + dy * fl * .6 - NY[SEG] * fw * 1.1 + dx * sw * .3, tx, ty);
+  for (let i = SEG; i >= 0; i--){ const w = WIDTH[i] * L; c.lineTo(SP[i * 2] - NX[i] * w, SP[i * 2 + 1] - NY[i] * w); }
+  c.closePath();
+  // the big medaka eyes bulge past the outline
+  const ex = SP[2] * .55 + SP[4] * .45, ey = SP[3] * .55 + SP[5] * .45, er = L * .052, ew = WIDTH[1] * L * 1.02;
+  c.moveTo(ex + NX[1] * ew + er, ey + NY[1] * ew); c.arc(ex + NX[1] * ew, ey + NY[1] * ew, er, 0, TAU);
+  c.moveTo(ex - NX[1] * ew + er, ey - NY[1] * ew); c.arc(ex - NX[1] * ew, ey - NY[1] * ew, er, 0, TAU);
+}
+function finPath(c, L, phase){
+  // pectoral fins, flapping, just behind the eyes (uses the spine from fishPath)
+  const i = 3, bx = SP[i * 2], by = SP[i * 2 + 1], w = WIDTH[i] * L;
+  let dx = SP[(i + 1) * 2] - bx, dy = SP[(i + 1) * 2 + 1] - by; const l = Math.hypot(dx, dy) || 1; dx /= l; dy /= l;
+  const fl = L * .13, open = .55 + .35 * Math.sin(phase * 1.7);
+  for (const s of [1, -1]){
+    const ox = bx + NX[i] * w * s, oy = by + NY[i] * w * s;
+    const tx = ox + (dx * Math.cos(open) + NX[i] * s * Math.sin(open)) * fl, ty = oy + (dy * Math.cos(open) + NY[i] * s * Math.sin(open)) * fl;
+    c.moveTo(ox, oy); c.quadraticCurveTo(ox + NX[i] * s * fl * .7, oy + NY[i] * s * fl * .7, tx, ty); c.lineTo(ox + dx * fl * .5, oy + dy * fl * .5); c.closePath();
+  }
+}
+
+/* ---------- start-screen school ---------- */
+const startSchool = (() => {
+  const c = $('school'), x = c.getContext('2d'); let on = true;
+  const f = (t) => {
+    if (!on) return;
+    x.clearRect(0, 0, 640, 320);
+    const s = t / 1000;
+    for (let k = 0; k < 14; k++){
+      const a = s * .55 + k * TAU / 14 + Math.sin(k * 3.1) * .25, rx = 220 + 18 * Math.sin(k * 1.7), ry = 95 + 10 * Math.cos(k * 2.3);
+      const px = 320 + Math.cos(a) * rx, py = 160 + Math.sin(a) * ry;
+      const hd = Math.atan2(Math.cos(a) * ry, -Math.sin(a) * rx);
+      const L = 46 + 8 * Math.sin(k * 5.3);
+      x.beginPath(); fishPath(x, px + 6, py + 9, hd, L, s * 9 + k, 0, .14); x.fillStyle = 'rgba(0,0,0,.35)'; x.fill();
+      x.beginPath(); fishPath(x, px, py, hd, L, s * 9 + k, 0, .14); finPath(x, L, s * 9 + k); x.fillStyle = '#c9f0dc'; x.fill();
+    }
+    requestAnimationFrame(f);
+  };
+  requestAnimationFrame(f);
+  return { stop(){ on = false; } };
+})();
+
+/* ---------- geometry ---------- */
+const G = { W:0, H:0, ox:0, oy:0, dw:0, dh:0, short:1 };
+const shadow = document.createElement('canvas'), sctx = shadow.getContext('2d');
+function resize(){
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  let w = Math.round(innerWidth * dpr), h = Math.round(innerHeight * dpr);
+  const k = Math.min(1, 1920 / Math.max(w, h)); w = Math.round(w * k); h = Math.round(h * k);
+  if (w !== G.W || h !== G.H){
+    G.W = view.width = w; G.H = view.height = h;
+    shadow.width = Math.max(8, w >> 2); shadow.height = Math.max(8, h >> 2);
+  }
+  const va = (vidW || 16) / (vidH || 9), ca = G.W / G.H;
+  if (va > ca){ G.dh = G.H; G.dw = G.H * va; } else { G.dw = G.W; G.dh = G.W / va; }
+  G.ox = (G.W - G.dw) / 2; G.oy = (G.H - G.dh) / 2; G.short = Math.min(G.W, G.H);
+}
+
+/* ---------- attractors: faces and hands as circles ---------- */
+// slot-stable list; each has a smoothed centre / radius, velocity, presence
+const AT = [];
+for (let i = 0; i < 6; i++) AT.push({ kind:i < 2 ? 'face' : i < 4 ? 'hand' : 'food', on:false, x:0, y:0, r:0, vx:0, vy:0, a:0, seen:-1e9, lastObs:-1, dir:i % 2 ? -1 : 1, t:0 });
+const FOOD = [AT[4], AT[5]];
+function lmXY(q){ return [G.ox + (mirror ? 1 - q.x : q.x) * G.dw, G.oy + q.y * G.dh]; }
+function okPt(q){ return q && isFinite(q.x) && isFinite(q.y); }
+function circleOfFace(lm){
+  if (!lm || typeof lm.length !== 'number' || lm.length < 468) return null;
+  let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9, n = 0;
+  for (let i = 0; i < 468; i += 3){ const q = lm[i]; if (!okPt(q)) continue; const [x, y] = lmXY(q);
+    if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; n++; }
+  if (n < 100 || !(x1 > x0) || !(y1 > y0)) return null;
+  const r = Math.max(x1 - x0, y1 - y0) * .5;
+  if (!(r > 2) || r > G.short * 2) return null;
+  return [(x0 + x1) / 2, (y0 + y1) / 2 - r * .08, r * 1.08];
+}
+function circleOfHand(lm){
+  if (!lm || typeof lm.length !== 'number' || lm.length < 21) return null;
+  for (const i of [0, 5, 9, 13, 17, 12]) if (!okPt(lm[i])) return null;
+  let sx = 0, sy = 0; for (const i of [0, 5, 9, 13, 17]){ const [x, y] = lmXY(lm[i]); sx += x; sy += y; }
+  const cx = sx / 5, cy = sy / 5;
+  const [wx, wy] = lmXY(lm[0]), [mx, my] = lmXY(lm[9]), [tx, ty] = lmXY(lm[12]);
+  const r = Math.max(Math.hypot(mx - wx, my - wy) * .95, Math.hypot(tx - cx, ty - cy) * .9);
+  if (!(r > 2) || r > G.short) return null;
+  return [cx, cy, r];
+}
+function observe(slots, circles, now){
+  for (const a of slots) a.fresh = false;
+  const used = circles.map(() => false);
+  for (let pass = 0; pass < 2; pass++) for (const a of slots){
+    if (a.fresh || (pass === 0 && !a.on)) continue;
+    let best = -1, bd = 1e18;
+    for (let j = 0; j < circles.length; j++){ if (used[j]) continue;
+      const d = a.on ? Math.hypot(circles[j][0] - a.x, circles[j][1] - a.y) : 0; if (d < bd){ bd = d; best = j; } }
+    if (best < 0) continue;
+    if (pass === 0 && bd > G.short * .5) continue;
+    used[best] = true;
+    const [x, y, r] = circles[best];
+    const dtObs = a.lastObs < 0 || !a.on ? 0 : clamp((now - a.lastObs) / 1000, 0, .25);
+    if (!a.on || a.lastObs < 0){ a.x = x; a.y = y; a.r = r; a.vx = a.vy = 0; if (!a.on){ a.a = 0; a.dir = Math.random() < .5 ? 1 : -1; } }
+    else if (dtObs > 0){
+      const vx = (x - a.x) / dtObs, vy = (y - a.y) / dtObs;
+      a.vx += (vx - a.vx) * .5; a.vy += (vy - a.vy) * .5;
+      a.x += (x - a.x) * .6; a.y += (y - a.y) * .6; a.r += (r - a.r) * .3;
+    }
+    a.on = true; a.fresh = true; a.seen = now; a.lastObs = now;
+  }
+  for (const a of slots) if (!a.fresh){ a.lastObs = -1; a.vx = a.vy = 0; }
+}
+const TRACK = { faces:0, hands:0, extF:false, extH:false };
+function ingestFaces(list, now){
+  now = now == null ? performance.now() : now;
+  const cs = [];
+  if (Array.isArray(list)) for (const lm of list){ if (cs.length >= 2) break; try{ const c = circleOfFace(lm); if (c) cs.push(c); }catch(e){} }
+  TRACK.faces = cs.length; observe(AT.slice(0, 2), cs, now); return cs.length;
+}
+function ingestHands(list, now){
+  now = now == null ? performance.now() : now;
+  const cs = [];
+  if (Array.isArray(list)) for (const lm of list){ if (cs.length >= 2) break; try{ const c = circleOfHand(lm); if (c) cs.push(c); }catch(e){} }
+  TRACK.hands = cs.length; observe(AT.slice(2, 4), cs, now); return cs.length;
+}
+function dropFood(x, y){
+  const f = FOOD[0].on && (!FOOD[1].on || FOOD[1].t < FOOD[0].t) ? FOOD[1] : FOOD[0];
+  if (FOOD[0].on && FOOD[1].on){ const o = FOOD[0].t < FOOD[1].t ? FOOD[0] : FOOD[1]; Object.assign(o, { x, y, t:0, a:1 }); RIP.push({ x, y, t:0 }); plop(); return; }
+  Object.assign(f, { on:true, x, y, r:G.short * .035, vx:0, vy:0, a:1, t:0, seen:performance.now(), dir:Math.random() < .5 ? 1 : -1 });
+  RIP.push({ x, y, t:0 }); plop();
+}
+const RIP = [];
+
+/* ---------- fish ---------- */
+const F = { x:new Float32Array(MAXF), y:new Float32Array(MAXF), vx:new Float32Array(MAXF), vy:new Float32Array(MAXF),
+  ang:new Float32Array(MAXF), turn:new Float32Array(MAXF), ph:new Float32Array(MAXF), sz:new Float32Array(MAXF), sp:new Float32Array(MAXF),
+  ring:new Float32Array(MAXF), scare:new Float32Array(MAXF), kind:new Uint8Array(MAXF), tgt:new Int8Array(MAXF), alive:new Float32Array(MAXF), n:0 };
+function spawn(i, edge){
+  const W = G.W || 800, H = G.H || 600;
+  if (edge){ const s = Math.random() * 4 | 0, m = G.short * .08;
+    F.x[i] = s === 0 ? -m : s === 1 ? W + m : Math.random() * W; F.y[i] = s === 2 ? -m : s === 3 ? H + m : Math.random() * H; }
+  else { F.x[i] = W * (.15 + .7 * Math.random()); F.y[i] = H * (.15 + .7 * Math.random()); }
+  const a = Math.random() * TAU; F.ang[i] = a; F.vx[i] = Math.cos(a) * 20; F.vy[i] = Math.sin(a) * 20;
+  F.ph[i] = Math.random() * TAU; F.sz[i] = .78 + Math.random() * .44; F.sp[i] = .82 + Math.random() * .36;
+  F.ring[i] = Math.random(); F.scare[i] = 0; F.kind[i] = Math.random() * 3 | 0; F.tgt[i] = -1; F.turn[i] = 0; F.alive[i] = edge ? 0 : 1;
+}
+function setCount(n){
+  n = clamp(n | 0, 0, MAXF);
+  for (let i = F.n; i < n; i++) spawn(i, started);
+  F.n = n;
+}
+// neighbour grid
+const GRID = { cs:1, gw:1, gh:1, head:new Int32Array(1), next:new Int32Array(MAXF) };
+function buildGrid(cell){
+  GRID.cs = cell; GRID.gw = Math.max(1, Math.ceil(G.W / cell) + 2); GRID.gh = Math.max(1, Math.ceil(G.H / cell) + 2);
+  const need = GRID.gw * GRID.gh; if (GRID.head.length < need) GRID.head = new Int32Array(need);
+  GRID.head.fill(-1, 0, need);
+  for (let i = 0; i < F.n; i++){
+    const gx = clamp(Math.floor(F.x[i] / cell) + 1, 0, GRID.gw - 1), gy = clamp(Math.floor(F.y[i] / cell) + 1, 0, GRID.gh - 1), c = gy * GRID.gw + gx;
+    GRID.next[i] = GRID.head[c]; GRID.head[c] = i;
+  }
+}
+function wantAttractor(a){
+  if (!a.on || a.a < .05) return false;
+  if (a.kind === 'face') return S.target !== 2;
+  if (a.kind === 'hand') return S.target !== 1;
+  return true;
+}
+function assignTargets(){
+  // food first (everyone nearby goes), then share the school between faces and hands by size
+  const live = AT.filter(wantAttractor);
+  if (!live.length){ for (let i = 0; i < F.n; i++) F.tgt[i] = -1; return; }
+  const food = live.filter(a => a.kind === 'food'), rest = live.filter(a => a.kind !== 'food');
+  let wsum = 0; for (const a of rest) wsum += a.kind === 'face' ? 1.6 : 1;
+  for (let i = 0; i < F.n; i++){
+    if (food.length && (F.ring[i] < .75 || !rest.length)){
+      let b = food[0], bd = 1e18; for (const a of food){ const d = Math.hypot(a.x - F.x[i], a.y - F.y[i]); if (d < bd){ bd = d; b = a; } }
+      F.tgt[i] = AT.indexOf(b); continue;
+    }
+    if (!rest.length){ F.tgt[i] = -1; continue; }
+    // stable share: fish i's hash picks an attractor by weight
+    let u = ((i * 0.6180339887) % 1) * wsum, pick = rest[rest.length - 1];
+    for (const a of rest){ u -= a.kind === 'face' ? 1.6 : 1; if (u <= 0){ pick = a; break; } }
+    F.tgt[i] = AT.indexOf(pick);
+  }
+}
+const STATS = { scatter:0 };
+function stepFish(dt, now){
+  const sh = G.short, len = sh * .062 * S.size, vmax = sh * .3 * S.speed, W = G.W, H = G.H;
+  const sepR = len * 1.0, aliR = len * 2.4;
+  buildGrid(aliR);
+  assignTargets();
+  // startle: an attractor moving fast pushes nearby fish away
+  for (const a of AT){
+    if (!a.on || a.kind === 'food' || !a.fresh) continue;
+    const sp = Math.hypot(a.vx, a.vy);
+    if (sp > sh * 1.6){
+      let hit = false;
+      for (let i = 0; i < F.n; i++){
+        const dx = F.x[i] - a.x, dy = F.y[i] - a.y, d = Math.hypot(dx, dy);
+        if (d < a.r * 2.4 + len * 2 && F.scare[i] <= .2){
+          const k = vmax * 2.6 / (d || 1); F.vx[i] += dx * k * .6 + a.vx * .25; F.vy[i] += dy * k * .6 + a.vy * .25; F.scare[i] = .9 + Math.random() * .5; hit = true;
+        }
+      }
+      if (hit) STATS.scatter++;
+    }
+  }
+  for (let i = 0; i < F.n; i++){
+    const x = F.x[i], y = F.y[i];
+    let ax = 0, ay = 0;
+    // neighbours
+    let sx = 0, sy = 0, avx = 0, avy = 0, cx = 0, cy = 0, nn = 0;
+    const gx = clamp(Math.floor(x / GRID.cs) + 1, 0, GRID.gw - 1), gy = clamp(Math.floor(y / GRID.cs) + 1, 0, GRID.gh - 1);
+    for (let oy = -1; oy <= 1; oy++){ const yy = gy + oy; if (yy < 0 || yy >= GRID.gh) continue;
+      for (let ox = -1; ox <= 1; ox++){ const xx = gx + ox; if (xx < 0 || xx >= GRID.gw) continue;
+        for (let j = GRID.head[yy * GRID.gw + xx]; j >= 0; j = GRID.next[j]){
+          if (j === i) continue;
+          const dx = x - F.x[j], dy = y - F.y[j], d2 = dx * dx + dy * dy;
+          if (d2 > aliR * aliR) continue;
+          if (d2 < sepR * sepR){ const d = Math.sqrt(d2) || .001; sx += dx / d * (sepR - d) / sepR; sy += dy / d * (sepR - d) / sepR; }
+          avx += F.vx[j]; avy += F.vy[j]; cx += F.x[j]; cy += F.y[j]; nn++;
+        } } }
+    ax += sx * vmax * 4.5; ay += sy * vmax * 4.5;
+    if (nn){ ax += (avx / nn - F.vx[i]) * 1.2; ay += (avy / nn - F.vy[i]) * 1.2; ax += (cx / nn - x) * .9; ay += (cy / nn - y) * .9; }
+    const myV = vmax * F.sp[i];
+    let want = myV * .55;
+    const ti = F.tgt[i];
+    if (ti >= 0 && F.scare[i] <= 0){
+      const a = AT[ti];
+      const dx = x - a.x, dy = y - a.y, d = Math.hypot(dx, dy) || .001;
+      const ux = dx / d, uy = dy / d;
+      if (a.kind === 'food'){
+        // mill tightly around the food, nibbling
+        const R = len * (.7 + F.ring[i] * 1.2);
+        const tx = -uy * a.dir, ty = ux * a.dir;
+        ax += (tx * myV * .7 - F.vx[i]) * 2 + (-ux) * (d - R) * 3.5; ay += (ty * myV * .7 - F.vy[i]) * 2 + (-uy) * (d - R) * 3.5;
+        want = myV * .7;
+      } else {
+        const R = a.r * S.ring * (1.18 + F.ring[i] * .55) + len * .6;
+        const tx = -uy * a.dir, ty = ux * a.dir;                 // orbit direction
+        const radial = clamp((d - R) / (R * .5), -2, 2);
+        ax += (tx * myV - F.vx[i]) * 1.8 - ux * radial * myV * 2.4; ay += (ty * myV - F.vy[i]) * 1.8 - uy * radial * myV * 2.4;
+        if (d < a.r * 1.02){ const k = (a.r * 1.02 - d) / (a.r * .3); ax += ux * myV * 6 * k; ay += uy * myV * 6 * k; }   // keep off the face
+        // drift with the attractor so the ring follows
+        ax += a.vx * .9; ay += a.vy * .9;
+        want = myV;
+      }
+    } else {
+      // wander: a gentle loop around the middle of the screen
+      const mx = W * .5 + Math.sin(now * .00013 + i * .02) * W * .22, my = H * .5 + Math.cos(now * .00017) * H * .2;
+      const dx = mx - x, dy = my - y, d = Math.hypot(dx, dy) || 1;
+      const R = sh * (.22 + .12 * F.ring[i]);
+      ax += dx / d * (d - R) * .25 + (-dy / d) * myV * .6; ay += dy / d * (d - R) * .25 + (dx / d) * myV * .6;
+    }
+    // walls (soft), allowing fish to come in from off-screen
+    const m = len * 1.5;
+    if (x < m) ax += (m - x) * 6; if (x > W - m) ax -= (x - W + m) * 6;
+    if (y < m) ay += (m - y) * 6; if (y > H - m) ay -= (y - H + m) * 6;
+    if (!isFinite(ax) || !isFinite(ay)){ ax = ay = 0; }
+    let vx = F.vx[i] + ax * dt, vy = F.vy[i] + ay * dt;
+    let sp = Math.hypot(vx, vy);
+    const lim = F.scare[i] > 0 ? myV * 2.6 : myV * 1.25;
+    if (sp > lim){ vx *= lim / sp; vy *= lim / sp; sp = lim; }
+    if (sp < want * .35){ const k = (want * .35) / (sp || 1); vx = sp ? vx * k : Math.cos(F.ang[i]) * want * .35; vy = sp ? vy * k : Math.sin(F.ang[i]) * want * .35; sp = want * .35; }
+    F.vx[i] = vx; F.vy[i] = vy;
+    F.x[i] = x + vx * dt; F.y[i] = y + vy * dt;
+    if (!isFinite(F.x[i]) || !isFinite(F.y[i])) spawn(i, true);
+    // heading follows velocity, the body bends with the turn rate
+    const ta = Math.atan2(vy, vx);
+    let da = ta - F.ang[i]; while (da > Math.PI) da -= TAU; while (da < -Math.PI) da += TAU;
+    const step = clamp(da, -9 * dt, 9 * dt);
+    F.ang[i] += step;
+    F.turn[i] += (clamp(step / Math.max(dt, 1e-3) * -.05, -.35, .35) - F.turn[i]) * Math.min(1, dt * 8);
+    F.ph[i] += dt * (7 + sp / Math.max(len, 1) * 1.6);
+    if (F.scare[i] > 0) F.scare[i] -= dt;
+    if (F.alive[i] < 1) F.alive[i] = Math.min(1, F.alive[i] + dt * 1.5);
+  }
+}
+
+/* ---------- models ---------- */
+let faceLM = null, handLM = null, lastTs = 0, lastVT = -1, modelFailed = false;
+async function initModel(){
+  try{
+    const vision = await import(VISION_URL);
+    const fs = await vision.FilesetResolver.forVisionTasks(WASM_URL);
+    const fo = d => ({ baseOptions:{ modelAssetPath:FACE_MODEL, delegate:d }, runningMode:'VIDEO', numFaces:2 });
+    try { faceLM = await vision.FaceLandmarker.createFromOptions(fs, fo('GPU')); }
+    catch(e){ faceLM = await vision.FaceLandmarker.createFromOptions(fs, fo('CPU')); }
+    setStatus('');
+    const ho = d => ({ baseOptions:{ modelAssetPath:HAND_MODEL, delegate:d }, runningMode:'VIDEO', numHands:2 });
+    try { handLM = await vision.HandLandmarker.createFromOptions(fs, ho('GPU')); }
+    catch(e){ try { handLM = await vision.HandLandmarker.createFromOptions(fs, ho('CPU')); } catch(e2){} }
+  }catch(e){
+    if (TRACK.extF) return;
+    modelFailed = true;
+    setStatus('顔の検出モデルを読み込めませんでした（ネット接続を確認）。\nめだかは画面の中を泳ぎます。タップでえさを落とせます。');
+  }
+}
+let flipHands = false;
+function detect(now){
+  if (video.readyState < 2) return;
+  const vt = video.currentTime; if (vt === lastVT) return; lastVT = vt;
+  const ts = Math.max(lastTs + 1, Math.round(now)); lastTs = ts;
+  // alternate the two models on busy devices: faces every frame, hands every other
+  if (faceLM && !TRACK.extF){ try{ const r = faceLM.detectForVideo(video, ts); ingestFaces(r && r.faceLandmarks, now); }catch(e){} }
+  flipHands = !flipHands;
+  if (handLM && !TRACK.extH && flipHands){ try{ const r = handLM.detectForVideo(video, ts); ingestHands(r && r.landmarks, now); }catch(e){} }
+}
+
+/* ---------- camera ---------- */
+let stream = null, facing = 'user', mirror = true, started = false, vidW = 1280, vidH = 720;
+function setStatus(t){ $('status').textContent = t || ''; }
+function camError(e){
+  const msg = (e && (e.message || e.name)) ? (e.message || e.name) : String(e || 'unknown');
+  const text = 'カメラを起動できませんでした：' + msg + '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+  $('err').textContent = text;
+  if (started) setStatus(text);
+}
+async function startCam(){
+  const md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) throw new Error('getUserMedia is unavailable');
+  const s = await md.getUserMedia({ video:{ facingMode:{ ideal:facing }, width:{ ideal:1280 }, height:{ ideal:720 } }, audio:false });
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = s; mirror = facing === 'user';
+  video.srcObject = s;
+  await new Promise(r => { if (video.readyState >= 1) r(); else video.onloadedmetadata = () => r(); });
+  await video.play().catch(()=>{});
+  vidW = video.videoWidth || 1280; vidH = video.videoHeight || 720;
+  for (const a of AT) if (a.kind !== 'food'){ a.on = false; a.a = 0; a.lastObs = -1; }
+  resize();
+}
+
+/* ---------- audio: a soft plop for the food ---------- */
+let actx = null, bus = null, recDest = null;
+function ensureAudio(){
+  if (actx){ if (actx.state === 'suspended') actx.resume().catch(()=>{}); return; }
+  const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+  try{
+    actx = new AC(); bus = actx.createGain(); bus.gain.value = 1; bus.connect(actx.destination);
+    recDest = actx.createMediaStreamDestination(); bus.connect(recDest);
+    actx.resume().catch(()=>{});
+  }catch(e){ actx = null; }
+}
+function plop(){
+  if (!actx || actx.state !== 'running') return;
+  const t = actx.currentTime, o = actx.createOscillator(), g = actx.createGain();
+  o.type = 'sine'; o.frequency.setValueAtTime(380, t); o.frequency.exponentialRampToValueAtTime(1100, t + .07);
+  g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime(.18 * (.2 + S.vol), t + .008); g.gain.exponentialRampToValueAtTime(.0001, t + .16);
+  o.connect(g); g.connect(bus); o.start(t); o.stop(t + .2);
+}
+
+/* ---------- UI ---------- */
+function setKind(v){
+  S.kind = v; [...$('kinds').children].forEach(b => b.classList.toggle('on', +b.dataset.v === v));
+  $('kind').textContent = (v === 3 ? 'まぜる' : KINDS[v].name) + ' ▸';
+}
+function chips(id, key, cb){
+  $(id).onclick = e => { const b = e.target.closest('button'); if (!b) return; S[key] = +b.dataset.v;
+    [...$(id).children].forEach(x => x.classList.toggle('on', x === b)); if (cb) cb(); };
+}
+chips('kinds', 'kind', () => setKind(S.kind));
+chips('targets', 'target');
+chips('waters', 'water');
+$('kind').onclick = () => setKind((S.kind + 1) % 4);
+const SL = [['sCount','oCount', v => { S.count = v; setCount(v); }], ['sSpeed','oSpeed', v => S.speed = v / 100],
+  ['sSize','oSize', v => S.size = v / 100], ['sRing','oRing', v => S.ring = v / 100]];
+for (const [s, o, f] of SL){ $(s).oninput = e => { const v = +e.target.value; $(o).textContent = v; f(v); }; }
+$('go').onclick = async () => {
+  $('err').textContent = '';
+  ensureAudio();
+  try { await startCam(); } catch(e){ camError(e); return; }
+  $('start').style.display = 'none'; startSchool.stop();
+  ['gear','flip','bar','rec','shoot','kind'].forEach(id => $(id).classList.add('show'));
+  if (!started){ started = true; setCount(S.count); for (let i = 0; i < F.n; i++) spawn(i, true); initModel(); requestAnimationFrame(loop); }
+};
+$('flip').onclick = async () => {
+  const prev = facing; facing = facing === 'user' ? 'environment' : 'user';
+  try { await startCam(); } catch(e){ facing = prev; camError(e); }
+};
+$('gear').onclick = () => $('panel').classList.toggle('hide');
+let down = null;
+view.addEventListener('pointerdown', e => { down = { x:e.clientX, y:e.clientY, t:performance.now() }; });
+view.addEventListener('pointerup', e => {
+  if (down && Math.hypot(e.clientX - down.x, e.clientY - down.y) < 14 && performance.now() - down.t < 600){
+    if (!$('panel').classList.contains('hide')) $('panel').classList.add('hide');
+    else { const r = view.getBoundingClientRect(); dropFood((e.clientX - r.left) / r.width * G.W, (e.clientY - r.top) / r.height * G.H); }
+  }
+  down = null;
+});
+$('shoot').onclick = () => {
+  try{
+    view.toBlob(b => { if (!b) return; const a = document.createElement('a'); a.href = URL.createObjectURL(b);
+      a.download = 'medaka-' + Date.now() + '.png'; a.click(); }, 'image/png');
+  }catch(e){ setStatus('保存できませんでした。'); }
+};
+let rec = null, chunks = [];
+$('rec').onclick = () => {
+  if (rec && rec.state === 'recording'){ rec.stop(); return; }
+  try{
+    const tracks = [...view.captureStream(30).getVideoTracks()];
+    if (recDest) tracks.push(...recDest.stream.getAudioTracks());
+    const mime = ['video/mp4;codecs=avc1','video/webm;codecs=vp9,opus','video/webm'].find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || '';
+    rec = new MediaRecorder(new MediaStream(tracks), mime ? { mimeType:mime } : {});
+    chunks = [];
+    rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+    rec.onstop = () => {
+      $('rec').classList.remove('on'); $('rec').textContent = '● REC';
+      const ext = (rec.mimeType || '').includes('mp4') ? 'mp4' : 'webm';
+      const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(chunks, { type:rec.mimeType || 'video/webm' }));
+      a.download = 'medaka.' + ext; a.click();
+    };
+    rec.start(); $('rec').classList.add('on'); $('rec').textContent = '■ STOP';
+  }catch(e){ setStatus('録画を開始できませんでした。' + (e && e.message ? '\n' + e.message : '')); }
+};
+addEventListener('resize', () => { if (started) resize(); });
+
+/* ---------- frame ---------- */
+let lastT = 0, frameN = 0;
+const TEST = { maxDt:.05 };
+function drawCamera(){
+  ctx.save();
+  if (mirror){ ctx.translate(G.W, 0); ctx.scale(-1, 1); }
+  if (video.readyState >= 2) ctx.drawImage(video, mirror ? G.W - G.ox - G.dw : G.ox, G.oy, G.dw, G.dh);
+  else { ctx.fillStyle = '#0b0d0c'; ctx.fillRect(0, 0, G.W, G.H); }
+  ctx.restore();
+  if (S.water){
+    // as if seen through shallow water: a cool green cast, a little darker at the edges
+    ctx.globalCompositeOperation = 'multiply'; ctx.fillStyle = '#a9c9bd'; ctx.fillRect(0, 0, G.W, G.H);
+    ctx.globalCompositeOperation = 'source-over';
+    const g = ctx.createRadialGradient(G.W / 2, G.H / 2, G.short * .3, G.W / 2, G.H / 2, Math.hypot(G.W, G.H) * .6);
+    g.addColorStop(0, 'rgba(10,24,20,0)'); g.addColorStop(1, 'rgba(10,24,20,.45)');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, G.W, G.H);
+  }
+}
+// a no-op path target, so fishPath can refill the spine before the fins are drawn
+function Path2DSink(){ }
+Path2DSink.prototype.moveTo = Path2DSink.prototype.lineTo = Path2DSink.prototype.quadraticCurveTo = Path2DSink.prototype.arc = Path2DSink.prototype.closePath = function(){};
+const SINK = new Path2DSink();
+function kindOf(i){ return S.kind === 3 ? F.kind[i] : S.kind; }
+function drawFish(){
+  const len = G.short * .062 * S.size;
+  // shadows: ¼ res, offset down-right, upscaled → soft
+  const sw = shadow.width, shh = shadow.height, k = sw / G.W;
+  sctx.setTransform(1, 0, 0, 1, 0, 0); sctx.clearRect(0, 0, sw, shh);
+  sctx.setTransform(k, 0, 0, k, 0, 0);
+  sctx.beginPath();
+  const off = len * .45;
+  for (let i = 0; i < F.n; i++) fishPath(sctx, F.x[i] + off, F.y[i] + off * 1.3, F.ang[i], len * F.sz[i], F.ph[i], F.turn[i], .12);
+  sctx.fillStyle = S.water ? 'rgba(4,14,10,1)' : 'rgba(0,0,0,1)'; sctx.fill();
+  ctx.globalAlpha = S.kind === 0 ? .26 : .34; ctx.imageSmoothingEnabled = true;
+  ctx.drawImage(shadow, 0, 0, G.W, G.H); ctx.globalAlpha = 1;
+  // bodies, batched by colour
+  for (let kd = 0; kd < 3; kd++){
+    const K = KINDS[kd];
+    ctx.beginPath(); let any = false;
+    for (let i = 0; i < F.n; i++){ if (kindOf(i) !== kd) continue; any = true;
+      fishPath(ctx, F.x[i], F.y[i], F.ang[i], len * F.sz[i], F.ph[i], F.turn[i], .12); }
+    if (!any) continue;
+    ctx.fillStyle = K.body; ctx.fill();
+    ctx.beginPath();
+    for (let i = 0; i < F.n; i++){ if (kindOf(i) !== kd) continue;
+      fishPath(SINK, F.x[i], F.y[i], F.ang[i], len * F.sz[i], F.ph[i], F.turn[i], .12); finPath(ctx, len * F.sz[i], F.ph[i]); }
+    ctx.fillStyle = K.fin; ctx.fill();
+  }
+}
+function drawRipples(dt){
+  for (let k = RIP.length - 1; k >= 0; k--){
+    const r = RIP[k]; r.t += dt;
+    if (r.t > 1.6){ RIP.splice(k, 1); continue; }
+    for (let j = 0; j < 3; j++){
+      const tt = r.t - j * .22; if (tt <= 0) continue;
+      const rad = G.short * (.02 + tt * .16), a = (1 - tt / 1.6) * .5;
+      ctx.strokeStyle = 'rgba(233,239,233,' + a.toFixed(3) + ')'; ctx.lineWidth = Math.max(1, G.short * .003);
+      ctx.beginPath(); ctx.ellipse(r.x, r.y, rad, rad * .92, 0, 0, TAU); ctx.stroke();
+    }
+  }
+  // the food pellets themselves
+  for (const f of FOOD){ if (!f.on) continue;
+    ctx.fillStyle = 'rgba(214,180,120,' + (.9 * f.a).toFixed(3) + ')';
+    for (let j = 0; j < 5; j++){ const a = j * 1.3 + f.t * .4, d = G.short * .008 * (1 + j % 3);
+      ctx.beginPath(); ctx.arc(f.x + Math.cos(a) * d, f.y + Math.sin(a) * d, G.short * .0045, 0, TAU); ctx.fill(); }
+  }
+}
+function loop(now){
+  requestAnimationFrame(loop);
+  const dt = clamp((now - (lastT || now)) / 1000, 0, TEST.maxDt); lastT = now; frameN++;
+  resize();
+  detect(now);
+  // attractor presence
+  for (const a of AT){
+    if (!a.on) continue;
+    if (a.kind === 'food'){
+      a.t += dt; if (a.t > 4.5) a.a -= dt / .8; if (a.a <= 0){ a.on = false; a.a = 0; }
+      continue;
+    }
+    const age = (now - a.seen) / 1000, want = age < .35 ? 1 : 0;
+    a.a += (want - a.a) * (1 - Math.exp(-dt / (want ? .15 : .3)));
+    if (!want && age > 1.2){ a.on = false; a.a = 0; a.vx = a.vy = 0; }
+  }
+  stepFish(dt, now);
+  drawCamera();
+  drawRipples(dt);
+  drawFish();
+}
+
+/* ---------- test hook ---------- */
+window.__medaka = {
+  feedFaces(list, t){ if (!TRACK.extF && modelFailed) setStatus(''); TRACK.extF = true; return ingestFaces(list, t); },
+  feedHands(list, t){ TRACK.extH = true; return ingestHands(list, t); },
+  food(x, y){ dropFood(x, y); }, S, test:TEST, setCount, setKind,
+  fish(){ const o = []; for (let i = 0; i < F.n; i++) o.push([F.x[i], F.y[i], F.tgt[i], F.scare[i]]); return o; },
+  state(){ return { frame:frameN, n:F.n, faces:TRACK.faces, hands:TRACK.hands, scatter:STATS.scatter,
+    at:AT.map(a => ({ kind:a.kind, on:a.on, a:+a.a.toFixed(2), x:+a.x.toFixed(1), y:+a.y.toFixed(1), r:+a.r.toFixed(1) })), G:{ ...G } }; },
+};
+</script>
+</body>
+</html>
