@@ -1,0 +1,769 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<script>/* REC-FIX (2026-10-12) — iPhone Safari で録画が途中で止まる・壊れる対策。どの作品でも同じ内容。
+   ・mp4 は映像と音声の両方のコーデックを宣言する（avc1 だけだと音声付きで止まることがある）
+   ・1 秒ごとにデータを受け取る（最後に一括で書き出さない）／ビットレートに上限
+   ・保存が終わる前に次の録画を始めない（前のファイルが消えるのを防ぐ）
+   ・録画中は AudioContext を止めない（音声トラックが止まると mp4 ごと止まる） */
+(()=>{const MR=window.MediaRecorder;if(!MR||MR.__recfix)return;let busy=0,active=0;
+class R extends MR{
+  constructor(s,o){if(busy)throw new Error('前の録画を保存しています');o=Object.assign({},o||{});
+    const au=s&&s.getAudioTracks&&s.getAudioTracks().length>0;
+    if(!o.mimeType||/^video\/mp4/.test(o.mimeType)){
+      const c=[au?'video/mp4;codecs="avc1.42E01E,mp4a.40.2"':'video/mp4;codecs="avc1.42E01E"','video/mp4'].find(m=>MR.isTypeSupported(m));
+      if(c)o.mimeType=c;else if(o.mimeType&&!MR.isTypeSupported(o.mimeType))delete o.mimeType;}
+    if(!o.videoBitsPerSecond&&!o.bitsPerSecond)o.videoBitsPerSecond=6e6;
+    super(s,o);this.addEventListener('stop',()=>{active=Math.max(0,active-1);setTimeout(()=>{busy=0;},0);});}
+  start(t){const r=super.start(t==null?1000:t);active++;return r;}
+  stop(){if(this.state!=='inactive'){busy=1;setTimeout(()=>{busy=0;},15000);}return super.stop();}}
+R.__recfix=1;window.MediaRecorder=R;
+const AC=window.AudioContext||window.webkitAudioContext;
+if(AC&&AC.prototype.suspend){const sus=AC.prototype.suspend;AC.prototype.suspend=function(){return active?Promise.resolve():sus.call(this);};}
+/* 録音用の出口には常に無音を流しておく（何も鳴っていないと音声トラックにデータが来ず、録画全体が止まる） */
+if(AC&&AC.prototype.createMediaStreamDestination){const cmd=AC.prototype.createMediaStreamDestination;AC.prototype.createMediaStreamDestination=function(){const d=cmd.apply(this,arguments);
+  try{const c=this.createConstantSource();c.offset.value=0;c.connect(d);c.start();}catch(e){}return d;};}})();</script>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="description" content="鏡張りの暗い部屋で、映った人が何百人にも映り込み、無数の灯りといっしょに奥の闇まで並ぶ。動くと遠くの自分ほど遅れてついてきて、光の波が無限の奥へ走る。撮影と録画ができる。">
+<meta name="theme-color" content="#000000">
+<title>MUGEN ─ 無限の鏡の部屋に立つ</title>
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  MUGEN 無限 ─ 無限の鏡の部屋に立つ                      ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  REFERENCE  草間彌生のインフィニティ・ミラー・ルーム（「永遠の消滅の余波」の
+             金の灯籠、「何百万光年も彼方の魂」の七色の灯り）。美術館で人が
+             列に並んで、その中で一枚だけ撮って出てくる、あの写真。
+  MOOD       明かりの落ちた鏡の箱。あなたは真ん中に立ち、左右と奥の鏡に
+             映ったあなたが格子のように並んで、灯りといっしょに闇の果てへ
+             消えていく。遠くの映り込みほど光が往復する時間ぶん遅れるので、
+             動くとその動きが波になって無限の奥へ伝わっていく。
+  PALETTE    黒 #000 の部屋と水鏡の床。灯りは版ごとに一系統だけ。
+             金   #ffb35a〜#ff7a2a（蝋燭の色の灯籠、既定）
+             七色 深い紅・瑠璃・翡翠・琥珀・菫がゆっくり入れ替わる
+             氷   #dfe9ff〜#7fb6ff（白い LED）
+             人物は灯りの色に染まった暗い肌。差し色は灯りそのもの。
+  TYPE       Lexend Zetta 200（幅の広い細い欧文、美術館の壁の題箋）
+             ＋ Noto Serif JP 300（和文）。UI は小さく、画面は部屋に譲る。
+  MOTION     灯りはゆっくり瞬き、ときどき部屋ごと呼吸するように消えては灯る。
+             映り込みは鏡一枚ごとに少しずつ遅れる。動いた量は光の波になって
+             手前から奥へ走る。切り替えは、暗転 → 手前から奥へ灯りがともり、
+             映り込みが一列ずつ現れる。
+  SIGNATURE  止まれば何百人のあなたが揃って静止し、動けばその列が波打つ。
+  LAYERS     ① 左右と奥の鏡に並ぶ映り込みの格子（隣の鏡ごとに左右反転）
+             ② 鏡一枚ごとの遅れ ── 動きが奥へ波として伝わる
+             ③ 何千もの灯り（手前のぼけ・奥の点・水鏡の床に映る灯り）
+             ④ 動いた量が光の波になって奥へ走る（音もこだまする）
+             ⑤ 版：金・七色・氷
+             ⑥ 部屋の呼吸（灯りがすべて消えて、また灯る）
+             ⑦ 素のカメラ ⇄ 鏡の部屋 の切り替え（暗転→手前から点灯）
+             ⑧ にじみ（ブルーム）と粒子
+  TECH       Canvas2D。セルフィーセグメンタのマスクで切り抜いた自分を時刻つきの
+             リングバッファに積み、映り込みごとに「鏡の枚数 × 遅れ」だけ前の
+             コマを引く。灯りと映り込みは奥から手前へ一列に並べて描く。
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Lexend+Zetta:wght@200;400&family=Noto+Serif+JP:wght@300&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#000;--fg:#efe9df;--dim:rgba(239,233,223,.5);--line:rgba(239,233,223,.18);--acc:#ffb35a}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none}
+html,body{margin:0;height:100%;background:var(--bg);overflow:hidden;color:var(--fg);
+  font-family:"Noto Serif JP","Hiragino Mincho ProN",serif;font-weight:300}
+#view{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:pointer}
+#cam{position:fixed;left:0;top:0;width:2px;height:2px;opacity:.01;pointer-events:none}
+.lx{font-family:"Lexend Zetta",sans-serif;font-weight:200}
+
+#start{position:fixed;inset:0;z-index:30;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;
+  padding:28px;text-align:center;background:#000;overflow:hidden}
+#start .dots{position:absolute;inset:0;pointer-events:none}
+#start .dots i{position:absolute;border-radius:50%;background:#ffd39a;box-shadow:0 0 10px 3px rgba(255,160,70,.55);animation:tw 4s ease-in-out infinite}
+@keyframes tw{0%,100%{opacity:.25}50%{opacity:1}}
+#start .t{font:200 10px "Lexend Zetta",sans-serif;letter-spacing:.5em;margin-right:-.5em;color:var(--dim);position:relative}
+#start h1{margin:0;font:200 min(13vw,76px)/1 "Lexend Zetta",sans-serif;letter-spacing:.12em;margin-right:-.12em;color:#fff;position:relative;
+  text-shadow:0 0 28px rgba(255,170,80,.35)}
+#start p{margin:0;font-size:12.5px;line-height:2.1;color:var(--dim);letter-spacing:.1em;position:relative}
+#go{position:relative;appearance:none;border:1px solid var(--line);background:rgba(0,0,0,.4);color:var(--fg);font:200 12px "Lexend Zetta",sans-serif;
+  letter-spacing:.32em;padding:13px 26px 13px 30px;cursor:pointer;transition:border-color .3s,background .3s}
+#go:hover{border-color:var(--acc);background:rgba(255,179,90,.06)}
+#err{position:relative;font-size:12px;line-height:1.8;max-width:340px;min-height:1em;white-space:pre-line;color:#f0a8a0;font-family:sans-serif}
+
+.btn{position:fixed;z-index:12;appearance:none;border:0;background:transparent;color:var(--fg);font:300 12px "Noto Serif JP",serif;
+  letter-spacing:.12em;padding:10px 8px;display:none;cursor:pointer;opacity:.7;transition:opacity .3s,color .3s;text-shadow:0 0 6px rgba(0,0,0,.8)}
+.btn.show{display:block}
+.btn:hover{opacity:1}
+#gear{right:10px;top:calc(env(safe-area-inset-top) + 6px);font:14px sans-serif;letter-spacing:0}
+#flip{right:10px;top:calc(env(safe-area-inset-top) + 40px);font-size:11px;letter-spacing:.06em}
+#bar{position:fixed;left:0;right:0;bottom:calc(env(safe-area-inset-bottom) + 10px);z-index:12;display:none;justify-content:center;align-items:center;gap:22px}
+#bar.show{display:flex}
+#bar .btn{position:static;display:block}
+#bar #shoot{position:relative;width:44px;height:44px;border-radius:50%;border:1px solid var(--line);padding:0;opacity:.9}
+#shoot::after{content:"";position:absolute;inset:10px;border-radius:50%;background:#f4efe6;box-shadow:0 0 12px rgba(255,190,110,.5)}
+#rec.on{opacity:1;color:#ff9b7a}
+#status{position:fixed;left:14px;top:calc(env(safe-area-inset-top) + 14px);z-index:11;font:11px sans-serif;letter-spacing:.04em;
+  color:var(--dim);pointer-events:none;max-width:76vw;line-height:1.7;white-space:pre-line;text-shadow:0 0 6px #000}
+
+#panel{position:fixed;right:10px;top:calc(env(safe-area-inset-top) + 76px);z-index:12;width:min(272px,calc(100vw - 20px));
+  max-height:calc(100vh - 170px);overflow:auto;
+  background:rgba(0,0,0,.82);border:1px solid var(--line);padding:14px 16px;display:flex;flex-direction:column;gap:12px;
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);transition:opacity .25s}
+#panel.hide{opacity:0;pointer-events:none}
+.chips{display:flex;border:1px solid var(--line)}
+.chips button{flex:1;appearance:none;border:0;background:transparent;color:var(--fg);padding:8px 2px;font:300 12px "Noto Serif JP",serif;
+  letter-spacing:.1em;cursor:pointer;opacity:.45}
+.chips button.on{opacity:1;background:rgba(239,233,223,.08)}
+#panel label{display:flex;align-items:center;gap:10px;font-size:11px;letter-spacing:.04em}
+#panel label span{width:78px;flex:none;color:var(--dim)}
+#panel input[type=range]{flex:1;accent-color:#e6c9a0}
+#panel .tg{display:flex;gap:6px}
+#panel .tg button{flex:1;appearance:none;border:1px solid var(--line);background:transparent;color:var(--fg);padding:7px 2px;
+  font:300 10px "Noto Serif JP",serif;cursor:pointer;opacity:.45}
+#panel .tg button.on{opacity:1;border-color:#e6c9a0}
+#panel .note{font-size:10px;color:var(--dim);line-height:1.8}
+#mode{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom) + 74px);z-index:13;display:none;
+  appearance:none;border:1px solid var(--line);background:rgba(0,0,0,.45);color:var(--fg);
+  font:200 11px "Lexend Zetta",sans-serif;letter-spacing:.3em;padding:11px 20px 11px 24px;cursor:pointer;
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);transition:border-color .3s}
+#mode.show{display:block}
+#mode:hover{border-color:var(--acc)}
+body.cam #mode{border-color:rgba(255,255,255,.6);color:#fff;background:rgba(0,0,0,.35)}
+body.cam .btn{color:#fff}
+</style>
+</head>
+<body>
+<canvas id="view"></canvas>
+<video id="cam" playsinline muted autoplay></video>
+<div id="status"></div>
+<button id="gear" class="btn" aria-label="調整">⚙</button>
+<button id="flip" class="btn">⟲ カメラ</button>
+<button id="mode">ENTER</button>
+<div id="bar">
+  <button id="rec" class="btn">● 録画</button>
+  <button id="shoot" class="btn" aria-label="撮る"></button>
+  <button id="pal" class="btn">金</button>
+</div>
+
+<div id="panel" class="hide">
+  <div class="chips" id="pals">
+    <button data-p="0" class="on">金</button>
+    <button data-p="1">七色</button>
+    <button data-p="2">氷</button>
+  </div>
+  <label><span>灯りの数</span><input type="range" id="sDen" min="0" max="1" step="0.01" value="0.55"></label>
+  <label><span>鏡の遅れ</span><input type="range" id="sLag" min="0" max="1" step="0.01" value="0.45"></label>
+  <label><span>奥行き</span><input type="range" id="sDepth" min="0" max="1" step="0.01" value="0.6"></label>
+  <label><span>鏡の間隔</span><input type="range" id="sSpace" min="0" max="1" step="0.01" value="0.45"></label>
+  <label><span>あなたの明るさ</span><input type="range" id="sSkin" min="0" max="1" step="0.01" value="0.55"></label>
+  <label><span>にじみ</span><input type="range" id="sBloom" min="0" max="1" step="0.01" value="0.55"></label>
+  <label><span>音量</span><input type="range" id="sVol" min="0" max="1" step="0.01" value="0.4"></label>
+  <div class="tg">
+    <button id="tBreath" class="on">部屋の呼吸</button>
+    <button id="tFloor" class="on">水鏡の床</button>
+  </div>
+  <div class="note">遠くの映り込みほど遅れてついてくる。<br>動くと光の波が奥へ走る。<br>画面をタップすると灯りの色が替わる。</div>
+</div>
+
+<div id="start">
+  <div class="dots" id="dots"></div>
+  <div class="t">INFINITY ROOM</div>
+  <h1>MUGEN</h1>
+  <p>まずは、いつものカメラ。<br>ボタンを押すと明かりが落ち、鏡の部屋に灯りがともる。<br>ゆっくり動いてみて。</p>
+  <button id="go">ENTER</button>
+  <div id="err"></div>
+</div>
+
+<script>
+'use strict';
+/* =====================================================================
+   MUGEN — you, a mirrored box, and a few thousand lights.
+   per frame:
+     video + mask → a cut-out of you (tinted by the room's light) → pushed into a
+     timed ring → the lattice of reflections is drawn far → near, each copy taking
+     the frame from (mirrors crossed × lag) ago, interleaved with the lanterns at
+     their depths → bloom + grain → mode transition.
+   ===================================================================== */
+const VISION_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs';
+const WASM_URL   = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm';
+const SEG_MODEL  = 'https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite';
+
+const $ = id => document.getElementById(id);
+const view = $('view'), video = $('cam');
+const ctx = view.getContext('2d', { alpha:false });
+const S = { pal:0, den:.55, lag:.45, depth:.6, space:.45, skin:.55, bloom:.55, vol:.4, breath:true, floor:true };
+const PALS = ['金', '七色', '氷'];
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+const ease = t => 1 - Math.pow(1 - clamp(t, 0, 1), 3);
+const TEST = { maxDt:.1, res:1600 };
+
+/* ---------- palettes ---------- */
+// each palette: 12 lantern tints (rgb) + the light that falls on you
+const PAL = [
+  { name:'gold', tints:[], skin:[255, 178, 104], haze:[60, 28, 6] },
+  { name:'souls', tints:[], skin:[200, 170, 230], haze:[20, 10, 40] },
+  { name:'ice', tints:[], skin:[178, 206, 255], haze:[8, 20, 48] },
+];
+(function buildTints(){
+  const hsl = (h, s, l) => { h = ((h % 1) + 1) % 1; const a = s * Math.min(l, 1 - l);
+    const f = n => { const k = (n + h * 12) % 12; return l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1)); };
+    return [f(0) * 255 | 0, f(8) * 255 | 0, f(4) * 255 | 0]; };
+  for (let k = 0; k < 12; k++){
+    PAL[0].tints.push(hsl(.055 + k * .006, 1, .55 + (k % 3) * .04));          // candle amber → orange
+    PAL[1].tints.push(hsl(k / 12, .85, .55));                                    // the souls: a slow wheel
+    PAL[2].tints.push(hsl(.58 + (k % 4) * .015, .9 - (k % 3) * .25, .78 - (k % 2) * .08));   // white-blue LED
+  }
+})();
+// glow sprites, one per tint: hot white core, coloured halo
+const SPR = 64;
+const SPRITES = PAL.map(p => p.tints.map(([r, g, b]) => {
+  const c = document.createElement('canvas'); c.width = c.height = SPR; const x = c.getContext('2d');
+  const gr = x.createRadialGradient(SPR / 2, SPR / 2, 0, SPR / 2, SPR / 2, SPR / 2);
+  gr.addColorStop(0, 'rgba(255,255,255,1)');
+  gr.addColorStop(.09, `rgba(${Math.min(255, r + 120)},${Math.min(255, g + 110)},${Math.min(255, b + 90)},1)`);
+  gr.addColorStop(.2, `rgba(${r},${g},${b},.55)`);
+  gr.addColorStop(.45, `rgba(${r},${g},${b},.13)`);
+  gr.addColorStop(1, `rgba(${r},${g},${b},0)`);
+  x.fillStyle = gr; x.fillRect(0, 0, SPR, SPR); return c;
+}));
+
+/* ---------- geometry ---------- */
+const G = { W:0, H:0, ox:0, oy:0, dw:0, dh:0, short:1, vpx:0, vpy:0, sp:1, dz:.62, J:8, floorY:1 };
+let vidW = 1280, vidH = 720;
+function resize(){
+  const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+  let w = Math.round(innerWidth * dpr), h = Math.round(innerHeight * dpr);
+  const k = Math.min(1, TEST.res / Math.max(w, h)); w = Math.round(w * k); h = Math.round(h * k);
+  const va = (vidW || 16) / (vidH || 9), ca = w / h;
+  let dw, dh; if (va > ca){ dh = h; dw = h * va; } else { dw = w; dh = w / va; }
+  // step back a little so there is room above your head; never crop a wide camera to a sliver on a tall screen
+  G.cdw = dw; G.cdh = dh; G.cox = (w - dw) / 2; G.coy = (h - dh) / 2;        // the plain camera fills the screen
+  const pull = Math.min(w > h ? .84 : .9, 1.9 * w / dw); dw *= pull; dh *= pull;
+  const J = 4 + Math.round(S.depth * 9);
+  const sp = Math.min(dw, dh) * (.5 + S.space * .5);
+  const changed = w !== G.W || h !== G.H || Math.abs(dw - G.dw) > .5 || J !== G.J || Math.abs(sp - G.sp) > .5 || S.den !== G.den;
+  if (w !== G.W || h !== G.H){ G.W = view.width = w; G.H = view.height = h; allocPost(); }
+  G.dw = dw; G.dh = dh; G.ox = (w - dw) / 2; G.oy = h - dh * .97; G.short = Math.min(w, h);
+  G.vpx = w / 2; G.vpy = h * (h > w ? .4 : .42); G.J = J; G.sp = sp; G.den = S.den; G.dz = w > h ? .85 : .62;
+  G.floorY = (h - G.vpy) * 1.04;
+  if (changed) buildRoom();
+}
+
+/* ---------- the room: lantern lattice + reflection lattice, sorted far → near ---------- */
+// one cell's worth of lanterns, mirrored into every cell (odd cells flip in x, odd rows flip in z)
+let LAN = null, LN = 0;          // typed: x, y, z, size, seed, tint
+let ROWS = [];                   // per row j: list of i
+const PERF = { q:1, avg:16 };
+function buildRoom(){
+  const sp = G.sp, J = G.J, W = G.W;
+  const per = Math.round((5 + S.den * 13) * PERF.q);
+  const rnd = mulberry(7);
+  const base = [];
+  for (let n = 0; n < per; n++){
+    base.push({ lx:(rnd() - .5) * sp, ly:-G.vpy * (1.05 - rnd() * 1.25) , lz:rnd(), size:.6 + rnd() * .8, seed:rnd(), tint:(rnd() * 12) | 0 });
+  }
+  // rows of reflections, and how many cells each row needs to cover the screen
+  ROWS = [];
+  const list = [];
+  for (let j = -1; j <= J; j++){
+    const sMid = 1 / (1 + Math.max(j + .5, -.45) * G.dz);
+    const K = Math.min(14, Math.ceil((W / 2) / (sp * sMid) + G.dw / (2 * sp)) + 1);
+    if (j >= 0){ const r = []; for (let i = -K; i <= K; i++) r.push(i); ROWS[j] = r; }
+    for (let i = -K; i <= K; i++){
+      for (const b of base){
+        let z = j + (j & 1 ? 1 - b.lz : b.lz);
+        if (j === -1){ z = -b.lz * .5; if (b.seed < .55) continue; }      // a few in front of you, big and soft
+        if (z > J + .5) continue;
+        const x = i * sp + (i & 1 ? -b.lx : b.lx);
+        list.push([x, b.ly, z, b.size, b.seed, b.tint]);
+      }
+    }
+  }
+  list.sort((a, b) => b[2] - a[2]);
+  LN = list.length; LAN = new Float32Array(LN * 6);
+  for (let k = 0; k < LN; k++) for (let q = 0; q < 6; q++) LAN[k * 6 + q] = list[k][q];
+}
+function mulberry(a){ return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+
+/* ---------- mask ---------- */
+const M = { w:0, h:0, has:false, external:false, t:-1e9, motion:0, area:0, lastObs:-1, prev:null, img:null };
+const maskC = document.createElement('canvas'), maskX = maskC.getContext('2d');
+const rawC = document.createElement('canvas'), rawX = rawC.getContext('2d');
+const rimC = document.createElement('canvas'), rimX = rimC.getContext('2d');
+const ovalC = document.createElement('canvas');           // fallback when there is no model: a soft oval
+(function(){ ovalC.width = 128; ovalC.height = 72; const x = ovalC.getContext('2d');
+  const g = x.createRadialGradient(64, 40, 4, 64, 40, 46); g.addColorStop(0, '#fff'); g.addColorStop(.7, 'rgba(255,255,255,.85)'); g.addColorStop(1, 'rgba(255,255,255,0)');
+  x.fillStyle = g; x.fillRect(0, 0, 128, 72); })();
+function ingestMask(arr, w, h, now){
+  if (!arr || !(w > 0) || !(h > 0) || arr.length < w * h) return false;
+  now = now == null ? performance.now() : now;
+  if (M.w !== w || M.h !== h || !M.img){
+    M.w = w; M.h = h; maskC.width = rawC.width = w; maskC.height = rawC.height = h; M.img = rawX.createImageData(w, h); M.prev = new Uint8Array(w * h); M.lastObs = -1;
+    const d = M.img.data; for (let i = 0; i < w * h; i++){ d[i * 4] = d[i * 4 + 1] = d[i * 4 + 2] = 255; }
+  }
+  const d = M.img.data, fadeFrom = h * .82;
+  let diff = 0, area = 0;
+  for (let y = 0; y < h; y++){
+    // the bottom of the frame melts into the dark, so the reflections have no hard edge where the picture ends
+    const fy = y < fadeFrom ? 1 : Math.max(0, 1 - (y - fadeFrom) / (h - fadeFrom));
+    for (let x = 0; x < w; x++){
+      const i = y * w + x;
+      let v = +arr[i]; if (!(v > 0)) v = 0; else if (v > 1) v = 1;
+      v = v < .25 ? 0 : v > .75 ? 1 : (v - .25) * 2;
+      const b = (v * 255) | 0;
+      const dd = b - M.prev[i]; diff += dd < 0 ? -dd : dd; area += b; M.prev[i] = b;
+      d[i * 4 + 3] = (b * fy) | 0;
+    }
+  }
+  rawX.putImageData(M.img, 0, 0);
+  maskX.globalCompositeOperation = 'copy'; maskX.filter = 'blur(1px)'; maskX.drawImage(rawC, 0, 0); maskX.filter = 'none';
+  M.has = true; M.t = now;
+  const dtObs = M.lastObs < 0 ? 0 : clamp((now - M.lastObs) / 1000, 0, .25); M.lastObs = now;
+  M.area = area / 255 / (w * h);
+  const mot = area > 255 * 40 && dtObs > 0 ? diff / area / Math.max(dtObs, 1 / 60) * (1 / 30) : 0;
+  M.motion += (clamp(mot, 0, 1) - M.motion) * .45;
+  return true;
+}
+let segmenter = null, lastTs = 0, lastVT = -1;
+async function initModel(){
+  try{
+    const vision = await import(VISION_URL);
+    const fs = await vision.FilesetResolver.forVisionTasks(WASM_URL);
+    const so = d => ({ baseOptions:{ modelAssetPath:SEG_MODEL, delegate:d }, runningMode:'VIDEO', outputConfidenceMasks:true, outputCategoryMask:false });
+    try { segmenter = await vision.ImageSegmenter.createFromOptions(fs, so('GPU')); }
+    catch(e){ segmenter = await vision.ImageSegmenter.createFromOptions(fs, so('CPU')); }
+    if (!M.external) setStatus('');
+  }catch(e){
+    if (M.external) return;
+    setStatus('人物検出モデルを読み込めませんでした（ネット接続を確認）。\n切り抜かずに続けます。');
+  }
+}
+function detect(now){
+  if (!segmenter || M.external || video.readyState < 2) return;
+  const vt = video.currentTime; if (vt === lastVT) return; lastVT = vt;
+  const ts = Math.max(lastTs + 1, Math.round(now)); lastTs = ts;
+  try{
+    segmenter.segmentForVideo(video, ts, res => {
+      const ms = res && res.confidenceMasks; if (!ms || !ms.length) return;
+      const mk = ms[ms.length - 1]; ingestMask(mk.getAsFloat32Array(), mk.width, mk.height, now);
+    });
+  }catch(e){}
+}
+
+/* ---------- cut-outs: a hi-res "now" and a timed ring of smaller past frames ---------- */
+const RING_N = 48, RING_LONG = 560, NEAR_LONG = 1280;
+const RING = [];                         // { c, x, t }
+let ringHead = -1, ringLast = -1e9, ringW = 0, ringH = 0;
+const nearC = document.createElement('canvas'), nearX = nearC.getContext('2d');
+function allocCut(){
+  const a = vidW / vidH;
+  const rw = a >= 1 ? RING_LONG : Math.round(RING_LONG * a), rh = a >= 1 ? Math.round(RING_LONG / a) : RING_LONG;
+  if (rw !== ringW || rh !== ringH){
+    ringW = rw; ringH = rh; RING.length = 0; ringHead = -1;
+    for (let k = 0; k < RING_N; k++){ const c = document.createElement('canvas'); c.width = rw; c.height = rh; RING.push({ c, x:c.getContext('2d'), t:-1e9 }); }
+  }
+  const nl = Math.min(NEAR_LONG, Math.max(vidW, vidH));
+  nearC.width = a >= 1 ? nl : Math.round(nl * a); nearC.height = a >= 1 ? Math.round(nl / a) : nl;
+}
+let skinRGB = [255, 178, 104];
+function cutInto(x, w, h, bright){
+  x.save();
+  x.globalCompositeOperation = 'copy'; x.globalAlpha = 1;
+  if (mirror){ x.translate(w, 0); x.scale(-1, 1); }
+  if (video.readyState >= 2) x.drawImage(video, 0, 0, w, h); else { x.fillStyle = '#000'; x.fillRect(0, 0, w, h); }
+  x.setTransform(1, 0, 0, 1, 0, 0);
+  // the room's light: everything takes the lanterns' colour, darker than daylight
+  x.globalCompositeOperation = 'multiply';
+  const k = bright;
+  x.fillStyle = `rgb(${skinRGB[0] * k | 0},${skinRGB[1] * k | 0},${skinRGB[2] * k | 0})`;
+  x.fillRect(0, 0, w, h);
+  x.globalCompositeOperation = 'destination-in';
+  const hasMask = M.has && (performance.now() - M.t < 1500 || M.external);
+  if (mirror){ x.translate(w, 0); x.scale(-1, 1); }
+  x.drawImage(hasMask ? maskC : ovalC, 0, 0, w, h);
+  x.restore();
+  // rim light: the lanterns all around catch the edge of you
+  if (hasMask && ringW){
+    const rw = ringW, rh = ringH;
+    if (rimC.width !== rw || rimC.height !== rh){ rimC.width = rw; rimC.height = rh; }
+    rimX.save();
+    rimX.globalCompositeOperation = 'copy'; rimX.filter = 'none';
+    rimX.drawImage(maskC, 0, 0, rw, rh);
+    rimX.globalCompositeOperation = 'destination-out'; rimX.filter = `blur(${Math.max(1, rw * .007).toFixed(1)}px)`;
+    rimX.drawImage(maskC, 0, rw * .004, rw, rh);
+    rimX.filter = 'none'; rimX.globalCompositeOperation = 'source-in';
+    rimX.fillStyle = `rgb(${Math.min(255, skinRGB[0] + 40)},${Math.min(255, skinRGB[1] + 30)},${Math.min(255, skinRGB[2] + 20)})`;
+    rimX.fillRect(0, 0, rw, rh);
+    rimX.restore();
+    x.save(); x.globalCompositeOperation = 'lighter'; x.globalAlpha = Math.min(1, bright * 1.6);
+    if (mirror){ x.translate(w, 0); x.scale(-1, 1); }
+    x.drawImage(rimC, 0, 0, w, h); x.restore();
+  }
+}
+
+/* ---------- motion → a pulse of light that runs into the depth ---------- */
+const PULSE = new Float32Array(256); let pulseHead = 0, pulseLast = 0;   // sampled at 60 Hz
+function pulseAt(ago){ const k = Math.round(ago * 60); if (k >= 255) return 0; return PULSE[(pulseHead - k + 256 * 4) & 255]; }
+
+/* ---------- camera ---------- */
+let stream = null, facing = 'user', mirror = true, started = false;
+function setStatus(t){ $('status').textContent = t || ''; }
+function camError(e){
+  const msg = (e && (e.message || e.name)) ? (e.message || e.name) : String(e || 'unknown');
+  const text = 'カメラを起動できませんでした：' + msg + '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+  $('err').textContent = text;
+  if (started) setStatus(text);
+}
+async function startCam(){
+  const md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) throw new Error('getUserMedia is unavailable');
+  const s = await md.getUserMedia({ video:{ facingMode:{ ideal:facing }, width:{ ideal:1280 }, height:{ ideal:720 } }, audio:false });
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = s; mirror = facing === 'user';
+  video.srcObject = s;
+  await new Promise(r => { if (video.readyState >= 1) r(); else video.onloadedmetadata = () => r(); });
+  await video.play().catch(()=>{});
+  vidW = video.videoWidth || 1280; vidH = video.videoHeight || 720;
+  M.lastObs = -1; M.motion = 0;
+  allocCut(); resize();
+}
+
+/* ---------- audio: a glass bell, and its echoes running off into the mirrors ---------- */
+let actx = null, bus = null, recDest = null, echo = null;
+function ensureAudio(){
+  if (actx){ if (actx.state === 'suspended') actx.resume().catch(()=>{}); return; }
+  const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+  try{
+    actx = new AC(); bus = actx.createGain(); bus.gain.value = 1; bus.connect(actx.destination);
+    recDest = actx.createMediaStreamDestination(); bus.connect(recDest);
+    // a ping-pong of delays — each echo a reflection further away, darker and quieter
+    const inG = actx.createGain(), dl = actx.createDelay(1), dr = actx.createDelay(1), fb = actx.createGain(), lp = actx.createBiquadFilter();
+    dl.delayTime.value = .23; dr.delayTime.value = .31; fb.gain.value = .58; lp.type = 'lowpass'; lp.frequency.value = 2600;
+    inG.connect(dl); dl.connect(lp); lp.connect(dr); dr.connect(fb); fb.connect(dl);
+    if (actx.createStereoPanner){ const pl = actx.createStereoPanner(), pr = actx.createStereoPanner(); pl.pan.value = -.7; pr.pan.value = .7;
+      dl.connect(pl); pl.connect(bus); dr.connect(pr); pr.connect(bus); }
+    else { dl.connect(bus); dr.connect(bus); }
+    echo = inG;
+    actx.resume().catch(()=>{});
+  }catch(e){ actx = null; }
+}
+const SCALES = [[293.66, 369.99, 440, 554.37, 659.25], [261.63, 311.13, 392, 466.16, 587.33], [329.63, 415.3, 493.88, 622.25, 739.99]];
+function bell(amt){
+  if (!actx || actx.state !== 'running' || S.vol <= 0) return;
+  const t = actx.currentTime, sc = SCALES[S.pal], f = sc[(Math.random() * sc.length) | 0] * (Math.random() < .3 ? 2 : 1);
+  const g = actx.createGain(); g.gain.setValueAtTime(.0001, t);
+  g.gain.exponentialRampToValueAtTime(.09 * S.vol * (.5 + amt), t + .01); g.gain.exponentialRampToValueAtTime(.0001, t + 2.4);
+  for (const [m, a] of [[1, 1], [2.76, .35], [5.4, .12]]){
+    const o = actx.createOscillator(), og = actx.createGain(); o.type = 'sine'; o.frequency.value = f * m; og.gain.value = a;
+    o.connect(og); og.connect(g); o.start(t); o.stop(t + 2.5);
+  }
+  g.connect(bus); if (echo) g.connect(echo);
+}
+function hush(){
+  if (!actx || actx.state !== 'running') return;
+  const t = actx.currentTime, o = actx.createOscillator(), g = actx.createGain();
+  o.type = 'sine'; o.frequency.setValueAtTime(110, t); o.frequency.exponentialRampToValueAtTime(55, t + 1.4);
+  g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime(.12 * (.2 + S.vol), t + .05); g.gain.exponentialRampToValueAtTime(.0001, t + 1.6);
+  o.connect(g); g.connect(bus); if (echo) g.connect(echo); o.start(t); o.stop(t + 1.7);
+}
+
+/* ---------- mode ---------- */
+const MODE = { on:false, X:0 };
+function setMode(on){
+  if (on === MODE.on) return;
+  MODE.on = on; MODE.X = 0;
+  $('mode').textContent = on ? 'LEAVE' : 'ENTER';
+  document.body.classList.toggle('cam', !on);
+  $('pal').style.visibility = on ? 'visible' : 'hidden';
+  hush();
+}
+function setPal(i){
+  S.pal = ((i % 3) + 3) % 3;
+  [...$('pals').children].forEach(x => x.classList.toggle('on', +x.dataset.p === S.pal));
+  $('pal').textContent = PALS[S.pal];
+  palX = 0;
+}
+let palX = 9;
+
+/* ---------- UI ---------- */
+$('mode').onclick = () => setMode(!MODE.on);
+addEventListener('keydown', e => {
+  if (!started || document.activeElement.tagName === 'INPUT') return;
+  if (e.key === ' ' || e.key === 'Enter'){ e.preventDefault(); setMode(!MODE.on); }
+  else if (e.key === 'p') setPal(S.pal + 1);
+});
+$('go').onclick = async () => {
+  $('err').textContent = '';
+  ensureAudio();
+  try { await startCam(); } catch(e){ camError(e); return; }
+  $('start').style.display = 'none';
+  ['gear','flip','bar','rec','shoot','pal','mode'].forEach(id => $(id).classList.add('show'));
+  MODE.on = true; setMode(false);
+  if (!started){ started = true; initModel(); requestAnimationFrame(loop); }
+};
+$('flip').onclick = async () => {
+  const prev = facing; facing = facing === 'user' ? 'environment' : 'user';
+  try { await startCam(); } catch(e){ facing = prev; camError(e); }
+};
+$('gear').onclick = () => $('panel').classList.toggle('hide');
+$('pal').onclick = () => setPal(S.pal + 1);
+$('pals').onclick = e => { const b = e.target.closest('button'); if (b) setPal(+b.dataset.p); };
+[['sDen','den'],['sLag','lag'],['sDepth','depth'],['sSpace','space'],['sSkin','skin'],['sBloom','bloom'],['sVol','vol']]
+  .forEach(([id, k]) => { $(id).oninput = e => { S[k] = +e.target.value; }; });
+$('tBreath').onclick = e => { S.breath = !S.breath; e.target.classList.toggle('on', S.breath); };
+$('tFloor').onclick = e => { S.floor = !S.floor; e.target.classList.toggle('on', S.floor); };
+let down = null;
+view.addEventListener('pointerdown', e => { down = { x:e.clientX, y:e.clientY, t:performance.now() }; });
+view.addEventListener('pointerup', e => {
+  if (down && Math.hypot(e.clientX - down.x, e.clientY - down.y) < 12 && performance.now() - down.t < 600){
+    if (!$('panel').classList.contains('hide')) $('panel').classList.add('hide');
+    else if (MODE.on) setPal(S.pal + 1);
+  }
+  down = null;
+});
+$('shoot').onclick = () => {
+  try{
+    view.toBlob(b => { if (!b) return; const a = document.createElement('a'); a.href = URL.createObjectURL(b);
+      a.download = 'mugen-' + Date.now() + '.png'; a.click(); }, 'image/png');
+  }catch(e){ setStatus('保存できませんでした。'); }
+};
+let rec = null, chunks = [];
+$('rec').onclick = () => {
+  if (rec && rec.state === 'recording'){ rec.stop(); return; }
+  try{
+    const tracks = [...view.captureStream(30).getVideoTracks()];
+    if (recDest) tracks.push(...recDest.stream.getAudioTracks());
+    const mime = ['video/mp4;codecs=avc1','video/webm;codecs=vp9,opus','video/webm'].find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || '';
+    rec = new MediaRecorder(new MediaStream(tracks), mime ? { mimeType:mime } : {});
+    chunks = [];
+    rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+    rec.onstop = () => {
+      $('rec').classList.remove('on'); $('rec').textContent = '● 録画';
+      const ext = (rec.mimeType || '').includes('mp4') ? 'mp4' : 'webm';
+      const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(chunks, { type:rec.mimeType || 'video/webm' }));
+      a.download = 'mugen.' + ext; a.click();
+    };
+    rec.start(); $('rec').classList.add('on'); $('rec').textContent = '■ 停止';
+  }catch(e){ setStatus('録画を開始できませんでした。' + (e && e.message ? '\n' + e.message : '')); }
+};
+addEventListener('resize', () => { if (started) resize(); });
+
+/* ---------- post: bloom + grain ---------- */
+const bloomC = document.createElement('canvas'), bloomX = bloomC.getContext('2d');
+const grainC = document.createElement('canvas');
+(function(){ grainC.width = grainC.height = 192; const x = grainC.getContext('2d'), im = x.createImageData(192, 192);
+  for (let i = 0; i < im.data.length; i += 4){ const v = 128 + (Math.random() - .5) * 120; im.data[i] = im.data[i + 1] = im.data[i + 2] = v; im.data[i + 3] = 255; }
+  x.putImageData(im, 0, 0); })();
+let grainPat = null;
+function allocPost(){ bloomC.width = Math.max(8, G.W >> 3); bloomC.height = Math.max(8, G.H >> 3); grainPat = ctx.createPattern(grainC, 'repeat'); }
+
+/* ---------- frame ---------- */
+let lastT = 0, frameN = 0, bellCool = 0, breathT = 0;
+const STATS = { copies:0, lanterns:0, bells:0 };
+function breathe(dt){
+  // the Aftermath room: every so often all the lights sink into the dark, then return
+  if (!S.breath){ breathT = 0; return 1; }
+  breathT += dt;
+  const P = 26, u = breathT % P;
+  if (u < 18) return 1;
+  if (u < 21) return 1 - .94 * ease((u - 18) / 3);
+  if (u < 22.5) return .06;
+  return .06 + .94 * ease((u - 22.5) / 3.5);
+}
+function loop(now){
+  requestAnimationFrame(loop);
+  const dtRaw = (now - (lastT || now)) / 1000;
+  const dt = clamp(dtRaw, 0, TEST.maxDt); lastT = now; frameN++;
+  // quality: if frames get slow, thin out the lanterns (and back)
+  if (dtRaw > 0 && dtRaw < 1){ PERF.avg += (dtRaw * 1000 - PERF.avg) * .05;
+    if (frameN % 90 === 0 && !TEST.fixedQ){ const q0 = PERF.q;
+      if (PERF.avg > 42) PERF.q = Math.max(.35, PERF.q * .8); else if (PERF.avg < 22) PERF.q = Math.min(1, PERF.q * 1.12);
+      if (Math.abs(q0 - PERF.q) > .02) G.den = -1; } }
+  resize();
+  detect(now);
+  MODE.X += dt; palX += dt; bellCool -= dt;
+  if (now - M.t > 300){ M.motion *= Math.exp(-dt / .15); M.lastObs = -1; }      // tracking lost: no phantom motion
+  const W = G.W, H = G.H;
+  const breath = MODE.on ? breathe(dt) : 1;
+
+  // the light on you follows the palette (crossfaded when it changes) and the room's breath
+  const pk = ease(palX / 1.2), tgt = PAL[S.pal].skin;
+  for (let c = 0; c < 3; c++) skinRGB[c] += (tgt[c] - skinRGB[c]) * (palX < 1.2 ? .08 : 1);
+  const skinB = (.2 + S.skin * .55) * (.12 + .88 * breath);
+
+  // motion pulse
+  const nowS = now / 1000;
+  while (pulseLast < nowS){ pulseLast += 1 / 60; pulseHead = (pulseHead + 1) & 255; PULSE[pulseHead] = MODE.on ? clamp((M.motion - .015) * 7, 0, 1.4) : 0; }
+  if (pulseLast > nowS + 1) pulseLast = nowS;
+  if (MODE.on && M.motion > .05 && bellCool <= 0){ bell(clamp(M.motion * 5, 0, 1)); bellCool = .45 + Math.random() * .3; STATS.bells++; }
+
+  // cut-outs
+  if (!ringW) allocCut();
+  const camOn = !MODE.on && MODE.X > .45;
+  if (!camOn){
+    cutInto(nearX, nearC.width, nearC.height, skinB);
+    if (now - ringLast > 1000 / 30 - 2){
+      ringLast = now; ringHead = (ringHead + 1) % RING_N;
+      const r = RING[ringHead]; r.t = now;
+      r.x.globalCompositeOperation = 'copy'; r.x.drawImage(nearC, 0, 0, ringW, ringH);
+    }
+  }
+
+  // ---- draw ----
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
+  if (camOn){
+    // plain camera
+    ctx.save(); if (mirror){ ctx.translate(W, 0); ctx.scale(-1, 1); }
+    if (video.readyState >= 2) ctx.drawImage(video, mirror ? W - G.cox - G.cdw : G.cox, G.coy, G.cdw, G.cdh);
+    ctx.restore();
+    // the lights coming back up
+    if (MODE.X < 1.1){ ctx.fillStyle = `rgba(0,0,0,${1 - ease((MODE.X - .45) / .65)})`; ctx.fillRect(0, 0, W, H); }
+    return;
+  }
+  const haze = PAL[S.pal].haze;
+  ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
+  // a faint glow where the lights crowd together at the vanishing point
+  {
+    const g = ctx.createRadialGradient(G.vpx, G.vpy, 0, G.vpx, G.vpy, G.short * .9);
+    const hb = .9 * breath * ignite(G.J * .6);
+    g.addColorStop(0, `rgba(${haze[0] * 1.6 * hb | 0},${haze[1] * 1.6 * hb | 0},${haze[2] * 1.6 * hb | 0},1)`);
+    g.addColorStop(1, 'rgba(0,0,0,0)'); ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  }
+
+  const lag = .035 + S.lag * .13;
+  const tSec = now / 1000;
+  const spr = SPRITES[S.pal], sprPrev = SPRITES[(S.pal + 2) % 3];
+  const lanR = G.short * .024;
+  const fy = G.floorY;
+  let li = 0, nCopies = 0, nLan = 0;
+  const drawLanternsUntil = zStop => {
+    ctx.globalCompositeOperation = 'lighter';
+    for (; li < LN; li++){
+      const o = li * 6, z = LAN[o + 2];
+      if (z <= zStop) break;
+      const s = 1 / (1 + z * G.dz);
+      const X = LAN[o], Y = LAN[o + 1], seed = LAN[o + 4];
+      const sx = G.vpx + X * s; if (sx < -60 || sx > W + 60) continue;
+      const ig = ignite(z); if (ig <= 0) continue;
+      // candle flicker, the depth pulse and the room's breath
+      const fl = S.pal === 0 ? .72 + .28 * Math.sin(tSec * (2.1 + seed * 3) + seed * 40) * Math.sin(tSec * (1.3 + seed) + seed * 9)
+               : S.pal === 1 ? .8 + .2 * Math.sin(tSec * .7 + seed * 30) : .85 + .15 * Math.sin(tSec * 1.7 + seed * 50);
+      const pu = pulseAt(z * lag * 1.6);
+      let a = ig * breath * fl * (.55 + .45 * seed) + pu * .9 * ig;
+      if (a < .015) continue;
+      let r = lanR * LAN[o + 3] * s * (1 + pu * .5);
+      if (z < 0) r *= 1.8 + (-z) * 3;                   // in front of you: big and out of focus
+      let tint = LAN[o + 5] | 0;
+      if (S.pal === 1) tint = (tint + ((tSec * .25 + seed * 3 + z * .35) | 0)) % 12;   // the souls change colour in slow sequence
+      const sy = G.vpy + Y * s;
+      const aa = Math.min(1, a) * (z < 0 ? .45 : 1);
+      ctx.globalAlpha = aa * pk; ctx.drawImage(spr[tint], sx - r * 2.2, sy - r * 2.2, r * 4.4, r * 4.4);
+      if (pk < 1){ ctx.globalAlpha = aa * (1 - pk); ctx.drawImage(sprPrev[tint], sx - r * 2.2, sy - r * 2.2, r * 4.4, r * 4.4); }
+      nLan++;
+      if (S.floor && z > 0){        // and once more in the water on the floor
+        const ry = G.vpy + (2 * fy - Y) * s;
+        if (ry < H + r * 3){ ctx.globalAlpha = aa * .32 * pk; ctx.drawImage(spr[tint], sx - r * 2.2, ry - r * 1.6, r * 4.4, r * 3.2); nLan++; }
+      }
+    }
+    ctx.globalCompositeOperation = 'source-over';
+  };
+  const ring = (ago) => {
+    // newest frame at least `ago` seconds old
+    if (ringHead < 0) return null;
+    const want = now - ago * 1000;
+    let best = null;
+    for (let k = 0; k < RING_N; k++){
+      const r = RING[(ringHead - k + RING_N) % RING_N];
+      if (r.t < -1e8) break;
+      best = r; if (r.t <= want) break;
+    }
+    return best;
+  };
+  for (let j = G.J; j >= 0; j--){
+    drawLanternsUntil(j);
+    const show = rowIn(j); if (show <= 0) continue;
+    const s = 1 / (1 + j * G.dz), row = ROWS[j] || [0];
+    const w = G.dw * s, h = G.dh * s;
+    const y = G.vpy + (G.oy - G.vpy) * s;
+    for (const i of row){
+      if (j === 0) continue;          // your own row is you; the lattice starts one mirror behind
+      const cx = G.vpx + (G.ox + G.dw / 2 - G.vpx) * s + i * G.sp * s;
+      if (cx + w / 2 < 0 || cx - w / 2 > W) continue;
+      const bounces = Math.abs(i) + j;
+      const fr = ring(bounces * lag); if (!fr) continue;
+      const a = show * Math.pow(.86, bounces) * (1 - .25 * Math.min(1, j / G.J));
+      ctx.save();
+      ctx.translate(cx, y);
+      if (i & 1) ctx.scale(-1, 1);
+      ctx.globalAlpha = a; ctx.drawImage(fr.c, -w / 2, 0, w, h);
+      if (S.floor && j > 0){
+        const bot = (G.oy + G.dh - G.vpy) * s + G.vpy - y;
+        ctx.translate(0, 2 * bot); ctx.scale(1, -1);
+        ctx.globalAlpha = a * .12; ctx.drawImage(fr.c, -w / 2, 0, w, h);
+      }
+      ctx.restore();
+      nCopies++;
+    }
+  }
+  // you, now, sharp — then whatever hangs in front of you
+  ctx.globalAlpha = 1;
+  ctx.drawImage(nearC, G.ox, G.oy, G.dw, G.dh);
+  drawLanternsUntil(-9);
+  ctx.globalAlpha = 1;
+  STATS.copies = nCopies; STATS.lanterns = nLan;
+
+  // bloom
+  if (S.bloom > 0){
+    bloomX.globalCompositeOperation = 'copy';
+    bloomX.filter = 'blur(2px) contrast(2.6) brightness(.8)';      // only what is bright enough spills
+    bloomX.drawImage(view, 0, 0, bloomC.width, bloomC.height);
+    bloomX.filter = 'none';
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = .2 + S.bloom * .8;
+    ctx.drawImage(bloomC, 0, 0, W, H);
+    ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+  }
+  // grain
+  if (grainPat){
+    ctx.globalCompositeOperation = 'overlay'; ctx.globalAlpha = .09;
+    ctx.save(); ctx.translate((Math.random() * 192) | 0, (Math.random() * 192) | 0); ctx.fillStyle = grainPat; ctx.fillRect(-192, -192, W + 192, H + 192); ctx.restore();
+    ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+  }
+  // the lights going out (enter) / coming back (leave)
+  if (MODE.on && MODE.X < .45){
+    // first half: the plain camera sinks into black
+    ctx.save(); if (mirror){ ctx.translate(W, 0); ctx.scale(-1, 1); }
+    ctx.globalAlpha = 1 - ease(MODE.X / .45);
+    if (video.readyState >= 2) ctx.drawImage(video, mirror ? W - G.cox - G.cdw : G.cox, G.coy, G.cdw, G.cdh);
+    ctx.restore(); ctx.globalAlpha = 1;
+  }
+  if (!MODE.on){ ctx.fillStyle = `rgba(0,0,0,${ease(MODE.X / .45)})`; ctx.fillRect(0, 0, W, H); }
+}
+// entering: the lights come on from you outward, and the reflections appear one row at a time
+function ignite(z){ if (!MODE.on) return 1; return clamp((MODE.X - .7 - Math.max(0, z) * .22) / .5, 0, 1); }
+function rowIn(j){ if (!MODE.on) return 1; return ease((MODE.X - .6 - j * .2) / .45); }
+
+/* ---------- start screen: a few lights in perspective ---------- */
+(function(){
+  const box = $('dots'), r = mulberry(3);
+  for (let k = 0; k < 70; k++){
+    const z = r(), s = 1 / (1 + z * 5), x = 50 + (r() - .5) * 180 * s, y = 46 + (r() - .75) * 110 * s;
+    if (x < 0 || x > 100 || y < 0 || y > 100) continue;
+    const i = document.createElement('i'), d = 2 + 7 * s;
+    i.style.cssText = `left:${x}%;top:${y}%;width:${d}px;height:${d}px;opacity:${.3 + s};animation-delay:${(r() * 4).toFixed(2)}s`;
+    box.appendChild(i);
+  }
+})();
+
+/* ---------- test hook ---------- */
+window.__mugen = {
+  feedMask(arr, w, h, t){ if (!M.external) setStatus(''); M.external = true; return ingestMask(arr, w, h, t); },
+  setMode, setPal, test:TEST, S, PERF,
+  rebuild(){ G.den = -1; },
+  state(){ return { frame:frameN, mode:MODE.on, X:MODE.X, pal:S.pal, motion:+M.motion.toFixed(3), area:+M.area.toFixed(3),
+    copies:STATS.copies, lanterns:STATS.lanterns, lanternPool:LN, bells:STATS.bells, ring:ringHead, q:PERF.q, G:{ ...G } }; },
+};
+</script>
+</body>
+</html>
