@@ -1,0 +1,765 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<script>/* REC-FIX (2026-10-12) — iPhone Safari で録画が途中で止まる・壊れる対策。どの作品でも同じ内容。
+   ・mp4 は映像と音声の両方のコーデックを宣言する（avc1 だけだと音声付きで止まることがある）
+   ・1 秒ごとにデータを受け取る（最後に一括で書き出さない）／ビットレートに上限
+   ・保存が終わる前に次の録画を始めない（前のファイルが消えるのを防ぐ）
+   ・録画中は AudioContext を止めない（音声トラックが止まると mp4 ごと止まる） */
+(()=>{const MR=window.MediaRecorder;if(!MR||MR.__recfix)return;let busy=0,active=0;
+class R extends MR{
+  constructor(s,o){if(busy)throw new Error('前の録画を保存しています');o=Object.assign({},o||{});
+    const au=s&&s.getAudioTracks&&s.getAudioTracks().length>0;
+    if(!o.mimeType||/^video\/mp4/.test(o.mimeType)){
+      const c=[au?'video/mp4;codecs="avc1.42E01E,mp4a.40.2"':'video/mp4;codecs="avc1.42E01E"','video/mp4'].find(m=>MR.isTypeSupported(m));
+      if(c)o.mimeType=c;else if(o.mimeType&&!MR.isTypeSupported(o.mimeType))delete o.mimeType;}
+    if(!o.videoBitsPerSecond&&!o.bitsPerSecond)o.videoBitsPerSecond=6e6;
+    super(s,o);this.addEventListener('stop',()=>{active=Math.max(0,active-1);setTimeout(()=>{busy=0;},0);});}
+  start(t){const r=super.start(t==null?1000:t);active++;return r;}
+  stop(){if(this.state!=='inactive'){busy=1;setTimeout(()=>{busy=0;},15000);}return super.stop();}}
+R.__recfix=1;window.MediaRecorder=R;
+const AC=window.AudioContext||window.webkitAudioContext;
+if(AC&&AC.prototype.suspend){const sus=AC.prototype.suspend;AC.prototype.suspend=function(){return active?Promise.resolve():sus.call(this);};}
+/* 録音用の出口には常に無音を流しておく（何も鳴っていないと音声トラックにデータが来ず、録画全体が止まる） */
+if(AC&&AC.prototype.createMediaStreamDestination){const cmd=AC.prototype.createMediaStreamDestination;AC.prototype.createMediaStreamDestination=function(){const d=cmd.apply(this,arguments);
+  try{const c=this.createConstantSource();c.offset.value=0;c.connect(d);c.start();}catch(e){}return d;};}})();</script>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="description" content="映った人が一色の地の上の真っ黒なシルエットになり、耳から白いイヤホンのコードが垂れる。踊ればコードがしなって跳ね、拍に合わせて背景の色がばっさり切り替わる。撮影と録画ができる。">
+<meta name="theme-color" content="#c6f432">
+<title>NORI ─ 黒いシルエットと白いコードで踊る</title>
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  NORI ノリ ─ 黒いシルエットと白いコードで踊る              ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  REFERENCE  2000 年代の携帯音楽プレーヤーの「シルエット」広告。蛍光色一色の
+             地に、踊る人が真っ黒な影として抜かれ、白いイヤホンのコードだけが
+             その影の上を走る。三色だけで成り立つ、いちばん有名なポスターの型。
+             （ロゴや製品名は出さない。黒・白・一色という型だけを借りる）
+  MOOD       ダンスフロアではなく、壁一面のポスター。あなたは顔も服も消えて、
+             輪郭だけの黒になる。白いコードは本物の紐のように揺れ、首を振れば
+             しなり、跳べば遅れて落ちてくる。拍が来るたびに地の色がばっさり
+             替わる ── 編集でカットを割るように。
+  PALETTE    影 #0b0b0b ／ コード #ffffff ／ 地は一度に一色だけ：
+             ライム #c6f432 ・ ピンク #ff4fa3 ・ ブルー #2b8cff ・
+             オレンジ #ff8a24 ・ バイオレット #9b6bff ・ イエロー #ffd400
+             残像は地の色を暗くしたもの（同じ色相の一段下）。
+  TYPE       Albert Sans 300 / 800（細身の欧文と、題字だけ極太）＋ Noto Sans JP 300。
+  MOTION     色はフェードしない。拍の頭でカット、同時に画面がわずかに寄って戻る。
+             コードは紐の物理で揺れ、キックのたびに小さく跳ねる。
+             速く動いた時だけ、地の色の一段暗い影が二枚遅れてついてくる。
+  SIGNATURE  影は動かなくても完成しているが、踊ると白い線が暴れ、色が切り替わる。
+  LAYERS     ① 真っ黒なシルエット（セグメンテーション、エッジは硬く）
+             ② 耳から胸で Y に合流し手のプレーヤーへ続く白いコード（紐の物理）
+             ③ 拍で地の色がカット（内蔵のビート／マイクの音／ジャンプ／タップ）
+             ④ 動いた時の色の残像（二枚）
+             ⑤ キックでコードが跳ね、カットで画面が寄る
+             ⑥ 内蔵のビート（キック・クラップ・ハット・ベース）、録画に入る
+             ⑦ 二人で映ればそれぞれにコード
+             ⑧ 素のカメラ ⇄ 作品 の切り替え（カットで影になり、コードが空から落ちてきて耳に掛かる）
+  TECH       Canvas2D。MediaPipe PoseLandmarker（2 人、セグメンテーションマスク付き）。
+             コードはベルレ積分の紐（耳 2 点と手を固定、Y の合流点は自由）。
+             ジャンプは肩の上向きの速さを観測時刻で測る。
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Albert+Sans:wght@300;800&family=Noto+Sans+JP:wght@300&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#c6f432;--ink:#0b0b0b;--fg:#0b0b0b;--dim:rgba(11,11,11,.6);--line:rgba(11,11,11,.28)}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none}
+html,body{margin:0;height:100%;background:#0b0b0b;overflow:hidden;color:var(--fg);
+  font-family:"Noto Sans JP","Hiragino Sans",sans-serif;font-weight:300}
+#view{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:pointer}
+#cam{position:fixed;left:0;top:0;width:2px;height:2px;opacity:.01;pointer-events:none}
+
+#start{position:fixed;inset:0;z-index:30;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;
+  padding:28px;text-align:center;background:var(--bg);overflow:hidden;animation:cuts 5.6s steps(1) infinite}
+@keyframes cuts{0%{background:#c6f432}16.6%{background:#ff4fa3}33.3%{background:#2b8cff}50%{background:#ff8a24}66.6%{background:#9b6bff}83.3%{background:#ffd400}}
+#start .t{font:300 11px "Albert Sans",sans-serif;letter-spacing:.42em;margin-right:-.42em}
+#start h1{margin:0;font:800 min(30vw,170px)/.82 "Albert Sans",sans-serif;letter-spacing:-.04em;color:#0b0b0b}
+#start svg{width:min(46vw,190px);height:auto;margin:-6px 0 -10px}
+#start p{margin:0;font-size:12.5px;line-height:2.05;letter-spacing:.06em;color:#0b0b0b}
+#go{appearance:none;border:0;background:#0b0b0b;color:#fff;font:300 13px "Albert Sans",sans-serif;
+  letter-spacing:.3em;padding:14px 30px 14px 34px;cursor:pointer;border-radius:999px}
+#go:hover{background:#000}
+#err{font-size:12px;line-height:1.8;max-width:340px;min-height:1em;white-space:pre-line;color:#0b0b0b;font-family:sans-serif;font-weight:600}
+
+.btn{position:fixed;z-index:12;appearance:none;border:0;background:transparent;color:#fff;mix-blend-mode:difference;font:300 12px "Albert Sans","Noto Sans JP",sans-serif;
+  letter-spacing:.12em;padding:10px 8px;display:none;cursor:pointer;opacity:.78;transition:opacity .2s}
+.btn.show{display:block}
+.btn:hover{opacity:1}
+#gear{right:10px;top:calc(env(safe-area-inset-top) + 6px);font:15px sans-serif;letter-spacing:0}
+#flip{right:10px;top:calc(env(safe-area-inset-top) + 40px);font-size:11px;letter-spacing:.06em}
+#bar{position:fixed;left:0;right:0;bottom:calc(env(safe-area-inset-bottom) + 10px);z-index:12;display:none;justify-content:center;align-items:center;gap:22px;mix-blend-mode:difference;pointer-events:none}
+#bar .btn{mix-blend-mode:normal;pointer-events:auto}
+body.cam #bar{mix-blend-mode:normal}
+#bar.show{display:flex}
+#bar .btn{position:static;display:block}
+#bar #shoot{position:relative;width:44px;height:44px;border-radius:50%;border:1.5px solid #fff;padding:0;opacity:.9}
+#shoot::after{content:"";position:absolute;inset:8px;border-radius:50%;background:#fff}
+#rec.on{opacity:1;font-weight:800}
+#status{position:fixed;left:14px;top:calc(env(safe-area-inset-top) + 14px);z-index:11;font:11px sans-serif;letter-spacing:.04em;
+  color:#fff;mix-blend-mode:difference;pointer-events:none;max-width:76vw;line-height:1.7;white-space:pre-line}
+
+#panel{position:fixed;right:10px;top:calc(env(safe-area-inset-top) + 76px);z-index:12;width:min(272px,calc(100vw - 20px));
+  max-height:calc(100vh - 170px);overflow:auto;color:#fff;
+  background:#0b0b0b;padding:14px 16px;display:flex;flex-direction:column;gap:12px;border-radius:14px;transition:opacity .2s}
+#panel.hide{opacity:0;pointer-events:none}
+.sw{display:flex;gap:7px;justify-content:space-between}
+.sw button{flex:1;aspect-ratio:1;max-width:30px;border-radius:50%;border:2px solid transparent;cursor:pointer;padding:0}
+.sw button.off{opacity:.25}
+.sw button.on{border-color:#fff}
+#panel label{display:flex;align-items:center;gap:10px;font-size:11px;letter-spacing:.04em}
+#panel label span{width:78px;flex:none;color:rgba(255,255,255,.6)}
+#panel input[type=range]{flex:1;accent-color:#fff}
+#panel .tg{display:flex;gap:6px}
+#panel .tg button{flex:1;appearance:none;border:1px solid rgba(255,255,255,.25);background:transparent;color:#fff;padding:7px 2px;border-radius:999px;
+  font:300 10px "Noto Sans JP",sans-serif;cursor:pointer;opacity:.45}
+#panel .tg button.on{opacity:1;border-color:#fff}
+#panel .note{font-size:10px;color:rgba(255,255,255,.55);line-height:1.8}
+#mode{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom) + 72px);z-index:13;display:none;
+  appearance:none;border:0;background:#fff;color:#0b0b0b;border-radius:999px;box-shadow:0 0 0 1px rgba(0,0,0,.12);
+  font:300 12px "Albert Sans","Noto Sans JP",sans-serif;letter-spacing:.24em;padding:11px 22px 11px 26px;cursor:pointer}
+#mode.show{display:block}
+body.cam .btn{mix-blend-mode:normal;text-shadow:0 0 6px rgba(0,0,0,.6)}
+</style>
+</head>
+<body>
+<canvas id="view"></canvas>
+<video id="cam" playsinline muted autoplay></video>
+<div id="status"></div>
+<button id="gear" class="btn" aria-label="調整">⚙</button>
+<button id="flip" class="btn">⟲ カメラ</button>
+<button id="mode">PLAY</button>
+<div id="bar">
+  <button id="rec" class="btn">● 録画</button>
+  <button id="beat" class="btn">♪ ビート</button>
+  <button id="shoot" class="btn" aria-label="撮る"></button>
+  <button id="cut" class="btn">色 ▸</button>
+</div>
+
+<div id="panel" class="hide">
+  <div class="sw" id="sw"></div>
+  <label><span>テンポ</span><input type="range" id="sBpm" min="90" max="140" step="1" value="116"></label>
+  <label><span>コードの長さ</span><input type="range" id="sLen" min="0" max="1" step="0.01" value="0.5"></label>
+  <label><span>コードの揺れ</span><input type="range" id="sSwing" min="0" max="1" step="0.01" value="0.55"></label>
+  <label><span>残像</span><input type="range" id="sEcho" min="0" max="1" step="0.01" value="0.6"></label>
+  <label><span>音量</span><input type="range" id="sVol" min="0" max="1" step="0.01" value="0.5"></label>
+  <div class="tg">
+    <button id="tBeat" class="on">内蔵のビート</button>
+    <button id="tMic">マイクの音で</button>
+  </div>
+  <div class="tg">
+    <button id="tJump" class="on">跳ぶと色替え</button>
+    <button id="tPlayer" class="on">手にプレーヤー</button>
+  </div>
+  <div class="note">拍の頭で地の色がカットで替わる。<br>跳ぶ・タップでも替わる。色の丸を押すとその色を外せる。<br>「マイクの音で」は部屋で流した音楽の拍で切り替える。</div>
+</div>
+
+<div id="start">
+  <div class="t">SILHOUETTE</div>
+  <h1>NORI</h1>
+  <svg viewBox="0 0 120 70" aria-hidden="true"><path d="M30 6 C28 30 50 40 60 44 M90 6 C92 30 70 40 60 44 M60 44 C58 54 64 60 62 68" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round"/><circle cx="30" cy="6" r="5" fill="#fff"/><circle cx="90" cy="6" r="5" fill="#fff"/></svg>
+  <p>まずは、いつものカメラ。<br>ボタンを押すとあなたは黒い影になり、白いコードが降ってくる。<br>音が鳴るので、踊って。</p>
+  <button id="go">PLAY</button>
+  <div id="err"></div>
+</div>
+
+<script>
+'use strict';
+/* =====================================================================
+   NORI — one flat colour, one black silhouette, one white cord.
+   per frame:
+     pose (+ per-person mask) → silhouette canvas (black) and two delayed
+     copies tinted one step darker than the ground → cords: verlet ropes pinned
+     at the ears and the hand, joined at a free Y → draw → beat-cut colour.
+   ===================================================================== */
+const VISION_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs';
+const WASM_URL   = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm';
+const POSE_MODEL = 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/latest/pose_landmarker_lite.task';
+
+const $ = id => document.getElementById(id);
+const view = $('view'), video = $('cam');
+const ctx = view.getContext('2d', { alpha:false });
+const S = { bpm:116, len:.5, swing:.55, echo:.6, vol:.5, beat:true, mic:false, jump:true, player:true };
+const COLS = ['#c6f432', '#ff4fa3', '#2b8cff', '#ff8a24', '#9b6bff', '#ffd400'];
+const ECHO = ['#8fb51c', '#c62f78', '#1a5fbf', '#c25e0e', '#6a3fd0', '#c7a200'];
+const colOn = COLS.map(() => true);
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+const ease = t => 1 - Math.pow(1 - clamp(t, 0, 1), 3);
+const TEST = { maxDt:.05 };
+const fin = v => typeof v === 'number' && isFinite(v);
+
+/* ---------- geometry ---------- */
+const G = { W:0, H:0, ox:0, oy:0, dw:0, dh:0, short:1 };
+let vidW = 1280, vidH = 720;
+function resize(){
+  const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+  let w = Math.round(innerWidth * dpr), h = Math.round(innerHeight * dpr);
+  const k = Math.min(1, 1600 / Math.max(w, h)); w = Math.round(w * k); h = Math.round(h * k);
+  if (w !== G.W || h !== G.H){ G.W = view.width = w; G.H = view.height = h; }
+  const va = (vidW || 16) / (vidH || 9), ca = w / h;
+  if (va > ca){ G.dh = h; G.dw = h * va; } else { G.dw = w; G.dh = w / va; }
+  G.cdw = G.dw; G.cdh = G.dh; G.cox = (w - G.dw) / 2; G.coy = (h - G.dh) / 2;       // the plain camera fills the screen
+  // the poster never crops a wide camera to a sliver on a tall screen: step back, stand on the bottom edge
+  const pull = Math.min(1, 2.6 * w / G.dw); G.dw *= pull; G.dh *= pull;
+  G.ox = (w - G.dw) / 2; G.oy = h - G.dh; G.short = Math.min(w, h);
+}
+// normalised video coords → screen px (mirrored for the selfie camera)
+function toScr(x, y){ return [G.ox + (mirror ? 1 - x : x) * G.dw, G.oy + y * G.dh]; }
+
+/* ---------- silhouette: merged mask → black cut-out, with a short timed history for the echoes ---------- */
+const SIL = { img:null, w:0, h:0, t:-1e9, has:false };
+const rawC = document.createElement('canvas'), rawX = rawC.getContext('2d');
+const HIST_N = 16, HIST = [];                 // { c, t } mask history (white alpha), small
+let histHead = -1, histLast = -1e9;
+const tintC = document.createElement('canvas'), tintX = tintC.getContext('2d');
+let merged = null;
+function ingestMasks(list, now){
+  // list: [{ data, w, h }] — union of the people
+  if (!Array.isArray(list) || !list.length) return false;
+  const m0 = list[0]; if (!m0 || !(m0.w > 0) || !(m0.h > 0)) return false;
+  const w = m0.w | 0, h = m0.h | 0, n = w * h;
+  if (!merged || merged.length !== n){ merged = new Float32Array(n); }
+  merged.fill(0);
+  let any = false;
+  for (const m of list){
+    if (!m || m.w !== w || m.h !== h || !m.data || m.data.length < n) continue;
+    const d = m.data; any = true;
+    for (let i = 0; i < n; i++){ const v = d[i]; if (v > merged[i]) merged[i] = v; }
+  }
+  if (!any) return false;
+  // upsample bilinearly before the threshold, so the hard poster edge is a smooth curve, not the model's pixels
+  const up = clamp(Math.round(720 / Math.max(w, h)), 1, 4), uw = w * up, uh = h * up;
+  if (SIL.w !== uw || SIL.h !== uh || !SIL.img){
+    SIL.w = uw; SIL.h = uh; rawC.width = uw; rawC.height = uh; SIL.img = rawX.createImageData(uw, uh);
+    const d = SIL.img.data; for (let i = 0; i < uw * uh; i++){ d[i * 4] = d[i * 4 + 1] = d[i * 4 + 2] = 255; }
+    HIST.length = 0; histHead = -1;
+    const hw = uw, hh = uh;
+    for (let k = 0; k < HIST_N; k++){ const c = document.createElement('canvas'); c.width = hw; c.height = hh; HIST.push({ c, x:c.getContext('2d'), t:-1e9 }); }
+  }
+  const d = SIL.img.data;
+  for (let y = 0; y < uh; y++){
+    const fy = clamp((y + .5) / up - .5, 0, h - 1), y0 = fy | 0, y1 = Math.min(h - 1, y0 + 1), ty = fy - y0;
+    for (let x = 0; x < uw; x++){
+      const fx = clamp((x + .5) / up - .5, 0, w - 1), x0 = fx | 0, x1 = Math.min(w - 1, x0 + 1), tx = fx - x0;
+      let a = merged[y0 * w + x0], b = merged[y0 * w + x1], c = merged[y1 * w + x0], e = merged[y1 * w + x1];
+      if (!(a > 0)) a = 0; if (!(b > 0)) b = 0; if (!(c > 0)) c = 0; if (!(e > 0)) e = 0;
+      let v = (a * (1 - tx) + b * tx) * (1 - ty) + (c * (1 - tx) + e * tx) * ty;
+      v = v < .42 ? 0 : v > .58 ? 1 : (v - .42) * 6.25;
+      d[(y * uw + x) * 4 + 3] = (v * 255) | 0;
+    }
+  }
+  rawX.putImageData(SIL.img, 0, 0);
+  SIL.has = true; SIL.t = now;
+  if (now - histLast > 40){
+    histLast = now; histHead = (histHead + 1) % HIST_N;
+    const r = HIST[histHead]; r.t = now; r.x.globalCompositeOperation = 'copy'; r.x.drawImage(rawC, 0, 0, r.c.width, r.c.height);
+  }
+  return true;
+}
+function histAt(ago, now){
+  if (histHead < 0) return null;
+  const want = now - ago * 1000; let best = null;
+  for (let k = 0; k < HIST_N; k++){ const r = HIST[(histHead - k + HIST_N) % HIST_N]; if (r.t < -1e8) break; best = r; if (r.t <= want) break; }
+  return best;
+}
+
+/* ---------- people: pose → ear / chest / hand anchors (screen px), guarded ---------- */
+const PEOPLE = [];          // up to 2 { ears:[[x,y],[x,y]], head, hand:[x,y]|null, handAng, chest:[x,y], seen, sy, vy, lastObs }
+const JUMP = { cool:0, n:0 };
+function lmOK(L, i){ const p = L[i]; return p && fin(p.x) && fin(p.y) && (p.visibility == null || !fin(p.visibility) || p.visibility > .35) && p.x > -.3 && p.x < 1.3 && p.y > -.3 && p.y < 1.5; }
+function ingestPoses(poses, now){
+  if (!Array.isArray(poses)) poses = [];
+  const seen = [];
+  for (const L of poses){
+    if (!Array.isArray(L) || L.length < 25) continue;
+    let eL = lmOK(L, 7) ? toScr(L[7].x, L[7].y) : null, eR = lmOK(L, 8) ? toScr(L[8].x, L[8].y) : null;
+    const nose = lmOK(L, 0) ? toScr(L[0].x, L[0].y) : null;
+    const sL = lmOK(L, 11) ? toScr(L[11].x, L[11].y) : null, sR = lmOK(L, 12) ? toScr(L[12].x, L[12].y) : null;
+    if (!eL && !eR && !nose) continue;
+    // estimate a missing ear from the other ear or the nose
+    let head = 0;
+    if (eL && eR) head = Math.hypot(eL[0] - eR[0], eL[1] - eR[1]);
+    if (!(head > G.short * .02)) head = sL && sR ? Math.hypot(sL[0] - sR[0], sL[1] - sR[1]) * .45 : G.short * .12;
+    if (!eL && !eR){ eL = [nose[0] - head * .5, nose[1] - head * .05]; eR = [nose[0] + head * .5, nose[1] - head * .05]; }
+    else if (!eL) eL = [eR[0] + (nose ? 2 * (nose[0] - eR[0]) : head), eR[1]];
+    else if (!eR) eR = [eL[0] + (nose ? 2 * (nose[0] - eL[0]) : -head), eL[1]];
+    const mid = [(eL[0] + eR[0]) / 2, (eL[1] + eR[1]) / 2];
+    const chest = sL && sR ? [(sL[0] + sR[0]) / 2, (sL[1] + sR[1]) / 2 + head * .6] : [mid[0], mid[1] + head * 2.6];
+    // the hand that holds the player: the right wrist, else the left; else the pocket
+    let hand = null, ang = 0;
+    for (const [w, e, ix] of [[16, 14, 20], [15, 13, 19]]){
+      if (lmOK(L, w)){
+        const W = toScr(L[w].x, L[w].y);
+        if (W[1] > G.H + head) continue;
+        let dx = 0, dy = 1;
+        if (lmOK(L, e)){ const E = toScr(L[e].x, L[e].y); dx = W[0] - E[0]; dy = W[1] - E[1]; }
+        const dl = Math.hypot(dx, dy) || 1; dx /= dl; dy /= dl;
+        hand = [W[0] + dx * head * .35, W[1] + dy * head * .35]; ang = Math.atan2(dy, dx) - Math.PI / 2; break;
+      }
+    }
+    seen.push({ eL, eR, head, chest, hand, ang, mid });
+  }
+  // match to the previous people by head position
+  const used = new Array(PEOPLE.length).fill(false);
+  const next = [];
+  for (const s of seen.slice(0, 2)){
+    let best = -1, bd = 1e9;
+    PEOPLE.forEach((p, k) => { if (used[k]) return; const d = Math.hypot(p.mid[0] - s.mid[0], p.mid[1] - s.mid[1]); if (d < bd){ bd = d; best = k; } });
+    let p;
+    if (best >= 0 && bd < s.head * 6){ used[best] = true; p = PEOPLE[best]; }
+    else p = newPerson(s);
+    const dtObs = p.lastObs < 0 ? 0 : clamp((now - p.lastObs) / 1000, 0, .25); p.lastObs = now;
+    // shoulders' upward speed in head-widths per second → a jump
+    const sy = s.chest[1];
+    if (dtObs > 0){ const v = (p.sy - sy) / s.head / dtObs; p.vy += (v - p.vy) * .6; }
+    p.sy = sy;
+    if (S.jump && p.vy > 5.5 && JUMP.cool <= 0 && MODE.on){ JUMP.cool = .6; JUMP.n++; cutColour(now, true); }
+    Object.assign(p, s); p.seen = now;
+    next.push(p);
+  }
+  // people not seen this time keep their cords until the loop's timeout lets them fall
+  PEOPLE.forEach((p, k) => { if (!used[k] && !next.includes(p) && next.length < 3) next.push(p); });
+  PEOPLE.length = 0; next.forEach(p => { if (p.seen === now) p.lost = false; PEOPLE.push(p); });
+  return seen.length;
+}
+const LOST = [];
+function newPerson(s){
+  const p = { eL:s.eL, eR:s.eR, head:s.head, chest:s.chest, hand:s.hand, ang:0, mid:s.mid, seen:0, sy:s.chest[1], vy:0, lastObs:-1, lost:false,
+    sm:{ eL:[...s.eL], eR:[...s.eR], hand:s.hand ? [...s.hand] : [s.chest[0], G.H + s.head * 3], head:s.head, ang:0 }, rope:null };
+  p.rope = makeRope(p);
+  return p;
+}
+
+/* ---------- the cord: a verlet rope — two branches from the ears meet at a free Y, one cord to the hand ---------- */
+const NB = 16, NM = 26;
+function makeRope(p){
+  const n = NB * 2 + NM + 1;
+  const r = { x:new Float32Array(n), y:new Float32Array(n), px:new Float32Array(n), py:new Float32Array(n), links:[], n, Y:0, end:0, lenB:1, lenM:1 };
+  // branch L: 0..NB-1 (0 pinned at the ear) → Y ; branch R: NB..2NB-1 (NB pinned) → Y ; Y = 2NB ; main: 2NB+1.. → end pinned at the hand
+  r.Y = NB * 2; r.end = n - 1;
+  for (let k = 0; k < NB - 1; k++){ r.links.push([k, k + 1, 0]); r.links.push([NB + k, NB + k + 1, 0]); }
+  r.links.push([NB - 1, r.Y, 0]); r.links.push([2 * NB - 1, r.Y, 0]);
+  r.links.push([r.Y, r.Y + 1, 1]);
+  for (let k = r.Y + 1; k < n - 1; k++) r.links.push([k, k + 1, 1]);
+  // drop in from above the screen
+  const h = p.sm.head, cx = p.sm.eL[0] * .5 + p.sm.eR[0] * .5;
+  for (let k = 0; k < n; k++){
+    const u = k / n;
+    r.x[k] = r.px[k] = cx + (Math.random() - .5) * h * 2;
+    r.y[k] = r.py[k] = -G.H * .2 - u * G.H * .9 - Math.random() * h;
+  }
+  return r;
+}
+function stepRope(p, dt, free){
+  const r = p.rope, sm = p.sm, h = sm.head;
+  const lenB = h * (1.55 + S.len * .8), lenM0 = h * (2.6 + S.len * 2.2);
+  // the main cord pays out if the hand goes further than its length
+  const Yx = r.x[r.Y], Yy = r.y[r.Y];
+  const handD = Math.hypot(sm.hand[0] - Yx, sm.hand[1] - Yy);
+  r.lenB = lenB; r.lenM += (Math.max(lenM0, handD * 1.08) - r.lenM) * clamp(dt * 6, 0, 1);
+  if (!(r.lenM > 0)) r.lenM = lenM0;
+  const segB = lenB / NB, segM = r.lenM / NM;
+  const g = G.short * (2.2 + S.swing * .4) * 1.0;
+  const damp = .992 - (1 - S.swing) * .02;
+  const sub = 2, h2 = (dt / sub) * (dt / sub);
+  for (let s = 0; s < sub; s++){
+    for (let k = 0; k < r.n; k++){
+      const vx = (r.x[k] - r.px[k]) * damp, vy = (r.y[k] - r.py[k]) * damp;
+      r.px[k] = r.x[k]; r.py[k] = r.y[k];
+      r.x[k] += vx; r.y[k] += vy + g * h2;
+    }
+    for (let it = 0; it < 14; it++){
+      if (!free){
+        r.x[0] = sm.eL[0]; r.y[0] = sm.eL[1]; r.x[NB] = sm.eR[0]; r.y[NB] = sm.eR[1];
+        r.x[r.end] = sm.hand[0]; r.y[r.end] = sm.hand[1];
+      }
+      for (const [a, b, m] of r.links){
+        const rest = m ? segM : segB;
+        const dx = r.x[b] - r.x[a], dy = r.y[b] - r.y[a];
+        const d = Math.sqrt(dx * dx + dy * dy) || 1e-6, diff = (d - rest) / d * .5;
+        const pa = !free && (a === 0 || a === NB), pb = !free && b === r.end;
+        if (pa){ r.x[b] -= dx * diff * 2; r.y[b] -= dy * diff * 2; }
+        else if (pb){ r.x[a] += dx * diff * 2; r.y[a] += dy * diff * 2; }
+        else { r.x[a] += dx * diff; r.y[a] += dy * diff; r.x[b] -= dx * diff; r.y[b] -= dy * diff; }
+      }
+    }
+  }
+  for (let k = 0; k < r.n; k++) if (!fin(r.x[k]) || !fin(r.y[k])){ p.rope = makeRope(p); return; }
+}
+function kick(p, amt){
+  const r = p.rope, h = p.sm.head;
+  for (let k = 0; k < r.n; k++){ r.py[k] += h * .05 * amt * (.5 + Math.random()); r.px[k] += (Math.random() - .5) * h * .04 * amt; }
+}
+
+/* ---------- pose model ---------- */
+let landmarker = null, lastTs = 0, lastVT = -1, modelState = 'none';
+const EXT = { on:false };
+async function initModel(){
+  modelState = 'loading';
+  try{
+    const vision = await import(VISION_URL);
+    const fs = await vision.FilesetResolver.forVisionTasks(WASM_URL);
+    const o = d => ({ baseOptions:{ modelAssetPath:POSE_MODEL, delegate:d }, runningMode:'VIDEO', numPoses:2, outputSegmentationMasks:true,
+      minPoseDetectionConfidence:.5, minPosePresenceConfidence:.5, minTrackingConfidence:.5 });
+    try { landmarker = await vision.PoseLandmarker.createFromOptions(fs, o('GPU')); }
+    catch(e){ landmarker = await vision.PoseLandmarker.createFromOptions(fs, o('CPU')); }
+    modelState = 'ready';
+    if (!EXT.on) setStatus('');
+  }catch(e){
+    modelState = 'failed';
+    if (EXT.on) return;
+    setStatus('人物検出モデルを読み込めませんでした（ネット接続を確認）。\nシルエットとコードなしで続けます。');
+  }
+}
+function detect(now){
+  if (!landmarker || EXT.on || video.readyState < 2) return;
+  const vt = video.currentTime; if (vt === lastVT) return; lastVT = vt;
+  const ts = Math.max(lastTs + 1, Math.round(now)); lastTs = ts;
+  try{
+    const res = landmarker.detectForVideo(video, ts);
+    const L = (res && res.landmarks) || [];
+    ingestPoses(L, now);
+    const ms = res && res.segmentationMasks;
+    if (ms && ms.length){
+      const list = [];
+      for (const m of ms){ try{ list.push({ data:m.getAsFloat32Array(), w:m.width, h:m.height }); }catch(e){} }
+      ingestMasks(list, now);
+      for (const m of ms){ try{ m.close(); }catch(e){} }
+    }
+  }catch(e){}
+}
+
+/* ---------- camera + mic ---------- */
+let stream = null, facing = 'user', mirror = true, started = false;
+function setStatus(t){ $('status').textContent = t || ''; }
+function camError(e){
+  const msg = (e && (e.message || e.name)) ? (e.message || e.name) : String(e || 'unknown');
+  const text = 'カメラを起動できませんでした：' + msg + '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+  $('err').textContent = text;
+  if (started) setStatus(text);
+}
+async function startCam(){
+  const md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) throw new Error('getUserMedia is unavailable');
+  const s = await md.getUserMedia({ video:{ facingMode:{ ideal:facing }, width:{ ideal:1280 }, height:{ ideal:720 } }, audio:false });
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = s; mirror = facing === 'user';
+  video.srcObject = s;
+  await new Promise(r => { if (video.readyState >= 1) r(); else video.onloadedmetadata = () => r(); });
+  await video.play().catch(()=>{});
+  vidW = video.videoWidth || 1280; vidH = video.videoHeight || 720;
+  PEOPLE.length = 0; LOST.length = 0;
+  resize();
+}
+let micAn = null, micBuf = null, micPrev = 0, micCool = 0;
+async function startMic(){
+  if (micAn || !actx) return !!micAn;
+  try{
+    const s = await navigator.mediaDevices.getUserMedia({ audio:{ echoCancellation:false, noiseSuppression:false, autoGainControl:false } });
+    const src = actx.createMediaStreamSource(s); micAn = actx.createAnalyser(); micAn.fftSize = 1024;
+    src.connect(micAn); micBuf = new Float32Array(micAn.fftSize);
+    return true;
+  }catch(e){ setStatus('マイクを使えませんでした。内蔵のビートで切り替えます。'); return false; }
+}
+
+/* ---------- audio: a small built-in groove ---------- */
+let actx = null, bus = null, recDest = null, noiseBuf = null, master = null;
+function ensureAudio(){
+  if (actx){ if (actx.state === 'suspended') actx.resume().catch(()=>{}); return; }
+  const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+  try{
+    actx = new AC(); master = actx.createGain(); master.gain.value = S.vol;
+    const comp = actx.createDynamicsCompressor(); comp.threshold.value = -14; comp.ratio.value = 4;
+    master.connect(comp); comp.connect(actx.destination);
+    bus = master;
+    recDest = actx.createMediaStreamDestination(); comp.connect(recDest);
+    const len = actx.sampleRate * .5 | 0; noiseBuf = actx.createBuffer(1, len, actx.sampleRate);
+    const d = noiseBuf.getChannelData(0); for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+    actx.resume().catch(()=>{});
+  }catch(e){ actx = null; }
+}
+function env(g, t, a, peak, dec){ g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime(peak, t + a); g.gain.exponentialRampToValueAtTime(.0001, t + dec); }
+function kickAt(t){ const o = actx.createOscillator(), g = actx.createGain(); o.frequency.setValueAtTime(150, t); o.frequency.exponentialRampToValueAtTime(42, t + .12);
+  env(g, t, .003, .9, .32); o.connect(g); g.connect(bus); o.start(t); o.stop(t + .34); }
+function noiseAt(t, f, q, peak, dec, type){ const s = actx.createBufferSource(), fl = actx.createBiquadFilter(), g = actx.createGain();
+  s.buffer = noiseBuf; fl.type = type || 'highpass'; fl.frequency.value = f; fl.Q.value = q; env(g, t, .002, peak, dec);
+  s.connect(fl); fl.connect(g); g.connect(bus); s.start(t, Math.random() * .3); s.stop(t + dec + .02); }
+function bassAt(t, f, dur){ const o = actx.createOscillator(), fl = actx.createBiquadFilter(), g = actx.createGain();
+  o.type = 'sawtooth'; o.frequency.value = f; fl.type = 'lowpass'; fl.frequency.setValueAtTime(900, t); fl.frequency.exponentialRampToValueAtTime(160, t + dur); fl.Q.value = 6;
+  env(g, t, .005, .28, dur); o.connect(fl); fl.connect(g); g.connect(bus); o.start(t); o.stop(t + dur + .02); }
+function stabAt(t, fs){ const g = actx.createGain(); env(g, t, .004, .07, .22); g.connect(bus);
+  for (const f of fs){ const o = actx.createOscillator(); o.type = 'square'; o.frequency.value = f; const fl = actx.createBiquadFilter(); fl.type = 'lowpass'; fl.frequency.value = 2400;
+    o.connect(fl); fl.connect(g); o.start(t); o.stop(t + .24); } }
+const SEQ = { next:0, step:0, events:[] };      // events: { t (audio time), kind }
+const BASS = [55, 0, 55, 65.41, 0, 55, 73.42, 0, 55, 0, 55, 82.41, 0, 73.42, 65.41, 0];
+function schedule(){
+  if (!actx || actx.state !== 'running') return;
+  const spb = 60 / S.bpm / 4;                       // sixteenth
+  if (SEQ.next < actx.currentTime - .2) SEQ.next = actx.currentTime + .05;
+  while (SEQ.next < actx.currentTime + .12){
+    const t = SEQ.next, st = SEQ.step % 16, bar = (SEQ.step / 16) | 0;
+    if (S.beat && MODE.on){
+      if (st % 4 === 0){ kickAt(t); SEQ.events.push({ t, kind:'kick' }); }
+      if (st === 4 || st === 12) noiseAt(t, 1400, .8, .32, .16, 'bandpass');
+      if (st % 2 === 1) noiseAt(t, 8000, .5, st % 4 === 3 ? .1 : .05, .05);
+      const b = BASS[st]; if (b) bassAt(t, b * (bar % 4 === 3 ? 1.122 : 1), spb * 1.6);
+      if (st === 6 || st === 14) stabAt(t, bar % 2 ? [220, 261.63, 329.63] : [196, 246.94, 293.66]);
+      if (st === 0) SEQ.events.push({ t, kind:'bar' });
+    }
+    SEQ.next += spb; SEQ.step++;
+  }
+}
+
+/* ---------- colour cuts ---------- */
+const CUT = { i:0, punch:0, n:0, last:0 };
+function cutColour(now, big){
+  const on = COLS.map((c, k) => k).filter(k => colOn[k]);
+  if (!on.length) return;
+  let k = on[(Math.random() * on.length) | 0];
+  if (on.length > 1){ let guard = 0; while (k === CUT.i && guard++ < 10) k = on[(Math.random() * on.length) | 0]; }
+  CUT.i = k; CUT.punch = big ? 1.4 : 1; CUT.n++; CUT.last = now;
+  document.querySelector('meta[name=theme-color]').content = COLS[k];
+}
+
+/* ---------- mode ---------- */
+const MODE = { on:false, X:0 };
+function setMode(on){
+  if (on === MODE.on) return;
+  MODE.on = on; MODE.X = 0;
+  $('mode').textContent = on ? 'カメラ' : 'PLAY';
+  document.body.classList.toggle('cam', !on);
+  ['beat','cut'].forEach(id => $(id).style.visibility = on ? 'visible' : 'hidden');
+  if (on){ cutColour(performance.now(), true); for (const p of PEOPLE) p.rope = makeRope(p); SEQ.step = 0; if (actx) SEQ.next = actx.currentTime + .08; }
+}
+
+/* ---------- UI ---------- */
+(function(){
+  const sw = $('sw');
+  COLS.forEach((c, k) => { const b = document.createElement('button'); b.style.background = c; b.dataset.k = k; b.setAttribute('aria-label', '色 ' + (k + 1)); sw.appendChild(b); });
+  sw.onclick = e => { const b = e.target.closest('button'); if (!b) return; const k = +b.dataset.k;
+    if (colOn.filter(Boolean).length > 1 || !colOn[k]) colOn[k] = !colOn[k];
+    [...sw.children].forEach((x, i) => { x.classList.toggle('off', !colOn[i]); x.classList.toggle('on', i === CUT.i); });
+    if (!colOn[CUT.i]) cutColour(performance.now(), false); };
+})();
+$('mode').onclick = () => setMode(!MODE.on);
+addEventListener('keydown', e => {
+  if (!started || document.activeElement.tagName === 'INPUT') return;
+  if (e.key === ' ' || e.key === 'Enter'){ e.preventDefault(); setMode(!MODE.on); }
+  else if (e.key === 'c' && MODE.on) cutColour(performance.now(), true);
+});
+$('go').onclick = async () => {
+  $('err').textContent = '';
+  ensureAudio();
+  try { await startCam(); } catch(e){ camError(e); return; }
+  $('start').style.display = 'none';
+  ['gear','flip','bar','rec','shoot','beat','cut','mode'].forEach(id => $(id).classList.add('show'));
+  MODE.on = true; setMode(false);
+  if (!started){ started = true; initModel(); requestAnimationFrame(loop); }
+};
+$('flip').onclick = async () => {
+  const prev = facing; facing = facing === 'user' ? 'environment' : 'user';
+  try { await startCam(); } catch(e){ facing = prev; camError(e); }
+};
+$('gear').onclick = () => $('panel').classList.toggle('hide');
+$('cut').onclick = () => { if (MODE.on) cutColour(performance.now(), true); };
+function setBeat(v){ S.beat = v; $('tBeat').classList.toggle('on', v); $('beat').style.opacity = v ? 1 : .45; }
+$('beat').onclick = () => setBeat(!S.beat);
+$('tBeat').onclick = () => setBeat(!S.beat);
+$('tMic').onclick = async e => { if (!S.mic){ const ok = await startMic(); S.mic = ok; } else S.mic = false; e.target.classList.toggle('on', S.mic); };
+$('tJump').onclick = e => { S.jump = !S.jump; e.target.classList.toggle('on', S.jump); };
+$('tPlayer').onclick = e => { S.player = !S.player; e.target.classList.toggle('on', S.player); };
+[['sBpm','bpm'],['sLen','len'],['sSwing','swing'],['sEcho','echo'],['sVol','vol']]
+  .forEach(([id, k]) => { $(id).oninput = e => { S[k] = +e.target.value; if (k === 'vol' && master) master.gain.value = S.vol; }; });
+let down = null;
+view.addEventListener('pointerdown', e => { down = { x:e.clientX, y:e.clientY, t:performance.now() }; });
+view.addEventListener('pointerup', e => {
+  if (down && Math.hypot(e.clientX - down.x, e.clientY - down.y) < 12 && performance.now() - down.t < 600){
+    if (!$('panel').classList.contains('hide')) $('panel').classList.add('hide');
+    else if (MODE.on) cutColour(performance.now(), true);
+  }
+  down = null;
+});
+$('shoot').onclick = () => {
+  try{
+    view.toBlob(b => { if (!b) return; const a = document.createElement('a'); a.href = URL.createObjectURL(b);
+      a.download = 'nori-' + Date.now() + '.png'; a.click(); }, 'image/png');
+  }catch(e){ setStatus('保存できませんでした。'); }
+};
+let rec = null, chunks = [];
+$('rec').onclick = () => {
+  if (rec && rec.state === 'recording'){ rec.stop(); return; }
+  try{
+    const tracks = [...view.captureStream(30).getVideoTracks()];
+    if (recDest) tracks.push(...recDest.stream.getAudioTracks());
+    const mime = ['video/mp4;codecs=avc1','video/webm;codecs=vp9,opus','video/webm'].find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || '';
+    rec = new MediaRecorder(new MediaStream(tracks), mime ? { mimeType:mime } : {});
+    chunks = [];
+    rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+    rec.onstop = () => {
+      $('rec').classList.remove('on'); $('rec').textContent = '● 録画';
+      const ext = (rec.mimeType || '').includes('mp4') ? 'mp4' : 'webm';
+      const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(chunks, { type:rec.mimeType || 'video/webm' }));
+      a.download = 'nori.' + ext; a.click();
+    };
+    rec.start(); $('rec').classList.add('on'); $('rec').textContent = '■ 停止';
+  }catch(e){ setStatus('録画を開始できませんでした。' + (e && e.message ? '\n' + e.message : '')); }
+};
+addEventListener('resize', () => { if (started) resize(); });
+
+/* ---------- frame ---------- */
+let lastT = 0, frameN = 0;
+function drawTinted(src, colour, alpha){
+  if (tintC.width !== src.width || tintC.height !== src.height){ tintC.width = src.width; tintC.height = src.height; }
+  tintX.globalCompositeOperation = 'copy'; tintX.drawImage(src, 0, 0);
+  tintX.globalCompositeOperation = 'source-in'; tintX.fillStyle = colour; tintX.fillRect(0, 0, tintC.width, tintC.height);
+  ctx.save(); ctx.globalAlpha = alpha; ctx.imageSmoothingQuality = 'high';
+  if (mirror){ ctx.translate(G.W, 0); ctx.scale(-1, 1); ctx.drawImage(tintC, G.W - G.ox - G.dw, G.oy, G.dw, G.dh); }
+  else ctx.drawImage(tintC, G.ox, G.oy, G.dw, G.dh);
+  ctx.restore();
+}
+function ropePath(r, from, to, step){
+  // smooth path through nodes from..to (inclusive) using midpoints
+  ctx.moveTo(r.x[from], r.y[from]);
+  let k = from;
+  while (k !== to){
+    const k2 = k + step;
+    if (k2 === to){ ctx.lineTo(r.x[k2], r.y[k2]); break; }
+    const mx = (r.x[k2] + r.x[k2 + step]) / 2, my = (r.y[k2] + r.y[k2 + step]) / 2;
+    ctx.quadraticCurveTo(r.x[k2], r.y[k2], mx, my);
+    k = k2;
+  }
+}
+function drawCord(p, alpha){
+  const r = p.rope, h = p.sm.head, lw = Math.max(1.6, h * .06);
+  ctx.save(); ctx.globalAlpha = alpha;
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = '#fff'; ctx.lineWidth = lw;
+  ctx.beginPath();
+  // branch L: 0 → NB-1 → Y
+  ctx.moveTo(r.x[0], r.y[0]); for (let k = 1; k < NB; k++) ctx.lineTo(r.x[k], r.y[k]); ctx.lineTo(r.x[r.Y], r.y[r.Y]);
+  ctx.moveTo(r.x[NB], r.y[NB]); for (let k = NB + 1; k < 2 * NB; k++) ctx.lineTo(r.x[k], r.y[k]); ctx.lineTo(r.x[r.Y], r.y[r.Y]);
+  ctx.stroke();
+  ctx.beginPath(); ropePath(r, r.Y, r.end, 1); ctx.stroke();
+  // the slider at the Y
+  ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.ellipse(r.x[r.Y], r.y[r.Y] + lw * .4, lw * 1.3, lw * 2.4, 0, 0, 7); ctx.fill();
+  if (!p.lost){
+    // earbuds
+    for (const e of [0, NB]){
+      const x = r.x[e], y = r.y[e];
+      ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(x, y, h * .15, 0, 7); ctx.fill();
+      ctx.fillStyle = 'rgba(0,0,0,.12)'; ctx.beginPath(); ctx.arc(x + h * .04, y + h * .04, h * .07, 0, 7); ctx.fill();
+      ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.ellipse(x, y + h * .19, h * .05, h * .1, 0, 0, 7); ctx.fill();
+    }
+    // the player in the hand
+    if (S.player && p.hand){
+      const [x, y] = [r.x[r.end], r.y[r.end]], pw = h * .5, ph = h * .82;
+      ctx.translate(x, y); ctx.rotate(p.sm.ang);
+      ctx.fillStyle = '#fff'; ctx.beginPath(); rr(-pw / 2, 0, pw, ph, pw * .14); ctx.fill();
+      ctx.fillStyle = 'rgba(11,11,11,.85)'; ctx.beginPath(); rr(-pw * .38, ph * .08, pw * .76, ph * .36, pw * .05); ctx.fill();
+      ctx.strokeStyle = 'rgba(11,11,11,.22)'; ctx.lineWidth = Math.max(1, pw * .05); ctx.beginPath(); ctx.arc(0, ph * .7, pw * .27, 0, 7); ctx.stroke();
+    }
+  }
+  ctx.restore();
+}
+function rr(x, y, w, h, r){ ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath(); }
+
+function loop(now){
+  requestAnimationFrame(loop);
+  const dt = clamp((now - (lastT || now)) / 1000, 0, TEST.maxDt); lastT = now; frameN++;
+  resize();
+  detect(now);
+  MODE.X += dt; JUMP.cool -= dt; micCool -= dt;
+  schedule();
+  // audio-timed events (cuts on the bar, cords bounce on the kick)
+  if (actx){
+    const at = actx.currentTime;
+    while (SEQ.events.length && SEQ.events[0].t <= at){
+      const ev = SEQ.events.shift();
+      if (!MODE.on) continue;
+      if (ev.kind === 'bar') cutColour(now, false);
+      if (ev.kind === 'kick') for (const p of PEOPLE) kick(p, .8);
+    }
+    if (SEQ.events.length > 64) SEQ.events.splice(0, SEQ.events.length - 64);
+  }
+  // mic onsets
+  if (S.mic && micAn && MODE.on){
+    micAn.getFloatTimeDomainData(micBuf);
+    let e = 0; for (let i = 0; i < micBuf.length; i++) e += micBuf[i] * micBuf[i];
+    e = Math.sqrt(e / micBuf.length);
+    if (e > .04 && e > micPrev * 1.8 && micCool <= 0){ micCool = .3; cutColour(now, false); for (const p of PEOPLE) kick(p, 1.2); }
+    micPrev = micPrev * .85 + e * .15;
+  }
+  // people: smooth the anchors, step the cords; lost people's cords fall away
+  for (const p of PEOPLE){
+    if (now - p.seen > 450){ p.lost = true; p.vy = 0; p.lastObs = -1; }
+    const sm = p.sm, k = clamp(dt * 22, 0, 1);
+    sm.head += (p.head - sm.head) * k;
+    for (const [a, b] of [[sm.eL, p.eL], [sm.eR, p.eR]]){ a[0] += (b[0] - a[0]) * k; a[1] += (b[1] - a[1]) * k; }
+    const tgt = S.player && p.hand ? p.hand : [p.chest[0] + sm.head * .6, G.H + sm.head * 2.5];     // the pocket: off the bottom
+    sm.hand[0] += (tgt[0] - sm.hand[0]) * k; sm.hand[1] += (tgt[1] - sm.hand[1]) * k;
+    let da = p.ang - sm.ang; da = Math.atan2(Math.sin(da), Math.cos(da)); sm.ang += da * k;
+    if (MODE.on) stepRope(p, dt, p.lost);
+  }
+  for (let i = PEOPLE.length - 1; i >= 0; i--) if (PEOPLE[i].lost){ LOST.push(PEOPLE[i]); PEOPLE.splice(i, 1); }
+  for (let i = LOST.length - 1; i >= 0; i--){
+    const p = LOST[i]; p.fall = (p.fall || 0) + dt;
+    if (MODE.on) stepRope(p, dt, true);
+    if (p.fall > 2.5) LOST.splice(i, 1);
+  }
+
+  const W = G.W, H = G.H;
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+  const camOn = !MODE.on;
+  if (camOn){
+    ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
+    ctx.save(); if (mirror){ ctx.translate(W, 0); ctx.scale(-1, 1); }
+    if (video.readyState >= 2) ctx.drawImage(video, mirror ? W - G.cox - G.cdw : G.cox, G.coy, G.cdw, G.cdh);
+    ctx.restore();
+    if (MODE.X < .12){ ctx.fillStyle = COLS[CUT.i]; ctx.globalAlpha = 1 - MODE.X / .12; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1; }
+    return;
+  }
+  // the punch on a cut: a quick push-in, settling back
+  const tc = (now - CUT.last) / 1000;
+  const z = 1 + .035 * CUT.punch * Math.exp(-tc / .09);
+  ctx.setTransform(z, 0, 0, z, W / 2 * (1 - z), H / 2 * (1 - z));
+  ctx.fillStyle = COLS[CUT.i]; ctx.fillRect(-W, -H, W * 3, H * 3);
+  const hasSil = SIL.has && (now - SIL.t < 1500 || EXT.on);
+  if (hasSil){
+    // echoes: one step darker than the ground, only visible where you have moved
+    if (S.echo > 0){
+      const e1 = histAt(.09 + S.echo * .12, now), e2 = histAt(.2 + S.echo * .26, now);
+      if (e2) drawTinted(e2.c, ECHO[CUT.i], .55 + .45 * S.echo);
+      if (e1) drawTinted(e1.c, shade(ECHO[CUT.i]), .7 + .3 * S.echo);
+    }
+    drawTinted(rawC, '#0b0b0b', 1);
+  }
+  // the cord falls in on the cut
+  for (const p of LOST) drawCord(p, clamp(1 - (p.fall - 1.5), 0, 1));
+  for (const p of PEOPLE) drawCord(p, 1);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  // the cut itself: one frame of black, then the colour
+  if (MODE.X < .07){ ctx.fillStyle = '#0b0b0b'; ctx.fillRect(0, 0, W, H); }
+}
+const shadeCache = {};
+function shade(hex){
+  if (shadeCache[hex]) return shadeCache[hex];
+  const n = parseInt(hex.slice(1), 16), r = (n >> 16) * .62 | 0, g = (n >> 8 & 255) * .62 | 0, b = (n & 255) * .62 | 0;
+  return shadeCache[hex] = `rgb(${r},${g},${b})`;
+}
+
+/* ---------- test hook ---------- */
+window.__nori = {
+  feed(poses, masks, t){ if (!EXT.on) setStatus(''); EXT.on = true; const now = t == null ? performance.now() : t;
+    let n = 0; try { n = ingestPoses(poses, now); } catch(e){ throw e; }
+    if (masks) ingestMasks(masks, now); return n; },
+  setMode, cut:() => cutColour(performance.now(), true), test:TEST, S,
+  state(){ return { frame:frameN, mode:MODE.on, colour:CUT.i, cuts:CUT.n, jumps:JUMP.n, people:PEOPLE.length, lost:LOST.length,
+    ends: PEOPLE.map(p => ({ ear:[+p.rope.x[0].toFixed(1), +p.rope.y[0].toFixed(1)], earT:p.sm.eL.map(v => +v.toFixed(1)), Y:[+p.rope.x[p.rope.Y].toFixed(1), +p.rope.y[p.rope.Y].toFixed(1)],
+      end:[+p.rope.x[p.rope.end].toFixed(1), +p.rope.y[p.rope.end].toFixed(1)], hand:p.sm.hand.map(v => +v.toFixed(1)), finite:[...p.rope.x, ...p.rope.y].every(Number.isFinite) })),
+    audio: actx ? actx.state : 'none' }; },
+};
+</script>
+</body>
+</html>
