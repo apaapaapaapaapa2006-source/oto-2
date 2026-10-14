@@ -1,0 +1,1379 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<script>/* REC-FIX (2026-10-12) — iPhone Safari で録画が途中で止まる・壊れる対策。どの作品でも同じ内容。
+   ・mp4 は映像と音声の両方のコーデックを宣言する（avc1 だけだと音声付きで止まることがある）
+   ・1 秒ごとにデータを受け取る（最後に一括で書き出さない）／ビットレートに上限
+   ・保存が終わる前に次の録画を始めない（前のファイルが消えるのを防ぐ）
+   ・録画中は AudioContext を止めない（音声トラックが止まると mp4 ごと止まる） */
+(()=>{const MR=window.MediaRecorder;if(!MR||MR.__recfix)return;let busy=0,active=0;
+class R extends MR{
+  constructor(s,o){if(busy)throw new Error('前の録画を保存しています');o=Object.assign({},o||{});
+    const au=s&&s.getAudioTracks&&s.getAudioTracks().length>0;
+    if(!o.mimeType||/^video\/mp4/.test(o.mimeType)){
+      const c=[au?'video/mp4;codecs="avc1.42E01E,mp4a.40.2"':'video/mp4;codecs="avc1.42E01E"','video/mp4'].find(m=>MR.isTypeSupported(m));
+      if(c)o.mimeType=c;else if(o.mimeType&&!MR.isTypeSupported(o.mimeType))delete o.mimeType;}
+    if(!o.videoBitsPerSecond&&!o.bitsPerSecond)o.videoBitsPerSecond=6e6;
+    super(s,o);this.addEventListener('stop',()=>{active=Math.max(0,active-1);setTimeout(()=>{busy=0;},0);});}
+  start(t){const r=super.start(t==null?1000:t);active++;return r;}
+  stop(){if(this.state!=='inactive'){busy=1;setTimeout(()=>{busy=0;},15000);}return super.stop();}}
+R.__recfix=1;window.MediaRecorder=R;
+const AC=window.AudioContext||window.webkitAudioContext;
+if(AC&&AC.prototype.suspend){const sus=AC.prototype.suspend;AC.prototype.suspend=function(){return active?Promise.resolve():sus.call(this);};}
+/* 録音用の出口には常に無音を流しておく（何も鳴っていないと音声トラックにデータが来ず、録画全体が止まる） */
+if(AC&&AC.prototype.createMediaStreamDestination){const cmd=AC.prototype.createMediaStreamDestination;AC.prototype.createMediaStreamDestination=function(){const d=cmd.apply(this,arguments);
+  try{const c=this.createConstantSource();c.offset.value=0;c.connect(d);c.start();}catch(e){}return d;};}})();</script>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="description" content="映った人の体が 3D プリントの白い格子になる。動いたところから肌の殻が一枚ずつはがれて落ち、格子の向こうのスタジオが透けて見える。止まればゆっくり戻る。撮影と録画ができる。">
+<meta name="theme-color" content="#c9c4bb">
+<title>KARA ─ 体が透ける格子になる</title>
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  KARA 殻／空 ─ 体が透ける格子になる                       ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  REFERENCE  The Chemical Brothers「Wide Open」（2016, Dom & Nic）の MV。がらんとした
+             灰色の倉庫で踊るダンサーの体が、腕から順に白い 3D プリントの
+             ボロノイ格子に置き換わっていき、最後には格子の隙間から向こうの
+             壁が透けて見える。ワンカットの、静かでいちばん冷たい変身。
+             （映像そのものは借りない。白い有機的な格子の体という型を借りる）
+  MOOD       ファッションフィルムの一場面。照明の行き届いたホリゾントの前で、
+             あなたの肌は薄い殻にすぎない。動いたところから殻が一枚ずつ割れて
+             落ち、中から真っ白な格子が出てくる。格子の穴の奥には体の裏側の
+             格子、さらにその奥に壁。止まれば殻はゆっくり刷り直される。
+  PALETTE    NYLON     ホリゾント #c9c4bb〜#d9d4cb ／ 格子 #eeeae2 ／ 影 #57534d
+             CHROME    #1b1c1f グラファイトの部屋 ／ 鏡面の格子（天井と左右の
+                       ソフトボックスを映す）
+             OBSIDIAN  #efede8 の白い部屋 ／ 黒い光沢の格子 ／ 肌はほぼ白黒
+             LUMEN     #0b0b0c 暗室 ／ 格子そのものが 2700K の電球色に光り、
+                       壁にその光が回る
+             差し色はひとつだけ：プリントヘッドのレーザー #ff5a1f（切り替えと「全身」）
+  TYPE       Onest 200 / 500（細いグロテスク）＋ Noto Sans JP 300。UI は小さく。
+  MOTION     ゆっくり。殻は割れたら重力で落ちて床で止まる。光は数十秒かけて
+             わずかに回り、影の向きが変わる。派手な揺れは使わない。
+  SIGNATURE  格子の穴からホリゾントが見え、壁の影にも穴のぶんの光が漏れる。
+  LAYERS     ① 体の部位ごとに円筒・頭は球として貼りついた 3D のボロノイ格子
+                （節は丸く太り、輪郭に近いほど詰まって見える。頭は首振りで回る）
+             ② 部位ごとの速さで殻がはがれる（手先から肩へ・足先から腰へ進む）。
+                止まると時間をかけて刷り直される
+             ③ 前の格子の穴から、体の裏側の格子と、さらに向こうの壁が見える
+             ④ はがれた殻は破片になって回りながら落ち、床に散って消える
+             ⑤ 壁に落ちる影に、格子の穴を抜けた光が斑に漏れる。光源はゆっくり回る
+             ⑥ 素材 4 種（NYLON・CHROME・OBSIDIAN・LUMEN）、背景はスタジオ／実際の部屋
+             ⑦ 体をタップするとそこだけ一気に開く。「全身」（または手拍子）で
+                レーザーが頭から足まで走り、全身が格子になる
+             ⑧ 素のカメラ ⇄ 作品：橙のレーザーが上から体をなぞって格子を
+                透かしながら下りていき、通ったところからスタジオになる
+             ⑨ 殻の割れる乾いた音と、レーザーの走査音（録画に入る）
+  TECH       WebGL2。MediaPipe PoseLandmarker（2 人まで、セグメンテーション付き）。
+             1 パス目で人物層（色・透過・発光）を MRT に書き、2 パス目で
+             背景・影（透過のミップを光の向きにずらして読む）・合成・粒子。
+             格子は周期的なボロノイを 256² の表に前計算（最近・次点の境界距離と
+             種の番号）。部位の座標は円筒の周長と軸の長さ、頭は耳を軸にした球面座標。
+             殻の開閉は種ごとの乱数と部位の値 E の比較で、E は観測時刻で測った
+             速さで増え、実時間で減る。
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Onest:wght@200;500&family=Noto+Sans+JP:wght@300&display=swap" rel="stylesheet">
+<style>
+:root{--fg:#fff}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none}
+html,body{margin:0;height:100%;background:#111;overflow:hidden;color:var(--fg);
+  font-family:"Noto Sans JP","Hiragino Sans",sans-serif;font-weight:300}
+#view{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:crosshair}
+#cam{position:fixed;left:0;top:0;width:2px;height:2px;opacity:.01;pointer-events:none}
+
+#start{position:fixed;inset:0;z-index:30;display:flex;flex-direction:column;align-items:center;justify-content:safe center;gap:18px;overflow-y:auto;
+  padding:28px;text-align:center;color:#2b2925;
+  background:radial-gradient(120% 90% at 36% 30%,#dcd7ce 0%,#c9c4bb 46%,#a9a49b 100%)}
+#start .t{font:500 10px "Onest",sans-serif;letter-spacing:.5em;margin-right:-.5em;color:#57534d}
+#start h1{margin:0;font:200 min(26vw,150px)/.86 "Onest",sans-serif;letter-spacing:.12em;margin-right:-.12em;color:#1f1d1a}
+#start .sub{font-size:13px;letter-spacing:.24em;margin-right:-.24em;color:#3a3732}
+#emblem{width:min(44vw,200px);height:min(44vw,200px);margin:4px 0 2px}
+#start p{margin:0;font-size:12px;line-height:2.1;letter-spacing:.06em;color:#3a3732}
+#go{appearance:none;border:1px solid #1f1d1a;background:transparent;color:#1f1d1a;font:500 12px "Onest","Noto Sans JP",sans-serif;
+  letter-spacing:.34em;padding:13px 30px 13px 34px;cursor:pointer;border-radius:999px;transition:background .2s,color .2s}
+#go:hover{background:#1f1d1a;color:#eeeae2}
+@media (max-height:620px){#start{gap:10px;padding:16px}#start h1{font-size:min(16vh,96px)}#emblem{width:min(24vh,130px);height:min(24vh,130px);margin:0}#start p{line-height:1.8}}
+@media (max-height:430px){#emblem{display:none}#start .t{display:none}}
+#err{font-size:12px;line-height:1.8;max-width:360px;min-height:1em;white-space:pre-line;color:#7a1f0a;font-family:sans-serif;font-weight:600}
+
+.btn{position:fixed;z-index:12;appearance:none;border:0;background:transparent;color:var(--ui,#fff);text-shadow:0 0 8px var(--uish,rgba(0,0,0,.45));
+  font:500 11px "Onest","Noto Sans JP",sans-serif;letter-spacing:.16em;padding:10px 8px;display:none;cursor:pointer;opacity:.8;transition:opacity .2s}
+.btn.show{display:block}
+.btn:hover{opacity:1}
+#gear{right:10px;top:calc(env(safe-area-inset-top) + 6px);font:15px sans-serif;letter-spacing:0}
+#flip{right:10px;top:calc(env(safe-area-inset-top) + 40px);font-size:11px;letter-spacing:.06em}
+#brand{position:fixed;left:14px;top:calc(env(safe-area-inset-top) + 12px);z-index:11;font:200 13px "Onest",sans-serif;letter-spacing:.5em;
+  color:var(--ui,#fff);pointer-events:none;display:none}
+body.ink{--ui:#1f1d1a;--uish:rgba(255,255,255,.35)}
+#brand.show{display:block}
+#brand b{font-weight:500;letter-spacing:.3em;font-size:9px;display:block;margin-top:4px;opacity:.75}
+#status{position:fixed;left:14px;top:calc(env(safe-area-inset-top) + 52px);z-index:11;font:11px sans-serif;letter-spacing:.04em;
+  color:var(--ui,#fff);text-shadow:0 0 8px var(--uish,rgba(0,0,0,.45));pointer-events:none;max-width:76vw;line-height:1.7;white-space:pre-line}
+#bar{position:fixed;left:0;right:0;bottom:calc(env(safe-area-inset-bottom) + 10px);z-index:12;display:none;justify-content:center;align-items:center;gap:20px;pointer-events:none}
+#bar.show{display:flex}
+#bar .btn{position:static;display:block;pointer-events:auto;min-width:64px}
+#bar #shoot{position:relative;width:44px;height:44px;min-width:44px;border-radius:50%;border:1.5px solid var(--ui,#fff);padding:0;opacity:.9}
+#shoot::after{content:"";position:absolute;inset:8px;border-radius:50%;background:var(--ui,#fff)}
+#rec.on{opacity:1;color:#ff5a1f}
+#mode{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom) + 72px);z-index:13;display:none;
+  appearance:none;border:1px solid rgba(255,255,255,.55);background:rgba(20,19,18,.42);color:#fff;border-radius:999px;
+  -webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);
+  font:500 12px "Onest","Noto Sans JP",sans-serif;letter-spacing:.24em;padding:11px 22px 11px 26px;cursor:pointer}
+#mode.show{display:block}
+
+#panel{position:fixed;right:10px;top:calc(env(safe-area-inset-top) + 76px);z-index:12;width:min(276px,calc(100vw - 20px));
+  max-height:calc(100vh - 180px);overflow:auto;color:#eeeae2;background:rgba(24,23,21,.86);
+  -webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);
+  padding:14px 16px;display:flex;flex-direction:column;gap:12px;border-radius:12px;transition:opacity .2s}
+#panel.hide{opacity:0;pointer-events:none}
+#panel .hd{font:500 9px "Onest",sans-serif;letter-spacing:.32em;color:rgba(238,234,226,.5);margin-bottom:-4px}
+#panel label{display:flex;align-items:center;gap:10px;font-size:11px;letter-spacing:.04em}
+#panel label span{width:82px;flex:none;color:rgba(238,234,226,.62)}
+#panel input[type=range]{flex:1;accent-color:#eeeae2}
+#panel .tg{display:flex;gap:6px;flex-wrap:wrap}
+#panel .tg button{flex:1;appearance:none;border:1px solid rgba(238,234,226,.22);background:transparent;color:#eeeae2;padding:7px 4px;border-radius:999px;
+  font:500 9.5px "Onest","Noto Sans JP",sans-serif;letter-spacing:.1em;cursor:pointer;opacity:.5;min-width:56px}
+#panel .tg button.on{opacity:1;border-color:#eeeae2}
+#panel .note{font-size:10px;color:rgba(238,234,226,.55);line-height:1.85}
+</style>
+</head>
+<body>
+<canvas id="view"></canvas>
+<video id="cam" playsinline muted autoplay></video>
+<div id="brand">KARA<b>LATTICE BODY</b></div>
+<div id="status"></div>
+<button id="gear" class="btn" aria-label="調整">⚙</button>
+<button id="flip" class="btn">⟲ カメラ</button>
+<button id="mode">格子にする</button>
+<div id="bar">
+  <button id="rec" class="btn">● 録画</button>
+  <button id="mat" class="btn">NYLON ▸</button>
+  <button id="shoot" class="btn" aria-label="撮る"></button>
+  <button id="wide" class="btn">全身 ↓</button>
+</div>
+
+<div id="panel" class="hide">
+  <div class="hd">MATERIAL</div>
+  <div class="tg" id="mats">
+    <button data-m="0" class="on">NYLON</button><button data-m="1">CHROME</button><button data-m="2">OBSIDIAN</button><button data-m="3">LUMEN</button>
+  </div>
+  <div class="hd">BACKDROP</div>
+  <div class="tg">
+    <button id="bStudio" class="on">スタジオ</button><button id="bRoom">この部屋</button>
+  </div>
+  <label><span>格子の大きさ</span><input type="range" id="sCell" min="0.07" max="0.2" step="0.005" value="0.115"></label>
+  <label><span>格子の太さ</span><input type="range" id="sStrut" min="0.06" max="0.2" step="0.005" value="0.11"></label>
+  <label><span>はがれやすさ</span><input type="range" id="sSens" min="0.3" max="2.5" step="0.05" value="1"></label>
+  <label><span>戻る速さ</span><input type="range" id="sHeal" min="0" max="0.3" step="0.005" value="0.06"></label>
+  <label><span>影の濃さ</span><input type="range" id="sShadow" min="0" max="1" step="0.01" value="0.55"></label>
+  <label><span>音量</span><input type="range" id="sVol" min="0" max="1" step="0.01" value="0.6"></label>
+  <div class="tg">
+    <button id="tChips" class="on">殻の破片</button><button id="tClap">手拍子で全身</button>
+  </div>
+  <div class="note">動いたところから殻がはがれ、格子の奥が透ける。止まるとゆっくり戻る。<br>体をタップするとそこだけ一気に開く。「全身」で頭から足まで。<br>「この部屋」はあなたのいない場所を覚えて、穴の奥に映す。</div>
+</div>
+
+<div id="start">
+  <div class="t">LATTICE BODY</div>
+  <h1>KARA</h1>
+  <canvas id="emblem" width="400" height="400"></canvas>
+  <div class="sub">体が、透ける格子になる。</div>
+  <p>まずは、いつものカメラ。<br>ボタンを押すと、動いたところから<br>肌の殻がはがれ、白い格子が透けて見える。<br>止まれば、ゆっくり戻る。</p>
+  <button id="go">はじめる</button>
+  <div id="err"></div>
+</div>
+
+<script>
+'use strict';
+/* =====================================================================
+   KARA — the body as a 3D-printed Voronoi lattice under a thin skin.
+   per frame:
+     pose (+ mask) → body parts as cylinders (+ head sphere) in screen px →
+     pass 1 (MRT): person layer — skin / front struts / back struts / see-through,
+                   transmission + emission
+     pass 2: studio (or the learned room) · shadow through the holes · person ·
+             print-head laser · grain → falling shell chips on top.
+   ===================================================================== */
+const VISION_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs';
+const WASM_URL   = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm';
+const POSE_MODEL = 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/latest/pose_landmarker_lite.task';
+
+const $ = id => document.getElementById(id);
+const view = $('view'), video = $('cam');
+const S = { mat:0, room:false, cell:.115, strut:.11, sens:1, heal:.06, shadow:.55, vol:.6, chips:true, clap:false };
+const MATS = ['NYLON', 'CHROME', 'OBSIDIAN', 'LUMEN'];
+const THEME = ['#c9c4bb', '#1b1c1f', '#efede8', '#0b0b0c'];
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+const fin = v => typeof v === 'number' && isFinite(v);
+const smooth = t => { t = clamp(t, 0, 1); return t * t * (3 - 2 * t); };
+const TEST = { maxDt:.05 };
+
+/* ---------- lattice: a periodic Voronoi tile, 7×7 jittered seeds ---------- */
+const LN = 256, LG = 7;
+const SEEDS = new Float32Array(LG * LG * 2);
+let LAT = null;
+function makeLattice(){
+  let s = 20161;
+  const rnd = () => { s = (s * 16807) % 2147483647; return s / 2147483647; };
+  for (let j = 0; j < LG; j++) for (let i = 0; i < LG; i++){
+    const k = j * LG + i;
+    SEEDS[k * 2] = (i + .5 + (rnd() - .5) * .78) / LG;
+    SEEDS[k * 2 + 1] = (j + .5 + (rnd() - .5) * .78) / LG;
+  }
+  const out = new Uint8Array(LN * LN * 4);
+  const cx = new Float32Array(25), cy = new Float32Array(25), ck = new Int32Array(25);
+  for (let y = 0; y < LN; y++){
+    const py = (y + .5) / LN, gj = Math.floor(py * LG);
+    for (let x = 0; x < LN; x++){
+      const px = (x + .5) / LN, gi = Math.floor(px * LG);
+      let n = 0, b = 0, bd = 1e9;
+      for (let dj = -2; dj <= 2; dj++) for (let di = -2; di <= 2; di++){
+        const ii = gi + di, jj = gj + dj;
+        const wi = ((ii % LG) + LG) % LG, wj = ((jj % LG) + LG) % LG, k = wj * LG + wi;
+        const sx = SEEDS[k * 2] + Math.floor(ii / LG), sy = SEEDS[k * 2 + 1] + Math.floor(jj / LG);
+        cx[n] = sx; cy[n] = sy; ck[n] = k;
+        const d = (sx - px) * (sx - px) + (sy - py) * (sy - py);
+        if (d < bd){ bd = d; b = n; }
+        n++;
+      }
+      let e1 = 1e9, e2 = 1e9, k2 = ck[b];
+      for (let c = 0; c < n; c++){
+        if (c === b) continue;
+        const dx = cx[c] - cx[b], dy = cy[c] - cy[b], L = Math.hypot(dx, dy);
+        if (L < 1e-6) continue;
+        const dc = (cx[c] - px) * (cx[c] - px) + (cy[c] - py) * (cy[c] - py);
+        const be = (dc - bd) / (2 * L);
+        if (be < e1){ e2 = e1; e1 = be; k2 = ck[c]; } else if (be < e2) e2 = be;
+      }
+      const o = (y * LN + x) * 4;
+      out[o] = clamp(Math.round(e1 * LG / .6 * 255), 0, 255);
+      out[o + 1] = clamp(Math.round(e2 * LG / .6 * 255), 0, 255);
+      out[o + 2] = ck[b]; out[o + 3] = k2;
+    }
+  }
+  LAT = out;
+}
+makeLattice();
+
+/* ---------- start-screen emblem: a lattice sphere, drawn once on the CPU ---------- */
+(function emblem(){
+  const c = $('emblem'), x = c.getContext('2d'), N = c.width, img = x.createImageData(N, N), d = img.data;
+  const L = [-.5, -.62, .6], ln = Math.hypot(...L); L[0] /= ln; L[1] /= ln; L[2] /= ln;
+  const smin = (a, b, k) => { const h = Math.max(k - Math.abs(a - b), 0) / k; return Math.min(a, b) - h * h * k * .25; };
+  const edge = (u, v) => { u = ((u % LG) + LG) % LG / LG * LN; v = ((v % LG) + LG) % LG / LG * LN;
+    const o = ((v | 0) * LN + (u | 0)) * 4; return smin(LAT[o] / 255 * .6, LAT[o + 1] / 255 * .6, .17); };
+  const w = .115, rot = .5;
+  for (let j = 0; j < N; j++) for (let i = 0; i < N; i++){
+    const qx = (i - N / 2) / (N * .46), qy = (j - N / 2) / (N * .46), r2 = qx * qx + qy * qy, o = (j * N + i) * 4;
+    if (r2 >= 1) continue;
+    let col = null;
+    for (const side of [1, -1]){
+      const z = Math.sqrt(1 - r2) * side;
+      const ty = qy * Math.cos(.35) - z * Math.sin(.35), tz = qy * Math.sin(.35) + z * Math.cos(.35);
+      const hx = qx * Math.cos(rot) - tz * Math.sin(rot), hz = qx * Math.sin(rot) + tz * Math.cos(rot);
+      const th = Math.atan2(hx, hz), la = Math.asin(clamp(-ty, -1, 1));
+      const e = edge(th / (2 * Math.PI) * 28, la * 4.4);
+      if (e < w){
+        const h = Math.sqrt(1 - (e / w) * (e / w));
+        const nl = Math.max(0, (qx * L[0] + qy * L[1] + z * side * L[2]));
+        const b = side > 0 ? (.42 + .62 * (nl * .7 + h * .3)) : (.30 + .2 * h);
+        col = [238 * b, 234 * b, 226 * b];
+        break;
+      }
+    }
+    if (col){ d[o] = col[0]; d[o + 1] = col[1]; d[o + 2] = col[2]; d[o + 3] = 255; }
+  }
+  x.putImageData(img, 0, 0);
+})();
+
+/* ---------- WebGL2 ---------- */
+const gl = view.getContext('webgl2', { alpha:false, antialias:false, premultipliedAlpha:false, preserveDrawingBuffer:false });
+const VS = `#version 300 es
+in vec2 aP; void main(){ gl_Position = vec4(aP, 0., 1.); }`;
+const COMMON = `#version 300 es
+precision highp float; precision highp int;
+const float PI = 3.14159265;
+uniform vec2 uRes; uniform vec4 uCover; uniform float uMirror;
+vec2 camUV(vec2 p){ vec2 u = (p - uCover.xy) / uCover.zw; if (uMirror > .5) u.x = 1. - u.x; return u; }
+float h12(vec2 p){ vec3 p3 = fract(vec3(p.xyx) * .1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
+float smin(float a, float b, float k){ float h = max(k - abs(a - b), 0.) / k; return min(a, b) - h * h * k * .25; }
+`;
+/* pass 1: the person layer */
+const FS_PERSON = COMMON + `
+uniform sampler2D uCam, uMask, uLat;
+uniform vec2 uSeeds[49];
+uniform vec4 uSeg[22], uPar[22], uPar2[22];
+uniform vec4 uHead[2], uHeadB[2], uHeadC[2];
+uniform mat3 uHRot[2];
+uniform float uStrut, uHasMask;
+uniform int uMat;
+uniform vec4 uScan;
+uniform vec3 uLight;
+layout(location=0) out vec4 oCol;
+layout(location=1) out vec4 oT;
+const float TILE = 7.;
+
+float edgeAt(vec2 uv, float k){ vec4 t = texture(uLat, uv / TILE); return smin(t.r * .6, t.g * .6, k); }
+vec2 cellC(vec2 uv, int k){
+  vec2 base = floor(uv / TILE) * TILE + uSeeds[k];
+  vec2 best = base; float bd = 1e9;
+  for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++){
+    vec2 c = base + TILE * vec2(float(i), float(j)); vec2 d = c - uv; float dd = dot(d, d);
+    if (dd < bd){ bd = dd; best = c; }
+  }
+  return best;
+}
+struct Lay { float e; float e1; vec2 g; float op; float op2; float q; };
+Lay lay(vec2 uv, float salt, float E, float gb, float w){
+  Lay r;
+  float k = w * 1.6;
+  vec4 t = texture(uLat, uv / TILE);
+  r.e1 = t.r * .6;
+  r.e = smin(t.r * .6, t.g * .6, k);
+  float ex = edgeAt(uv + vec2(.035, 0.), k), ey = edgeAt(uv + vec2(0., .035), k);
+  vec2 g = vec2(ex - r.e, ey - r.e);
+  r.g = dot(g, g) > 1e-10 ? normalize(g) : vec2(0.);
+  ivec2 tc = ivec2(floor(fract(uv / TILE) * 256.)) & ivec2(255);
+  vec4 tn = texelFetch(uLat, tc, 0);
+  int k1 = clamp(int(tn.b * 255. + .5), 0, 48), k2 = clamp(int(tn.a * 255. + .5), 0, 48);
+  vec2 c1 = cellC(uv, k1), c2 = cellC(uv, k2);
+  float q1 = h12(c1 * 1.37 + salt), q2 = h12(c2 * 1.37 + salt);
+  float E2 = E * 1.2;
+  r.op = E2 - (q1 * .35 + gb * .85);
+  r.op2 = E2 - (q2 * .35 + gb * .85);
+  r.q = q1;
+  return r;
+}
+float envF(vec3 R){
+  float up = -R.y;
+  float e = .05 + .1 * smoothstep(-.2, .6, up);
+  e += 1.3 * smoothstep(.5, .75, up) * smoothstep(.98, .8, up);
+  e += 1.1 * exp(-pow((R.x + .72) / .12, 2.)) * smoothstep(-.6, -.1, up);
+  e += .6 * exp(-pow((R.x - .78) / .07, 2.)) * smoothstep(-.4, .1, up);
+  e += .35 * exp(-pow(up / .035, 2.));
+  return e;
+}
+vec3 strut(vec3 N, float hh, float back){
+  vec3 I = vec3(0., 0., -1.);
+  vec3 R = reflect(I, N);
+  float nl = dot(N, uLight);
+  if (uMat == 0){
+    float wrap = max((nl + .4) / 1.4, 0.);
+    vec3 c = vec3(.935, .918, .88) * (.26 + .78 * wrap);
+    c *= mix(.72, 1., hh);
+    return back > .5 ? c * vec3(.44, .43, .41) : c;
+  } else if (uMat == 1){
+    vec3 c = vec3(.86, .88, .92) * envF(R) + vec3(.05);
+    c *= mix(.55, 1., hh);
+    return back > .5 ? c * .45 : c;
+  } else if (uMat == 2){
+    vec3 H = normalize(uLight + vec3(0., 0., 1.));
+    float sp = pow(max(dot(N, H), 0.), 70.) * 1.3;
+    float fr = pow(1. - max(N.z, 0.), 3.);
+    vec3 c = vec3(.018) + vec3(sp) + vec3(.55) * fr * envF(R) + vec3(.08) * envF(R);
+    return back > .5 ? c * .55 : c;
+  }
+  vec3 c = vec3(1., .8, .56) * (.08 + 1.15 * pow(hh, 3.)) + vec3(.5, .2, .05) * hh * .25;
+  return back > .5 ? c * .32 : c;
+}
+vec3 grade(vec3 c){
+  float l = dot(c, vec3(.299, .587, .114));
+  if (uMat == 0){ c = mix(vec3(l), c, .84); c = c * vec3(1.02, 1., .97); }
+  else if (uMat == 1){ c = mix(vec3(l), c, .55) * vec3(.94, .98, 1.05); c = (c - .5) * 1.14 + .5; }
+  else if (uMat == 2){ c = mix(vec3(l), c, .22); c = (c - .5) * 1.1 + .55; }
+  else { c = mix(vec3(l), c, .7) * vec3(1., .82, .62) * .62; }
+  return clamp(c, 0., 1.);
+}
+vec3 interior(float E, vec3 Nb){
+  float k = .45 + .55 * E;
+  float lit = .7 + .3 * max(dot(-Nb, uLight), 0.);
+  if (uMat == 0) return vec3(.44, .42, .39) * k * lit;
+  if (uMat == 1) return vec3(.07, .075, .085) * k * lit;
+  if (uMat == 2) return vec3(.035) * lit;
+  return vec3(.11, .065, .035) * k;
+}
+vec3 rimC(vec3 Nb){
+  float nl = max((dot(Nb, uLight) + .3) / 1.3, 0.);
+  if (uMat == 0) return vec3(.96, .945, .91) * (.55 + .5 * nl);
+  if (uMat == 1) return vec3(.9, .92, .95) * (.4 + .9 * nl);
+  if (uMat == 2) return vec3(.06) + vec3(.6) * pow(nl, 6.);
+  return vec3(1., .78, .5) * 1.2;
+}
+void main(){
+  vec2 p = vec2(gl_FragCoord.x, uRes.y - gl_FragCoord.y);
+  vec2 vuv = camUV(p);
+  float m = 0.;
+  if (uHasMask > .5 && vuv.x >= 0. && vuv.x <= 1. && vuv.y >= 0. && vuv.y <= 1.) m = smoothstep(.3, .7, texture(uMask, vuv).r);
+  if (m < .004){ oCol = vec4(0.); oT = vec4(1., 0., 0., 1.); return; }
+  vec3 cam = texture(uCam, vuv).rgb;
+
+  // ---- which part is this pixel on? head first, then limbs, then the torso
+  int hb = -1; vec2 hq = vec2(0.); float hbd = 1.;
+  for (int h = 0; h < 2; h++){
+    if (uHeadC[h].z < .5) continue;
+    vec2 d = p - uHead[h].xy;
+    vec2 rr = vec2(uHeadB[h].x * d.x + uHeadB[h].y * d.y, -uHeadB[h].y * d.x + uHeadB[h].x * d.y);
+    vec2 q = rr / (uHead[h].z * vec2(1., uHeadB[h].z));
+    float dq = length(q);
+    if (dq < hbd){ hbd = dq; hb = h; hq = q; }
+  }
+  int best = -1; float bd = 1e9;
+  if (hb < 0){
+    for (int i = 0; i < 22; i++){
+      float kind = uPar[i].w;
+      if (kind < .5) continue;
+      vec2 a = uSeg[i].xy, b = uSeg[i].zw, ab = b - a;
+      float L = max(length(ab), 1.);
+      float t = clamp(dot(p - a, ab) / (L * L), 0., 1.);
+      float r = mix(uPar[i].x, uPar[i].y, t);
+      float dn = length(p - (a + ab * t)) / r;
+      if (kind > 1.5) dn = dn * 1.3 + .12;
+      if (dn < bd){ bd = dn; best = i; }
+    }
+  }
+  vec3 col; float a = 1.; float emis = 0.;
+  if (hb < 0 && best < 0){
+    col = grade(cam);
+  } else {
+    // ---- surface coordinates (front / back) and tangent frames
+    vec2 uvF, uvB; vec3 NbF, NbB, TuF, TuB, TvF, TvB; float E, gb, gbB, salt, cell;
+    if (hb >= 0){
+      int h = hb;
+      float z = sqrt(max(0., 1. - dot(hq, hq)));
+      mat3 Rt = transpose(uHRot[h]);
+      vec3 HF = Rt * vec3(hq, z), HB = Rt * vec3(hq, -z);
+      float R = uHead[h].z; cell = uHeadC[h].y; salt = uHeadC[h].x;
+      float nA = uHeadB[h].w;
+      // vertical axis: turning the head only slides the cells around it
+      float thF = atan(HF.x, HF.z), laF = asin(clamp(-HF.y, -1., 1.));
+      float thB = atan(HB.x, HB.z), laB = asin(clamp(-HB.y, -1., 1.));
+      uvF = vec2(thF / (2. * PI) * nA, laF * R / cell) + salt * 9.1;
+      uvB = vec2(thB / (2. * PI) * nA, laB * R / cell) + salt * 9.1;
+      vec2 rc = uHeadB[h].xy;
+      #define TOS(v) (vec3(rc.x * (v).x - rc.y * (v).y, rc.y * (v).x + rc.x * (v).y, (v).z))
+      vec3 a0 = uHRot[h] * vec3(cos(thF), 0., -sin(thF));
+      vec3 a1 = uHRot[h] * vec3(-sin(laF) * sin(thF), -cos(laF), -sin(laF) * cos(thF));
+      vec3 a2 = uHRot[h] * HF;
+      TuF = TOS(a0); TvF = TOS(a1); NbF = TOS(a2);
+      vec3 b0 = uHRot[h] * vec3(cos(thB), 0., -sin(thB));
+      vec3 b1 = uHRot[h] * vec3(-sin(laB) * sin(thB), -cos(laB), -sin(laB) * cos(thB));
+      vec3 b2 = uHRot[h] * HB;
+      TuB = TOS(b0); TvB = TOS(b1); NbB = -TOS(b2);
+      // the face goes last: the sides and the back of the skull open first
+      E = uHead[h].w; gb = .08 + .8 * smoothstep(-.3, .95, HF.z); gbB = .08 + .8 * smoothstep(-.3, .95, HB.z);
+    } else {
+      int i = best;
+      vec2 a0 = uSeg[i].xy, b0 = uSeg[i].zw, ab = b0 - a0;
+      float L = max(length(ab), 1.); vec2 ax = ab / L, pp = vec2(-ax.y, ax.x);
+      float tu = dot(p - a0, ax) / L, tc = clamp(tu, 0., 1.);
+      float r = mix(uPar[i].x, uPar[i].y, tc), sl = dot(p - a0, pp);
+      r = max(r, abs(sl) * 1.06);             // the mask is wider than the model: keep the cells from smearing
+      float sn = clamp(sl / r, -.97, .97), ph = asin(sn);
+      cell = uPar2[i].w; salt = uPar2[i].x;
+      vec2 off = vec2(salt * 13.1, salt * 7.7);
+      uvF = vec2(ph * r / cell, tu * L / cell) + off;
+      uvB = vec2((PI - ph) * r / cell, tu * L / cell) + off;
+      vec3 P3 = vec3(pp, 0.), A3 = vec3(ax, 0.), Z = vec3(0., 0., 1.);
+      NbF = P3 * sin(ph) + Z * cos(ph); TuF = P3 * cos(ph) - Z * sin(ph); TvF = A3;
+      NbB = -(P3 * sin(ph) - Z * cos(ph)); TuB = -P3 * cos(ph) - Z * sin(ph); TvB = A3;
+      E = uPar[i].z; gb = mix(uPar2[i].y, uPar2[i].z, tc);
+      if (uPar[i].w > 1.5) gb = clamp(gb - .2 * abs(sn), 0., 1.);
+      gbB = gb;
+    }
+    // print-head band: cells open while the laser passes
+    if (uScan.z > 0.){ float d = (p.y - uScan.x) / uScan.y; E = max(E, uScan.z * (uScan.w > .5 ? smoothstep(.6, -.6, d) : exp(-d * d)) * 1.05); }
+    float w = uStrut;
+    Lay F = lay(uvF, salt, E, gb, w);
+    if (F.op <= 0.){
+      col = grade(cam);
+      // the cut edge of the shell where a neighbour has fallen away
+      if (F.op2 > 0. && F.e1 < .05){
+        float k = smoothstep(.05, .012, F.e1);
+        col = mix(col, rimC(NbF), k);
+        col *= mix(1., .7, smoothstep(.012, .0, F.e1));
+      }
+    } else if (F.e < w){
+      float ew = F.e / w, hh = sqrt(max(0., 1. - ew * ew));
+      vec3 N = normalize(TuF * F.g.x * ew + TvF * F.g.y * ew + NbF * hh);
+      col = strut(N, hh, 0.);
+      if (F.op2 <= 0.) col *= mix(.62, 1., smoothstep(.0, .07, F.e1));
+      emis = uMat == 3 ? .45 + .3 * hh : 0.;
+    } else {
+      // through the hole: the inside of the back wall, its struts, or the room behind
+      float ao = smoothstep(w, w * 2.4, F.e);
+      Lay B = lay(uvB, salt + 3.1, E, gbB, w);
+      if (B.op <= 0.){ col = interior(E, NbB) * mix(.6, 1., ao); }
+      else if (B.e < w){
+        float ew = B.e / w, hh = sqrt(max(0., 1. - ew * ew));
+        vec3 N = normalize(TuB * B.g.x * ew + TvB * B.g.y * ew + NbB * hh);
+        col = strut(N, hh, 1.) * mix(.55, 1., ao);
+        emis = uMat == 3 ? .15 : 0.;
+      } else {
+        a = 0.; col = vec3(0.);
+        if (F.op2 <= 0. && F.e1 < w * 2.6) { a = .35 * (1. - F.e1 / (w * 2.6)); col = vec3(0.); }
+      }
+    }
+  }
+  float al = a * m;
+  oCol = vec4(col * al, al);
+  oT = vec4(1. - al, emis * m, 0., 1.);
+}`;
+/* pass 0: remember the room where nobody stands (premultiplied, alpha = confidence) */
+const FS_BG = COMMON + `
+uniform sampler2D uPrev, uCam, uMask; uniform float uHasMask;
+out vec4 o;
+void main(){
+  vec2 sp = gl_FragCoord.xy / uRes;
+  vec2 p = vec2(gl_FragCoord.x, uRes.y - gl_FragCoord.y);
+  vec2 vuv = camUV(p);
+  vec3 c = texture(uCam, vuv).rgb;
+  float m = uHasMask > .5 ? texture(uMask, vuv).r : 1.;
+  vec4 pr = texture(uPrev, sp);
+  float k = 1. - smoothstep(.06, .3, m);
+  vec3 rgb = pr.a > .004 ? pr.rgb / pr.a : c;
+  rgb = mix(rgb, c, pr.a < .02 ? k : .1 * k);
+  float al = min(1., pr.a + k * .06);
+  o = vec4(rgb * al, al);
+}`;
+/* pass 2: backdrop + shadow + person + laser + grain (+ the plain camera below/above the split) */
+const FS_COMP = COMMON + `
+uniform sampler2D uPer, uTr, uCam, uBg, uMask;
+uniform int uMat, uRoom;
+uniform float uShadow, uHorizon, uTime, uGrain, uHasMask;
+uniform vec2 uShOff;
+uniform vec4 uSplit;   // y (fx above), lineAlpha, steadyFx, 0
+uniform vec4 uLine;    // y, alpha, 0, 0  (the full-body print head)
+uniform vec3 uLight;
+out vec4 o;
+vec3 studio(vec2 p){
+  vec2 q = p / uRes;
+  float sh = min(uRes.x, uRes.y);
+  float hz = uHorizon;
+  float wallT = smoothstep(hz + .02 * uRes.y, hz - .05 * uRes.y, p.y);
+  vec2 lc = vec2(.5 - uLight.x * .35, .32) * uRes;
+  float pool = exp(-pow(length(p - lc) / (sh * 1.05), 2.));
+  float flo = clamp((p.y - hz) / max(uRes.y - hz, 1.), 0., 1.);
+  vec3 wall, floorC;
+  if (uMat == 0){ wall = mix(vec3(.62, .6, .565), vec3(.86, .84, .8), pool); floorC = mix(vec3(.66, .64, .6), vec3(.5, .48, .45), flo); }
+  else if (uMat == 1){ wall = mix(vec3(.085, .088, .1), vec3(.22, .225, .24), pool); floorC = mix(vec3(.13, .135, .145), vec3(.05), flo); }
+  else if (uMat == 2){ wall = mix(vec3(.84, .83, .8), vec3(.97, .965, .95), pool); floorC = mix(vec3(.9, .89, .86), vec3(.78, .77, .74), flo); }
+  else { wall = mix(vec3(.03, .03, .032), vec3(.075, .07, .07), pool); floorC = mix(vec3(.05, .045, .045), vec3(.015), flo); }
+  vec3 c = mix(floorC, wall, wallT);
+  c *= 1. - .05 * exp(-pow((p.y - hz) / (.012 * uRes.y), 2.));
+  return c;
+}
+vec3 gradeRoom(vec3 c){
+  float l = dot(c, vec3(.299, .587, .114));
+  if (uMat == 0) return mix(vec3(l), c, .7) * .92;
+  if (uMat == 1) return mix(vec3(l), c, .35) * .5;
+  if (uMat == 2) return mix(vec3(l), c, .12) * .9 + .1;
+  return mix(vec3(l), c, .5) * .25;
+}
+void main(){
+  vec2 sp = gl_FragCoord.xy / uRes;
+  vec2 p = vec2(gl_FragCoord.x, uRes.y - gl_FragCoord.y);
+  vec2 vuv = camUV(p);
+  vec3 cam = texture(uCam, vuv).rgb;
+  vec3 col;
+  if (uSplit.z < .5 && p.y >= uSplit.x){
+    col = cam;
+  } else {
+    vec3 bg;
+    if (uRoom == 1){
+      float m = uHasMask > .5 ? texture(uMask, vuv).r : 0.;
+      vec4 bm = texture(uBg, sp), bl = textureLod(uBg, sp, 5.), bl2 = textureLod(uBg, sp, 7.);
+      vec3 fill = bl.a > .02 ? bl.rgb / bl.a : (bl2.a > .01 ? bl2.rgb / bl2.a : vec3(.3));
+      vec3 known = bm.a > .004 ? bm.rgb / bm.a : fill;
+      vec3 model = mix(fill, known, smoothstep(.15, .7, bm.a));
+      bg = gradeRoom(mix(cam, model, smoothstep(.15, .5, m)));
+    } else bg = studio(p);
+    // shadow on the wall: transmission seen from the light, blurred; light leaks through the holes
+    vec2 so = vec2(uShOff.x, -uShOff.y);
+    float T1 = textureLod(uTr, (gl_FragCoord.xy - so) / uRes, 2.5).r;
+    float T2 = textureLod(uTr, (gl_FragCoord.xy - so * 1.5) / uRes, 4.5).r;
+    float sh = (1. - mix(T1, T2, .45)) * uShadow * (uRoom == 1 ? .5 : 1.);
+    bg *= 1. - sh;
+    vec4 per = texture(uPer, sp);
+    col = per.rgb + bg * (1. - per.a);
+    if (uMat == 3){
+      float e3 = textureLod(uTr, sp, 3.).g, e5 = textureLod(uTr, sp, 5.).g, e7 = textureLod(uTr, sp, 7.).g;
+      col += vec3(1., .62, .3) * (e3 * .08 + e5 * .14 + e7 * .22) * (1. - per.a * .8);
+    }
+    float vg = length((sp - .5) * vec2(1., .85));
+    col *= 1. - .32 * smoothstep(.35, .85, vg);
+    col += (h12(gl_FragCoord.xy + fract(uTime * 7.31) * 517.) - .5) * uGrain;
+  }
+  // the print head: a thin orange laser line, brighter where it hits the body
+  vec3 LC = vec3(1., .353, .122);
+  for (int k = 0; k < 2; k++){
+    float y = k == 0 ? uSplit.x : uLine.x, al = k == 0 ? uSplit.y : uLine.y;
+    if (al <= 0.) continue;
+    float d = abs(p.y - y);
+    float onB = 1. - texture(uTr, sp).r;
+    col += LC * al * (exp(-d / 1.1) * (.9 + 1.6 * onB) + exp(-d / 16.) * .22 + exp(-d / 70.) * .08);
+    col = mix(col, vec3(1.), al * exp(-d / .7) * onB * .6);
+  }
+  o = vec4(clamp(col, 0., 1.), 1.);
+}`;
+const VS_CHIP = `#version 300 es
+in vec2 aP; in vec4 aC; uniform vec2 uRes; out vec4 vC;
+void main(){ vC = aC; gl_Position = vec4(aP.x / uRes.x * 2. - 1., 1. - aP.y / uRes.y * 2., 0., 1.); }`;
+const FS_CHIP = `#version 300 es
+precision mediump float; in vec4 vC; out vec4 o; void main(){ o = vC; }`;
+
+function compile(vs, fs){
+  const mk = (type, src) => { const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s) || 'shader'); return s; };
+  const p = gl.createProgram(); gl.attachShader(p, mk(gl.VERTEX_SHADER, vs)); gl.attachShader(p, mk(gl.FRAGMENT_SHADER, fs));
+  gl.bindAttribLocation(p, 0, 'aP'); gl.bindAttribLocation(p, 1, 'aC'); gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p) || 'link');
+  const u = {}, n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+  for (let i = 0; i < n; i++){ const info = gl.getActiveUniform(p, i); const name = info.name.replace(/\[0\]$/, ''); u[name] = gl.getUniformLocation(p, info.name); }
+  return { p, u };
+}
+let P_PER = null, P_BG = null, P_COMP = null, P_CHIP = null, glOK = false, glErr = '';
+let quadBuf = null, chipBuf = null, chipVao = null, quadVao = null;
+let texCam = null, texMask = null, texLat = null;
+const FB = { w:0, h:0, fbo:null, col:null, tr:null, bg:[null, null], bgF:[null, null], bgI:0 };
+function mkTex(w, h, fmt, ifmt, type, filt, data){
+  const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.texImage2D(gl.TEXTURE_2D, 0, ifmt, w, h, 0, fmt, type, data || null);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, filt); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  return t;
+}
+function initGL(){
+  if (!gl){ glErr = 'この端末では WebGL2 が使えません。'; return; }
+  try{
+    P_PER = compile(VS, FS_PERSON); P_BG = compile(VS, FS_BG); P_COMP = compile(VS, FS_COMP); P_CHIP = compile(VS_CHIP, FS_CHIP);
+  }catch(e){ glErr = 'シェーダーを準備できませんでした：' + (e && e.message ? e.message.slice(0, 160) : e); return; }
+  quadVao = gl.createVertexArray(); gl.bindVertexArray(quadVao);
+  quadBuf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, quadBuf);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+  chipVao = gl.createVertexArray(); gl.bindVertexArray(chipVao);
+  chipBuf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, chipBuf);
+  gl.bufferData(gl.ARRAY_BUFFER, CHIPV.byteLength, gl.DYNAMIC_DRAW);
+  gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 24, 0);
+  gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 4, gl.FLOAT, false, 24, 8);
+  gl.bindVertexArray(null);
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+  texCam = mkTex(2, 2, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, gl.LINEAR);
+  texMask = mkTex(2, 2, gl.RED, gl.R8, gl.UNSIGNED_BYTE, gl.LINEAR, new Uint8Array(4));
+  texLat = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, texLat);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, LN, LN, 0, gl.RGBA, gl.UNSIGNED_BYTE, LAT);
+  gl.generateMipmap(gl.TEXTURE_2D);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+  glOK = true;
+}
+function sizeFB(w, h){
+  if (FB.w === w && FB.h === h) return;
+  for (const t of [FB.col, FB.tr, ...FB.bg]) if (t) gl.deleteTexture(t);
+  for (const f of [FB.fbo, ...FB.bgF]) if (f) gl.deleteFramebuffer(f);
+  FB.w = w; FB.h = h;
+  FB.col = mkTex(w, h, gl.RGBA, gl.RGBA8, gl.UNSIGNED_BYTE, gl.LINEAR_MIPMAP_LINEAR);
+  FB.tr = mkTex(w, h, gl.RGBA, gl.RGBA8, gl.UNSIGNED_BYTE, gl.LINEAR_MIPMAP_LINEAR);
+  for (const t of [FB.col, FB.tr]){ gl.bindTexture(gl.TEXTURE_2D, t); gl.generateMipmap(gl.TEXTURE_2D); }
+  FB.fbo = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, FB.fbo);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, FB.col, 0);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT1, gl.TEXTURE_2D, FB.tr, 0);
+  gl.drawBuffers([gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1]);
+  for (let i = 0; i < 2; i++){
+    FB.bg[i] = mkTex(w, h, gl.RGBA, gl.RGBA8, gl.UNSIGNED_BYTE, gl.LINEAR_MIPMAP_LINEAR);
+    FB.bgF[i] = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, FB.bgF[i]);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, FB.bg[i], 0);
+    gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.bindTexture(gl.TEXTURE_2D, FB.bg[i]); gl.generateMipmap(gl.TEXTURE_2D);
+  }
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+}
+
+/* ---------- geometry ---------- */
+const G = { W:0, H:0, ox:0, oy:0, dw:1, dh:1, short:1 };
+let vidW = 1280, vidH = 720;
+function resize(){
+  const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+  let w = Math.round(innerWidth * dpr), h = Math.round(innerHeight * dpr);
+  const k = Math.min(1, 1280 / Math.max(w, h)); w = Math.max(2, Math.round(w * k)); h = Math.max(2, Math.round(h * k));
+  if (w !== G.W || h !== G.H){ G.W = view.width = w; G.H = view.height = h; }
+  const va = (vidW || 16) / (vidH || 9), ca = w / h;
+  if (va > ca){ G.dh = h; G.dw = h * va; } else { G.dw = w; G.dh = w / va; }
+  G.ox = (w - G.dw) / 2; G.oy = (h - G.dh) / 2; G.short = Math.min(w, h);
+}
+const toX = x => G.ox + (mirror ? 1 - x : x) * G.dw, toY = y => G.oy + y * G.dh;
+
+/* ---------- people: pose → parts ---------- */
+// [a, b, ra, rb, ga, gb]  radii in body-scale units, g = how late the shell goes (0 = first: fingers, toes)
+const LIMBS = [
+  [11, 13, .15, .12, .85, .55], [13, 15, .12, .085, .55, .22], [15, -1, .085, .1, .22, 0],
+  [12, 14, .15, .12, .85, .55], [14, 16, .12, .085, .55, .22], [16, -2, .085, .1, .22, 0],
+  [23, 25, .21, .15, .75, .45], [25, 27, .14, .09, .45, .1],
+  [24, 26, .21, .15, .75, .45], [26, 28, .14, .09, .45, .1],
+];
+const NPART = 11;   // 0 = torso, 1.. = LIMBS
+const PEOPLE = [];
+let personSeq = 0;
+function newPerson(){
+  const p = { id:++personSeq, salt:(personSeq * .618) % 1 * 40 + 3, seen:0, lastObs:-1, S:0, has:false,
+    sm:new Float32Array(33 * 3), vis:new Float32Array(33), parts:[], head:null };
+  for (let i = 0; i < NPART; i++) p.parts.push({ a:[0, 0], b:[0, 0], ra:1, rb:1, ga:.4, gb:.4, kind:0, E:0, rest:0, hold:0, acc:0, pa:null, pb:null, v:0, cell:20 });
+  p.head = { c:[0, 0], R:1, ys:1.3, roll:0, yaw:0, pitch:0, valid:false, E:0, rest:0, hold:0, acc:0, pc:null, pang:null, v:0, n:14, cell:20 };
+  return p;
+}
+function lmOk(l, i){ const q = l[i]; return !!(q && fin(q.x) && fin(q.y) && Math.abs(q.x) < 4 && Math.abs(q.y) < 4); }
+function visOf(q){ return q && fin(q.visibility) ? q.visibility : 1; }
+function ingestPoses(list, now){
+  if (!Array.isArray(list)) return 0;
+  const seenNow = [];
+  for (const l of list){
+    if (!Array.isArray(l) || l.length < 25) continue;
+    if (!lmOk(l, 11) || !lmOk(l, 12)) continue;
+    const cx = (toX(l[11].x) + toX(l[12].x)) / 2, cy = (toY(l[11].y) + toY(l[12].y)) / 2;
+    if (!fin(cx) || !fin(cy)) continue;
+    let best = null, bd = G.short * .5;
+    for (const p of PEOPLE){ if (seenNow.includes(p)) continue;
+      const d = Math.hypot(p.sm[11 * 3] / 2 + p.sm[12 * 3] / 2 - cx, p.sm[11 * 3 + 1] / 2 + p.sm[12 * 3 + 1] / 2 - cy); if (d < bd){ bd = d; best = p; } }
+    if (!best){ if (PEOPLE.length >= 2) continue; best = newPerson(); PEOPLE.push(best); }
+    seenNow.push(best);
+    observe(best, l, now);
+  }
+  return seenNow.length;
+}
+function observe(p, l, now){
+  const fresh = !p.has;
+  const S0 = p.S || G.short * .3;
+  for (let i = 0; i < 33; i++){
+    if (!lmOk(l, i)){ p.vis[i] = 0; continue; }
+    const q = l[i], x = toX(q.x), y = toY(q.y), z = fin(q.z) ? q.z * G.dw : 0;
+    const o = i * 3;
+    if (fresh || p.vis[i] <= 0){ p.sm[o] = x; p.sm[o + 1] = y; p.sm[o + 2] = z; }
+    else {
+      const d = Math.hypot(x - p.sm[o], y - p.sm[o + 1]) / S0;
+      const k = clamp(.3 + d * 9, .3, 1);
+      p.sm[o] += (x - p.sm[o]) * k; p.sm[o + 1] += (y - p.sm[o + 1]) * k; p.sm[o + 2] += (z - p.sm[o + 2]) * .3;
+    }
+    p.vis[i] = clamp(visOf(q), 0, 1);
+  }
+  const P = i => [p.sm[i * 3], p.sm[i * 3 + 1], p.sm[i * 3 + 2]];
+  const ok = (i, v) => p.vis[i] > (v == null ? .35 : v);
+  const ls = P(11), rs = P(12);
+  let Sw = Math.hypot(ls[0] - rs[0], ls[1] - rs[1]);
+  const earW2 = ok(7, .2) && ok(8, .2) ? Math.hypot(p.sm[21] - p.sm[24], p.sm[22] - p.sm[25], (p.sm[23] - p.sm[26]) * .5) : 0;
+  if (earW2 > 0) Sw = Math.max(Sw, earW2 * 2.3);
+  Sw = clamp(Sw, G.short * .05, G.short * 2);
+  p.S = p.S ? p.S + (Sw - p.S) * .25 : Sw;
+  const S = p.S, cell = Math.max(S * S_cell(), G.short * .022);
+  const dtObs = p.lastObs > 0 ? (now - p.lastObs) / 1000 : 0;
+  const velOk = dtObs > 0 && dtObs < .6;
+  p.lastObs = now; p.seen = now; p.has = true;
+  // torso
+  const sm = [(ls[0] + rs[0]) / 2, (ls[1] + rs[1]) / 2];
+  let dx = rs[0] - ls[0], dy = rs[1] - ls[1]; const dl = Math.hypot(dx, dy) || 1; dx /= dl; dy /= dl;
+  let down = [-dy, dx]; if (down[1] < 0) down = [dy, -dx];
+  let hip = null, hipW = 0;
+  if (ok(23, .45) && ok(24, .45)){ const lh = P(23), rh = P(24); hip = [(lh[0] + rh[0]) / 2, (lh[1] + rh[1]) / 2]; hipW = Math.hypot(lh[0] - rh[0], lh[1] - rh[1]);
+    if (Math.hypot(hip[0] - sm[0], hip[1] - sm[1]) < S * .5) hip = null; }
+  if (!hip) hip = [sm[0] + down[0] * S * 1.5, sm[1] + down[1] * S * 1.5];
+  setPart(p, 0, [sm[0] - down[0] * S * .02, sm[1] - down[1] * S * .02], hip, S * .62, Math.max(S * .44, hipW * .5 + S * .16), .3, .72, 2, cell, dtObs, velOk);
+  // limbs
+  for (let k = 0; k < LIMBS.length; k++){
+    const [ia, ib, ra, rb, ga, gb] = LIMBS[k];
+    let a = null, b = null, valid = false;
+    if (ib < 0){
+      const w = ib === -1 ? 15 : 16, pk = ib === -1 ? 17 : 18, ix = ib === -1 ? 19 : 20;
+      if (ok(w, .3) && ok(pk, .25) && ok(ix, .25)){
+        const W = P(w), PK = P(pk), IX = P(ix), mx = (PK[0] + IX[0]) / 2, my = (PK[1] + IX[1]) / 2;
+        a = [W[0], W[1]]; b = [W[0] + (mx - W[0]) * 1.75, W[1] + (my - W[1]) * 1.75]; valid = true;
+      }
+    } else if (ok(ia) && ok(ib)){ const A = P(ia), B = P(ib); a = [A[0], A[1]]; b = [B[0], B[1]]; valid = true; }
+    if (valid && Math.hypot(b[0] - a[0], b[1] - a[1]) < S * .04) valid = false;
+    if (valid) setPart(p, k + 1, a, b, S * ra, S * rb, ga, gb, 1, cell, dtObs, velOk);
+    else { const q = p.parts[k + 1]; q.kind = 0; q.pa = q.pb = null; q.v = 0; }
+  }
+  // head: a sphere around the ear axis, turned by yaw / pitch / roll
+  const H = p.head;
+  if (ok(7, .2) && ok(8, .2) && ok(0, .2)){
+    const eL = P(7), eR = P(8), no = P(0);
+    const mid = [(eL[0] + eR[0]) / 2, (eL[1] + eR[1]) / 2, (eL[2] + eR[2]) / 2];
+    let ex = eR[0] - eL[0], ey = eR[1] - eL[1];
+    if (ex < 0){ ex = -ex; ey = -ey; }          // always the screen-left → screen-right ear (either camera)
+    const e2 = Math.hypot(ex, ey) || 1;
+    const earW = Math.max(Math.hypot(ex, ey, (eR[2] - eL[2]) * .5), S * .36);
+    const roll = Math.atan2(ey, ex);
+    const fx = no[0] - mid[0], fy = no[1] - mid[1];
+    const along = (fx * ex + fy * ey) / e2, perp = (-fx * ey + fy * ex) / e2;
+    const yaw = Math.asin(clamp(along / (.62 * earW), -1, 1));
+    const pitch = Math.asin(clamp((perp - .1 * earW) / (.7 * earW), -1, 1)) * .8;
+    const k = H.valid ? .45 : 1;
+    const dr = Math.atan2(Math.sin(roll - H.roll), Math.cos(roll - H.roll));
+    H.roll += dr * k; H.yaw += (yaw - H.yaw) * k; H.pitch += (pitch - H.pitch) * k;
+    const up = [Math.sin(H.roll), -Math.cos(H.roll)];
+    const R = earW * .62;
+    const c = [mid[0] + up[0] * earW * .2, mid[1] + up[1] * earW * .2];
+    H.c[0] = H.valid ? H.c[0] + (c[0] - H.c[0]) * .6 : c[0]; H.c[1] = H.valid ? H.c[1] + (c[1] - H.c[1]) * .6 : c[1];
+    H.R = H.valid ? H.R + (R - H.R) * .3 : R; H.ys = 1.3;
+    H.cell = cell; H.n = LG * Math.max(1, Math.round(2 * Math.PI * H.R / (LG * cell)));
+    let v = 0;
+    if (velOk && H.pc){ v = Math.hypot(H.c[0] - H.pc[0], H.c[1] - H.pc[1]) / S / dtObs + Math.hypot(H.yaw - H.pang[0], H.pitch - H.pang[1], dr) / dtObs * .9; }
+    H.pc = [H.c[0], H.c[1]]; H.pang = [H.yaw, H.pitch];
+    H.valid = true; erode(H, v * 1.5, dtObs, velOk);   // a turn of the head is the head's way of moving
+  } else { H.valid = false; H.pc = null; H.v = 0; }
+  // spread along the chain: a fast hand drags the forearm, the forearm the upper arm
+  if (velOk){
+    const chain = [[3, 2], [2, 1], [1, 0], [6, 5], [5, 4], [4, 0], [8, 7], [7, 0], [10, 9], [9, 0]];
+    for (const [from, to] of chain){ const A = p.parts[from], B = p.parts[to]; if (!A.kind || !B.kind) continue;
+      if (A.E > B.E + .15){ const d = (A.E - B.E - .15) * .35 * dtObs; addE(p, B, d); } }
+  }
+}
+function setPart(p, i, a, b, ra, rb, ga, gb, kind, cell, dtObs, velOk){
+  const q = p.parts[i];
+  let v = 0;
+  if (velOk && q.pa && q.kind){ v = Math.max(Math.hypot(a[0] - q.pa[0], a[1] - q.pa[1]), Math.hypot(b[0] - q.pb[0], b[1] - q.pb[1])) / p.S / dtObs; }
+  q.a = a; q.b = b; q.ra = ra; q.rb = rb; q.ga = ga; q.gb = gb; q.kind = kind; q.cell = cell;
+  q.pa = [a[0], a[1]]; q.pb = [b[0], b[1]];
+  erode(q, v, dtObs, velOk, p);
+}
+function erode(q, v, dtObs, velOk){
+  q.v = velOk ? v : 0;
+  if (!velOk || !MODE.fx) return;
+  if (v > .4) q.rest = 0;
+  const d = S.sens * Math.max(0, v - .45) * dtObs * .24;
+  if (d > 0) addE(null, q, d);
+}
+function addE(p, q, d){ const e0 = q.E; q.E = clamp(q.E + d, 0, 1); q.acc += (q.E - e0) * cellsOf(q) * .3; }
+function cellsOf(q){
+  const c2 = q.cell * q.cell || 1;
+  if (q.R) return Math.PI * q.R * q.R * q.ys / c2;
+  return Math.hypot(q.b[0] - q.a[0], q.b[1] - q.a[1]) * (q.ra + q.rb) / c2 * (q.kind === 2 ? 1.2 : 1);
+}
+const S_cell = () => S.cell;
+
+/* ---------- shell chips ---------- */
+const MAXCHIP = 520, CH = [];
+const CHIPV = new Float32Array(MAXCHIP * 36 * 6);
+const smallC = document.createElement('canvas'); smallC.width = 64; smallC.height = 36;
+const smallX = smallC.getContext('2d', { willReadFrequently:true });
+let smallD = null, smallT = -1;
+function sampleCam(x, y, now){
+  if (smallT !== now){ smallT = now;
+    try{ if (video.readyState >= 2){ smallX.drawImage(video, 0, 0, 64, 36); smallD = smallX.getImageData(0, 0, 64, 36).data; } }catch(e){ smallD = null; } }
+  if (!smallD) return [.7, .6, .55];
+  let u = (x - G.ox) / G.dw, v = (y - G.oy) / G.dh; if (mirror) u = 1 - u;
+  const i = (clamp(v * 36 | 0, 0, 35) * 64 + clamp(u * 64 | 0, 0, 63)) * 4;
+  return [smallD[i] / 255, smallD[i + 1] / 255, smallD[i + 2] / 255];
+}
+function spawnChip(p, q, now){
+  if (!S.chips || CH.length >= MAXCHIP) return;
+  let x, y, nx = 0, ny = 0;
+  if (q.R){ const a = Math.random() * 6.283, r = Math.sqrt(Math.random()) * .85;
+    x = q.c[0] + Math.cos(a) * r * q.R; y = q.c[1] + Math.sin(a) * r * q.R * q.ys; nx = Math.cos(a); ny = Math.sin(a); }
+  else { const t = Math.random(), s = (Math.random() * 2 - 1) * .85, dx = q.b[0] - q.a[0], dy = q.b[1] - q.a[1], L = Math.hypot(dx, dy) || 1;
+    const r = q.ra + (q.rb - q.ra) * t; x = q.a[0] + dx * t - dy / L * s * r; y = q.a[1] + dy * t + dx / L * s * r; nx = -dy / L * Math.sign(s); ny = dx / L * Math.sign(s); }
+  if (!fin(x) || !fin(y) || x < -20 || y < -20 || x > G.W + 20 || y > G.H + 20) return;
+  if (!maskAt(x, y)) return;
+  const c = sampleCam(x, y, now), sc = p ? p.S : G.short * .3;
+  const sz = q.cell * (.75 + Math.random() * .5);
+  const rad = []; for (let k = 0; k < 6; k++) rad.push(.5 + Math.random() * .62);
+  CH.push({ x, y, vx:nx * sc * (.25 + Math.random() * .5) + (Math.random() - .5) * sc * .3, vy:ny * sc * .3 - sc * (.2 + Math.random() * .5),
+    a:Math.random() * 6.28, va:(Math.random() - .5) * 7, f:Math.random() * .4, vf:(Math.random() * .7 + .5) * (Math.random() < .5 ? -6 : 6),
+    sz, rad, c, g:sc * 2.4, floor:G.H * (S.room ? 1.3 : (horizonY() / G.H + .03 + Math.random() * .16)), t:0, land:-1 });
+  sfxTick(x / G.W);
+}
+function spawnAt(p, x, y, now){
+  if (!S.chips || CH.length >= MAXCHIP || !maskAt(x, y)) return;
+  const c = sampleCam(x, y, now), sc = p.S, rad = []; for (let k = 0; k < 6; k++) rad.push(.5 + Math.random() * .62);
+  CH.push({ x, y, vx:(Math.random() - .5) * sc * .8, vy:-sc * (.1 + Math.random() * .45), a:Math.random() * 6.28, va:(Math.random() - .5) * 8,
+    f:Math.random() * .4, vf:(Math.random() * .7 + .5) * (Math.random() < .5 ? -6 : 6), sz:p.parts[0].cell * (.6 + Math.random() * .5), rad, c, g:sc * 2.4,
+    floor:G.H * (S.room ? 1.3 : (horizonY() / G.H + .03 + Math.random() * .16)), t:0, land:-1 });
+  sfxTick(x / G.W);
+}
+function maskAt(x, y){
+  if (!MASK.cpu) return true;
+  let u = (x - G.ox) / G.dw, v = (y - G.oy) / G.dh; if (mirror) u = 1 - u;
+  if (u < 0 || v < 0 || u >= 1 || v >= 1) return false;
+  return MASK.cpu[(v * MASK.h | 0) * MASK.w + (u * MASK.w | 0)] > 110;
+}
+const horizonY = () => G.H * (G.W > G.H ? .8 : .86);
+function stepChips(dt){
+  for (let i = CH.length - 1; i >= 0; i--){
+    const c = CH[i]; c.t += dt;
+    if (c.land < 0){
+      c.vy += c.g * dt; c.vx *= 1 - dt * .4; c.x += c.vx * dt; c.y += c.vy * dt; c.a += c.va * dt; c.f += c.vf * dt;
+      if (c.y >= c.floor){ c.y = c.floor; c.land = c.t; c.vx *= .2; c.f = Math.round(c.f / Math.PI) * Math.PI + (Math.random() - .5) * .5; sfxLand(c.x / G.W); }
+    } else { c.x += c.vx * dt; c.vx *= 1 - dt * 6; }
+    const life = c.land < 0 ? 1 : 1 - clamp((c.t - c.land - 1.4) / 1.4, 0, 1);
+    c.al = life * clamp(c.t / .06, 0, 1);
+    if (c.al <= 0 || c.t > 9) CH.splice(i, 1);
+  }
+}
+const SHELL = [[.95, .93, .89], [.85, .87, .9], [.04, .04, .045], [1, .78, .5]];
+const CPX = new Float32Array(12);
+function buildChips(){
+  let n = 0;
+  const sh = SHELL[S.mat];
+  for (const c of CH){
+    const cf = Math.cos(c.f), sq = Math.max(.12, Math.abs(cf));
+    const front = cf >= 0, lit = .55 + .45 * Math.abs(cf);
+    const col = front ? c.c : sh, al = c.al;
+    const ca = Math.cos(c.a), sa = Math.sin(c.a);
+    // the shell has a thickness: a pale edge around the skin side
+    for (let L = front ? 0 : 1; L < 2; L++){
+      const sc = L === 0 ? 1 : (front ? .82 : 1);
+      const R = (L === 0 ? sh[0] : col[0]) * lit, Gc = (L === 0 ? sh[1] : col[1]) * lit, B = (L === 0 ? sh[2] : col[2]) * lit;
+      for (let k = 0; k < 6; k++){ const t = k / 6 * 6.283 + c.rad[(k + 3) % 6] * .5, rr = c.rad[k] * c.sz * .5 * sc;
+        const lx = Math.cos(t) * rr, ly = Math.sin(t) * rr * sq; CPX[k * 2] = c.x + lx * ca - ly * sa; CPX[k * 2 + 1] = c.y + lx * sa + ly * ca; }
+      for (let k = 0; k < 6; k++){
+        const k2 = (k + 1) % 6;
+        for (let v = 0; v < 3; v++){
+          CHIPV[n++] = v === 0 ? c.x : v === 1 ? CPX[k * 2] : CPX[k2 * 2];
+          CHIPV[n++] = v === 0 ? c.y : v === 1 ? CPX[k * 2 + 1] : CPX[k2 * 2 + 1];
+          CHIPV[n++] = R; CHIPV[n++] = Gc; CHIPV[n++] = B; CHIPV[n++] = al;
+        }
+      }
+    }
+  }
+  return n / 6;
+}
+
+/* ---------- mask ---------- */
+const MASK = { cpu:null, w:0, h:0, t:-1e9, dirty:false, empty:true };
+function ingestMasks(list, now){
+  if (!Array.isArray(list) || !list.length) return false;
+  const m0 = list[0]; if (!m0 || !(m0.w > 0) || !(m0.h > 0)) return false;
+  const W0 = m0.w | 0, H0 = m0.h | 0, st = W0 > 640 ? 2 : 1, w = (W0 / st) | 0, h = (H0 / st) | 0;
+  if (!MASK.cpu || MASK.w !== w || MASK.h !== h){ MASK.cpu = new Uint8Array(w * h); MASK.w = w; MASK.h = h; }
+  const out = MASK.cpu; out.fill(0);
+  let any = false;
+  for (const m of list){
+    if (!m || (m.w | 0) !== W0 || (m.h | 0) !== H0 || !m.data || m.data.length < W0 * H0) continue;
+    const d = m.data; any = true;
+    for (let y = 0; y < h; y++){ const ro = y * st * W0, wo = y * w;
+      for (let x = 0; x < w; x++){ const v = d[ro + x * st]; const b = fin(v) ? (v <= 0 ? 0 : v >= 1 ? 255 : v * 255 | 0) : 0; if (b > out[wo + x]) out[wo + x] = b; } }
+  }
+  if (!any) return false;
+  MASK.t = now; MASK.dirty = true; MASK.empty = false;
+  return true;
+}
+function uploadMask(now){
+  if (!glOK) return;
+  const stale = now - MASK.t > 1100 && !EXT.on;
+  if (stale && !MASK.empty){ MASK.empty = true; MASK.dirty = false; }
+  if (!MASK.dirty || !MASK.cpu) return;
+  gl.bindTexture(gl.TEXTURE_2D, texMask);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, MASK.w, MASK.h, 0, gl.RED, gl.UNSIGNED_BYTE, MASK.cpu);
+  MASK.dirty = false;
+}
+
+/* ---------- pose model ---------- */
+let landmarker = null, lastTs = 0, lastVT = -1, modelState = 'none';
+const EXT = { on:false };
+async function initModel(){
+  modelState = 'loading';
+  try{
+    const vision = await import(VISION_URL);
+    const fs = await vision.FilesetResolver.forVisionTasks(WASM_URL);
+    const o = d => ({ baseOptions:{ modelAssetPath:POSE_MODEL, delegate:d }, runningMode:'VIDEO', numPoses:2, outputSegmentationMasks:true,
+      minPoseDetectionConfidence:.5, minPosePresenceConfidence:.5, minTrackingConfidence:.5 });
+    try { landmarker = await vision.PoseLandmarker.createFromOptions(fs, o('GPU')); }
+    catch(e){ landmarker = await vision.PoseLandmarker.createFromOptions(fs, o('CPU')); }
+    modelState = 'ready';
+    if (!EXT.on) setStatus('');
+  }catch(e){
+    modelState = 'failed';
+    if (EXT.on) return;
+    setStatus('人物検出モデルを読み込めませんでした（ネット接続を確認）。\nカメラの映像だけを表示しています。');
+  }
+}
+function detect(now){
+  if (!landmarker || EXT.on || video.readyState < 2) return;
+  const vt = video.currentTime; if (vt === lastVT) return; lastVT = vt;
+  const ts = Math.max(lastTs + 1, Math.round(now)); lastTs = ts;
+  try{
+    const res = landmarker.detectForVideo(video, ts);
+    ingestPoses((res && res.landmarks) || [], now);
+    const ms = res && res.segmentationMasks;
+    if (ms && ms.length){
+      const list = [];
+      for (const m of ms){ try{ list.push({ data:m.getAsFloat32Array(), w:m.width, h:m.height }); }catch(e){} }
+      ingestMasks(list, now);
+      for (const m of ms){ try{ m.close(); }catch(e){} }
+    }
+  }catch(e){}
+}
+
+/* ---------- camera ---------- */
+let stream = null, facing = 'user', mirror = true, started = false;
+function setStatus(t){ $('status').textContent = t || ''; }
+function camError(e){
+  const msg = (e && (e.message || e.name)) ? (e.message || e.name) : String(e || 'unknown');
+  const text = 'カメラを起動できませんでした：' + msg + '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+  $('err').textContent = text;
+  if (started) setStatus(text);
+}
+async function startCam(){
+  const md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) throw new Error('getUserMedia is unavailable');
+  const s = await md.getUserMedia({ video:{ facingMode:{ ideal:facing }, width:{ ideal:1280 }, height:{ ideal:720 } }, audio:false });
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = s; mirror = facing === 'user';
+  video.srcObject = s;
+  await new Promise(r => { if (video.readyState >= 1) r(); else video.onloadedmetadata = () => r(); });
+  await video.play().catch(()=>{});
+  vidW = video.videoWidth || 1280; vidH = video.videoHeight || 720;
+  PEOPLE.length = 0; MASK.empty = true;
+  resize();
+}
+
+/* ---------- sound: dry shell clicks, the print head ---------- */
+let actx = null, master = null, recDest = null, noiseBuf = null, tickBudget = 0;
+function ensureAudio(){
+  if (actx){ if (actx.state === 'suspended') actx.resume().catch(()=>{}); return; }
+  const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+  try{
+    actx = new AC(); master = actx.createGain(); master.gain.value = S.vol;
+    const comp = actx.createDynamicsCompressor(); comp.threshold.value = -16; comp.ratio.value = 3;
+    master.connect(comp); comp.connect(actx.destination);
+    recDest = actx.createMediaStreamDestination(); comp.connect(recDest);
+    const len = actx.sampleRate * .6 | 0; noiseBuf = actx.createBuffer(1, len, actx.sampleRate);
+    const d = noiseBuf.getChannelData(0); for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+    actx.resume().catch(()=>{});
+  }catch(e){ actx = null; }
+}
+function burst(t, f, q, peak, dec, pan, type){
+  const s = actx.createBufferSource(), fl = actx.createBiquadFilter(), g = actx.createGain();
+  s.buffer = noiseBuf; fl.type = type || 'bandpass'; fl.frequency.value = f; fl.Q.value = q;
+  g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime(peak, t + .002); g.gain.exponentialRampToValueAtTime(.0001, t + dec);
+  s.connect(fl); fl.connect(g);
+  if (actx.createStereoPanner){ const pn = actx.createStereoPanner(); pn.pan.value = clamp(pan, -1, 1); g.connect(pn); pn.connect(master); } else g.connect(master);
+  s.start(t, Math.random() * .4); s.stop(t + dec + .03);
+}
+function sfxTick(x){
+  if (!actx || actx.state !== 'running' || tickBudget <= 0) return; tickBudget--;
+  const t = actx.currentTime + Math.random() * .03;
+  burst(t, 2600 + Math.random() * 4200, 6 + Math.random() * 6, .05 + Math.random() * .06, .012 + Math.random() * .02, x * 2 - 1);
+}
+function sfxLand(x){
+  if (!actx || actx.state !== 'running' || tickBudget <= 0) return; tickBudget--;
+  burst(actx.currentTime, 1500 + Math.random() * 1500, 9, .03, .03, x * 2 - 1);
+}
+function sfxSweep(dur, upward){
+  if (!actx || actx.state !== 'running') return;
+  const t = actx.currentTime;
+  const s = actx.createBufferSource(), fl = actx.createBiquadFilter(), g = actx.createGain();
+  s.buffer = noiseBuf; s.loop = true; fl.type = 'bandpass'; fl.Q.value = 14;
+  fl.frequency.setValueAtTime(upward ? 2400 : 500, t); fl.frequency.exponentialRampToValueAtTime(upward ? 500 : 2400, t + dur);
+  g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime(.16, t + .08); g.gain.setValueAtTime(.16, t + dur - .15); g.gain.exponentialRampToValueAtTime(.0001, t + dur);
+  s.connect(fl); fl.connect(g); g.connect(master); s.start(t); s.stop(t + dur + .05);
+  const o = actx.createOscillator(), og = actx.createGain(); o.type = 'sine'; o.frequency.value = 110;
+  og.gain.setValueAtTime(.0001, t); og.gain.exponentialRampToValueAtTime(.05, t + .1); og.gain.exponentialRampToValueAtTime(.0001, t + dur);
+  o.connect(og); og.connect(master); o.start(t); o.stop(t + dur + .05);
+}
+let micAn = null, micBuf = null, micPrev = 0, micCool = 0;
+async function startMic(){
+  if (micAn || !actx) return !!micAn;
+  try{
+    const s = await navigator.mediaDevices.getUserMedia({ audio:{ echoCancellation:false, noiseSuppression:false, autoGainControl:false } });
+    const src = actx.createMediaStreamSource(s); micAn = actx.createAnalyser(); micAn.fftSize = 1024;
+    src.connect(micAn); micBuf = new Float32Array(micAn.fftSize);
+    return true;
+  }catch(e){ setStatus('マイクを使えませんでした。「全身」ボタンで同じことができます。'); return false; }
+}
+
+/* ---------- mode: plain camera ⇄ lattice (an orange print head draws the line between them) ---------- */
+const MODE = { fx:false, t:9, dur:1.5, from:0 };
+function setMode(on){
+  if (on === MODE.fx) return;
+  MODE.fx = on; MODE.t = 0;
+  $('mode').textContent = on ? 'カメラに戻す' : '格子にする';
+  document.querySelector('meta[name=theme-color]').content = on ? THEME[S.mat] : '#111';
+  inkUI();
+  if (!on){ WIDE.on = false; }
+  ['wide', 'mat'].forEach(id => $(id).style.visibility = on ? 'visible' : 'hidden');
+  sfxSweep(MODE.dur, !on);
+}
+function splitY(){
+  // fx is drawn above this line
+  const k = smooth(MODE.t / MODE.dur);
+  if (MODE.fx) return MODE.t >= MODE.dur ? G.H + 40 : -20 + (G.H + 60) * k;
+  return MODE.t >= MODE.dur ? -40 : G.H + 40 - (G.H + 60) * k;
+}
+const WIDE = { on:false, t:0, dur:1.7 };
+function wideOpen(){
+  if (!MODE.fx || WIDE.on) return;
+  WIDE.on = true; WIDE.t = 0; sfxSweep(WIDE.dur, false);
+}
+function wideY(){ return -G.H * .06 + G.H * 1.12 * smooth(WIDE.t / WIDE.dur); }
+function tapAt(x, y){
+  if (!MODE.fx) return false;
+  let best = null, bp = null, bd = 1.05;
+  for (const p of PEOPLE){
+    const H = p.head;
+    if (H.valid){ const d = Math.hypot(x - H.c[0], (y - H.c[1]) / H.ys) / H.R; if (d < bd){ bd = d; best = H; bp = p; } }
+    for (const q of p.parts){ if (!q.kind) continue;
+      const dx = q.b[0] - q.a[0], dy = q.b[1] - q.a[1], L2 = dx * dx + dy * dy || 1;
+      const t = clamp(((x - q.a[0]) * dx + (y - q.a[1]) * dy) / L2, 0, 1), r = q.ra + (q.rb - q.ra) * t;
+      const d = Math.hypot(x - q.a[0] - dx * t, y - q.a[1] - dy * t) / r * (q.kind === 2 ? 1.25 : 1);
+      if (d < bd){ bd = d; best = q; bp = p; } }
+  }
+  if (!best) return false;
+  addE(bp, best, 1); best.hold = 2.5; best.rest = 0;
+  return true;
+}
+
+/* ---------- UI ---------- */
+function setMat(m){
+  S.mat = ((m % 4) + 4) % 4;
+  $('mat').textContent = MATS[S.mat] + ' ▸';
+  [...$('mats').children].forEach(b => b.classList.toggle('on', +b.dataset.m === S.mat));
+  if (MODE.fx) document.querySelector('meta[name=theme-color]').content = THEME[S.mat];
+  inkUI();
+}
+// dark ink over the pale studios (NYLON, OBSIDIAN), white elsewhere
+function inkUI(){ document.body.classList.toggle('ink', MODE.fx && !S.room && (S.mat === 0 || S.mat === 2)); }
+$('mats').onclick = e => { const b = e.target.closest('button'); if (b) setMat(+b.dataset.m); };
+$('mat').onclick = () => setMat(S.mat + 1);
+$('bStudio').onclick = () => { S.room = false; $('bStudio').classList.add('on'); $('bRoom').classList.remove('on'); inkUI(); };
+$('bRoom').onclick = () => { S.room = true; $('bRoom').classList.add('on'); $('bStudio').classList.remove('on'); inkUI(); };
+$('tChips').onclick = e => { S.chips = !S.chips; e.target.classList.toggle('on', S.chips); };
+$('tClap').onclick = async e => { if (!S.clap){ ensureAudio(); S.clap = await startMic(); } else S.clap = false; e.target.classList.toggle('on', S.clap); };
+[['sCell','cell'],['sStrut','strut'],['sSens','sens'],['sHeal','heal'],['sShadow','shadow'],['sVol','vol']]
+  .forEach(([id, k]) => { $(id).oninput = e => { S[k] = +e.target.value; if (k === 'vol' && master) master.gain.value = S.vol; }; });
+$('mode').onclick = () => setMode(!MODE.fx);
+$('wide').onclick = () => wideOpen();
+$('gear').onclick = () => $('panel').classList.toggle('hide');
+addEventListener('keydown', e => {
+  if (!started || document.activeElement.tagName === 'INPUT') return;
+  if (e.key === ' ' || e.key === 'Enter'){ e.preventDefault(); setMode(!MODE.fx); }
+  else if (e.key === 'w') wideOpen();
+  else if (e.key === 'm') setMat(S.mat + 1);
+});
+$('go').onclick = async () => {
+  $('err').textContent = '';
+  ensureAudio();
+  try { await startCam(); } catch(e){ camError(e); return; }
+  $('start').style.display = 'none';
+  ['gear','flip','bar','rec','shoot','mat','wide','mode','brand'].forEach(id => $(id).classList.add('show'));
+  if (!MODE.fx) ['wide', 'mat'].forEach(id => $(id).style.visibility = 'hidden');
+  if (!started){ started = true; if (!glOK) initGL(); if (glErr) setStatus(glErr); initModel(); requestAnimationFrame(loop); }
+};
+$('flip').onclick = async () => {
+  const prev = facing; facing = facing === 'user' ? 'environment' : 'user';
+  try { await startCam(); } catch(e){ facing = prev; camError(e); }
+};
+let down = null;
+view.addEventListener('pointerdown', e => { down = { x:e.clientX, y:e.clientY, t:performance.now() }; });
+view.addEventListener('pointerup', e => {
+  if (down && Math.hypot(e.clientX - down.x, e.clientY - down.y) < 12 && performance.now() - down.t < 600){
+    if (!$('panel').classList.contains('hide')) $('panel').classList.add('hide');
+    else { const r = view.getBoundingClientRect(); tapAt((e.clientX - r.left) / r.width * G.W, (e.clientY - r.top) / r.height * G.H); }
+  }
+  down = null;
+});
+let wantShot = false;
+$('shoot').onclick = () => { wantShot = true; };
+function doShot(){
+  try{
+    view.toBlob(b => { if (!b) return; const a = document.createElement('a'); a.href = URL.createObjectURL(b);
+      a.download = 'kara-' + Date.now() + '.png'; a.click(); }, 'image/png');
+  }catch(e){ setStatus('保存できませんでした。'); }
+}
+let rec = null, chunks = [];
+$('rec').onclick = () => {
+  if (rec && rec.state === 'recording'){ rec.stop(); return; }
+  try{
+    ensureAudio();
+    const tracks = [...view.captureStream(30).getVideoTracks()];
+    if (recDest) tracks.push(...recDest.stream.getAudioTracks());
+    const mime = ['video/mp4;codecs=avc1','video/webm;codecs=vp9,opus','video/webm'].find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || '';
+    rec = new MediaRecorder(new MediaStream(tracks), mime ? { mimeType:mime } : {});
+    chunks = [];
+    rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+    rec.onstop = () => {
+      $('rec').classList.remove('on'); $('rec').textContent = '● 録画';
+      const ext = (rec.mimeType || '').includes('mp4') ? 'mp4' : 'webm';
+      const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(chunks, { type:rec.mimeType || 'video/webm' }));
+      a.download = 'kara.' + ext; a.click();
+    };
+    rec.start(); $('rec').classList.add('on'); $('rec').textContent = '■ 停止';
+  }catch(e){ setStatus('録画を開始できませんでした。' + (e && e.message ? '\n' + e.message : '')); }
+};
+addEventListener('resize', () => { if (started) resize(); });
+
+/* ---------- frame ---------- */
+const U = { seg:new Float32Array(22 * 4), par:new Float32Array(22 * 4), par2:new Float32Array(22 * 4),
+  head:new Float32Array(8), headB:new Float32Array(8), headC:new Float32Array(8), hrot:new Float32Array(18), seeds:new Float32Array(98) };
+for (let i = 0; i < 49; i++){ U.seeds[i * 2] = SEEDS[i * 2] * LG; U.seeds[i * 2 + 1] = SEEDS[i * 2 + 1] * LG; }
+let lastT = 0, frameN = 0, clock = 0;
+function fillUniforms(){
+  U.seg.fill(0); U.par.fill(0); U.par2.fill(0); U.head.fill(0); U.headB.fill(0); U.headC.fill(0); U.hrot.fill(0);
+  for (let pi = 0; pi < 2; pi++){
+    const p = PEOPLE[pi];
+    U.hrot[pi * 9] = U.hrot[pi * 9 + 4] = U.hrot[pi * 9 + 8] = 1;
+    if (!p) continue;
+    for (let i = 0; i < NPART; i++){
+      const q = p.parts[i], o = (pi * NPART + i) * 4;
+      if (!q.kind) continue;
+      U.seg[o] = q.a[0]; U.seg[o + 1] = q.a[1]; U.seg[o + 2] = q.b[0]; U.seg[o + 3] = q.b[1];
+      U.par[o] = Math.max(1, q.ra); U.par[o + 1] = Math.max(1, q.rb); U.par[o + 2] = q.E; U.par[o + 3] = q.kind;
+      U.par2[o] = p.salt + i * 2.31; U.par2[o + 1] = q.ga; U.par2[o + 2] = q.gb; U.par2[o + 3] = Math.max(2, q.cell);
+    }
+    const H = p.head;
+    if (H.valid){
+      U.head[pi * 4] = H.c[0]; U.head[pi * 4 + 1] = H.c[1]; U.head[pi * 4 + 2] = Math.max(2, H.R); U.head[pi * 4 + 3] = H.E;
+      U.headB[pi * 4] = Math.cos(H.roll); U.headB[pi * 4 + 1] = Math.sin(H.roll); U.headB[pi * 4 + 2] = H.ys; U.headB[pi * 4 + 3] = H.n;
+      U.headC[pi * 4] = p.salt + 31.7; U.headC[pi * 4 + 1] = Math.max(2, H.cell); U.headC[pi * 4 + 2] = 1;
+      // head-local → roll frame: Ry(yaw) · Rx(pitch)   (column-major for the shader)
+      const cy = Math.cos(H.yaw), sy = Math.sin(H.yaw), cp = Math.cos(H.pitch), sp = Math.sin(H.pitch);
+      const R = [[cy, -sy * sp, sy * cp], [0, cp, sp], [-sy, -cy * sp, cy * cp]];   // rows
+      const o = pi * 9;
+      U.hrot[o] = R[0][0]; U.hrot[o + 1] = R[1][0]; U.hrot[o + 2] = R[2][0];
+      U.hrot[o + 3] = R[0][1]; U.hrot[o + 4] = R[1][1]; U.hrot[o + 5] = R[2][1];
+      U.hrot[o + 6] = R[0][2]; U.hrot[o + 7] = R[1][2]; U.hrot[o + 8] = R[2][2];
+    }
+  }
+}
+function lightDir(){
+  const a = -2.2 + Math.sin(clock * .045) * .35;
+  const x = Math.cos(a) * .62, y = -.6, z = .52 + Math.sin(clock * .045) * .04;
+  const l = Math.hypot(x, y, z); return [x / l, y / l, z / l];
+}
+function tex(u, unit, t){ gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, t); gl.uniform1i(u, unit); }
+function common(pr){ gl.uniform2f(pr.u.uRes, G.W, G.H); gl.uniform4f(pr.u.uCover, G.ox, G.oy, G.dw, G.dh); gl.uniform1f(pr.u.uMirror, mirror ? 1 : 0); }
+function render(now){
+  const W = G.W, H = G.H;
+  sizeFB(W, H);
+  if (video.readyState >= 2){
+    gl.bindTexture(gl.TEXTURE_2D, texCam);
+    try{ gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video); }catch(e){}
+  }
+  uploadMask(now);
+  let hasMask = MASK.cpu && !MASK.empty ? 1 : 0;
+  if (modelState === 'failed' && !EXT.on){
+    // no person model: the whole frame stays as (graded) skin rather than an empty studio
+    if (!MASK.fail){ MASK.fail = true; gl.bindTexture(gl.TEXTURE_2D, texMask); gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, 2, 2, 0, gl.RED, gl.UNSIGNED_BYTE, new Uint8Array([255, 255, 255, 255])); }
+    hasMask = 1;
+  }
+  const sY = splitY();
+  const fxVisible = sY > -20;
+  const L = lightDir();
+  gl.viewport(0, 0, W, H);
+  gl.bindVertexArray(quadVao);
+  gl.disable(gl.BLEND);
+  if (fxVisible && S.room){
+    const src = FB.bg[FB.bgI], dst = 1 - FB.bgI;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, FB.bgF[dst]);
+    gl.useProgram(P_BG.p); common(P_BG);
+    tex(P_BG.u.uPrev, 0, src); tex(P_BG.u.uCam, 1, texCam); tex(P_BG.u.uMask, 2, texMask); gl.uniform1f(P_BG.u.uHasMask, hasMask);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    FB.bgI = dst; gl.bindTexture(gl.TEXTURE_2D, FB.bg[dst]); gl.generateMipmap(gl.TEXTURE_2D);
+  }
+  if (fxVisible){
+    fillUniforms();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, FB.fbo);
+    gl.useProgram(P_PER.p); common(P_PER);
+    tex(P_PER.u.uCam, 0, texCam); tex(P_PER.u.uMask, 1, texMask); tex(P_PER.u.uLat, 2, texLat);
+    gl.uniform2fv(P_PER.u.uSeeds, U.seeds);
+    gl.uniform4fv(P_PER.u.uSeg, U.seg); gl.uniform4fv(P_PER.u.uPar, U.par); gl.uniform4fv(P_PER.u.uPar2, U.par2);
+    gl.uniform4fv(P_PER.u.uHead, U.head); gl.uniform4fv(P_PER.u.uHeadB, U.headB); gl.uniform4fv(P_PER.u.uHeadC, U.headC);
+    gl.uniformMatrix3fv(P_PER.u.uHRot, false, U.hrot);
+    gl.uniform1f(P_PER.u.uStrut, S.strut); gl.uniform1f(P_PER.u.uHasMask, hasMask); gl.uniform1i(P_PER.u.uMat, S.mat);
+    gl.uniform3fv(P_PER.u.uLight, L);
+    let scan = [0, 1, 0, 0];
+    if (MODE.t < MODE.dur && MODE.fx) scan = [sY, H * .07, 1, 0];
+    else if (WIDE.on) scan = [wideY(), H * .012, 1, 1];
+    gl.uniform4fv(P_PER.u.uScan, scan);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    gl.bindTexture(gl.TEXTURE_2D, FB.col); gl.generateMipmap(gl.TEXTURE_2D);
+    gl.bindTexture(gl.TEXTURE_2D, FB.tr); gl.generateMipmap(gl.TEXTURE_2D);
+  }
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  gl.useProgram(P_COMP.p); common(P_COMP);
+  tex(P_COMP.u.uPer, 0, FB.col); tex(P_COMP.u.uTr, 1, FB.tr); tex(P_COMP.u.uCam, 2, texCam); tex(P_COMP.u.uBg, 3, FB.bg[FB.bgI]); tex(P_COMP.u.uMask, 4, texMask);
+  gl.uniform1i(P_COMP.u.uMat, S.mat); gl.uniform1i(P_COMP.u.uRoom, S.room ? 1 : 0);
+  const shK = S.mat === 3 ? .35 : S.mat === 1 ? .8 : 1;
+  gl.uniform1f(P_COMP.u.uShadow, fxVisible ? S.shadow * shK : 0); gl.uniform1f(P_COMP.u.uHorizon, horizonY());
+  gl.uniform1f(P_COMP.u.uTime, clock); gl.uniform1f(P_COMP.u.uGrain, S.mat === 2 ? .035 : .05); gl.uniform1f(P_COMP.u.uHasMask, hasMask);
+  gl.uniform2f(P_COMP.u.uShOff, -L[0] / L[2] * G.short * .05, -L[1] / L[2] * G.short * .035);
+  const lineA = MODE.t < MODE.dur ? clamp(Math.min(MODE.t / .1, (MODE.dur - MODE.t) / .2), 0, 1) : 0;
+  gl.uniform4f(P_COMP.u.uSplit, sY, lineA, fxVisible && sY >= H ? 1 : 0, 0);
+  gl.uniform4f(P_COMP.u.uLine, WIDE.on ? wideY() : 0, WIDE.on ? clamp(Math.min(WIDE.t / .1, (WIDE.dur - WIDE.t) / .2), 0, 1) : 0, 0, 0);
+  gl.uniform3fv(P_COMP.u.uLight, L);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+  if (CH.length){
+    const n = buildChips();
+    gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    gl.useProgram(P_CHIP.p); gl.uniform2f(P_CHIP.u.uRes, W, H);
+    gl.bindVertexArray(chipVao); gl.bindBuffer(gl.ARRAY_BUFFER, chipBuf);
+    gl.bufferSubData(gl.ARRAY_BUFFER, 0, CHIPV, 0, n * 6);
+    gl.drawArrays(gl.TRIANGLES, 0, n);
+    gl.disable(gl.BLEND);
+  }
+  gl.bindVertexArray(null);
+}
+function loop(now){
+  requestAnimationFrame(loop);
+  const dt = clamp((now - (lastT || now)) / 1000, 0, TEST.maxDt); lastT = now; frameN++;
+  const rdt = clamp((now - (loop.lr || now)) / 1000, 0, 1); loop.lr = now;   // real time for the slow timers
+  clock += rdt;
+  resize();
+  detect(now);
+  MODE.t += rdt; micCool -= rdt;
+  tickBudget = Math.min(tickBudget + rdt * 40, 14);
+  // people: lost → gone (their timers and speeds go with them)
+  for (let i = PEOPLE.length - 1; i >= 0; i--) if (now - PEOPLE[i].seen > 1100) PEOPLE.splice(i, 1);
+  if (WIDE.on){
+    WIDE.t += rdt;
+    const y = wideY();
+    for (const p of PEOPLE){
+      for (const q of p.parts) if (q.kind && Math.max(q.a[1], q.b[1]) + q.rb < y && q.E < 1){ q.E = 1; q.acc = 0; q.hold = 3.2; }
+      if (p.head.valid && p.head.c[1] + p.head.R * p.head.ys < y && p.head.E < 1){ p.head.E = 1; p.head.acc = 0; p.head.hold = 3.2; }
+      // the shell bursts where the laser crosses the body
+      WIDE.acc = (WIDE.acc || 0) + rdt * 70;
+      while (WIDE.acc >= 1){ WIDE.acc -= 1; spawnAt(p, Math.random() * G.W, y - Math.random() * G.H * .02, now); }
+    }
+    if (WIDE.t >= WIDE.dur) WIDE.on = false;
+  }
+  // healing (real time) and chips
+  for (const p of PEOPLE){
+    for (let qi = 0; qi <= NPART; qi++){
+      const q = qi < NPART ? p.parts[qi] : p.head;
+      if (q.hold > 0) q.hold -= rdt;
+      else { q.rest = q.v < .4 ? q.rest + rdt : 0; if (q.rest > 1.2) q.E = Math.max(0, q.E - S.heal * rdt); }
+      if (!MODE.fx){ q.E = Math.max(0, q.E - rdt * .8); q.acc = 0; }
+      let guard = 0;
+      while (q.acc >= 1 && guard++ < 40){ q.acc -= 1; if ((q.kind || q.valid)) spawnChip(p, q, now); }
+      if (q.acc > 1) q.acc = 0;
+    }
+  }
+  // clap into the mic → full body
+  if (S.clap && micAn && MODE.fx){
+    micAn.getFloatTimeDomainData(micBuf);
+    let e = 0; for (let i = 0; i < micBuf.length; i++) e += micBuf[i] * micBuf[i];
+    e = Math.sqrt(e / micBuf.length);
+    if (e > .08 && e > micPrev * 2.4 && micCool <= 0){ micCool = 1.2; wideOpen(); }
+    micPrev = micPrev * .85 + e * .15;
+  }
+  stepChips(rdt);
+  if (!glOK){ return; }
+  render(now);
+  if (wantShot){ wantShot = false; doShot(); }
+}
+
+/* ---------- test hook ---------- */
+window.__kara = {
+  feed(poses, masks, t){ if (!EXT.on) setStatus(''); EXT.on = true; const now = t == null ? performance.now() : t;
+    const n = ingestPoses(poses, now); if (masks) ingestMasks(masks, now); return n; },
+  setMode, wideOpen, tapAt, setMat, test:TEST, S, G, P:PEOPLE, CH, MODE, WIDE,
+  state(){ return { frame:frameN, fx:MODE.fx, modeT:MODE.t, wide:WIDE.on, chips:CH.length, glOK, glErr, model:modelState,
+    people:PEOPLE.map(p => ({ S:+p.S.toFixed(1), E:p.parts.map(q => +q.E.toFixed(3)), kinds:p.parts.map(q => q.kind), headE:+p.head.E.toFixed(3), headV:+p.head.v.toFixed(3), head:p.head.valid,
+      hc:p.head.c.map(v => +v.toFixed(1)), yaw:+p.head.yaw.toFixed(3), torso:[...p.parts[0].a, ...p.parts[0].b].map(v => +v.toFixed(1)),
+      finite:[p.S, p.head.yaw, p.head.R, ...p.parts.flatMap(q => [q.E, ...q.a, ...q.b])].every(Number.isFinite) })) }; },
+};
+</script>
+</body>
+</html>
