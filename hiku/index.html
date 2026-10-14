@@ -26,7 +26,7 @@ if(AC&&AC.prototype.createMediaStreamDestination){const cmd=AC.prototype.createM
   try{const c=this.createConstantSource();c.offset.value=0;c.connect(d);c.start();}catch(e){}return d;};}})();</script>
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="description" content="両手の指先のあいだに見えない糸が張られ、あやとりのように引くと映像が糸に沿って溶けて伸びる。糸の長さで音程が変わり、片手なら指先だけが溶ける。撮影と録画ができる。">
+<meta name="description" content="両手の指先のあいだに見えない糸が張られ、あやとりのように引くと映像が糸に沿ってガラスのスライムのようにとろりと伸びる。糸の長さで音程が変わり、片手なら指先だけが溶ける。撮影と録画ができる。">
 <meta name="theme-color" content="#050505">
 <title>HIKU ─ 指先の糸で映像を引き伸ばす</title>
 <!--
@@ -38,13 +38,16 @@ if(AC&&AC.prototype.createMediaStreamDestination){const cmd=AC.prototype.createM
              開始画面の文言・⟲ カメラ・⚙ で隠せる調整パネル・撮影・録画（REC-FIX）・
              カメラ失敗時の定型文・ランドマークのガードだけ。
   MOOD       両手の同じ指どうしのあいだに見えない糸が五本張られ、あやとりのように
-             引くと、カメラの映像が糸に沿ってデータモッシュのように溶けて伸び、
-             色ずれと虹色のにじみをつれて少しずつ垂れながら残る。
+             引くと、カメラの映像が糸に沿って透明なガラスのスライムのように
+             とろりと伸び、虹色の縁とハイライトをつれて少しずつ垂れながら残る。
   PALETTE    地 #050505 ／ 文字 #f4f1ea ／ 差し色 #ff4fa3 ／ 糸の五色
              #ff4fa3・#f4f1ea・#7fffd4・#ffd36b・#9f8bff
   TYPE       Helvetica Neue（オーナーの指定のまま、細く字間を広く）
-  MOTION     前のコマを指先の動きの向きにずらして描き重ねる（帰還）。動いたところだけ
-             色がずれ、ときどきブロックが I フレーム落ちのように繰り返される。
+  MOTION     前のコマを指先の動きの向きにずらして描き重ねる（帰還）。
+             10-14 改訂（オーナーの指示「もっとなめらかなガラスのスライムのような美しい感じ」）：
+             ブロック状のデータモッシュをやめ、引き伸ばした跡を厚みのある透明なスライムとして
+             描く ── 中の映像が屈折して分光し、縁は薄膜の虹色、表面にハイライト、
+             厚みは粘りけをもって丸まり、ゆっくり垂れる。
   SOUND      糸一本が一声（のこぎり波の和音）。糸が短いほど高く、D のマイナー
              ペンタトニック。音程が段を変えるたびにはじく音、手の速さでフィルタが
              開き、量子化したノイズが混ざる。
@@ -145,77 +148,105 @@ if (!gl) $('err').textContent = 'WebGLが使えません';
 
 const VS = `attribute vec2 p;varying vec2 v;void main(){v=vec2(p.x*.5+.5,.5-p.y*.5);gl_Position=vec4(p,0.,1.);}`;
 
+/* 2026-10-14: the look was changed from a blocky datamosh to smooth glass slime (owner's request).
+   Pass 1 (FS_MOSH) advects the picture and a "thickness" field (alpha) along the strings, with no
+   per-block randomness, and lets the thickness relax like a viscous blob.
+   Pass 2 (FS_SHOW) renders that thickness as clear glass: refraction with dispersion, a specular
+   highlight, a thin-film iridescent rim and a soft lip at the edge. */
 const FS_MOSH = `
 precision highp float;
 varying vec2 v;
 uniform sampler2D cam, prev;
-uniform vec2 sxy;
+uniform vec2 sxy, px;
 uniform float mir, aspect, time, strength, decay, camOK;
 uniform vec4 A[5];
 uniform vec4 B[5];
 uniform vec2 hands;
 float h(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
+float vn(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);
+  return mix(mix(h(i),h(i+vec2(1,0)),f.x),mix(h(i+vec2(0,1)),h(i+vec2(1,1)),f.x),f.y);}
 vec3 camAt(vec2 u){
   vec2 c=vec2(.5+(u.x-.5)*sxy.x,.5+(u.y-.5)*sxy.y);
   if(mir>.5)c.x=1.-c.x;
   vec3 col=texture2D(cam,clamp(c,0.,1.)).rgb;
-  // placeholder gradient until camera arrives
   vec3 ph=vec3(.08+.25*u.y,.06+.1*sin(u.x*6.+time),.12+.2*(1.-u.y))+.04*sin(vec3(0,2,4)+u.x*20.+time*2.);
   return mix(ph,col,camOK);
 }
 vec4 pv(vec2 u){return texture2D(prev,vec2(u.x,1.-u.y));}
 float seg(vec2 p,vec2 a,vec2 b,out float t){vec2 pa=p-a,ba=b-a;t=clamp(dot(pa,ba)/max(dot(ba,ba),1e-6),0.,1.);return length(pa-ba*t);}
-vec3 hue(vec3 c,float a){const vec3 k=vec3(.57735);float ca=cos(a);return c*ca+cross(k,c)*sin(a)+k*dot(k,c)*(1.-ca);}
 void main(){
   vec2 asp=vec2(aspect,1.);
-  float tq=floor(time*14.);
-  float bs=mix(38.,96.,h(vec2(tq,1.7)));
-  vec2 cell=floor(v*asp*bs);
-  vec2 bu=(cell+.5)/bs/asp;
-  float r=h(cell+tq);
-  float r2=h(floor(v*asp*56.)*1.31+9.); // static per-cell → coherent streaks
-  // wavy string: displace sample point a bit for organic edge
-  vec2 pp=mix(v,bu,.5);
+  // a slow, smooth wobble instead of random blocks
+  float n=vn(v*asp*7.+time*.35)*.6+vn(v*asp*15.-time*.5)*.4;
   float W=0.,ws=0.;vec2 V=vec2(0.);
   for(int i=0;i<5;i++){
     float t,d,w;
     if(hands.x>.5&&hands.y>.5){
-      d=seg(pp*asp,A[i].xy*asp,B[i].xy*asp,t);
-      float wid=.022+.04*r*r+.012*sin(t*18.+time*5.+float(i));
-      w=smoothstep(wid,wid*.25,d);
+      d=seg(v*asp,A[i].xy*asp,B[i].xy*asp,t);
+      float wid=.03+.03*n+.01*sin(t*9.+time*2.+float(i));
+      w=smoothstep(wid,0.,d);w*=w*(3.-2.*w);
       W=max(W,w);V+=w*mix(A[i].zw,B[i].zw,t);ws+=w;
     }
-    if(hands.x>.5){d=length((pp-A[i].xy)*asp);float rr=.045+.04*r;w=smoothstep(rr,rr*.2,d);W=max(W,w);V+=w*A[i].zw;ws+=w;}
-    if(hands.y>.5){d=length((pp-B[i].xy)*asp);float rr=.045+.04*r;w=smoothstep(rr,rr*.2,d);W=max(W,w);V+=w*B[i].zw;ws+=w;}
+    if(hands.x>.5){d=length((v-A[i].xy)*asp);float rr=.05+.03*n;w=smoothstep(rr,0.,d);W=max(W,w);V+=w*A[i].zw;ws+=w;}
+    if(hands.y>.5){d=length((v-B[i].xy)*asp);float rr=.05+.03*n;w=smoothstep(rr,0.,d);W=max(W,w);V+=w*B[i].zw;ws+=w;}
   }
   V/=max(ws,1e-4);
   float sp=length(V);
   float mv=clamp(sp*70.,0.,1.);
+  // viscous relax: the thickness spreads a little to its neighbours, so blobs round off and merge
+  vec2 o1=px*2.;
+  float Ab=(pv(v+vec2(o1.x,0.)).a+pv(v-vec2(o1.x,0.)).a+pv(v+vec2(0.,o1.y)).a+pv(v-vec2(0.,o1.y)).a)*.25;
+  // the picture follows the motion: out(u)=prev(u - V*k), smoothly, with a slow downward sag
+  vec2 off=V*strength*(.75+.5*n);
   vec4 P=pv(v);
-  float act=W*(.3+.7*mv);
-  float m=max(act,P.a*decay);
-  // pixels follow the motion: out(u)=prev(u - V*k)
-  vec2 off=V*strength*(.55+.9*r2);
-  vec2 drip=vec2(0.,.0012)*P.a*(.5+r2);
-  vec2 q=v-off-drip;
-  vec2 dir=sp>1e-6?V/sp:vec2(1.,0.);
-  vec2 ca=dir*.0028*mv*W+vec2(.0008,0.)*W;
-  vec3 mo=vec3(pv(q+ca).r,pv(q).g,pv(q-ca).b);
-  // iridescent creep where moving
-  float e=mv*W;
-  mo=hue(mo,(.05+.10*r)*e);
-  vec3 iri=.5+.5*sin(vec3(0.,2.1,4.2)+dot(mo,vec3(3.))+r*6.28+time*3.);
-  mo=mix(mo,mix(mo,iri,.5),.05*e);
-  // gently pull long-lived smears back toward true colour so hue never runs away
-  mo=mix(mo,camAt(q),.02);
-  // occasional block repeat (datamosh I-frame miss)
-  if(h(cell+tq+5.)>.985&&W>.3) mo=pv(bu-off*2.).rgb;
+  vec2 sag=vec2(0.,.0009)*P.a;
+  vec2 q=v-off-sag;
+  vec4 Q=pv(q);
+  float act=W*(.35+.65*mv);
+  float m=max(act,mix(Q.a,Ab,.5)*decay);
+  // keep colour honest over time
+  // where nothing has been smeared yet the buffer is empty, so take the colour from the camera there
+  vec3 mo=mix(camAt(q),Q.rgb,smoothstep(.02,.35,Q.a));
+  mo=mix(mo,camAt(q),.015);
   vec3 cm=camAt(v);
-  vec3 col=mix(cm,mo,smoothstep(0.,.85,m));
+  vec3 col=mix(cm,mo,smoothstep(0.,.6,m));
   gl_FragColor=vec4(col,m);
 }`;
 
-const FS_SHOW = `precision mediump float;varying vec2 v;uniform sampler2D t;void main(){gl_FragColor=vec4(texture2D(t,vec2(v.x,1.-v.y)).rgb,1.);}`;
+const FS_SHOW = `
+precision highp float;varying vec2 v;uniform sampler2D t;uniform vec2 px;uniform float time;
+vec4 S(vec2 u){return texture2D(t,vec2(u.x,1.-u.y));}
+float T(vec2 u){ // smoothed thickness
+  vec2 o=px*3.;
+  return (S(u).a*4.+S(u+vec2(o.x,0.)).a+S(u-vec2(o.x,0.)).a+S(u+vec2(0.,o.y)).a+S(u-vec2(0.,o.y)).a
+    +S(u+o).a*.5+S(u-o).a*.5+S(u+vec2(o.x,-o.y)).a*.5+S(u+vec2(-o.x,o.y)).a*.5)/10.;
+}
+void main(){
+  float a=T(v);
+  if(a<.004){gl_FragColor=vec4(S(v).rgb,1.);return;}
+  float hh=smoothstep(0.,1.,a);
+  vec2 e=px*4.;
+  float gx=T(v+vec2(e.x,0.))-T(v-vec2(e.x,0.)),gy=T(v+vec2(0.,e.y))-T(v-vec2(0.,e.y));
+  vec3 n=normalize(vec3(-gx*5.,-gy*5.,1.));
+  // refraction with a little dispersion: the picture inside bends like through thick glass
+  vec2 r=n.xy*(.03+.05*hh);
+  vec3 col=vec3(S(v+r*1.).r,S(v+r*1.15).g,S(v+r*1.32).b);
+  // the slime is clear and a touch brighter than the room
+  col=mix(col,col*1.06+.025,hh);
+  // specular highlight (soft key from the upper left) and a sharp glint
+  vec3 L=normalize(vec3(-.45,-.6,.75));
+  vec3 R=reflect(-L,n);
+  float spec=pow(max(R.z,0.),26.)*.55+pow(max(R.z,0.),180.)*.9;
+  // thin-film iridescence at grazing angles (the rim)
+  float fr=pow(1.-n.z,1.6);
+  vec3 iri=.5+.5*cos(6.2832*(hh*1.6+fr*1.2+time*.05+vec3(0.,.33,.67)));
+  col+=iri*fr*.55;
+  // a soft lip at the very edge: darker outline then a bright inner line
+  float edge=smoothstep(.0,.12,a)*(1.-smoothstep(.12,.45,a));
+  col*=1.-.18*edge;
+  col+=vec3(1.)*spec*smoothstep(.02,.2,a);
+  gl_FragColor=vec4(clamp(col,0.,1.),1.);
+}`;
 const FS_CLEAR = `precision mediump float;varying vec2 v;void main(){gl_FragColor=vec4(0.);}`;
 
 function sh(type, src){const s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);
@@ -435,13 +466,13 @@ function frame(now){
   gl.useProgram(PM.p);const u=PM.u;
   gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,camTex);gl.uniform1i(u.cam,0);
   gl.activeTexture(gl.TEXTURE1);gl.bindTexture(gl.TEXTURE_2D,src.t);gl.uniform1i(u.prev,1);
-  const s=cover();gl.uniform2f(u.sxy,s[0],s[1]);
+  const s=cover();gl.uniform2f(u.sxy,s[0],s[1]);gl.uniform2f(u.px,1/W,1/H);
   gl.uniform1f(u.mir,mirrored()?1:0);gl.uniform1f(u.aspect,W/H);gl.uniform1f(u.time,(now-t0)/1000);
   gl.uniform1f(u.strength,strength);gl.uniform1f(u.decay,decay);gl.uniform1f(u.camOK,camOK&&vid.readyState>=2?1:0);
   gl.uniform4fv(u.A,ua);gl.uniform4fv(u.B,ub);gl.uniform2f(u.hands,S[0].on?1:0,S[1].on?1:0);
   gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
   gl.bindFramebuffer(gl.FRAMEBUFFER,null);gl.viewport(0,0,W,H);
-  gl.useProgram(PS.p);gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,dst.t);gl.uniform1i(PS.u.t,0);
+  gl.useProgram(PS.p);gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,dst.t);gl.uniform1i(PS.u.t,0);gl.uniform2f(PS.u.px,1/W,1/H);gl.uniform1f(PS.u.time,(now-t0)/1000);
   gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
   cur=1-cur;
   drawLines();
