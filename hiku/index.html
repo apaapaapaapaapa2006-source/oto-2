@@ -1,0 +1,506 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<script>/* REC-FIX (2026-10-12) — iPhone Safari で録画が途中で止まる・壊れる対策。どの作品でも同じ内容。
+   ・mp4 は映像と音声の両方のコーデックを宣言する（avc1 だけだと音声付きで止まることがある）
+   ・1 秒ごとにデータを受け取る（最後に一括で書き出さない）／ビットレートに上限
+   ・保存が終わる前に次の録画を始めない（前のファイルが消えるのを防ぐ）
+   ・録画中は AudioContext を止めない（音声トラックが止まると mp4 ごと止まる） */
+(()=>{const MR=window.MediaRecorder;if(!MR||MR.__recfix)return;let busy=0,active=0;
+class R extends MR{
+  constructor(s,o){if(busy)throw new Error('前の録画を保存しています');o=Object.assign({},o||{});
+    const au=s&&s.getAudioTracks&&s.getAudioTracks().length>0;
+    if(!o.mimeType||/^video\/mp4/.test(o.mimeType)){
+      const c=[au?'video/mp4;codecs="avc1.42E01E,mp4a.40.2"':'video/mp4;codecs="avc1.42E01E"','video/mp4'].find(m=>MR.isTypeSupported(m));
+      if(c)o.mimeType=c;else if(o.mimeType&&!MR.isTypeSupported(o.mimeType))delete o.mimeType;}
+    if(!o.videoBitsPerSecond&&!o.bitsPerSecond)o.videoBitsPerSecond=6e6;
+    super(s,o);this.addEventListener('stop',()=>{active=Math.max(0,active-1);setTimeout(()=>{busy=0;},0);});}
+  start(t){const r=super.start(t==null?1000:t);active++;return r;}
+  stop(){if(this.state!=='inactive'){busy=1;setTimeout(()=>{busy=0;},15000);}return super.stop();}}
+R.__recfix=1;window.MediaRecorder=R;
+const AC=window.AudioContext||window.webkitAudioContext;
+if(AC&&AC.prototype.suspend){const sus=AC.prototype.suspend;AC.prototype.suspend=function(){return active?Promise.resolve():sus.call(this);};}
+/* 録音用の出口には常に無音を流しておく（何も鳴っていないと音声トラックにデータが来ず、録画全体が止まる） */
+if(AC&&AC.prototype.createMediaStreamDestination){const cmd=AC.prototype.createMediaStreamDestination;AC.prototype.createMediaStreamDestination=function(){const d=cmd.apply(this,arguments);
+  try{const c=this.createConstantSource();c.offset.value=0;c.connect(d);c.start();}catch(e){}return d;};}})();</script>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="description" content="両手の指先のあいだに見えない糸が張られ、あやとりのように引くと映像が糸に沿って溶けて伸びる。糸の長さで音程が変わり、片手なら指先だけが溶ける。撮影と録画ができる。">
+<meta name="theme-color" content="#050505">
+<title>HIKU ─ 指先の糸で映像を引き伸ばす</title>
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  HIKU 引く ─ 指先の糸で映像を引き伸ばす                ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  ORIGIN     オーナーが持ち込んだ完成品（hiku.html、作者表記「APARTMENT」）。
+             機構・シェーダ・配色・書体・音はオーナーの設計のまま。画廊に揃えたのは
+             開始画面の文言・⟲ カメラ・⚙ で隠せる調整パネル・撮影・録画（REC-FIX）・
+             カメラ失敗時の定型文・ランドマークのガードだけ。
+  MOOD       両手の同じ指どうしのあいだに見えない糸が五本張られ、あやとりのように
+             引くと、カメラの映像が糸に沿ってデータモッシュのように溶けて伸び、
+             色ずれと虹色のにじみをつれて少しずつ垂れながら残る。
+  PALETTE    地 #050505 ／ 文字 #f4f1ea ／ 差し色 #ff4fa3 ／ 糸の五色
+             #ff4fa3・#f4f1ea・#7fffd4・#ffd36b・#9f8bff
+  TYPE       Helvetica Neue（オーナーの指定のまま、細く字間を広く）
+  MOTION     前のコマを指先の動きの向きにずらして描き重ねる（帰還）。動いたところだけ
+             色がずれ、ときどきブロックが I フレーム落ちのように繰り返される。
+  SOUND      糸一本が一声（のこぎり波の和音）。糸が短いほど高く、D のマイナー
+             ペンタトニック。音程が段を変えるたびにはじく音、手の速さでフィルタが
+             開き、量子化したノイズが混ざる。
+  TECH       WebGL1 のピンポン FBO。HandLandmarker（2 手、動的 import）。
+             ?demo で合成の手が動く（テスト用、オーナーの実装のまま）。
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<style>
+  :root{--fg:#f4f1ea;--dim:rgba(244,241,234,.55);--bg:#050505;--acc:#ff4fa3;}
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);overflow:hidden;
+    font-family:"Helvetica Neue",Helvetica,"Hiragino Sans",sans-serif;touch-action:none;user-select:none;-webkit-user-select:none}
+  canvas{position:fixed;inset:0;width:100vw;height:100vh;height:100dvh;display:block}
+  #ov{pointer-events:none}
+  video{position:fixed;width:2px;height:2px;opacity:0;pointer-events:none;left:0;top:0}
+  #brand{position:fixed;left:16px;top:calc(env(safe-area-inset-top) + 12px);font-size:11px;letter-spacing:.28em;color:var(--dim);pointer-events:none;mix-blend-mode:difference}
+  #brand b{color:var(--fg);font-weight:700;letter-spacing:.35em;font-size:13px}
+  #status{position:fixed;left:16px;top:calc(env(safe-area-inset-top) + 34px);font-size:10px;letter-spacing:.2em;color:var(--dim);pointer-events:none;mix-blend-mode:difference;text-align:right}
+  #ui{position:fixed;left:0;right:0;bottom:0;padding:12px 16px calc(env(safe-area-inset-bottom) + 14px);display:none;
+    gap:10px;align-items:center;justify-content:center;flex-wrap:wrap;background:linear-gradient(transparent,rgba(0,0,0,.55))}
+  #ui.on{display:flex}
+  .btn{appearance:none;border:1px solid rgba(255,255,255,.35);background:rgba(0,0,0,.35);color:var(--fg);
+    border-radius:999px;height:40px;min-width:40px;padding:0 14px;font-size:12px;letter-spacing:.15em;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
+  .btn.act{background:var(--fg);color:#000}
+  #rec.act{background:#ff2a2a;border-color:#ff2a2a;color:#fff}
+  .sl{display:flex;align-items:center;gap:6px;font-size:10px;letter-spacing:.15em;color:var(--dim)}
+  input[type=range]{width:84px;accent-color:var(--fg)}
+  #start{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;
+    background:radial-gradient(circle at 50% 45%,#1a1416 0%,#050505 70%);z-index:5;padding:24px;text-align:center}
+  #start h1{margin:0;font-size:56px;letter-spacing:.32em;font-weight:200;padding-left:.32em}
+  #start .jp{font-size:13px;letter-spacing:.6em;color:var(--dim);margin-top:-12px;padding-left:.6em}
+  #start p{max-width:320px;font-size:12px;line-height:1.9;color:var(--dim);margin:0}
+  #go{appearance:none;border:1px solid var(--fg);background:transparent;color:var(--fg);padding:14px 38px;border-radius:999px;font-size:13px;letter-spacing:.4em}
+  #go:active{background:var(--fg);color:#000}
+  #strand{width:220px;height:40px}
+  #err{color:#ff7a7a;font-size:11px;max-width:320px;white-space:pre-line;line-height:1.8}
+  #msg{position:fixed;left:16px;right:110px;top:calc(env(safe-area-inset-top) + 58px);font-size:11px;line-height:1.8;color:#ff9a9a;white-space:pre-line;pointer-events:none;text-shadow:0 1px 6px #000}
+  .tb{position:fixed;right:14px;display:none;z-index:3}
+  .tb.on{display:block}
+  #gear{top:calc(env(safe-area-inset-top) + 10px);font-size:15px;letter-spacing:0;padding:0}
+  #flip{top:calc(env(safe-area-inset-top) + 58px)}
+  #shoot{width:46px;height:46px;padding:0;position:relative}
+  #shoot::after{content:"";position:absolute;inset:8px;border-radius:50%;background:var(--fg);opacity:.9}
+  #panel{position:fixed;right:14px;top:calc(env(safe-area-inset-top) + 108px);z-index:3;width:min(260px,calc(100vw - 28px));
+    padding:14px 16px;border:1px solid rgba(255,255,255,.22);border-radius:14px;background:rgba(0,0,0,.6);
+    backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);display:flex;flex-direction:column;gap:12px;transition:opacity .25s}
+  #panel.hide{opacity:0;pointer-events:none}
+  #panel .sl{justify-content:space-between}
+  #panel input[type=range]{width:150px}
+  #panel .row{display:flex;gap:8px}
+  #panel .row .btn{flex:1}
+  #panel .note{font-size:10px;line-height:1.8;color:var(--dim);letter-spacing:.06em}
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<canvas id="ov"></canvas>
+<video id="vid" playsinline muted autoplay></video>
+
+<div id="brand"><b>HIKU</b> 引く ／ APARTMENT</div>
+<div id="status"></div>
+
+<div id="start">
+  <svg id="strand" viewBox="0 0 220 40"><path d="M6 20 C60 2,90 38,110 20 S170 2,214 20" stroke="#f4f1ea" stroke-width="1" fill="none" opacity=".7"/>
+    <path d="M6 24 C60 10,90 34,110 24 S170 10,214 24" stroke="#ff4fa3" stroke-width="1" fill="none" opacity=".6"/></svg>
+  <h1>HIKU</h1>
+  <div class="jp">引 く</div>
+  <p>両手の指先のあいだに、見えない糸が張られる。<br>あやとりのように引くと、映像が糸に沿って溶けて伸び、<br>糸の長さで音程が変わる。片手なら指先だけが溶ける。<br>カメラに両手をかざしてください。</p>
+  <button id="go">START</button>
+  <div id="err"></div>
+</div>
+
+<div id="msg"></div>
+<button class="btn tb" id="gear" aria-label="調整">⚙</button>
+<button class="btn tb" id="flip">⟲ カメラ</button>
+<div id="ui">
+  <button class="btn" id="rec">● REC</button>
+  <button class="btn" id="shoot" aria-label="撮る"></button>
+  <button class="btn" id="clr">CLR</button>
+</div>
+<div id="panel" class="hide">
+  <label class="sl">伸びる量<input id="str" type="range" min="0.4" max="4" step="0.05" value="1.7"></label>
+  <label class="sl">残る長さ<input id="pers" type="range" min="0.90" max="0.995" step="0.001" value="0.972"></label>
+  <div class="row"><button class="btn" id="lines">糸を見せる</button></div>
+  <div class="note">両手の同じ指どうしのあいだに糸が張られる。引くと映像が糸に沿って溶けて伸び、糸が短いほど高い音が鳴る。片手なら指先だけが溶ける。<br>CLR で溶けた跡を消す。</div>
+</div>
+
+<script type="module">
+const Q = new URLSearchParams(location.search);
+const DEMO = Q.has('demo');
+const $ = id => document.getElementById(id);
+const cv = $('gl'), ov = $('ov'), vid = $('vid'), octx = ov.getContext('2d');
+const statusEl = $('status');
+
+/* ---------------- WebGL ---------------- */
+const gl = cv.getContext('webgl', {antialias:false, alpha:false, premultipliedAlpha:false, preserveDrawingBuffer:false});
+if (!gl) $('err').textContent = 'WebGLが使えません';
+
+const VS = `attribute vec2 p;varying vec2 v;void main(){v=vec2(p.x*.5+.5,.5-p.y*.5);gl_Position=vec4(p,0.,1.);}`;
+
+const FS_MOSH = `
+precision highp float;
+varying vec2 v;
+uniform sampler2D cam, prev;
+uniform vec2 sxy;
+uniform float mir, aspect, time, strength, decay, camOK;
+uniform vec4 A[5];
+uniform vec4 B[5];
+uniform vec2 hands;
+float h(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
+vec3 camAt(vec2 u){
+  vec2 c=vec2(.5+(u.x-.5)*sxy.x,.5+(u.y-.5)*sxy.y);
+  if(mir>.5)c.x=1.-c.x;
+  vec3 col=texture2D(cam,clamp(c,0.,1.)).rgb;
+  // placeholder gradient until camera arrives
+  vec3 ph=vec3(.08+.25*u.y,.06+.1*sin(u.x*6.+time),.12+.2*(1.-u.y))+.04*sin(vec3(0,2,4)+u.x*20.+time*2.);
+  return mix(ph,col,camOK);
+}
+vec4 pv(vec2 u){return texture2D(prev,vec2(u.x,1.-u.y));}
+float seg(vec2 p,vec2 a,vec2 b,out float t){vec2 pa=p-a,ba=b-a;t=clamp(dot(pa,ba)/max(dot(ba,ba),1e-6),0.,1.);return length(pa-ba*t);}
+vec3 hue(vec3 c,float a){const vec3 k=vec3(.57735);float ca=cos(a);return c*ca+cross(k,c)*sin(a)+k*dot(k,c)*(1.-ca);}
+void main(){
+  vec2 asp=vec2(aspect,1.);
+  float tq=floor(time*14.);
+  float bs=mix(38.,96.,h(vec2(tq,1.7)));
+  vec2 cell=floor(v*asp*bs);
+  vec2 bu=(cell+.5)/bs/asp;
+  float r=h(cell+tq);
+  float r2=h(floor(v*asp*56.)*1.31+9.); // static per-cell → coherent streaks
+  // wavy string: displace sample point a bit for organic edge
+  vec2 pp=mix(v,bu,.5);
+  float W=0.,ws=0.;vec2 V=vec2(0.);
+  for(int i=0;i<5;i++){
+    float t,d,w;
+    if(hands.x>.5&&hands.y>.5){
+      d=seg(pp*asp,A[i].xy*asp,B[i].xy*asp,t);
+      float wid=.022+.04*r*r+.012*sin(t*18.+time*5.+float(i));
+      w=smoothstep(wid,wid*.25,d);
+      W=max(W,w);V+=w*mix(A[i].zw,B[i].zw,t);ws+=w;
+    }
+    if(hands.x>.5){d=length((pp-A[i].xy)*asp);float rr=.045+.04*r;w=smoothstep(rr,rr*.2,d);W=max(W,w);V+=w*A[i].zw;ws+=w;}
+    if(hands.y>.5){d=length((pp-B[i].xy)*asp);float rr=.045+.04*r;w=smoothstep(rr,rr*.2,d);W=max(W,w);V+=w*B[i].zw;ws+=w;}
+  }
+  V/=max(ws,1e-4);
+  float sp=length(V);
+  float mv=clamp(sp*70.,0.,1.);
+  vec4 P=pv(v);
+  float act=W*(.3+.7*mv);
+  float m=max(act,P.a*decay);
+  // pixels follow the motion: out(u)=prev(u - V*k)
+  vec2 off=V*strength*(.55+.9*r2);
+  vec2 drip=vec2(0.,.0012)*P.a*(.5+r2);
+  vec2 q=v-off-drip;
+  vec2 dir=sp>1e-6?V/sp:vec2(1.,0.);
+  vec2 ca=dir*.0028*mv*W+vec2(.0008,0.)*W;
+  vec3 mo=vec3(pv(q+ca).r,pv(q).g,pv(q-ca).b);
+  // iridescent creep where moving
+  float e=mv*W;
+  mo=hue(mo,(.05+.10*r)*e);
+  vec3 iri=.5+.5*sin(vec3(0.,2.1,4.2)+dot(mo,vec3(3.))+r*6.28+time*3.);
+  mo=mix(mo,mix(mo,iri,.5),.05*e);
+  // gently pull long-lived smears back toward true colour so hue never runs away
+  mo=mix(mo,camAt(q),.02);
+  // occasional block repeat (datamosh I-frame miss)
+  if(h(cell+tq+5.)>.985&&W>.3) mo=pv(bu-off*2.).rgb;
+  vec3 cm=camAt(v);
+  vec3 col=mix(cm,mo,smoothstep(0.,.85,m));
+  gl_FragColor=vec4(col,m);
+}`;
+
+const FS_SHOW = `precision mediump float;varying vec2 v;uniform sampler2D t;void main(){gl_FragColor=vec4(texture2D(t,vec2(v.x,1.-v.y)).rgb,1.);}`;
+const FS_CLEAR = `precision mediump float;varying vec2 v;void main(){gl_FragColor=vec4(0.);}`;
+
+function sh(type, src){const s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);
+  if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)){const l=gl.getShaderInfoLog(s);console.error(l);$('err').textContent='shader: '+l;}return s;}
+function prog(fs){const p=gl.createProgram();gl.attachShader(p,sh(gl.VERTEX_SHADER,VS));gl.attachShader(p,sh(gl.FRAGMENT_SHADER,fs));
+  gl.bindAttribLocation(p,0,'p');gl.linkProgram(p);if(!gl.getProgramParameter(p,gl.LINK_STATUS))console.error(gl.getProgramInfoLog(p));
+  const u={};const n=gl.getProgramParameter(p,gl.ACTIVE_UNIFORMS);for(let i=0;i<n;i++){const a=gl.getActiveUniform(p,i);const nm=a.name.replace(/\[0\]$/,'');u[nm]=gl.getUniformLocation(p,a.name);}
+  return {p,u};}
+const PM=prog(FS_MOSH), PS=prog(FS_SHOW), PC=prog(FS_CLEAR);
+const vb=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,vb);
+gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
+gl.enableVertexAttribArray(0);gl.vertexAttribPointer(0,2,gl.FLOAT,false,0,0);
+
+function tex(){const t=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,t);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);return t;}
+const camTex=tex();
+gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,1,1,0,gl.RGBA,gl.UNSIGNED_BYTE,new Uint8Array([0,0,0,255]));
+let fb=[], W=0, H=0;
+function makeFB(){
+  fb.forEach(f=>{gl.deleteTexture(f.t);gl.deleteFramebuffer(f.f);});fb=[];
+  for(let i=0;i<2;i++){const t=tex();gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,W,H,0,gl.RGBA,gl.UNSIGNED_BYTE,null);
+    const f=gl.createFramebuffer();gl.bindFramebuffer(gl.FRAMEBUFFER,f);gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,t,0);
+    gl.viewport(0,0,W,H);gl.clearColor(0,0,0,0);gl.clear(gl.COLOR_BUFFER_BIT);fb.push({t,f});}
+  gl.bindFramebuffer(gl.FRAMEBUFFER,null);
+}
+function resize(){
+  const dpr=Math.min(window.devicePixelRatio||1,2);
+  let w=innerWidth*dpr,h=innerHeight*dpr;const lim=1280,s=Math.min(1,lim/Math.max(w,h));
+  W=Math.round(w*s);H=Math.round(h*s);cv.width=W;cv.height=H;
+  ov.width=Math.round(innerWidth*dpr);ov.height=Math.round(innerHeight*dpr);
+  makeFB();
+}
+addEventListener('resize',resize);resize();
+function clearFB(){fb.forEach(f=>{gl.bindFramebuffer(gl.FRAMEBUFFER,f.f);gl.viewport(0,0,W,H);gl.clearColor(0,0,0,0);gl.clear(gl.COLOR_BUFFER_BIT);});gl.bindFramebuffer(gl.FRAMEBUFFER,null);}
+
+/* ---------------- camera ---------------- */
+let facing='user', camOK=0, stream=null;
+async function startCam(){
+  const md=navigator.mediaDevices;
+  if(!md||!md.getUserMedia)throw new Error('getUserMedia is unavailable');
+  const s2=await md.getUserMedia({audio:false,video:{facingMode:{ideal:facing},width:{ideal:1280},height:{ideal:720}}});
+  if(stream) stream.getTracks().forEach(t=>t.stop());
+  stream=s2;vid.srcObject=stream;await vid.play().catch(()=>{});camOK=1;
+  rawHands=[];resetHands();
+}
+function camErrText(e){
+  const m=(e&&(e.message||e.name))?(e.message||e.name):String(e||'unknown');
+  return 'カメラを起動できませんでした：'+m+'\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+}
+function cover(){ // screen uv -> cam uv scale
+  const vw=vid.videoWidth||16,vh=vid.videoHeight||9;const va=vw/vh,ca=W/H;
+  return va>ca?[ca/va,1]:[1,va/ca];
+}
+const mirrored=()=>facing==='user';
+function lmToScreen(x,y,s){ const cx=mirrored()?1-x:x; return [.5+(cx-.5)/s[0], .5+(y-.5)/s[1]]; }
+
+/* ---------------- hand tracking ---------------- */
+let landmarker=null, lastVT=-1, rawHands=[], lastSeen=[0,0], modelErr=false;
+async function initHands(){
+  const {FilesetResolver,HandLandmarker}=await import('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs');
+  const fs=await FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm');
+  const opts=d=>({baseOptions:{modelAssetPath:'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task',delegate:d},
+    runningMode:'VIDEO',numHands:2,minHandDetectionConfidence:.5,minHandPresenceConfidence:.5,minTrackingConfidence:.5});
+  try{landmarker=await HandLandmarker.createFromOptions(fs,opts('GPU'));}
+  catch(e){console.warn('GPU delegate failed',e);landmarker=await HandLandmarker.createFromOptions(fs,opts('CPU'));}
+}
+const TIPS=[4,8,12,16,20];
+function detect(now){
+  if(DEMO){rawHands=demoHands(now/1000);return;}
+  if(EXT||!landmarker||vid.readyState<2||vid.currentTime===lastVT)return;
+  lastVT=vid.currentTime;
+  const ts=Math.max(lastTs+1,Math.round(now));lastTs=ts;
+  let r=null;try{r=landmarker.detectForVideo(vid,ts);}catch(e){return;}
+  rawHands=parseHands(r&&r.landmarks);
+}
+// keep only hands whose wrist and five fingertips are real, finite points
+const okP=q=>q&&isFinite(q.x)&&isFinite(q.y);
+function parseHands(list){
+  const out=[];if(!Array.isArray(list))return out;
+  const s=cover();
+  for(const l of list){
+    if(out.length>=2)break;
+    if(!l||typeof l.length!=='number'||l.length<21)continue;
+    if(!okP(l[0])||!TIPS.every(k=>okP(l[k])))continue;
+    out.push({wrist:lmToScreen(l[0].x,l[0].y,s),tips:TIPS.map(k=>lmToScreen(l[k].x,l[k].y,s))});
+  }
+  return out;
+}
+let lastTs=0,EXT=false;
+function demoHands(t){
+  const a=[.22+.08*Math.sin(t*.9),.55+.12*Math.sin(t*1.3)], b=[.78+.08*Math.sin(t*1.1+1),.45+.15*Math.cos(t*.8)];
+  const mk=(c,sgn,ph)=>({wrist:[c[0],c[1]+.12],tips:[0,1,2,3,4].map(i=>[c[0]+sgn*(.03+.015*i)+.02*Math.sin(t*3+i+ph),c[1]-.10+i*.045+.03*Math.sin(t*2.3+i*.7+ph)])});
+  return [mk(a,1,0),mk(b,-1,2)];
+}
+
+/* smoothed state: hand slots 0=left on screen, 1=right */
+const S=[0,1].map(()=>({on:false,tips:TIPS.map(()=>[.5,.5]),prev:TIPS.map(()=>[.5,.5]),vel:TIPS.map(()=>[0,0]),fresh:true}));
+function resetHands(){S.forEach(st=>{st.on=false;st.fresh=true;st.vel.forEach(v=>{v[0]=0;v[1]=0;});});lastSeen=[0,0];}
+function updateHands(now){
+  const hs=rawHands.slice(0,2).sort((p,q)=>p.wrist[0]-q.wrist[0]);
+  let assign=[null,null];
+  if(hs.length===2) assign=[hs[0],hs[1]];
+  else if(hs.length===1){ // keep it in the slot it's closest to
+    const h=hs[0];let k=h.wrist[0]<.5?0:1;
+    if(S[0].on&&!S[1].on)k=0; else if(S[1].on&&!S[0].on)k=1;
+    else if(S[0].on&&S[1].on){const d=i=>Math.hypot(S[i].tips[1][0]-h.tips[1][0],S[i].tips[1][1]-h.tips[1][1]);k=d(0)<d(1)?0:1;}
+    assign[k]=h;
+  }
+  for(let i=0;i<2;i++){
+    const st=S[i],h=assign[i];
+    if(h){lastSeen[i]=now;
+      for(let j=0;j<5;j++){
+        const tp=st.tips[j];st.prev[j]=[tp[0],tp[1]];
+        if(st.fresh){tp[0]=h.tips[j][0];tp[1]=h.tips[j][1];}
+        else{tp[0]+=(h.tips[j][0]-tp[0])*.55;tp[1]+=(h.tips[j][1]-tp[1])*.55;}
+        let vx=tp[0]-st.prev[j][0],vy=tp[1]-st.prev[j][1];
+        const m=Math.hypot(vx,vy),cap=.06;if(m>cap){vx*=cap/m;vy*=cap/m;}
+        st.vel[j][0]+=(vx-st.vel[j][0])*.6;st.vel[j][1]+=(vy-st.vel[j][1])*.6;
+      }
+      st.fresh=false;st.on=true;
+    } else if(now-lastSeen[i]>160){st.on=false;st.fresh=true;st.vel.forEach(v=>{v[0]=0;v[1]=0;});}
+  }
+}
+
+/* ---------------- audio ---------------- */
+let AC=null,master,send,voices=[],noise,recDest;
+const SC=[0,3,5,7,10], BASE=73.42; // D minor pentatonic from D2
+const nf=n=>BASE*Math.pow(2,(12*Math.floor(n/5)+SC[((n%5)+5)%5])/12);
+function initAudio(){
+  AC=new (window.AudioContext||window.webkitAudioContext)();
+  const comp=AC.createDynamicsCompressor();comp.threshold.value=-14;comp.ratio.value=4;comp.connect(AC.destination);
+  master=AC.createGain();master.gain.value=.9;master.connect(comp);
+  recDest=AC.createMediaStreamDestination();comp.connect(recDest);
+  const dl=AC.createDelay(1.5);dl.delayTime.value=.36;const fbk=AC.createGain();fbk.gain.value=.42;const lp=AC.createBiquadFilter();lp.frequency.value=2200;
+  dl.connect(lp);lp.connect(fbk);fbk.connect(dl);lp.connect(master);
+  const dl2=AC.createDelay(1.5);dl2.delayTime.value=.53;const fb2=AC.createGain();fb2.gain.value=.3;dl2.connect(fb2);fb2.connect(dl2);fb2.connect(lp);
+  send=AC.createGain();send.gain.value=.4;send.connect(dl);send.connect(dl2);
+  const pan=()=>AC.createStereoPanner?AC.createStereoPanner():AC.createGain();
+  for(let i=0;i<5;i++){
+    const f=AC.createBiquadFilter();f.type='lowpass';f.Q.value=7;f.frequency.value=400;
+    const g=AC.createGain();g.gain.value=0;const p=pan();
+    const os=[['sawtooth',1,0],['sawtooth',1,9],['triangle',.5,0]].map(([t,m,d])=>{const o=AC.createOscillator();o.type=t;o.detune.value=d;o.start();const og=AC.createGain();og.gain.value=t==='triangle'?.7:.35;o.connect(og);og.connect(f);return {o,m};});
+    f.connect(g);g.connect(p);p.connect(master);p.connect(send);
+    voices.push({os,f,g,p,step:-1,last:0,freq:nf(i*2)});
+  }
+  // glitch noise
+  const len=AC.sampleRate*2,buf=AC.createBuffer(1,len,AC.sampleRate),d=buf.getChannelData(0);
+  let hold=0,hv=0;for(let i=0;i<len;i++){if(--hold<=0){hold=1+(Math.random()*40|0);hv=Math.random()*2-1;}d[i]=hv*.7+(Math.random()*2-1)*.3;}
+  const src=AC.createBufferSource();src.buffer=buf;src.loop=true;src.start();
+  const bp=AC.createBiquadFilter();bp.type='bandpass';bp.Q.value=2.5;bp.frequency.value=1200;
+  const ws=AC.createWaveShaper();const cur=new Float32Array(1024);for(let i=0;i<1024;i++){const x=i/511.5-1;cur[i]=Math.round(x*5)/5;}ws.curve=cur;
+  const ng=AC.createGain();ng.gain.value=0;src.connect(bp);bp.connect(ws);ws.connect(ng);ng.connect(master);ng.connect(send);
+  noise={bp,ng};
+}
+function pluck(f,pan,vel){
+  const t=AC.currentTime,g=AC.createGain(),p=AC.createStereoPanner?AC.createStereoPanner():AC.createGain();
+  if(p.pan)p.pan.value=pan;
+  g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(.16*vel,t+.004);g.gain.exponentialRampToValueAtTime(.0001,t+1.4);
+  [['triangle',2,1],['sine',4.01,.35],['sine',6.02,.12]].forEach(([ty,m,a])=>{const o=AC.createOscillator(),og=AC.createGain();o.type=ty;o.frequency.value=f*m;og.gain.value=a;o.connect(og);og.connect(g);o.start(t);o.stop(t+1.5);});
+  g.connect(p);p.connect(master);p.connect(send);
+}
+function updateAudio(now){
+  if(!AC)return;const t=AC.currentTime;
+  const both=S[0].on&&S[1].on;let tot=0,cnt=0;
+  S.forEach(s=>{if(s.on)s.vel.forEach(v=>{tot+=Math.hypot(v[0],v[1]);cnt++;});});
+  const asp=W/H;
+  for(let i=0;i<5;i++){
+    const vo=voices[i];
+    if(both){
+      const a=S[0].tips[i],b=S[1].tips[i];
+      const len=Math.hypot((a[0]-b[0])*asp,a[1]-b[1]);
+      const sp=(Math.hypot(...S[0].vel[i])+Math.hypot(...S[1].vel[i]))/2;
+      const x=Math.min(1,Math.max(0,(len-.06)/.9));
+      const step=Math.round((1-x)*11)+i;           // shorter string = higher
+      const f=nf(step);
+      vo.os.forEach(o=>o.o.frequency.setTargetAtTime(f*o.m,t,.025));
+      vo.g.gain.setTargetAtTime(.018+Math.min(sp*5,.09),t,.06);
+      vo.f.frequency.setTargetAtTime(220+Math.min(sp*260000,5200)+x*300,t,.04);
+      if(vo.p.pan)vo.p.pan.setTargetAtTime(((a[0]+b[0])/2-.5)*1.6,t,.05);
+      if(step!==vo.step&&now-vo.last>70){if(vo.step>=0)pluck(f,((a[0]+b[0])/2-.5)*1.6,.55+Math.min(sp*50,.45));vo.step=step;vo.last=now;}
+    } else {vo.g.gain.setTargetAtTime(0,t,.12);vo.step=-1;}
+  }
+  const avg=cnt?tot/cnt:0;
+  noise.ng.gain.setTargetAtTime(Math.min(avg*9,.22),t,.05);
+  noise.bp.frequency.setTargetAtTime(500+Math.min(avg*120000,5000),t,.05);
+}
+
+/* ---------------- overlay strings ---------------- */
+let showLines=false;
+function drawLines(){
+  octx.clearRect(0,0,ov.width,ov.height);if(!showLines)return;
+  const w=ov.width,h=ov.height;octx.lineWidth=Math.max(1,w/600);octx.lineCap='round';
+  const col=['#ff4fa3','#f4f1ea','#7fffd4','#ffd36b','#9f8bff'];
+  if(S[0].on&&S[1].on)for(let i=0;i<5;i++){
+    const a=S[0].tips[i],b=S[1].tips[i];octx.strokeStyle=col[i];octx.globalAlpha=.75;octx.shadowColor=col[i];octx.shadowBlur=8;
+    octx.beginPath();octx.moveTo(a[0]*w,a[1]*h);octx.lineTo(b[0]*w,b[1]*h);octx.stroke();}
+  octx.shadowBlur=0;octx.globalAlpha=.9;
+  S.forEach(s=>{if(s.on)s.tips.forEach((p,i)=>{octx.fillStyle=col[i];octx.beginPath();octx.arc(p[0]*w,p[1]*h,w/220,0,7);octx.fill();});});
+  octx.globalAlpha=1;
+}
+
+/* ---------------- render loop ---------------- */
+let cur=0,t0=performance.now(),strength=1.7,decay=.972,running=false;
+const ua=new Float32Array(20),ub=new Float32Array(20);
+function frame(now){
+  requestAnimationFrame(frame);
+  detect(now);updateHands(now);updateAudio(now);
+  for(let j=0;j<5;j++){
+    const a=S[0],b=S[1];
+    ua.set([a.tips[j][0],a.tips[j][1],a.vel[j][0],a.vel[j][1]],j*4);
+    ub.set([b.tips[j][0],b.tips[j][1],b.vel[j][0],b.vel[j][1]],j*4);
+  }
+  if(camOK&&vid.readyState>=2){gl.bindTexture(gl.TEXTURE_2D,camTex);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,vid);}
+  const src=fb[cur],dst=fb[1-cur];
+  gl.bindFramebuffer(gl.FRAMEBUFFER,dst.f);gl.viewport(0,0,W,H);
+  gl.useProgram(PM.p);const u=PM.u;
+  gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,camTex);gl.uniform1i(u.cam,0);
+  gl.activeTexture(gl.TEXTURE1);gl.bindTexture(gl.TEXTURE_2D,src.t);gl.uniform1i(u.prev,1);
+  const s=cover();gl.uniform2f(u.sxy,s[0],s[1]);
+  gl.uniform1f(u.mir,mirrored()?1:0);gl.uniform1f(u.aspect,W/H);gl.uniform1f(u.time,(now-t0)/1000);
+  gl.uniform1f(u.strength,strength);gl.uniform1f(u.decay,decay);gl.uniform1f(u.camOK,camOK&&vid.readyState>=2?1:0);
+  gl.uniform4fv(u.A,ua);gl.uniform4fv(u.B,ub);gl.uniform2f(u.hands,S[0].on?1:0,S[1].on?1:0);
+  gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+  gl.bindFramebuffer(gl.FRAMEBUFFER,null);gl.viewport(0,0,W,H);
+  gl.useProgram(PS.p);gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,dst.t);gl.uniform1i(PS.u.t,0);
+  gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+  cur=1-cur;
+  drawLines();
+  const n=(S[0].on?1:0)+(S[1].on?1:0);
+  statusEl.textContent=modelErr?'':!landmarker&&!DEMO&&!EXT?'手の検出を準備中…':n===2?'糸 ×5':n===1?'片手':'手をかざして';
+  if(shootReq){shootReq=false;saveShot();}
+}
+
+/* ---------------- UI ---------------- */
+$('go').onclick=async()=>{
+  $('go').disabled=true;$('go').textContent='…';
+  try{initAudio();if(AC.state==='suspended')await AC.resume();}catch(e){console.warn(e);}
+  if(!DEMO||Q.get('demo')==='cam'){
+    try{await startCam();}catch(e){$('err').textContent=camErrText(e);$('go').disabled=false;$('go').textContent='START';return;}
+    if(!DEMO)initHands().catch(e=>{if(EXT)return;modelErr=true;$('msg').textContent='手の検出モデルを読み込めませんでした（ネット接続を確認）。';console.error(e);});
+  }
+  $('start').style.display='none';$('ui').classList.add('on');$('gear').classList.add('on');$('flip').classList.add('on');
+};
+$('flip').onclick=async()=>{const prev=facing;facing=facing==='user'?'environment':'user';
+  try{await startCam();$('msg').textContent=modelErr?$('msg').textContent:'';}catch(e){facing=prev;$('msg').textContent=camErrText(e);}clearFB();};
+$('gear').onclick=()=>$('panel').classList.toggle('hide');
+$('lines').onclick=e=>{showLines=!showLines;e.currentTarget.classList.toggle('act',showLines);};
+// the WebGL canvas does not keep its drawing buffer, so the shot is taken right after a frame is drawn
+let shootReq=false;
+$('shoot').onclick=()=>{shootReq=true;};
+function saveShot(){
+  try{
+    const c=document.createElement('canvas');c.width=W;c.height=H;const x=c.getContext('2d');
+    x.drawImage(cv,0,0,W,H);if(showLines)x.drawImage(ov,0,0,W,H);
+    c.toBlob(b=>{if(!b)return;const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='hiku_'+Date.now()+'.png';a.click();
+      setTimeout(()=>URL.revokeObjectURL(a.href),4000);},'image/png');
+  }catch(e){$('msg').textContent='保存できませんでした。';}
+}
+cv.addEventListener('click',()=>$('panel').classList.add('hide'));
+$('str').oninput=e=>strength=+e.target.value;
+$('pers').oninput=e=>decay=+e.target.value;
+$('clr').onclick=clearFB;
+let mr=null,chunks=[];
+$('rec').onclick=e=>{
+  const b=e.currentTarget;
+  if(mr&&mr.state==='recording'){mr.stop();return;}
+  const vs=cv.captureStream(30);const tracks=[...vs.getVideoTracks()];if(recDest)tracks.push(...recDest.stream.getAudioTracks());
+  const ms=new MediaStream(tracks);
+  const types=['video/mp4;codecs=avc1','video/mp4','video/webm;codecs=vp9,opus','video/webm'];
+  const mt=types.find(t=>window.MediaRecorder&&MediaRecorder.isTypeSupported(t))||'';
+  try{mr=new MediaRecorder(ms,mt?{mimeType:mt,videoBitsPerSecond:6e6}:{});}catch(err){$('msg').textContent='録画を開始できませんでした。'+(err&&err.message?'\n'+err.message:'');return;}
+  chunks=[];mr.ondataavailable=ev=>ev.data.size&&chunks.push(ev.data);
+  mr.onstop=()=>{b.classList.remove('act');b.textContent='● REC';
+    const blob=new Blob(chunks,{type:mr.mimeType||'video/mp4'});const ext=(mr.mimeType||'').includes('mp4')?'mp4':'webm';
+    const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='hiku_'+Date.now()+'.'+ext;document.body.appendChild(a);a.click();
+    setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},4000);};
+  mr.start(1000);b.classList.add('act');b.textContent='■ STOP';
+};
+if(DEMO){$('go').click();}
+window.__hiku={
+  feedHands(list){if(!EXT&&modelErr){modelErr=false;$('msg').textContent='';}EXT=true;rawHands=parseHands(list);return rawHands.length;},
+  state(){return {hands:S.map(st=>({on:st.on,tips:st.tips.map(t=>t.slice()),vel:st.vel.map(v=>v.slice())})),raw:rawHands.length,W,H};}
+};
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
