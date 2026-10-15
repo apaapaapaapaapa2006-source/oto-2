@@ -24,7 +24,7 @@ if(AC&&AC.prototype.createMediaStreamDestination){const cmd=AC.prototype.createM
   try{const c=this.createConstantSource();c.offset.value=0;c.connect(d);c.start();}catch(e){}return d;};}})();</script>
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="description" content="カメラの景色の前に大きなシャボン玉が浮かぶ。指で押すとへこんでぷるんと戻り、虹色の膜が流れて景色が映り込む。外側をなぞると玉が動く。撮影と録画ができる。">
+<meta name="description" content="カメラの前に大きなシャボン玉が浮かぶ。カメラに映った手でさわるとへこんでぷるんと戻り、奥まで押すと玉が逃げる。シルクのような淡い膜に景色が映り込む。撮影と録画ができる。">
 <meta name="theme-color" content="#0b0d0c">
 <title>SHABON ─ 押せるシャボン玉</title>
 <!--
@@ -39,10 +39,17 @@ if(AC&&AC.prototype.createMediaStreamDestination){const cmd=AC.prototype.createM
              ときはオーナーの作った庭の背景で遊べる。
   MOOD       景色の前に大きなシャボン玉がひとつ。押すと指の形にへこみ、離すとぷるんと
              揺れ戻る。触らずにいると見えない手がにぎにぎする。
-  PALETTE    地 #0b0d0c ／ 膜の干渉色（厚さ 250〜1500nm、屈折率 1.33）／ 差し色 #ff9bd2・#8ff5d4
+  10-15 改訂 オーナーの声「カメラでうつった手でさわれるようにしてほしい」「もう少しシルクかかった
+             きれいなものに」。①HandLandmarker（2 手、動的 import）で指先 5 本を追い、玉のふちに
+             入った指先の所が外からへこむ（深さは入り込んだ分）。奥まで入れると玉が押されて逃げる。
+             指先には小さな点（録画には入らない）。カメラは自分の手が見える前面を既定に。
+             ②膜を「シルク」に ── 各色を波長の帯で平均して厚い所は真珠色に褪せ、薄い上の方だけ
+             金や薔薇色が残る。模様は横に引き伸ばしたゆるい流れ、真ん中は澄んで、光の側に
+             サテンの柔らかな艶、ふちは淡い真珠色。元の虹色は調整で戻せる。
+  PALETTE    地 #0b0d0c ／ 膜の干渉色（シルク 180〜1100nm・虹色 250〜1500nm、屈折率 1.33）／ 差し色 #ff9bd2・#8ff5d4
   TYPE       Zen Maru Gothic（オーナーの指定のまま）
   TECH       three.js r128。球を 9 個の形のモード（減衰振動）と 8 個のへこみで変形し、
-             裏の膜→表の膜の 2 パスで屈折と薄膜干渉。背景は既定で背面カメラ。
+             裏の膜→表の膜の 2 パスで屈折と薄膜干渉。手は MediaPipe HandLandmarker。
   ══════════════════════════════════════════════════════════════════════════
 -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -63,6 +70,7 @@ if(AC&&AC.prototype.createMediaStreamDestination){const cmd=AC.prototype.createM
 html,body{height:100%;margin:0;background:var(--stage);color:var(--ink);overflow:hidden;
   font-family:var(--font);-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
 #stage{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+#dots{position:fixed;inset:0;width:100%;height:100%;pointer-events:none}
 .mark{position:fixed;top:calc(14px + env(safe-area-inset-top,0px));left:max(16px,env(safe-area-inset-left,0px));
   pointer-events:none;display:flex;flex-direction:column;gap:2px}
 .mark b{font-weight:700;font-size:20px;letter-spacing:.32em;
@@ -113,12 +121,14 @@ html,body{height:100%;margin:0;background:var(--stage);color:var(--ink);overflow
 #panel label{display:flex;justify-content:space-between;align-items:center;gap:10px;color:var(--ink-dim)}
 #panel input[type=range]{width:170px;accent-color:var(--film-b)}
 #panel .row{display:flex;gap:8px}
+#panel .row button[aria-pressed="true"]{border-color:rgba(255,255,255,.5)}
 #panel .row button{flex:1;font:inherit;font-size:12px;color:var(--ink);background:rgba(255,255,255,.08);border:1px solid var(--glass-line);border-radius:999px;padding:8px 0;cursor:pointer}
 #panel .x{position:absolute;right:8px;top:4px;background:none;border:0;color:var(--ink);font-size:14px;padding:6px 8px;cursor:pointer}
 #panel .note{font-size:11px;line-height:1.7;color:var(--ink-dim)}
 </style>
 </head><body>
 <canvas id="stage" aria-label="シャボン玉。押すとへこみ、外側をドラッグすると動きます"></canvas>
+<canvas id="dots" aria-hidden="true"></canvas>
 <div class="mark"><b>SHABON</b><span>押せるシャボン玉</span></div>
 <div class="hint" id="hint">玉を押すとへこむ　／　外側をドラッグで移動</div>
 <div class="toast off" id="toast"></div>
@@ -134,8 +144,9 @@ html,body{height:100%;margin:0;background:var(--stage);color:var(--ink);overflow
   <button class="x" id="panelX" type="button" aria-label="閉じる">✕</button>
   <label>玉の大きさ<input id="sSize" type="range" min="0.6" max="1.4" step="0.01" value="1"></label>
   <label>屈折の強さ<input id="sRefr" type="range" min="0" max="2" step="0.05" value="1"></label>
-  <div class="row"><button id="btnCenter" type="button">まんなかに戻す</button></div>
-  <div class="note">玉を押すとへこみ、外側をドラッグすると玉が動く。「にぎにぎ」を切ると、見えない手が止まる。</div>
+  <div class="row"><button id="btnSilk" type="button" aria-pressed="true">膜：シルク</button><button id="btnCenter" type="button">まんなかに戻す</button></div>
+  <div class="row"><button id="btnHands" type="button" aria-pressed="true">手でさわる：入</button><button id="btnDots" type="button" aria-pressed="true">指の点：入</button></div>
+  <div class="note">カメラに映った指先が玉のふちに触れるとへこみ、奥まで入れると玉が押されて動く。画面を指で押してもへこむ。膜は「シルク」と、元の「虹色」を切り替えられる。</div>
 </div>
 <div id="start">
   <h1>SHABON</h1>
@@ -227,7 +238,8 @@ let bgTex = gardenTex, bgW = 300, bgH = 540, bgMirror = false;
 
 const video = document.createElement('video');
 video.setAttribute('playsinline', ''); video.muted = true; video.autoplay = true;
-let videoTex = null, stream = null, facing = 'environment';   // owner's choice: the bubble floats in front of the world
+// 10-15: the front camera by default now, so you see your own hands reach the bubble (⟲ for the back camera)
+let videoTex = null, stream = null, facing = 'user';
 
 const cover = new THREE.Vector4(1, 1, 0, 0);
 function updateCover(){
@@ -273,6 +285,7 @@ uniform float uModes[9];
 uniform float uTime;
 uniform float uRipple;
 uniform float uInflate;
+uniform float uSilk;
 varying vec3 vNView;
 varying vec3 vPosView;
 varying float vD;
@@ -308,7 +321,20 @@ float thinning(vec3 n){
   }
   return t;
 }
+float thicknessSilk(vec3 p, float thin){
+  // silk (2026-10-15): slow marbled swirls drawn out sideways like the sheen on silk, thinner toward the
+  // top where the film drains (gold and rose bands up there, pearl lower down)
+  vec3 q = p*vec3(0.6, 1.25, 0.6) + vec3(0.0, uTime*0.03, 0.0);
+  vec3 w = vec3(snoise(q*0.6 + vec3(0.0, uTime*0.045, 0.0)),
+                snoise(q*0.6 + vec3(5.2, 1.3, uTime*0.035)),
+                snoise(q*0.6 + vec3(2.0, 7.0, 3.0 - uTime*0.03)));
+  float n1 = snoise(q*0.75 + w*1.5);
+  float d = 700.0 + 190.0*n1 - 300.0*p.y;
+  d += thin * 340.0 * snoise(q*1.2 + w + 9.0);
+  return clamp(d, 180.0, 1100.0);
+}
 float thickness(vec3 p, float thin){
+  if (uSilk > 0.5) return thicknessSilk(p, thin);
   vec3 q = p*0.85 + vec3(0.0, uTime*0.04, 0.0);
   vec3 w = vec3(snoise(q + vec3(0.0, uTime*0.06, 0.0)),
                 snoise(q + vec3(5.2, 1.3, uTime*0.05)),
@@ -347,11 +373,31 @@ vec3 filmColor(float d, float cosT){
   float l = dot(c, vec3(0.3333));
   c = mix(vec3(l), c, 1.12);
   return clamp(c, 0.0, 1.0);
-}`;
+}
+// silk: each channel is averaged over a band of wavelengths, so the thick (high-order) parts of the film
+// fade to pearl the way a real film does, and only the thin parts keep strong colour
+vec3 filmSilk(float d, float cosT){
+  float n = 1.33;
+  float cosR = sqrt(max(0.0, 1.0 - (1.0 - cosT*cosT)/(n*n)));
+  float opd = 12.566370614 * n * d * cosR;
+  vec3 acc = vec3(0.0); float ws = 0.0;
+  for (int i = 0; i < 5; i++){
+    float k = float(i) - 2.0;
+    vec3 lam = vec3(640.0, 535.0, 455.0) + k*vec3(40.0, 34.0, 28.0);
+    float w = exp(-k*k*0.35);
+    acc += w*(0.5 - 0.5*cos(opd/lam)); ws += w;
+  }
+  vec3 c = acc/ws;
+  float l = dot(c, vec3(0.3333));
+  c = mix(vec3(l), c, 1.25);
+  c = mix(c, vec3(1.0, 0.96, 0.95), 0.16);   // a pearl cast
+  return clamp(c, 0.0, 1.0);
+}
+vec3 film2(float d, float cosT){ return uSilk > 0.5 ? filmSilk(d, cosT) : filmColor(d, cosT); }`;
 
 // Back wall of the bubble, drawn into the scene buffer over the background.
 const BACK_FRAG = `
-uniform sampler2D uBg; uniform vec4 uCover; uniform vec2 uRes; uniform float uRefract;
+uniform sampler2D uBg; uniform vec4 uCover; uniform vec2 uRes; uniform float uRefract; uniform float uSilk;
 varying vec3 vNView; varying vec3 vPosView; varying float vD;
 ${FILM}
 vec3 bg(vec2 uv){ return texture2D(uBg, uv*uCover.xy + uCover.zw).rgb; }
@@ -362,9 +408,9 @@ void main(){
   vec2 suv = gl_FragCoord.xy / uRes;
   vec2 off = N.xy * uRefract * 0.55;
   vec3 col = bg(suv + off);
-  vec3 film = filmColor(vD, cosT);
+  vec3 film = film2(vD, cosT);
   float F = pow(1.0 - cosT, 2.2);
-  float refl = mix(0.1, 0.55, F);
+  float refl = mix(mix(0.1, 0.04, uSilk), mix(0.55, 0.3, uSilk), F);
   float lum = dot(col, vec3(0.3, 0.59, 0.11));
   col = col*(1.0 - refl*0.35) + film*refl*(0.5 + 0.6*lum);
   gl_FragColor = vec4(col, 1.0);
@@ -372,7 +418,7 @@ void main(){
 
 // Front wall: refracts the scene buffer (background + back wall) and adds the film.
 const FRONT_FRAG = `
-uniform sampler2D uScene; uniform sampler2D uBg; uniform vec4 uCover; uniform vec2 uRes; uniform float uRefract;
+uniform sampler2D uScene; uniform sampler2D uBg; uniform vec4 uCover; uniform vec2 uRes; uniform float uRefract; uniform float uSilk;
 varying vec3 vNView; varying vec3 vPosView; varying float vD;
 ${FILM}
 void main(){
@@ -385,19 +431,36 @@ void main(){
   refr.r = texture2D(uScene, suv + off*1.06).r;
   refr.g = texture2D(uScene, suv + off).g;
   refr.b = texture2D(uScene, suv + off*0.94).b;
-  vec3 film = filmColor(vD, cosT);
+  vec3 film = film2(vD, cosT);
   float F = pow(1.0 - cosT, 2.4);
   float refl = mix(0.15, 0.95, F);
   vec3 R = reflect(-V, N);
   vec2 euv = vec2(0.5 - R.x*0.38, 0.5 + R.y*0.38);
   vec3 env = texture2D(uBg, euv*uCover.xy + uCover.zw).rgb;
   float envL = dot(env, vec3(0.3, 0.59, 0.11));
-  vec3 col = refr*(1.0 - refl*0.42) + film*refl*(0.55 + 0.75*envL) + env*film*refl*0.25;
-  col *= mix(vec3(1.0), 0.82 + 0.36*film, 0.3);
-  float rim = smoothstep(0.62, 0.99, 1.0 - cosT);
-  col = mix(col, film*0.85 + vec3(0.32, 0.1, 0.2), rim*0.5);
   vec3 L1 = normalize(vec3(-0.45, 0.75, 0.5));
   vec3 L2 = normalize(vec3(0.6, -0.3, 0.75));
+  vec3 col;
+  if (uSilk > 0.5){
+    // silk: a clearer middle, the colour carried by what the film reflects, a soft satin sheen on the
+    // lit side and a pale pearly rim instead of a saturated one
+    float Fs = pow(1.0 - cosT, 3.0);
+    float rs = mix(0.05, 0.9, Fs);
+    col = refr*(1.0 - rs*0.30) + film*rs*(0.40 + 0.85*envL) + env*film*rs*0.18;
+    col *= mix(vec3(1.0), 0.86 + 0.28*film, 0.12);
+    float sheen = pow(max(dot(R, L1), 0.0), 5.0);
+    col += sheen*0.10*(0.55 + 0.45*film);
+    // satin luster: a broad soft glow where the surface faces the light, like light on silk
+    float lus = pow(max(dot(N, normalize(L1 + V)), 0.0), 10.0);
+    col += lus*0.12*(0.7 + 0.3*film);
+    float rimS = smoothstep(0.55, 0.99, 1.0 - cosT);
+    col = mix(col, film*0.75 + vec3(0.18, 0.16, 0.20), rimS*0.38);
+  } else {
+    col = refr*(1.0 - refl*0.42) + film*refl*(0.55 + 0.75*envL) + env*film*refl*0.25;
+    col *= mix(vec3(1.0), 0.82 + 0.36*film, 0.3);
+    float rim = smoothstep(0.62, 0.99, 1.0 - cosT);
+    col = mix(col, film*0.85 + vec3(0.32, 0.1, 0.2), rim*0.5);
+  }
   float s = pow(max(dot(R, L1), 0.0), 70.0)*0.55 + pow(max(dot(R, L2), 0.0), 140.0)*0.22;
   col += s*(0.7 + 0.3*film);
   gl_FragColor = vec4(col, 1.0);
@@ -413,7 +476,7 @@ const modeU = new Array(NMODE).fill(0);
 const res = new THREE.Vector2(1, 1);
 const shared = {
   uDents:{value:dentU}, uDentR:{value:dentR}, uModes:{value:modeU},
-  uTime:{value:0}, uRipple:{value:0.006}, uInflate:{value:0},
+  uTime:{value:0}, uRipple:{value:0.006}, uInflate:{value:0}, uSilk:{value:1},
   uBg:{value:bgTex}, uCover:{value:cover}, uRes:{value:res}, uRefract:{value:0.075},
   uScene:{value:rt.texture}
 };
@@ -468,7 +531,7 @@ resize();
 /* ---------- soft body state ---------- */
 const dents = Array.from({length:NDENT}, () => ({
   active:false, dir:new THREE.Vector3(0,0,1), depth:0, vel:0, target:0, rad:0.4,
-  pressing:false, pointerId:null, sx:0, sy:0, auto:false, releaseAt:0, born:0, base:0
+  pressing:false, pointerId:null, sx:0, sy:0, auto:false, hand:false, releaseAt:0, born:0, base:0
 }));
 const modeVel = new Array(NMODE).fill(0);
 const modeK = [170,170,170,170,170,340,340,340,340];
@@ -567,7 +630,7 @@ canvas.addEventListener('pointerdown', e => {
   const dir = new THREE.Vector3();
   if (hitLocal(e.clientX, e.clientY, dir)){
     const d = freeSlot(); if (!d) return;
-    Object.assign(d, {active:true, pressing:true, auto:false, pointerId:e.pointerId, sx:e.clientX, sy:e.clientY,
+    Object.assign(d, {active:true, pressing:true, auto:false, hand:false, pointerId:e.pointerId, sx:e.clientX, sy:e.clientY,
       target:0.3, rad:0.33 + Math.random()*0.1, born:now(), base:0.3});
     if (Math.abs(d.depth) < 0.01){ d.depth = 0; d.vel = 0; }
     d.dir.copy(dir);
@@ -617,7 +680,7 @@ function grip(t){
     const d = freeSlot(); if (!d || d.pressing) break;
     const w = base.clone().addScaledVector(side, (k - (fingers - 1) / 2) * 0.55).normalize().applyQuaternion(q);
     const hold = 0.5 + Math.random() * 1.1;
-    Object.assign(d, {active:true, pressing:true, auto:true, pointerId:null, target:0.18 + Math.random() * 0.22,
+    Object.assign(d, {active:true, pressing:true, auto:true, hand:false, pointerId:null, target:0.18 + Math.random() * 0.22,
       rad:0.3 + Math.random() * 0.12, releaseAt:t + hold + k * 0.07, born:t + k * 0.07, base:0});
     if (Math.abs(d.depth) < 0.01){ d.depth = 0; d.vel = 0; }
     d.dir.copy(w);
@@ -669,6 +732,8 @@ goBtn.addEventListener('click', async () => {
     return;
   }
   enter();
+  if (!landmarker && !EXT) initHands().then(() => { if (!EXT) toast('手をかざすと、玉にさわれます。', 3500); })
+    .catch(e => { if (EXT) return; handsErr = true; console.error(e); toast('手の検出モデルを読み込めませんでした（ネット接続を確認）。指で画面を押してもさわれます。', 6000); });
 });
 // no camera: the owner's garden stays as the background
 noCamBtn.addEventListener('click', () => { ensureAudio(); btnFlip.hidden = true; enter(); });
@@ -679,6 +744,10 @@ canvas.addEventListener('pointerdown', () => { if (!panel.hidden) setPanel(false
 document.getElementById('sSize').addEventListener('input', e => { sizeK = +e.target.value; resize(); });
 document.getElementById('sRefr').addEventListener('input', e => { shared.uRefract.value = 0.075 * (+e.target.value); });
 document.getElementById('btnCenter').addEventListener('click', () => { centerTarget.set(0, -0.15, 0); });
+const tog = (id, on, a, b) => { const el = document.getElementById(id); el.setAttribute('aria-pressed', String(on)); el.textContent = on ? a : b; };
+document.getElementById('btnSilk').addEventListener('click', () => { const on = shared.uSilk.value < 0.5; shared.uSilk.value = on ? 1 : 0; tog('btnSilk', on, '膜：シルク', '膜：虹色'); });
+document.getElementById('btnHands').addEventListener('click', () => { handsOn = !handsOn; tog('btnHands', handsOn, '手でさわる：入', '手でさわる：切'); });
+document.getElementById('btnDots').addEventListener('click', () => { dotsOn = !dotsOn; tog('btnDots', dotsOn, '指の点：入', '指の点：切'); });
 
 let shotReq = false;
 document.getElementById('btnShot').addEventListener('click', () => { shotReq = true; });
@@ -712,6 +781,117 @@ btnRec.addEventListener('click', () => {
   mr.start(1000); btnRec.setAttribute('aria-pressed', 'true'); btnRec.textContent = '■ STOP';
 });
 
+
+/* ---------- hands seen by the camera (2026-10-15, owner's request) ---------- */
+// Fingertips that reach the bubble press it from the side: the outline caves in under each finger,
+// and a hand that goes deep pushes the whole bubble away. MediaPipe HandLandmarker, loaded on demand.
+let landmarker = null, handsErr = false, EXT = false, lastVT = -1, lastTs = 0;
+let handsOn = true, dotsOn = true;
+const TIPS = [4, 8, 12, 16, 20];
+let hands = [];                      // [{tips:[[x,y] client px] x5, touch:[bool] x5}]
+async function initHands(){
+  const {FilesetResolver, HandLandmarker} = await import('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs');
+  const fs = await FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm');
+  const opts = d => ({baseOptions:{modelAssetPath:'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task', delegate:d},
+    runningMode:'VIDEO', numHands:2, minHandDetectionConfidence:.5, minHandPresenceConfidence:.5, minTrackingConfidence:.5});
+  try{ landmarker = await HandLandmarker.createFromOptions(fs, opts('GPU')); }
+  catch(e){ console.warn('GPU delegate failed', e); landmarker = await HandLandmarker.createFromOptions(fs, opts('CPU')); }
+}
+function detectHands(){
+  if (EXT || !landmarker || !stream || video.readyState < 2 || video.currentTime === lastVT) return;
+  lastVT = video.currentTime;
+  const ts = Math.max(lastTs + 1, Math.round(performance.now())); lastTs = ts;
+  let r = null; try{ r = landmarker.detectForVideo(video, ts); }catch(e){ return; }
+  parseHands(r && r.landmarks);
+}
+// camera picture (top-left origin) -> texture uv -> screen, through the same cover mapping as the background
+function lmToClient(x, y, out){
+  const su = (x - cover.z) / cover.x, sv = ((1 - y) - cover.w) / cover.y;
+  out[0] = su * window.innerWidth; out[1] = (1 - sv) * window.innerHeight; return out;
+}
+// keep only hands whose five fingertips are real, finite points; smooth them a little
+const okP = q => q && isFinite(q.x) && isFinite(q.y);
+const tmpXY = [0, 0];
+function parseHands(list){
+  const out = [];
+  if (Array.isArray(list)) for (const l of list){
+    if (out.length >= 2) break;
+    if (!l || typeof l.length !== 'number' || l.length < 21) continue;
+    if (!TIPS.every(k => okP(l[k]))) continue;
+    const prev = hands[out.length];
+    const tips = TIPS.map((k, i) => {
+      lmToClient(l[k].x, l[k].y, tmpXY);
+      const p = prev && prev.tips[i];
+      return p && Math.hypot(p[0] - tmpXY[0], p[1] - tmpXY[1]) < 120 ? [p[0] + (tmpXY[0] - p[0]) * .65, p[1] + (tmpXY[1] - p[1]) * .65] : [tmpXY[0], tmpXY[1]];
+    });
+    out.push({tips, touch:[false, false, false, false, false]});
+  }
+  hands = out;
+}
+const contacts = new Map();          // fingertip key -> dent
+const tipP = new THREE.Vector3(), tipDir = new THREE.Vector3(), qInv = new THREE.Quaternion();
+let lastSquish = -1, lastBoing = -1;
+function handContacts(t, dt){
+  const seen = new Set();
+  let px = 0, py = 0;
+  if (handsOn) {
+    qInv.copy(bubble.quaternion).invert();
+    for (let h = 0; h < hands.length; h++) for (let f = 0; f < 5; f++){
+      const tip = hands[h].tips[f]; hands[h].touch[f] = false;
+      const ray = rayFrom(tip[0], tip[1]);
+      if (!ray.intersectPlane(zPlane, tipP)) continue;
+      const dx = tipP.x - center.x, dy = tipP.y - center.y, dist = Math.hypot(dx, dy);
+      const pen = (R * 1.03 - dist) / R;          // how far the fingertip is inside the outline
+      if (pen <= 0 || dist < 1e-4) continue;
+      const key = h * 5 + f; seen.add(key); hands[h].touch[f] = true;
+      let d = contacts.get(key);
+      if (!d || !d.hand || !d.pressing){
+        d = freeSlot(); if (!d) continue;
+        Object.assign(d, {active:true, pressing:true, auto:false, hand:true, pointerId:null, rad:0.28 + Math.random()*0.06, born:t, base:0});
+        if (Math.abs(d.depth) < 0.01){ d.depth = 0; d.vel = 0; }
+        contacts.set(key, d);
+        tipDir.set(dx / dist, dy / dist, 0.3).normalize().applyQuaternion(qInv); d.dir.copy(tipDir);
+        if (t - lastSquish > 0.09){ squish(noteFor(d.dir), 0.26); lastSquish = t; }
+        firstTouch(); lastUser = t;
+      }
+      // the dent sits on the outline under the finger, a little toward the viewer, in the bubble's own frame
+      tipDir.set(dx / dist, dy / dist, 0.3).normalize().applyQuaternion(qInv);
+      d.dir.lerp(tipDir, 0.5).normalize();
+      d.target = Math.min(0.45, pen * 1.15);
+      if (pen > 0.32){ px -= dx / dist * (pen - 0.32); py -= dy / dist * (pen - 0.32); }
+      lastUser = t;
+    }
+  }
+  for (const [key, d] of contacts){
+    if (seen.has(key)) continue;
+    contacts.delete(key);
+    if (d.hand && d.pressing){
+      const loud = t - lastBoing > 0.12 && Math.abs(d.depth) > 0.06; if (loud) lastBoing = t;
+      release(d, loud);
+    }
+    d.hand = false;
+  }
+  // a hand pushing deep moves the bubble away from it
+  if (px || py){
+    const lim = (v, m) => Math.max(-m, Math.min(m, v)), k = Math.min(1, dt * 7) * R;
+    centerTarget.x = lim(centerTarget.x + px * k, viewW / 2); centerTarget.y = lim(centerTarget.y + py * k, viewH / 2);
+  }
+}
+// small marks on the fingertips, so you can see where the camera thinks they are (not in recordings)
+const dotsCv = document.getElementById('dots'), dctx = dotsCv.getContext('2d');
+function drawDots(){
+  const w = window.innerWidth, h = window.innerHeight, dp = Math.min(window.devicePixelRatio || 1, 2);
+  if (dotsCv.width !== Math.round(w * dp) || dotsCv.height !== Math.round(h * dp)){ dotsCv.width = Math.round(w * dp); dotsCv.height = Math.round(h * dp); }
+  dctx.setTransform(dp, 0, 0, dp, 0, 0); dctx.clearRect(0, 0, w, h);
+  if (!dotsOn || !handsOn) return;
+  for (const hd of hands) for (let f = 0; f < 5; f++){
+    const p = hd.tips[f], on = hd.touch[f];
+    dctx.beginPath(); dctx.arc(p[0], p[1], on ? 7 : 5, 0, 7);
+    dctx.fillStyle = on ? 'rgba(255,255,255,.85)' : 'rgba(255,255,255,.35)'; dctx.fill();
+    if (on){ dctx.lineWidth = 1.5; dctx.strokeStyle = 'rgba(143,245,212,.9)'; dctx.beginPath(); dctx.arc(p[0], p[1], 12, 0, 7); dctx.stroke(); }
+  }
+}
+
 /* ---------- simulation ---------- */
 const dentTmp = new THREE.Vector3();
 let tPrev = now(), t0 = tPrev;
@@ -737,7 +917,7 @@ function step(dt, t){
     if (d.active){
       if (d.pressing && t >= d.born){
         if (d.auto){ if (t >= d.releaseAt) release(d, false); }
-        else d.target = Math.min(0.5, d.base + Math.min(t - d.born, 1.6) * 0.1);
+        else if (!d.hand) d.target = Math.min(0.5, d.base + Math.min(t - d.born, 1.6) * 0.1);
       }
       const k = d.pressing ? (t >= d.born ? 95 : 0) : 150;
       const c = d.pressing ? 12 : 4.2;
@@ -759,11 +939,13 @@ function frame(){
 
   // follow fingers that are pressing the bubble
   for (const d of dents){
-    if (d.pressing && !d.auto){
+    if (d.pressing && !d.auto && !d.hand){
       if (hitLocal(d.sx, d.sy, dentTmp)){ d.dir.lerp(dentTmp, 0.55).normalize(); }
       else release(d, true);
     }
   }
+  detectHands();
+  handContacts(t, dt);
   if (autoOn && drags.size === 0 && !dents.some(d => d.pressing && !d.auto) && time > nextGrip && t - lastUser > 1.6){
     grip(t); nextGrip = time + 0.9 + Math.random() * 1.6;
   }
@@ -791,6 +973,7 @@ function frame(){
   bubble.material = frontMat;
   renderer.render(bubbleScene, camera);
   if (shotReq){ shotReq = false; saveShot(); }
+  drawDots();
 
   requestAnimationFrame(frame);
 }
@@ -799,7 +982,16 @@ setBackground(gardenTex, 300, 540, false);
 // test hook
 window.__shabon = {
   state(){ return {R, sizeK, cx:center.x, cy:center.y, tx:centerTarget.x, ty:centerTarget.y, dents:dents.filter(d => d.active).length,
-    pressing:dents.filter(d => d.pressing && !d.auto).length, cam:!!stream, facing, refract:shared.uRefract.value, auto:autoOn, sound:soundOn}; }
+    pressing:dents.filter(d => d.pressing && !d.auto).length, cam:!!stream, facing, refract:shared.uRefract.value, auto:autoOn, sound:soundOn,
+    hands:hands.length, contacts:contacts.size, handDents:dents.filter(d => d.hand && d.pressing).length, silk:shared.uSilk.value, handsOn,
+    tips:hands.map(h => h.tips.map(p => [Math.round(p[0]), Math.round(p[1])]))}; },
+  // test only: hand landmarks as MediaPipe gives them ([[{x,y}] x21] per hand, camera-picture coordinates)
+  feedHands(list){ EXT = true; parseHands(list); return hands.length; },
+  // test only: where a screen point lands in camera-picture coordinates
+  clientToLm(cx, cy){ const su = cx / window.innerWidth, sv = 1 - cy / window.innerHeight;
+    return {x: su * cover.x + cover.z, y: 1 - (sv * cover.y + cover.w)}; },
+  bubbleClient(){ const v = center.clone().project(camera); const r = new THREE.Vector3(center.x + R, center.y, 0).project(camera);
+    return {x:(v.x + 1) / 2 * window.innerWidth, y:(1 - v.y) / 2 * window.innerHeight, r:(r.x - v.x) / 2 * window.innerWidth}; }
 };
 requestAnimationFrame(frame);
 })();
