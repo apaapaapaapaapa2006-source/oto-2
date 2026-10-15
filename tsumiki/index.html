@@ -1,0 +1,840 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<script>/* REC-FIX (2026-10-12) — iPhone Safari で録画が途中で止まる・壊れる対策。どの作品でも同じ内容。
+   ・mp4 は映像と音声の両方のコーデックを宣言する（avc1 だけだと音声付きで止まることがある）
+   ・1 秒ごとにデータを受け取る（最後に一括で書き出さない）／ビットレートに上限
+   ・保存が終わる前に次の録画を始めない（前のファイルが消えるのを防ぐ）
+   ・録画中は AudioContext を止めない（音声トラックが止まると mp4 ごと止まる） */
+(()=>{const MR=window.MediaRecorder;if(!MR||MR.__recfix)return;let busy=0,active=0;
+class R extends MR{
+  constructor(s,o){if(busy)throw new Error('前の録画を保存しています');o=Object.assign({},o||{});
+    const au=s&&s.getAudioTracks&&s.getAudioTracks().length>0;
+    if(!o.mimeType||/^video\/mp4/.test(o.mimeType)){
+      const c=[au?'video/mp4;codecs="avc1.42E01E,mp4a.40.2"':'video/mp4;codecs="avc1.42E01E"','video/mp4'].find(m=>MR.isTypeSupported(m));
+      if(c)o.mimeType=c;else if(o.mimeType&&!MR.isTypeSupported(o.mimeType))delete o.mimeType;}
+    if(!o.videoBitsPerSecond&&!o.bitsPerSecond)o.videoBitsPerSecond=6e6;
+    super(s,o);this.addEventListener('stop',()=>{active=Math.max(0,active-1);setTimeout(()=>{busy=0;},0);});}
+  start(t){const r=super.start(t==null?1000:t);active++;return r;}
+  stop(){if(this.state!=='inactive'){busy=1;setTimeout(()=>{busy=0;},15000);}return super.stop();}}
+R.__recfix=1;window.MediaRecorder=R;
+const AC=window.AudioContext||window.webkitAudioContext;
+if(AC&&AC.prototype.suspend){const sus=AC.prototype.suspend;AC.prototype.suspend=function(){return active?Promise.resolve():sus.call(this);};}
+/* 録音用の出口には常に無音を流しておく（何も鳴っていないと音声トラックにデータが来ず、録画全体が止まる） */
+if(AC&&AC.prototype.createMediaStreamDestination){const cmd=AC.prototype.createMediaStreamDestination;AC.prototype.createMediaStreamDestination=function(){const d=cmd.apply(this,arguments);
+  try{const c=this.createConstantSource();c.offset.value=0;c.connect(d);c.start();}catch(e){}return d;};}})();</script>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="description" content="カメラの映像が、小さなキューブを積んだ立体の箱庭になる。人と手は手前に飛び出し、奥はまばらなブロックになって宙に浮く。動くとブロックがこぼれ、画面をたたくと波が走る。BLOCK・TOY・MONO の三つ。撮影と録画ができる。">
+<meta name="theme-color" content="#000000">
+<title>TSUMIKI ─ 積み木の箱庭になる</title>
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  TSUMIKI 積み木 ─ 積み木の箱庭になる                     ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  ORIGIN     オーナーが見せてくれた動画（Instagram の seg.cpu「SEG_Exp_33T」── 手元で料理する
+             映像が、まるごと小さなキューブを積んだ立体になる）から作った。
+  MOOD       画面がマス目に区切られ、一マスが一個のキューブになってその場所の色を持つ。
+             キューブは奥行きに沿って押し出され、人は手前に、手はさらに手前に飛び出し、奥の壁や
+             天井はまばらな小さいキューブになって黒い空間に浮く。視点がゆっくり揺れて横の面が
+             見え、マインクラフトやレゴのジオラマのように見える。
+  LAYERS     ①映像→モザイク→キューブが飛び出す切り替え（ボタンで行き来、カタカタ鳴る）
+             ②人（自撮りの切り抜き）と手（21 点）から作る奥行き ── 人は輪郭からの距離で丸く膨らみ、
+               手は指の骨ごとに一段手前。奥は「画面の上ほど遠い」と明るさで散らす
+             ③動いた所からブロックがこぼれ、回りながら落ちる
+             ④画面をたたくとそこからブロックの波が走る
+             ⑤BLOCK（そのままの色）・TOY（おもちゃのブロックの色とポッチ）・MONO（白い石膏）
+             ⑥視点のゆれ、指でなぞると箱庭を回して覗ける
+  PALETTE    地 #000 ／ 文字 #f3efe6 ／ 差し色 #ffb03a（積み木の橙）
+  TYPE       DotGothic16（ドット文字）
+  TECH       WebGL2。キューブは gl_InstanceID でマス目に対応させたインスタンス描画（1 万個前後）、
+             色と奥行きはマス目の解像度のテクスチャ。各マスは元のカメラの光線に沿って奥行きの分だけ
+             置くので、遠いマスは小さく隙間があき、近いマスは大きく重なる（点群の描き方）。
+             人は MediaPipe ImageSegmenter（selfie）、手は HandLandmarker（ともに動的 import）。
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DotGothic16&display=swap">
+<style>
+  :root{--fg:#f3efe6;--dim:rgba(243,239,230,.55);--faint:rgba(243,239,230,.2);--acc:#ffb03a;--bg:#000}
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);overflow:hidden;touch-action:none;-webkit-user-select:none;user-select:none;
+    font-family:"DotGothic16","Hiragino Sans",system-ui,sans-serif}
+  #gl{position:fixed;inset:0;width:100vw;height:100vh;height:100dvh;display:block;touch-action:none}
+  video{position:fixed;left:0;top:0;width:2px;height:2px;opacity:0;pointer-events:none}
+  #brand{position:fixed;left:16px;top:calc(env(safe-area-inset-top) + 12px);pointer-events:none;letter-spacing:.2em;font-size:11px;color:var(--dim);text-shadow:0 1px 6px #000}
+  #brand b{display:block;font-weight:400;font-size:20px;letter-spacing:.32em;color:var(--fg)}
+  #brand b i{font-style:normal;color:var(--acc)}
+  #msg{position:fixed;left:16px;right:16px;top:calc(env(safe-area-inset-top) + 62px);font-size:12px;line-height:1.8;color:#ffc2a0;white-space:pre-line;pointer-events:none;text-shadow:0 1px 6px #000}
+  #ui{position:fixed;left:0;right:0;bottom:0;padding:10px 12px calc(env(safe-area-inset-bottom) + 14px);display:none;gap:8px;align-items:center;justify-content:center;flex-wrap:wrap;
+    background:linear-gradient(transparent,rgba(0,0,0,.6))}
+  #ui.on{display:flex}
+  .btn{appearance:none;font:inherit;font-size:13px;letter-spacing:.08em;color:var(--fg);background:rgba(0,0,0,.45);border:1px solid var(--faint);border-radius:6px;
+    height:40px;min-width:40px;padding:0 13px;cursor:pointer;white-space:nowrap}
+  .btn.acc{border-color:var(--acc);color:var(--acc)}
+  #rec.act{background:#e8323c;border-color:#e8323c;color:#fff}
+  #shot{width:42px;padding:0;position:relative}
+  #shot::after{content:"";position:absolute;left:50%;top:50%;width:16px;height:16px;margin:-8px 0 0 -8px;background:var(--fg)}
+  #panel{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom) + 122px);z-index:4;width:min(330px,calc(100vw - 32px));
+    padding:14px 16px;background:rgba(0,0,0,.72);border:1px solid var(--faint);border-radius:8px;display:flex;flex-direction:column;gap:12px;font-size:12px;color:var(--dim);
+    backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
+  #panel[hidden]{display:none}
+  #panel .row{display:flex;gap:6px}
+  #panel .row button{flex:1;appearance:none;font:inherit;font-size:12px;color:var(--fg);background:rgba(255,255,255,.04);border:1px solid var(--faint);border-radius:6px;padding:8px 0;cursor:pointer}
+  #panel .row button.on{border-color:var(--acc);color:var(--acc)}
+  #panel label{display:flex;justify-content:space-between;align-items:center;gap:10px}
+  #panel input[type=range]{width:170px;accent-color:var(--acc)}
+  #panel .note{font-size:11px;line-height:1.8}
+  #panel .x{position:absolute;right:6px;top:4px;background:none;border:0;color:var(--fg);font:inherit;font-size:14px;padding:6px 8px;cursor:pointer}
+  #start{position:fixed;inset:0;z-index:6;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;padding:24px;text-align:center;
+    background:radial-gradient(ellipse at 50% 42%,#1d1408 0%,#000 70%)}
+  #start h1{margin:0;font-weight:400;font-size:46px;letter-spacing:.3em;padding-left:.3em}
+  #start h1 i{font-style:normal;color:var(--acc)}
+  #start .sub{margin-top:-10px;font-size:14px;letter-spacing:.4em;color:var(--dim)}
+  #start p{margin:0;max-width:330px;font-size:13px;line-height:2;color:var(--dim)}
+  #go{appearance:none;font:inherit;font-size:16px;letter-spacing:.3em;color:#000;background:var(--acc);border:0;border-radius:6px;padding:14px 34px;cursor:pointer}
+  #go:disabled{opacity:.5}
+  #err{font-size:12px;line-height:1.8;color:#ffb0a0;white-space:pre-line;max-width:340px;min-height:1em}
+  #blocks{display:flex;gap:4px;margin-bottom:4px}
+  #blocks span{width:16px;height:16px;background:var(--c);box-shadow:inset -3px -3px 0 rgba(0,0,0,.28),inset 3px 3px 0 rgba(255,255,255,.18)}
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<div id="brand"><b>TSUM<i>I</i>KI</b>積み木の箱庭</div>
+<div id="msg"></div>
+<div id="ui">
+  <button class="btn acc" id="bMode" type="button">▣ ブロック</button>
+  <button class="btn" id="bStyle" type="button">BLOCK</button>
+  <button class="btn" id="rec" type="button">● REC</button>
+  <button class="btn" id="shot" type="button" aria-label="撮る"></button>
+  <button class="btn" id="flip" type="button">⟲ カメラ</button>
+  <button class="btn" id="gear" type="button" aria-label="調整" aria-expanded="false">⚙</button>
+</div>
+<div id="panel" hidden>
+  <button class="x" id="panelX" type="button" aria-label="閉じる">✕</button>
+  <div class="row" id="styles"><button type="button" data-s="0">BLOCK</button><button type="button" data-s="1">TOY</button><button type="button" data-s="2">MONO</button></div>
+  <label>ブロックの細かさ<input id="sDen" type="range" min="30" max="90" step="2" value="48"></label>
+  <label>飛び出す強さ<input id="sDepth" type="range" min="0.3" max="1.8" step="0.05" value="1"></label>
+  <div class="row"><button type="button" id="bSway" class="on">ゆれ：入</button><button type="button" id="bSpill" class="on">こぼれる：入</button><button type="button" id="bSound" class="on">音：入</button></div>
+  <div class="note">画面をなぞると箱庭を回して覗ける（二度たたくと正面に戻る）。たたくとそこからブロックの波が走る。「▣ ブロック」で元の映像と行き来する。</div>
+</div>
+<div id="start">
+  <div id="blocks"><span style="--c:#ffb03a"></span><span style="--c:#e8473c"></span><span style="--c:#3c8fe8"></span><span style="--c:#f3efe6"></span><span style="--c:#4fb85a"></span></div>
+  <h1>TSUM<i>I</i>KI</h1>
+  <div class="sub">積み木の箱庭</div>
+  <p>カメラの景色が、小さなキューブを積んだ<br>立体の箱庭になる。あなたと手は手前に飛び出し、<br>奥はまばらなブロックになって宙に浮く。<br>動くとブロックがこぼれ、たたくと波が走る。</p>
+  <button id="go" type="button">はじめる</button>
+  <div id="err"></div>
+</div>
+
+<script type="module">
+const $ = id => document.getElementById(id);
+const cv = $('gl');
+const gl = cv.getContext('webgl2', { antialias:true, alpha:false, premultipliedAlpha:false, preserveDrawingBuffer:false });
+if (!gl) { $('err').textContent = 'このブラウザでは WebGL2 が使えないため動きません。'; $('go').disabled = true; throw new Error('no webgl2'); }
+
+const VISION_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs';
+const WASM_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm';
+const SEG_MODEL = 'https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite';
+const HAND_MODEL = 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task';
+
+/* ───────── settings ───────── */
+const STYLES = ['BLOCK', 'TOY', 'MONO'];
+const FILL = [0.88, 0.97, 0.9];        // cube size against its cell
+let style = 0, shortCells = 48, depthK = 1, swayOn = true, spillOn = true, soundOn = true;
+const TAN_H = Math.tan(25 * Math.PI / 180), D0 = 10;
+
+/* ───────── shaders ───────── */
+function sh(type, src){ const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s; }
+function prog(vs, fs){ const p = gl.createProgram(); gl.attachShader(p, sh(gl.VERTEX_SHADER, vs)); gl.attachShader(p, sh(gl.FRAGMENT_SHADER, fs));
+  gl.linkProgram(p); if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+  const u = {}; const n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+  for (let i = 0; i < n; i++){ const nm = gl.getActiveUniform(p, i).name.replace(/\[0\]$/, ''); u[nm] = gl.getUniformLocation(p, nm); }
+  return { p, u }; }
+
+// toy-brick colours (white, greys, black, reds, oranges, yellows, tans, browns, nougats, greens, blues, pink)
+const TOY_PAL = ['#f4f4f4','#a0a5a9','#6c6e68','#1b2a34','#c91a09','#720e0f','#fe8a18','#f2cd37','#e4cd9e','#958a73','#582a12','#aa7d55',
+  '#f6d7b3','#bbe90b','#237841','#184632','#0055bf','#5a93db','#0a3463','#fc97ac'];
+const TOY_GLSL = 'const vec3 TOY[20] = vec3[20](' + TOY_PAL.map(h => {
+  const v = [1,3,5].map(i => (parseInt(h.substr(i, 2), 16) / 255).toFixed(3)); return `vec3(${v.join(',')})`; }).join(',') + ');';
+
+const SHADE = `
+uniform int uStyle;
+vec3 shadeCube(vec3 base, vec3 N, vec2 uv, float kick, float lum){
+  if (uStyle == 2) base = vec3(.93,.91,.87) * (.86 + .14*lum);
+  vec3 L = normalize(vec3(-.45, .75, .55));
+  float lam = max(dot(N, L), 0.);
+  float amb = .44 + .14*N.y + .14*N.z;
+  vec2 q = abs(uv - .5) * 2.;
+  float edge = smoothstep(.74, 1., max(q.x, q.y));       // every face gets a soft dark border, so each cube reads
+  vec3 c = base * (amb + .72*lam) * (1. - .30*edge);
+  vec3 H = normalize(L + vec3(0., 0., 1.));
+  float sp = pow(max(dot(N, H), 0.), uStyle == 1 ? 40. : 24.) * (uStyle == 1 ? .35 : .12);
+  c += sp + kick * .22 * base;
+  return c;
+}`;
+
+const VS_CUBE = `#version 300 es
+precision highp float; precision highp int; precision highp sampler2D;
+layout(location=0) in vec3 aPos; layout(location=1) in vec3 aNrm; layout(location=2) in vec2 aUV;
+uniform sampler2D uCol; uniform sampler2D uDep;
+uniform ivec2 uGrid; uniform float uD0, uTanH, uAsp, uMorph, uFill, uStud;
+uniform mat4 uMVP; uniform mat3 uRot;
+uniform vec4 uWave[4];
+uniform int uStyle;
+out vec3 vCol; out vec3 vN; out vec2 vUV; out float vKick; out float vLum;
+${TOY_GLSL}
+float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+void main(){
+  int id = gl_InstanceID;
+  ivec2 c = ivec2(id % uGrid.x, id / uGrid.x);
+  vec3 col = texelFetch(uCol, c, 0).rgb;
+  float D = texelFetch(uDep, c, 0).r;
+  vec2 g = vec2(uGrid);
+  vec2 cc = (vec2(c) + .5) / g;                         // 0..1, top-down
+  float h = hash(vec2(c));
+  // the pop-out: each cube leaves the flat mosaic at its own moment, from the middle outward, with a little overshoot
+  float dc = clamp(length((cc - .5) * vec2(uAsp, 1.)) / .9, 0., 1.);
+  float delay = .55*h + .45*dc;
+  float loc = clamp((uMorph*1.8 - delay) / .8, 0., 1.);
+  float xm = loc - 1.;                                    // (pow() of a negative base is undefined in GLSL)
+  float e = 1. + 2.70158*xm*xm*xm + 1.70158*xm*xm;
+  // tap waves
+  float kick = 0.;
+  for (int k = 0; k < 4; k++){
+    vec4 w = uWave[k]; if (w.w <= 0.) continue;
+    float r = length(vec2(c) - w.xy), fr = w.z * 38.;
+    float q = (r - fr) / 2.6;
+    kick += w.w * exp(-w.z * 1.3) * exp(-q*q);
+  }
+  kick = min(kick, 1.4) * loc;
+  float Du = mix(uD0, D, e) * (1. - .2*kick);
+  vec2 ndc = vec2(cc.x*2. - 1., 1. - cc.y*2.);
+  vec3 P = vec3(ndc.x*uTanH*uAsp, ndc.y*uTanH, -1.) * Du;  // on the original camera's ray through this cell
+  vec3 cell = vec3(2.*uTanH*uAsp*uD0/g.x, 2.*uTanH*uD0/g.y, 0.);
+  cell.z = min(cell.x, cell.y);
+  float f = mix(1., uFill, min(1., loc*1.6));
+  vec3 lp = aPos;
+  // a kicked cube tumbles a little
+  float a = kick * (h - .5) * 2.2, ca = cos(a), sa = sin(a);
+  lp.xy = mat2(ca, sa, -sa, ca) * lp.xy;
+  vec3 n = aNrm; n.xy = mat2(ca, sa, -sa, ca) * n.xy;
+  P += lp * cell * f + vec3(0., 0., uStud * cell.z * f * .5);
+  gl_Position = uMVP * vec4(P, 1.);
+  vLum = dot(col, vec3(.299, .587, .114));
+  if (uStyle == 1){                                       // nearest toy-brick colour
+    float best = 1e9; vec3 bc = col;
+    for (int i = 0; i < 20; i++){ vec3 d = (TOY[i] - col) * vec3(.9, 1.2, .7); float dd = dot(d, d); if (dd < best){ best = dd; bc = TOY[i]; } }
+    col = bc;
+  }
+  vCol = col; vN = uRot * n; vUV = aUV; vKick = kick;
+}`;
+const FS_CUBE = `#version 300 es
+precision highp float; precision highp int;
+in vec3 vCol; in vec3 vN; in vec2 vUV; in float vKick; in float vLum;
+out vec4 o;
+${SHADE}
+void main(){ o = vec4(shadeCube(vCol, normalize(vN), vUV, vKick, vLum), 1.); }`;
+
+// loose cubes that spill from moving parts
+const VS_LOOSE = `#version 300 es
+precision highp float;
+layout(location=0) in vec3 aPos; layout(location=1) in vec3 aNrm; layout(location=2) in vec2 aUV;
+layout(location=3) in vec4 iPos;   // xyz, size
+layout(location=4) in vec4 iRot;   // axis xyz, angle
+layout(location=5) in vec3 iCol;
+uniform mat4 uMVP; uniform mat3 uRot;
+out vec3 vCol; out vec3 vN; out vec2 vUV; out float vKick; out float vLum;
+vec3 rot(vec3 v, vec3 k, float a){ return v*cos(a) + cross(k, v)*sin(a) + k*dot(k, v)*(1. - cos(a)); }
+void main(){
+  vec3 k = normalize(iRot.xyz);
+  vec3 p = rot(aPos, k, iRot.w) * iPos.w + iPos.xyz;
+  gl_Position = uMVP * vec4(p, 1.);
+  vN = uRot * rot(aNrm, k, iRot.w); vUV = aUV; vCol = iCol; vKick = 0.; vLum = dot(iCol, vec3(.299, .587, .114));
+}`;
+
+const VS_QUAD = `#version 300 es
+layout(location=0) in vec2 p; out vec2 vS;
+void main(){ vS = p*.5 + .5; gl_Position = vec4(p, 0., 1.); }`;
+const FS_VIDEO = `#version 300 es
+precision highp float;
+in vec2 vS; out vec4 o;
+uniform sampler2D uVid; uniform vec4 uCrop; uniform float uMirror, uAlpha;
+void main(){
+  float u = uMirror > .5 ? 1. - vS.x : vS.x;
+  vec2 uv = vec2(uCrop.x + u*uCrop.z, uCrop.y + (1. - vS.y)*uCrop.w);
+  o = vec4(texture(uVid, uv).rgb, uAlpha);
+}`;
+
+let pCube, pLoose, pVid;
+try { pCube = prog(VS_CUBE, FS_CUBE); pLoose = prog(VS_LOOSE, FS_CUBE); pVid = prog(VS_QUAD, FS_VIDEO); }
+catch (e) { $('err').textContent = 'Shader error: ' + e.message; $('go').disabled = true; throw e; }
+
+/* ───────── meshes ───────── */
+function cubeMesh(){
+  // 6 faces x 2 triangles; position (unit cube centred), normal, face uv
+  const F = [[0,0,1],[0,0,-1],[1,0,0],[-1,0,0],[0,1,0],[0,-1,0]], out = [];
+  for (const n of F){
+    const a = n[0] ? [0,1,0] : [1,0,0], b = [n[1]*a[2]-n[2]*a[1], n[2]*a[0]-n[0]*a[2], n[0]*a[1]-n[1]*a[0]];
+    const v = (s, t) => [n[0]*.5 + a[0]*(s-.5) + b[0]*(t-.5), n[1]*.5 + a[1]*(s-.5) + b[1]*(t-.5), n[2]*.5 + a[2]*(s-.5) + b[2]*(t-.5), n[0], n[1], n[2], s, t];
+    for (const [s, t] of [[0,0],[1,0],[1,1],[0,0],[1,1],[0,1]]) out.push(...v(s, t));
+  }
+  return new Float32Array(out);
+}
+function studMesh(){
+  // a short cylinder standing on the front face (+z), like the knob on a toy brick
+  const seg = 10, r = .3, h = .18, out = [];
+  for (let i = 0; i < seg; i++){
+    const a0 = i / seg * Math.PI * 2, a1 = (i + 1) / seg * Math.PI * 2;
+    const p0 = [Math.cos(a0)*r, Math.sin(a0)*r], p1 = [Math.cos(a1)*r, Math.sin(a1)*r];
+    const n0 = [Math.cos(a0), Math.sin(a0)], n1 = [Math.cos(a1), Math.sin(a1)];
+    const side = (p, n, z, s) => [p[0], p[1], z, n[0], n[1], 0, s, z > 0 ? .5 : .5];
+    out.push(...side(p0, n0, 0, .5), ...side(p1, n1, 0, .5), ...side(p1, n1, h, .5), ...side(p0, n0, 0, .5), ...side(p1, n1, h, .5), ...side(p0, n0, h, .5));
+    out.push(0, 0, h, 0, 0, 1, .5, .5, p0[0], p0[1], h, 0, 0, 1, .5, .5, p1[0], p1[1], h, 0, 0, 1, .5, .5);
+  }
+  return new Float32Array(out);
+}
+function meshVAO(data, extra){
+  const vao = gl.createVertexArray(); gl.bindVertexArray(vao);
+  const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b); gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 32, 0);
+  gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 32, 12);
+  gl.enableVertexAttribArray(2); gl.vertexAttribPointer(2, 2, gl.FLOAT, false, 32, 24);
+  if (extra) extra();
+  gl.bindVertexArray(null);
+  return { vao, count: data.length / 8 };
+}
+const CUBE = meshVAO(cubeMesh());
+const STUD = meshVAO(studMesh());
+const MAXLOOSE = 600, LSTRIDE = 11;
+const looseData = new Float32Array(MAXLOOSE * LSTRIDE);
+const looseBuf = gl.createBuffer();
+const LOOSE = meshVAO(cubeMesh(), () => {
+  gl.bindBuffer(gl.ARRAY_BUFFER, looseBuf); gl.bufferData(gl.ARRAY_BUFFER, looseData.byteLength, gl.DYNAMIC_DRAW);
+  gl.enableVertexAttribArray(3); gl.vertexAttribPointer(3, 4, gl.FLOAT, false, LSTRIDE*4, 0);  gl.vertexAttribDivisor(3, 1);
+  gl.enableVertexAttribArray(4); gl.vertexAttribPointer(4, 4, gl.FLOAT, false, LSTRIDE*4, 16); gl.vertexAttribDivisor(4, 1);
+  gl.enableVertexAttribArray(5); gl.vertexAttribPointer(5, 3, gl.FLOAT, false, LSTRIDE*4, 32); gl.vertexAttribDivisor(5, 1);
+});
+const QUAD = (() => { const vao = gl.createVertexArray(); gl.bindVertexArray(vao); const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1,3,-1,-1,3]), gl.STATIC_DRAW); gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+  gl.bindVertexArray(null); return vao; })();
+
+/* ───────── textures ───────── */
+function mkTex(){ const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE); return t; }
+const colTex = mkTex(), depTex = mkTex(), vidTex = mkTex();
+gl.bindTexture(gl.TEXTURE_2D, vidTex);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0,0,0,255]));
+
+/* ───────── grid & per-cell fields ───────── */
+let W = 0, H = 0, dpr = 1, cols = 0, rows = 0, N = 0;
+let colData, lum, lumPrev, heat, mask, handM, dist, Dt, D, hashC;
+const cc = document.createElement('canvas'), cctx = cc.getContext('2d', { willReadFrequently: true });
+function resize(){
+  dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const cw = window.innerWidth, ch = window.innerHeight;
+  W = Math.round(cw * dpr); H = Math.round(ch * dpr); cv.width = W; cv.height = H;
+  layoutGrid();
+}
+function layoutGrid(){
+  const cw = window.innerWidth, ch = window.innerHeight;
+  if (cw < ch){ cols = shortCells; rows = Math.max(8, Math.round(shortCells * ch / cw)); }
+  else { rows = shortCells; cols = Math.max(8, Math.round(shortCells * cw / ch)); }
+  N = cols * rows;
+  colData = new Uint8ClampedArray(N * 4); lum = new Float32Array(N); lumPrev = new Float32Array(N); heat = new Float32Array(N);
+  mask = new Float32Array(N); handM = new Float32Array(N); dist = new Float32Array(N); Dt = new Float32Array(N); D = new Float32Array(N).fill(D0);
+  hashC = new Float32Array(N); for (let i = 0; i < N; i++){ const x = Math.sin(i * 12.9898 + 78.233) * 43758.5453; hashC[i] = x - Math.floor(x); }
+  cc.width = cols; cc.height = rows;
+  gl.bindTexture(gl.TEXTURE_2D, colTex); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, cols, rows, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+  gl.bindTexture(gl.TEXTURE_2D, depTex); gl.texImage2D(gl.TEXTURE_2D, 0, gl.R32F, cols, rows, 0, gl.RED, gl.FLOAT, D);
+  maskLUT = null; firstFrame = true;
+}
+window.addEventListener('resize', resize);
+
+/* ───────── camera ───────── */
+const video = document.createElement('video');
+video.setAttribute('playsinline', ''); video.muted = true; video.autoplay = true;
+document.body.appendChild(video);
+let stream = null, facing = 'user', mirror = true;
+const crop = { sx:0, sy:0, sw:1, sh:1, vw:1, vh:1 };
+function updateCrop(){
+  const vw = video.videoWidth || 1280, vh = video.videoHeight || 720, A = window.innerWidth / window.innerHeight;
+  let sw = vw, sh = vh; if (vw / vh > A) sw = vh * A; else sh = vw / A;
+  Object.assign(crop, { sx:(vw - sw) / 2, sy:(vh - sh) / 2, sw, sh, vw, vh });
+  maskLUT = null;
+}
+function camErrText(e){
+  const m = (e && (e.message || e.name)) ? (e.message || e.name) : String(e || 'unknown');
+  return 'カメラを起動できませんでした：' + m + '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+}
+async function startCam(){
+  const md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) throw new Error('getUserMedia is unavailable');
+  // get the new stream first, so a failed flip keeps the old camera running
+  const s2 = await md.getUserMedia({ audio:false, video:{ facingMode:{ ideal:facing }, width:{ ideal:1280 }, height:{ ideal:720 } } });
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = s2; video.srcObject = stream;
+  await video.play().catch(() => {});
+  await new Promise(r => { if (video.videoWidth) r(); else video.onloadedmetadata = () => r(); });
+  mirror = facing === 'user';
+  updateCrop();
+  hands = []; handsT = -1; maskT = -1; mask.fill(0); handM.fill(0); firstFrame = true;
+}
+
+/* ───────── models: person mask + hands ───────── */
+let segmenter = null, landmarker = null, lastTs = 0, lastVT = -1, EXT = false, modelErr = false;
+let maskSrc = null, maskW = 0, maskH = 0, maskT = -1, maskLUT = null;
+let hands = [], handsT = -1;
+async function initModels(){
+  const vision = await import(VISION_URL);
+  const fs = await vision.FilesetResolver.forVisionTasks(WASM_URL);
+  const mk = async (cls, o) => { try { return await cls.createFromOptions(fs, { ...o, baseOptions:{ ...o.baseOptions, delegate:'GPU' } }); }
+    catch (e) { return await cls.createFromOptions(fs, { ...o, baseOptions:{ ...o.baseOptions, delegate:'CPU' } }); } };
+  segmenter = await mk(vision.ImageSegmenter, { baseOptions:{ modelAssetPath:SEG_MODEL }, runningMode:'VIDEO', outputConfidenceMasks:true, outputCategoryMask:false });
+  landmarker = await mk(vision.HandLandmarker, { baseOptions:{ modelAssetPath:HAND_MODEL }, runningMode:'VIDEO', numHands:2,
+    minHandDetectionConfidence:.5, minHandPresenceConfidence:.5, minTrackingConfidence:.5 });
+}
+let detTick = 0;
+function detect(now){
+  if (EXT || video.readyState < 2) return;
+  const vt = video.currentTime; if (vt === lastVT) return; lastVT = vt;
+  const ts = Math.max(lastTs + 1, Math.round(now)); lastTs = ts;
+  detTick++;
+  if (segmenter){
+    try { segmenter.segmentForVideo(video, ts, res => {
+      const ms = res && res.confidenceMasks; if (!ms || !ms.length) return;
+      const m = ms[ms.length - 1]; ingestMask(m.getAsFloat32Array(), m.width, m.height, now);
+    }); } catch (e) {}
+  }
+  if (landmarker){
+    try { const r = landmarker.detectForVideo(video, ts + 0); ingestHands(r && r.landmarks, now); } catch (e) {}
+  }
+}
+function ingestMask(arr, w, h, now){
+  if (!arr || !(w > 0) || !(h > 0) || arr.length < w * h) return;
+  if (!maskSrc || maskSrc.length !== w * h) maskSrc = new Float32Array(w * h);
+  maskSrc.set(arr.subarray ? arr.subarray(0, w * h) : arr.slice(0, w * h));
+  if (w !== maskW || h !== maskH){ maskW = w; maskH = h; maskLUT = null; }
+  maskT = now;
+}
+const okP = q => q && isFinite(q.x) && isFinite(q.y);
+function ingestHands(list, now){
+  const out = [];
+  if (Array.isArray(list)) for (const l of list){
+    if (out.length >= 2) break;
+    if (!Array.isArray(l) || l.length < 21) continue;
+    let ok = true; for (let i = 0; i < 21; i++) if (!okP(l[i])) { ok = false; break; }
+    if (ok) out.push(l.map(p => vidToCell(p.x, p.y)));
+  }
+  hands = out; if (out.length) handsT = now;
+}
+// camera picture (0..1, top-left) -> cell coordinates (x right, y down)
+function vidToCell(x, y){
+  let u = (x * crop.vw - crop.sx) / crop.sw, v = (y * crop.vh - crop.sy) / crop.sh;
+  if (mirror) u = 1 - u;
+  return [u * cols, v * rows];
+}
+
+/* ───────── per-frame fields ───────── */
+let firstFrame = true;
+function sampleColours(){
+  cctx.save();
+  if (mirror){ cctx.translate(cols, 0); cctx.scale(-1, 1); }
+  cctx.imageSmoothingEnabled = true; cctx.imageSmoothingQuality = 'high';
+  cctx.drawImage(video, crop.sx, crop.sy, crop.sw, crop.sh, 0, 0, cols, rows);
+  cctx.restore();
+  const d = cctx.getImageData(0, 0, cols, rows).data;
+  colData.set(d);
+  const t = lumPrev; lumPrev = lum; lum = t;
+  for (let i = 0, j = 0; i < N; i++, j += 4) lum[i] = (d[j]*.299 + d[j+1]*.587 + d[j+2]*.114) / 255;
+  if (firstFrame){ lumPrev.set(lum); firstFrame = false; }
+  for (let i = 0; i < N; i++){ const m = Math.abs(lum[i] - lumPrev[i]); heat[i] = Math.max(heat[i] * .65, m); }
+}
+function buildMaskLUT(){
+  maskLUT = new Int32Array(N);
+  for (let j = 0; j < rows; j++) for (let i = 0; i < cols; i++){
+    let u = (i + .5) / cols; if (mirror) u = 1 - u;
+    const x = (crop.sx + u * crop.sw) / crop.vw, y = (crop.sy + (j + .5) / rows * crop.sh) / crop.vh;
+    maskLUT[j * cols + i] = Math.min(maskH - 1, Math.max(0, Math.floor(y * maskH))) * maskW + Math.min(maskW - 1, Math.max(0, Math.floor(x * maskW)));
+  }
+}
+const BONES = [[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],[9,13],[13,14],[14,15],[15,16],[13,17],[17,18],[18,19],[19,20],[0,17],[0,9],[0,13]];
+let handNear = new Float32Array(0);
+function rasterHands(now){
+  handM.fill(0);
+  if (handNear.length !== N) handNear = new Float32Array(N);
+  if (now - handsT > .35) return;
+  for (const P of hands){
+    const palm = Math.hypot(P[9][0] - P[0][0], P[9][1] - P[0][1]);
+    const r = Math.max(.8, palm * .2);
+    // a bigger hand is nearer the lens
+    const near = Math.min(1, Math.max(0, (palm / rows - .07) / .18));
+    for (const [a, b] of BONES){
+      const ax = P[a][0], ay = P[a][1], bx = P[b][0], by = P[b][1];
+      const x0 = Math.max(0, Math.floor(Math.min(ax, bx) - r - 1)), x1 = Math.min(cols - 1, Math.ceil(Math.max(ax, bx) + r + 1));
+      const y0 = Math.max(0, Math.floor(Math.min(ay, by) - r - 1)), y1 = Math.min(rows - 1, Math.ceil(Math.max(ay, by) + r + 1));
+      const dx = bx - ax, dy = by - ay, L2 = dx*dx + dy*dy || 1e-6;
+      for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++){
+        const px = x + .5 - ax, py = y + .5 - ay; const t = Math.max(0, Math.min(1, (px*dx + py*dy) / L2));
+        const ex = px - dx*t, ey = py - dy*t, d = Math.sqrt(ex*ex + ey*ey);
+        const v = Math.max(0, Math.min(1, (r - d) / .9 + .5));
+        const k = y * cols + x; if (v > handM[k]){ handM[k] = v; handNear[k] = near; }
+      }
+    }
+  }
+}
+function distanceTransform(){
+  // chamfer distance (in cells) from the outline, inside the person + hands
+  const INF = 1e6;
+  for (let k = 0; k < N; k++) dist[k] = (mask[k] > .5 || handM[k] > .5) ? INF : 0;
+  for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++){
+    const k = y*cols + x; if (!dist[k]) continue;
+    let v = dist[k];
+    if (x > 0) v = Math.min(v, dist[k-1] + 1); else v = Math.min(v, 1);
+    if (y > 0){ v = Math.min(v, dist[k-cols] + 1); if (x > 0) v = Math.min(v, dist[k-cols-1] + 1.41); if (x < cols-1) v = Math.min(v, dist[k-cols+1] + 1.41); } else v = Math.min(v, 1);
+    dist[k] = v;
+  }
+  for (let y = rows - 1; y >= 0; y--) for (let x = cols - 1; x >= 0; x--){
+    const k = y*cols + x; if (!dist[k]) continue;
+    let v = dist[k];
+    if (x < cols-1) v = Math.min(v, dist[k+1] + 1); else v = Math.min(v, 1);
+    if (y < rows-1){ v = Math.min(v, dist[k+cols] + 1); if (x < cols-1) v = Math.min(v, dist[k+cols+1] + 1.41); if (x > 0) v = Math.min(v, dist[k+cols-1] + 1.41); } else v = Math.min(v, 1);
+    dist[k] = v;
+  }
+}
+function updateDepth(now){
+  const haveMask = maskSrc && now - maskT < 1.2;
+  if (haveMask){ if (!maskLUT) buildMaskLUT(); for (let k = 0; k < N; k++){ const m = maskSrc[maskLUT[k]]; mask[k] += ((m > 0 ? m : 0) - mask[k]) * .6; } }
+  else for (let k = 0; k < N; k++) mask[k] *= .85;
+  rasterHands(now);
+  distanceTransform();
+  const R = .09 * Math.min(cols, rows);
+  const cs = 2 * TAN_H * D0 / rows;                // one cell, in depth units
+  for (let j = 0; j < rows; j++){
+    const vTop = 1 - (j + .5) / rows;
+    for (let i = 0; i < cols; i++){
+      const k = j*cols + i;
+      // the room: the top of the picture is farther (floor and table come toward you), brightness and a
+      // fixed scatter break it into loose layers
+      let d = D0 * ((.95 + .85*vTop) * (1 + .12*(.5 - lum[k])) + .2*(hashC[k] - .5));
+      // the person: rounded from the outline in
+      const p = Math.min(1, Math.max(0, (mask[k] - .35) / .3));
+      if (p > 0){
+        const bulge = Math.sqrt(Math.min(1, dist[k] / R));
+        d = d + (D0 * (.74 - .10*bulge) - d) * p;
+      }
+      // hands: a step nearer again
+      const h = handM[k];
+      if (h > 0){
+        const bulge = Math.sqrt(Math.min(1, dist[k] / (R * .5)));
+        const dh = D0 * (.6 - .14*handNear[k] - .03*bulge);
+        d = d + (Math.min(d, dh) - d) * h;
+      }
+      // every cube sits a little in or out of its neighbours (brighter = nearer, plus a fixed jitter), so each
+      // one shows its own top and side faces -- the stepped, hand-built look of the reference
+      d -= cs * (2.2 * (lum[k] - .5) + 1.3 * (hashC[k] - .5)) * (d / D0);
+      d = D0 + (d - D0) * depthK;
+      Dt[k] = d;
+      D[k] += (d - D[k]) * .4;
+    }
+  }
+}
+
+/* ───────── loose cubes ───────── */
+const loose = [];
+let spillBudget = 0;
+function cellWorld(i, j, Dv, out){
+  const nx = (i + .5) / cols * 2 - 1, ny = 1 - (j + .5) / rows * 2, a = W / H;
+  out[0] = nx * TAN_H * a * Dv; out[1] = ny * TAN_H * Dv; out[2] = -Dv; return out;
+}
+const tmp3 = [0, 0, 0];
+function spill(dt){
+  if (!spillOn || morph < .95) return;
+  const cellW = 2 * TAN_H * D0 / rows;
+  spillBudget = Math.min(40, spillBudget + dt * 260);
+  for (let tries = 0; tries < 160 && spillBudget >= 1 && loose.length < MAXLOOSE; tries++){
+    const k = (Math.random() * N) | 0;
+    const body = mask[k] > .5 || handM[k] > .5;
+    if (!body || heat[k] < .07 || Math.random() > (heat[k] - .05) * 3) continue;
+    spillBudget -= 1;
+    const i = k % cols, j = (k / cols) | 0;
+    cellWorld(i, j, D[k], tmp3);
+    const c = colData.subarray(k*4, k*4 + 3);
+    loose.push({ x:tmp3[0], y:tmp3[1], z:tmp3[2], vx:(Math.random() - .5) * 2.2 * cellW * 6, vy:(.4 + Math.random()) * cellW * 9, vz:(.3 + Math.random()) * cellW * 7,
+      ax:Math.random() - .5, ay:Math.random() - .5, az:Math.random() - .5, ang:0, w:(Math.random() - .5) * 10, s:cellW * FILL[style] * (D[k] / D0) * (.7 + Math.random() * .3),
+      r:c[0] / 255, g:c[1] / 255, b:c[2] / 255, age:0, life:.9 + Math.random() * .8 });
+    if (soundOn && Math.random() < .25) click(.6 + Math.random() * .5, .025);
+  }
+}
+function stepLoose(dt){
+  const g = 2 * TAN_H * D0 / rows * 60;
+  for (let i = loose.length - 1; i >= 0; i--){
+    const q = loose[i]; q.age += dt;
+    if (q.age > q.life){ loose[i] = loose[loose.length - 1]; loose.pop(); continue; }
+    q.vy -= g * dt; q.x += q.vx * dt; q.y += q.vy * dt; q.z += q.vz * dt; q.ang += q.w * dt;
+  }
+  const n = loose.length;
+  for (let i = 0; i < n; i++){
+    const q = loose[i], o = i * LSTRIDE, f = 1 - Math.max(0, (q.age - q.life * .7) / (q.life * .3));
+    looseData[o] = q.x; looseData[o+1] = q.y; looseData[o+2] = q.z; looseData[o+3] = q.s * f;
+    looseData[o+4] = q.ax; looseData[o+5] = q.ay; looseData[o+6] = q.az; looseData[o+7] = q.ang;
+    looseData[o+8] = q.r; looseData[o+9] = q.g; looseData[o+10] = q.b;
+  }
+  return n;
+}
+
+/* ───────── tap waves & view ───────── */
+const waves = [];   // {x, y, t0}
+const waveU = new Float32Array(16);
+let yaw = 0, pitch = 0, dragYaw = 0, dragPitch = 0;
+const ptr = new Map(); let tapCand = null, lastTap = 0;
+cv.addEventListener('pointerdown', e => {
+  if (!panel.hidden) setPanel(false);
+  cv.setPointerCapture && cv.setPointerCapture(e.pointerId);
+  ptr.set(e.pointerId, { x:e.clientX, y:e.clientY });
+  tapCand = { x:e.clientX, y:e.clientY, t:performance.now(), moved:false };
+});
+cv.addEventListener('pointermove', e => {
+  const p = ptr.get(e.pointerId); if (!p) return;
+  const dx = e.clientX - p.x, dy = e.clientY - p.y; p.x = e.clientX; p.y = e.clientY;
+  if (tapCand && Math.hypot(e.clientX - tapCand.x, e.clientY - tapCand.y) > 10) tapCand.moved = true;
+  if (tapCand && tapCand.moved){
+    dragYaw = Math.max(-.75, Math.min(.75, dragYaw + dx * .005));
+    dragPitch = Math.max(-.55, Math.min(.55, dragPitch + dy * .004));
+  }
+});
+const endPtr = e => {
+  ptr.delete(e.pointerId);
+  if (tapCand && !tapCand.moved && performance.now() - tapCand.t < 350){
+    const now = performance.now();
+    if (now - lastTap < 320){ dragYaw = 0; dragPitch = 0; }   // double tap: face the front again
+    else tapWave(tapCand.x, tapCand.y);
+    lastTap = now;
+  }
+  tapCand = null;
+};
+cv.addEventListener('pointerup', endPtr); cv.addEventListener('pointercancel', endPtr);
+function tapWave(cx, cy){
+  if (morph < .5) return;
+  waves.push({ x: cx / window.innerWidth * cols, y: cy / window.innerHeight * rows, t0: performance.now() / 1000 });
+  if (waves.length > 4) waves.shift();
+  if (soundOn){ thump(); for (let i = 0; i < 10; i++) click(.7 + Math.random() * .6, .02, .05 + i * .045 + Math.random() * .03); }
+}
+
+/* ───────── sound: wooden clicks ───────── */
+let AC = null, master = null, recDest = null;
+function initAudio(){
+  if (AC) { if (AC.state === 'suspended') AC.resume(); return; }
+  const C = window.AudioContext || window.webkitAudioContext; if (!C) return;
+  AC = new C(); master = AC.createGain(); master.gain.value = .7;
+  const comp = AC.createDynamicsCompressor(); master.connect(comp); comp.connect(AC.destination);
+  try { recDest = AC.createMediaStreamDestination(); comp.connect(recDest); } catch (e) { recDest = null; }
+}
+let clickBuf = null;
+function click(pitch = 1, vol = .03, delay = 0){
+  if (!AC || !soundOn) return;
+  if (!clickBuf){ const n = Math.floor(AC.sampleRate * .03); clickBuf = AC.createBuffer(1, n, AC.sampleRate); const d = clickBuf.getChannelData(0);
+    for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * Math.exp(-i / (n * .12)); }
+  const t = AC.currentTime + delay;
+  const s = AC.createBufferSource(); s.buffer = clickBuf; s.playbackRate.value = pitch;
+  const bp = AC.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 1900 * pitch; bp.Q.value = 4;
+  const g = AC.createGain(); g.gain.value = vol * 9;
+  s.connect(bp); bp.connect(g); g.connect(master); s.start(t);
+  const o = AC.createOscillator(); o.frequency.value = 900 * pitch + Math.random() * 300; const og = AC.createGain();
+  og.gain.setValueAtTime(vol, t); og.gain.exponentialRampToValueAtTime(.0001, t + .05);
+  o.connect(og); og.connect(master); o.start(t); o.stop(t + .06);
+}
+function thump(){
+  if (!AC || !soundOn) return;
+  const t = AC.currentTime, o = AC.createOscillator(), g = AC.createGain();
+  o.frequency.setValueAtTime(140, t); o.frequency.exponentialRampToValueAtTime(48, t + .18);
+  g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime(.35, t + .008); g.gain.exponentialRampToValueAtTime(.0001, t + .3);
+  o.connect(g); g.connect(master); o.start(t); o.stop(t + .32);
+}
+
+/* ───────── matrices ───────── */
+function perspective(fy, a, n, f){ const t = 1 / Math.tan(fy / 2), nf = 1 / (n - f);
+  return [t/a,0,0,0, 0,t,0,0, 0,0,(f+n)*nf,-1, 0,0,2*f*n*nf,0]; }
+function mul(a, b){ const o = new Array(16); for (let c = 0; c < 4; c++) for (let r = 0; r < 4; r++){ let s = 0; for (let k = 0; k < 4; k++) s += a[k*4 + r] * b[c*4 + k]; o[c*4 + r] = s; } return o; }
+function model(yawA, pitchA, pivotZ){
+  // rotate the diorama about a point in it (the person's depth), camera fixed at the origin
+  const cy = Math.cos(yawA), sy = Math.sin(yawA), cx = Math.cos(pitchA), sx = Math.sin(pitchA);
+  const Ry = [cy,0,-sy,0, 0,1,0,0, sy,0,cy,0, 0,0,0,1], Rx = [1,0,0,0, 0,cx,sx,0, 0,-sx,cx,0, 0,0,0,1];
+  const R = mul(Rx, Ry);
+  const T1 = [1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,pivotZ,1], T2 = [1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,-pivotZ,1];
+  return mul(T1, mul(R, T2));
+}
+
+/* ───────── modes: video <-> blocks ───────── */
+let blocksOn = true, morph = 0, morphT = 0, revealAt = 0, lastClickMorph = 0;
+
+/* ───────── main loop ───────── */
+let running = false, lastT = 0, shotReq = false;
+function frame(nowMs){
+  requestAnimationFrame(frame);
+  if (!running) return;
+  const now = nowMs / 1000, dt = Math.min(.05, Math.max(.001, now - lastT)); lastT = now;
+  if (video.readyState < 2) return;
+  if (video.videoWidth !== crop.vw || video.videoHeight !== crop.vh) updateCrop();
+  detect(nowMs);
+  sampleColours();
+  updateDepth(now);
+  gl.bindTexture(gl.TEXTURE_2D, colTex); gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, cols, rows, gl.RGBA, gl.UNSIGNED_BYTE, colData);
+  gl.bindTexture(gl.TEXTURE_2D, depTex); gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, cols, rows, gl.RED, gl.FLOAT, D);
+
+  // video <-> blocks
+  const target = blocksOn && now >= revealAt ? 1 : 0;
+  const prevM = morph;
+  morph += Math.sign(target - morph) * Math.min(Math.abs(target - morph), dt / (target ? 2.2 : 1.2));
+  if (soundOn && target === 1 && morph > .05 && morph < .98 && morph - lastClickMorph > .025){ lastClickMorph = morph; click(.6 + Math.random() * .8, .03); click(.6 + Math.random() * .8, .02, .02); }
+  if (target === 0) lastClickMorph = 0;
+
+  spill(dt);
+  const nLoose = stepLoose(dt);
+
+  // view: a slow sway plus what the finger turned
+  const t = now;
+  const swayY = swayOn ? .26 * Math.sin(t * .23) : 0, swayP = swayOn ? .12 + .06 * Math.sin(t * .17 + 1) : 0;
+  yaw += ((swayY + dragYaw) * morph - yaw) * Math.min(1, dt * 3);
+  pitch += ((swayP + dragPitch) * morph - pitch) * Math.min(1, dt * 3);
+  const P = perspective(2 * Math.atan(TAN_H), W / H, .5, 80);
+  const M = model(yaw, pitch, -D0 * .8);
+  const MVP = mul(P, M);
+  const Rm = [M[0], M[1], M[2], M[4], M[5], M[6], M[8], M[9], M[10]];
+
+  // waves
+  waveU.fill(0);
+  for (let i = waves.length - 1; i >= 0; i--){ const age = t - waves[i].t0; if (age > 3) { waves.splice(i, 1); continue; } }
+  waves.forEach((w, i) => { waveU[i*4] = w.x; waveU[i*4+1] = w.y; waveU[i*4+2] = t - w.t0; waveU[i*4+3] = 1; });
+
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  gl.viewport(0, 0, W, H);
+  gl.clearColor(0, 0, 0, 1); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+  gl.enable(gl.DEPTH_TEST); gl.enable(gl.CULL_FACE); gl.cullFace(gl.BACK);
+
+  const u = pCube.u;
+  gl.useProgram(pCube.p);
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, colTex); gl.uniform1i(u.uCol, 0);
+  gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, depTex); gl.uniform1i(u.uDep, 1);
+  gl.uniform2i(u.uGrid, cols, rows); gl.uniform1f(u.uD0, D0); gl.uniform1f(u.uTanH, TAN_H); gl.uniform1f(u.uAsp, W / H);
+  gl.uniform1f(u.uMorph, morph); gl.uniform1f(u.uFill, FILL[style]); gl.uniform1i(u.uStyle, style);
+  gl.uniformMatrix4fv(u.uMVP, false, MVP); gl.uniformMatrix3fv(u.uRot, false, Rm);
+  gl.uniform4fv(u.uWave, waveU);
+  gl.uniform1f(u.uStud, 0);
+  gl.bindVertexArray(CUBE.vao); gl.drawArraysInstanced(gl.TRIANGLES, 0, CUBE.count, N);
+  if (style === 1 && morph > .3){
+    gl.uniform1f(u.uStud, 1);
+    gl.bindVertexArray(STUD.vao); gl.drawArraysInstanced(gl.TRIANGLES, 0, STUD.count, N);
+  }
+  if (nLoose){
+    gl.useProgram(pLoose.p);
+    gl.uniformMatrix4fv(pLoose.u.uMVP, false, MVP); gl.uniformMatrix3fv(pLoose.u.uRot, false, Rm); gl.uniform1i(pLoose.u.uStyle, style);
+    gl.bindBuffer(gl.ARRAY_BUFFER, looseBuf); gl.bufferSubData(gl.ARRAY_BUFFER, 0, looseData, 0, nLoose * LSTRIDE);
+    gl.bindVertexArray(LOOSE.vao); gl.drawArraysInstanced(gl.TRIANGLES, 0, LOOSE.count, nLoose);
+  }
+  gl.disable(gl.CULL_FACE); gl.disable(gl.DEPTH_TEST);
+
+  // the plain camera picture on top while blocks are off / just starting
+  const va = 1 - Math.min(1, morph / .12);
+  if (va > 0){
+    gl.bindTexture(gl.TEXTURE_2D, vidTex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video);
+    gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    gl.useProgram(pVid.p);
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, vidTex); gl.uniform1i(pVid.u.uVid, 0);
+    gl.uniform4f(pVid.u.uCrop, crop.sx / crop.vw, crop.sy / crop.vh, crop.sw / crop.vw, crop.sh / crop.vh);
+    gl.uniform1f(pVid.u.uMirror, mirror ? 1 : 0); gl.uniform1f(pVid.u.uAlpha, va);
+    gl.bindVertexArray(QUAD); gl.drawArrays(gl.TRIANGLES, 0, 3);
+    gl.disable(gl.BLEND);
+  }
+  gl.bindVertexArray(null);
+  if (shotReq){ shotReq = false; saveShot(); }
+}
+
+/* ───────── UI ───────── */
+const panel = $('panel');
+function setPanel(open){ panel.hidden = !open; $('gear').setAttribute('aria-expanded', open ? 'true' : 'false'); }
+$('gear').onclick = () => setPanel(panel.hidden);
+$('panelX').onclick = () => setPanel(false);
+function setStyle(s){ style = s; $('bStyle').textContent = STYLES[s]; document.querySelectorAll('#styles button').forEach(b => b.classList.toggle('on', +b.dataset.s === s)); }
+$('bStyle').onclick = () => setStyle((style + 1) % STYLES.length);
+document.querySelectorAll('#styles button').forEach(b => b.onclick = () => setStyle(+b.dataset.s));
+setStyle(0);
+$('sDen').oninput = e => { shortCells = +e.target.value; layoutGrid(); };
+$('sDepth').oninput = e => { depthK = +e.target.value; };
+const tog = (id, on, a, b) => { const el = $(id); el.classList.toggle('on', on); el.textContent = on ? a : b; };
+$('bSway').onclick = () => { swayOn = !swayOn; tog('bSway', swayOn, 'ゆれ：入', 'ゆれ：切'); };
+$('bSpill').onclick = () => { spillOn = !spillOn; tog('bSpill', spillOn, 'こぼれる：入', 'こぼれる：切'); if (!spillOn) loose.length = 0; };
+$('bSound').onclick = () => { soundOn = !soundOn; tog('bSound', soundOn, '音：入', '音：切'); if (soundOn) initAudio(); };
+$('bMode').onclick = () => { blocksOn = !blocksOn; revealAt = 0; $('bMode').textContent = blocksOn ? '▣ ブロック' : '▢ 映像'; $('bMode').classList.toggle('acc', blocksOn); };
+$('flip').onclick = async () => {
+  const prev = facing; facing = facing === 'user' ? 'environment' : 'user';
+  try { await startCam(); $('msg').textContent = modelErr ? $('msg').textContent : ''; }
+  catch (e) { facing = prev; $('msg').textContent = camErrText(e); }
+};
+$('shot').onclick = () => { shotReq = true; };
+function saveShot(){
+  try { cv.toBlob(b => { if (!b) return; const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = 'tsumiki_' + Date.now() + '.png';
+    document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 4000); }, 'image/png'); }
+  catch (e) { $('msg').textContent = '保存できませんでした。'; }
+}
+let mr = null, chunks = [];
+$('rec').onclick = () => {
+  const b = $('rec');
+  if (mr && mr.state === 'recording'){ mr.stop(); return; }
+  initAudio();
+  const tracks = [...cv.captureStream(30).getVideoTracks()];
+  if (recDest) tracks.push(...recDest.stream.getAudioTracks());
+  const ms = new MediaStream(tracks);
+  const types = ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm'];
+  const mt = types.find(t => window.MediaRecorder && MediaRecorder.isTypeSupported(t)) || '';
+  try { mr = new MediaRecorder(ms, mt ? { mimeType:mt, videoBitsPerSecond:6e6 } : {}); }
+  catch (err) { $('msg').textContent = '録画を開始できませんでした。' + (err && err.message ? '\n' + err.message : ''); return; }
+  chunks = []; mr.ondataavailable = ev => { if (ev.data && ev.data.size) chunks.push(ev.data); };
+  mr.onstop = () => {
+    b.classList.remove('act'); b.textContent = '● REC';
+    const blob = new Blob(chunks, { type: mr.mimeType || 'video/mp4' }); const ext = (mr.mimeType || '').includes('mp4') ? 'mp4' : 'webm';
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'tsumiki_' + Date.now() + '.' + ext;
+    document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 4000);
+  };
+  mr.start(1000); b.classList.add('act'); b.textContent = '■ STOP';
+};
+
+$('go').onclick = async () => {
+  const go = $('go'); go.disabled = true; $('err').textContent = '';
+  initAudio();                                   // the sound starts with this tap
+  resize();
+  try { await startCam(); }
+  catch (e) { $('err').textContent = camErrText(e); go.disabled = false; go.textContent = 'もう一度'; return; }
+  $('start').style.display = 'none'; $('ui').classList.add('on');
+  running = true; lastT = performance.now() / 1000;
+  morph = 0; revealAt = lastT + .9;              // the plain picture first, then it turns into blocks
+  if (!segmenter && !EXT) initModels().catch(e => {
+    if (EXT) return; modelErr = true; console.error(e);
+    $('msg').textContent = '人と手の検出モデルを読み込めませんでした（ネット接続を確認）。\n奥行きは景色の明るさと位置だけで作っています。';
+  });
+};
+
+// test hook
+window.__tsumiki = {
+  state(){ let near = 0, far = 0, hn = 0; for (let k = 0; k < N; k++){ if (mask[k] > .5) near++; if (handM[k] > .5) hn++; }
+    return { cols, rows, N, morph, style, loose: loose.length, waves: waves.length, yaw, pitch, mirror, facing, cam: !!stream,
+      person: near, hand: hn, depthK, D0, dMin: Math.min(...D), dMax: Math.max(...D) }; },
+  depthAt(x, y){ const i = Math.floor(x / window.innerWidth * cols), j = Math.floor(y / window.innerHeight * rows); return D[Math.max(0, Math.min(N - 1, j*cols + i))]; },
+  feedMask(arr, w, h){ if (!EXT){ EXT = true; $('msg').textContent = ''; } ingestMask(arr, w, h, performance.now() / 1000); },
+  view(y, p){ dragYaw = y; dragPitch = p; },
+  sway(on){ swayOn = !!on; },
+  feedHands(list){ EXT = true; ingestHands(list, performance.now() / 1000); return hands.length; },
+  vidToCell,
+  // test only: a cell position back to camera-picture coordinates
+  cellToVid(cx, cy){ let u = cx / cols; const v = cy / rows; if (mirror) u = 1 - u; return { x:(crop.sx + u * crop.sw) / crop.vw, y:(crop.sy + v * crop.sh) / crop.vh }; }
+};
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
