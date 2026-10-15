@@ -1,0 +1,860 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<script>/* REC-FIX (2026-10-12) — iPhone Safari で録画が途中で止まる・壊れる対策。どの作品でも同じ内容。
+   ・mp4 は映像と音声の両方のコーデックを宣言する（avc1 だけだと音声付きで止まることがある）
+   ・1 秒ごとにデータを受け取る（最後に一括で書き出さない）／ビットレートに上限
+   ・保存が終わる前に次の録画を始めない（前のファイルが消えるのを防ぐ）
+   ・録画中は AudioContext を止めない（音声トラックが止まると mp4 ごと止まる） */
+(()=>{const MR=window.MediaRecorder;if(!MR||MR.__recfix)return;let busy=0,active=0;
+class R extends MR{
+  constructor(s,o){if(busy)throw new Error('前の録画を保存しています');o=Object.assign({},o||{});
+    const au=s&&s.getAudioTracks&&s.getAudioTracks().length>0;
+    if(!o.mimeType||/^video\/mp4/.test(o.mimeType)){
+      const c=[au?'video/mp4;codecs="avc1.42E01E,mp4a.40.2"':'video/mp4;codecs="avc1.42E01E"','video/mp4'].find(m=>MR.isTypeSupported(m));
+      if(c)o.mimeType=c;else if(o.mimeType&&!MR.isTypeSupported(o.mimeType))delete o.mimeType;}
+    if(!o.videoBitsPerSecond&&!o.bitsPerSecond)o.videoBitsPerSecond=6e6;
+    super(s,o);this.addEventListener('stop',()=>{active=Math.max(0,active-1);setTimeout(()=>{busy=0;},0);});}
+  start(t){const r=super.start(t==null?1000:t);active++;return r;}
+  stop(){if(this.state!=='inactive'){busy=1;setTimeout(()=>{busy=0;},15000);}return super.stop();}}
+R.__recfix=1;window.MediaRecorder=R;
+const AC=window.AudioContext||window.webkitAudioContext;
+if(AC&&AC.prototype.suspend){const sus=AC.prototype.suspend;AC.prototype.suspend=function(){return active?Promise.resolve():sus.call(this);};}
+/* 録音用の出口には常に無音を流しておく（何も鳴っていないと音声トラックにデータが来ず、録画全体が止まる） */
+if(AC&&AC.prototype.createMediaStreamDestination){const cmd=AC.prototype.createMediaStreamDestination;AC.prototype.createMediaStreamDestination=function(){const d=cmd.apply(this,arguments);
+  try{const c=this.createConstantSource();c.offset.value=0;c.connect(d);c.start();}catch(e){}return d;};}})();</script>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#000000">
+<meta name="description" content="目の前にガラスのクリスタルが浮かぶ。両手で挟んで広げる・縮めると、アコーディオンのふいごのように和音が鳴る。左右で和音、上下で明るさ、傾けで揺らぎ。撮影と録画ができる。">
+<title>CRYSTAL BELLOWS ─ クリスタルのアコーディオン</title>
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  CRYSTAL BELLOWS ─ クリスタルのアコーディオン              ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  ORIGIN     オーナーが持ち込んだ完成品（crystal_bellows.html、作者表記「アパート / APARTMENT」）。
+             クリスタル・シェーダ・ブルーム・和音・音色・配色・書体・操作はオーナーの設計のまま。
+             画廊に揃えたのは ⟲ カメラ（背面では鏡像をやめる）・⚙ で隠せる調整パネル
+             （元の CAM と HANDS はここへ、音量と残響を足した）・撮影・録画（REC-FIX、音も入る）・
+             カメラ失敗時の定型文（指で弾くモードも残す）・three.js の読み込み失敗時の表示・
+             ランドマークのガードだけ。
+  MOOD       白黒に沈めたカメラ映像の前に、千本のアクリル棒が芯から放射するクリスタル。
+             両手で挟んで広げる＝PULL、縮める＝PUSH。動かした速さが息の量。
+  PALETTE    地 #000 ／ 文字 #f2f4f7 ／ 色はクリスタルの白とブルームだけ
+  TYPE       Helvetica Neue（オーナーの指定のまま、細く字間を広く）
+  SOUND      リードのアコーディオン（のこぎり波 2 本のミュゼット＋倍音）、ガラスのきらめき、
+             クリスタルのピン。D ドリアンの暗い和音 6 つ（B♭ Gm Dm F C Am）、PUSH と PULL で違う響き。
+  TECH       three.js 0.160（動的 import）＋ EffectComposer の UnrealBloom。棒はインスタンス描画。
+             手は MediaPipe HandLandmarker（2 手、動的 import）。手が無ければ指（1 本で移動、2 本で
+             つまむ・広げる）とホイールで弾ける。
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<style>
+:root{--fg:#f2f4f7;--dim:rgba(242,244,247,.46);--faint:rgba(242,244,247,.16)}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html,body{width:100%;height:100%;background:#000;color:var(--fg);overflow:hidden;overscroll-behavior:none;touch-action:none;
+  font-family:"Helvetica Neue",Helvetica,"Hiragino Sans","Hiragino Kaku Gothic ProN",Arial,sans-serif;-webkit-user-select:none;user-select:none}
+#gl{position:fixed;inset:0;width:100%;height:100%;display:block}
+#hud{position:fixed;inset:0;width:100%;height:100%;pointer-events:none}
+video{position:fixed;width:1px;height:1px;opacity:0;pointer-events:none}
+
+.top{position:fixed;top:calc(env(safe-area-inset-top) + 12px);left:16px;right:16px;display:flex;flex-wrap:wrap;gap:8px;justify-content:space-between;align-items:flex-start;pointer-events:none;z-index:2}
+.brand{font-size:9px;letter-spacing:.32em;line-height:1.7;color:var(--dim)}
+.brand b{display:block;font-size:12px;font-weight:500;letter-spacing:.4em;color:var(--fg)}
+.btns{display:flex;gap:6px;pointer-events:auto;margin-left:auto}
+.btns button{appearance:none;background:rgba(0,0,0,.35);border:1px solid var(--faint);color:var(--fg);font:inherit;font-size:9px;letter-spacing:.22em;
+  padding:8px 10px;border-radius:2px;cursor:pointer;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);white-space:nowrap}
+.btns button.off{color:var(--dim)}
+
+.bottom{position:fixed;left:16px;right:16px;bottom:calc(env(safe-area-inset-bottom) + 14px);pointer-events:none;z-index:2}
+.hint{text-align:center;font-size:11px;line-height:1.8;letter-spacing:.08em;color:var(--dim);margin-bottom:14px;transition:opacity 1.2s}
+.zones{display:grid;grid-template-columns:repeat(6,1fr);gap:4px}
+.zone{border-top:1px solid var(--faint);padding-top:7px;font-size:12px;letter-spacing:.1em;color:var(--dim);text-align:center;transition:color .12s,border-color .12s}
+.zone.on{color:var(--fg);border-top-color:var(--fg)}
+.meter{display:flex;align-items:center;gap:10px;margin-top:12px;font-size:8px;letter-spacing:.28em;color:var(--dim)}
+.meter span.on{color:var(--fg)}
+.track{flex:1;height:1px;background:var(--faint);position:relative}
+.fill{position:absolute;top:-1px;height:3px;background:var(--fg);left:50%;width:0}
+.status{font-size:8px;letter-spacing:.24em;color:var(--dim);margin-top:9px;text-align:center;min-height:10px}
+
+#start{position:fixed;inset:0;z-index:5;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:26px;padding:32px 24px;text-align:center;
+  background:radial-gradient(ellipse at 50% 45%,rgba(20,22,26,.55),rgba(0,0,0,.92) 70%);transition:opacity .6s}
+#start.hide{opacity:0;pointer-events:none}
+#start h1{font-weight:400;font-size:20px;letter-spacing:.5em;margin-right:-.5em}
+#start .sub{font-size:9px;letter-spacing:.4em;color:var(--dim);margin-top:10px}
+#start p{font-size:12px;line-height:2.05;color:rgba(242,244,247,.72);max-width:330px;letter-spacing:.04em}
+#start p em{font-style:normal;color:var(--fg)}
+#go{appearance:none;background:transparent;border:1px solid var(--fg);color:var(--fg);font:inherit;font-size:11px;letter-spacing:.45em;padding:15px 34px 15px 40px;border-radius:2px;cursor:pointer}
+#go:disabled{opacity:.4}
+#startMsg{font-size:11px;line-height:1.8;letter-spacing:.06em;color:#ff9aa8;min-height:14px;white-space:pre-line;max-width:340px}
+#noCam{appearance:none;background:none;border:0;color:var(--dim);font:inherit;font-size:10px;letter-spacing:.2em;text-decoration:underline;cursor:pointer;padding:6px}
+[hidden]{display:none!important}
+/* gallery additions: record, shot, adjustment panel (same thin, square look as the owner's buttons) */
+.btns button.rec{color:#ff5a6e;border-color:rgba(255,90,110,.6)}
+#panel{position:fixed;right:16px;top:calc(env(safe-area-inset-top) + 48px);z-index:3;width:min(270px,calc(100vw - 32px));padding:14px 14px 12px;
+  background:rgba(0,0,0,.62);border:1px solid var(--faint);border-radius:2px;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
+  display:flex;flex-direction:column;gap:12px;font-size:9px;letter-spacing:.24em;color:var(--dim)}
+#panel .row{display:flex;gap:6px;align-items:center;justify-content:space-between}
+#panel .row button{appearance:none;flex:1;background:rgba(0,0,0,.35);border:1px solid var(--faint);color:var(--fg);font:inherit;font-size:9px;letter-spacing:.2em;padding:8px 0;border-radius:2px;cursor:pointer}
+#panel .row button.on{border-color:var(--fg)}
+#panel .row button.off{color:var(--dim)}
+#panel input[type=range]{width:150px;accent-color:#f2f4f7}
+#panel .note{font-size:10px;line-height:1.8;letter-spacing:.06em}
+</style>
+<script type="importmap">
+{"imports":{
+  "three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+}}
+</script>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<canvas id="hud"></canvas>
+<video id="cam" playsinline muted autoplay></video>
+
+<div class="top">
+  <div class="brand"><b>CRYSTAL BELLOWS</b>アパート / APARTMENT</div>
+  <div class="btns">
+    <button id="bRec" type="button">● REC</button>
+    <button id="bShot" type="button" aria-label="撮る">◯</button>
+    <button id="bFlip" type="button">⟲ カメラ</button>
+    <button id="bGear" type="button" aria-label="調整" aria-expanded="false">⚙</button>
+  </div>
+</div>
+
+<div id="panel" hidden>
+  <div class="row"><span>CAM</span><button id="bCam" type="button">CAM ●</button></div>
+  <div class="row"><span>HANDS</span><button id="bHands" type="button">HANDS</button></div>
+  <div class="row"><span>VOLUME</span><input id="sVol" type="range" min="0" max="1.4" step="0.01" value="0.9"></div>
+  <div class="row"><span>REVERB</span><input id="sRev" type="range" min="0" max="1.2" step="0.01" value="0.55"></div>
+  <div class="note">両手で挟んで広げる＝PULL、縮める＝PUSH。左右で和音、上下で明るさ、傾けで揺らぎ。片手は手をひらく・にぎる。手が無いときは指で（1 本で移動、2 本でつまむ・広げる）。</div>
+</div>
+
+<div class="bottom">
+  <div class="hint" id="hint">両手をカメラに。クリスタルを<br>広げる・縮める ＝ ふいご（音が鳴る）</div>
+  <div class="zones" id="zones"></div>
+  <div class="meter"><span id="mPush">PUSH</span><div class="track"><div class="fill" id="fill"></div></div><span id="mPull">PULL</span></div>
+  <div class="status" id="status"></div>
+</div>
+
+<div id="start">
+  <div>
+    <h1>CRYSTAL BELLOWS</h1>
+    <div class="sub">アパート / APARTMENT</div>
+  </div>
+  <p>
+    目の前にガラスのクリスタルが浮かびます。<br>
+    <em>両手で挟んで、広げる・縮める</em> ＝ アコーディオンのふいご。<br>
+    動かした速さで音量、<em>広げると PULL / 縮めると PUSH</em> で和音が変わる。<br>
+    <em>左右</em>で和音、<em>上下</em>で音の明るさ、<em>傾け</em>で揺らぎ。<br>
+    片手なら、手をひらく・にぎるで同じ演奏ができます。
+  </p>
+  <button id="go">START</button>
+  <button id="noCam" type="button" hidden>カメラなしで弾く（指で）</button>
+  <div id="startMsg"></div>
+</div>
+
+<script type="module">
+// three.js is imported dynamically so that a CDN failure shows a message instead of a dead page
+let THREE, EffectComposer, RenderPass, UnrealBloomPass, OutputPass;
+try {
+  THREE = await import('three');
+  ({ EffectComposer } = await import('three/addons/postprocessing/EffectComposer.js'));
+  ({ RenderPass } = await import('three/addons/postprocessing/RenderPass.js'));
+  ({ UnrealBloomPass } = await import('three/addons/postprocessing/UnrealBloomPass.js'));
+  ({ OutputPass } = await import('three/addons/postprocessing/OutputPass.js'));
+} catch (e) {
+  console.error(e);
+  document.getElementById('startMsg').textContent = '3D描画ライブラリを読み込めませんでした。通信状態を確認して再読み込みしてください。';
+  document.getElementById('go').disabled = true;
+  throw e;
+}
+
+const MP_VER = '0.10.14';
+const MP_BASE = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP_VER}`;
+const HAND_MODEL = 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task';
+
+const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && /Mac/.test(navigator.userAgent));
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const lerp = (a, b, k) => a + (b - a) * k;
+const ease = (dt, rate) => 1 - Math.exp(-dt * rate);
+const mtof = m => 440 * Math.pow(2, (m - 69) / 12);
+
+/* ───────── chords: [bass, n1, n2, n3, n4]  (D dorian, dark) ───────── */
+const CHORDS = [
+  { name: 'B♭', push: [46, 53, 57, 62, 65], pull: [46, 53, 60, 62, 65] },
+  { name: 'Gm', push: [43, 55, 58, 62, 65], pull: [43, 57, 58, 62, 67] },
+  { name: 'Dm', push: [50, 57, 60, 65, 69], pull: [50, 57, 62, 64, 65] },
+  { name: 'F',  push: [41, 57, 60, 64, 67], pull: [41, 55, 60, 65, 69] },
+  { name: 'C',  push: [48, 55, 60, 64, 70], pull: [48, 55, 62, 64, 67] },
+  { name: 'Am', push: [45, 55, 60, 64, 69], pull: [45, 57, 59, 64, 67] },
+];
+
+/* ───────── DOM ───────── */
+const $ = id => document.getElementById(id);
+const zonesEl = $('zones');
+CHORDS.forEach(c => { const d = document.createElement('div'); d.className = 'zone'; d.textContent = c.name; zonesEl.appendChild(d); });
+const zoneCells = [...zonesEl.children];
+const fillEl = $('fill'), statusEl = $('status'), hintEl = $('hint');
+const video = $('cam');
+
+/* ───────── renderer ───────── */
+const canvas = $('gl');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, alpha: false, powerPreference: 'high-performance' });
+renderer.setPixelRatio(Math.min(devicePixelRatio, isMobile ? 1.5 : 1.75));
+renderer.setSize(innerWidth, innerHeight);
+renderer.setClearColor(0x000000, 1);
+
+const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.1, 50);
+camera.position.set(0, 0, 5);
+const HALF_H = 5 * Math.tan(THREE.MathUtils.degToRad(25));
+
+/* background: mirrored, monochrome camera feed */
+const bgScene = new THREE.Scene();
+const bgCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+const bgU = {
+  uTex: { value: null }, uOn: { value: 0 }, uDim: { value: 0.5 },
+  uScreenA: { value: innerWidth / innerHeight }, uVideoA: { value: 16 / 9 }, uMirror: { value: 1 }
+};
+bgScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.ShaderMaterial({
+  uniforms: bgU, depthTest: false, depthWrite: false,
+  vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0., 1.); }`,
+  fragmentShader: `
+    uniform sampler2D uTex; uniform float uOn, uDim, uScreenA, uVideoA, uMirror; varying vec2 vUv;
+    void main(){
+      vec2 uv = vUv;
+      if (uScreenA > uVideoA) uv.y = (uv.y - .5) * (uVideoA / uScreenA) + .5;
+      else uv.x = (uv.x - .5) * (uScreenA / uVideoA) + .5;
+      if (uMirror > .5) uv.x = 1. - uv.x;
+      vec3 c = uOn > .5 ? texture2D(uTex, uv).rgb : vec3(0.);
+      float l = dot(c, vec3(.299, .587, .114));
+      vec2 q = vUv - .5;
+      float vig = clamp(1. - dot(q, q) * 1.8, 0., 1.);
+      gl_FragColor = vec4(vec3(l * uDim * vig), 1.);
+    }`
+})));
+
+/* ───────── crystal: instanced acrylic rods radiating from a core ───────── */
+const scene = new THREE.Scene();
+const crystal = new THREE.Group();
+scene.add(crystal);
+
+const N_RODS = isMobile ? 1000 : 1400;
+function buildRods(N) {
+  const box = new THREE.BoxGeometry(1, 1, 1);
+  box.translate(0, 0.5, 0);
+  const g = new THREE.InstancedBufferGeometry();
+  g.index = box.index;
+  g.setAttribute('position', box.getAttribute('position'));
+  g.setAttribute('normal', box.getAttribute('normal'));
+  const dir = new Float32Array(N * 3), prm = new Float32Array(N * 4), prm2 = new Float32Array(N * 2);
+  const golden = Math.PI * (3 - Math.sqrt(5));
+  const nEq = Math.floor(N * 0.12), nS = N - nEq;
+  const v = new THREE.Vector3();
+  for (let i = 0; i < N; i++) {
+    if (i < nS) {
+      const y = 1 - ((i + 0.5) / nS) * 2, r = Math.sqrt(1 - y * y), th = golden * i;
+      v.set(Math.cos(th) * r, y, Math.sin(th) * r);
+      v.x += (Math.random() - 0.5) * 0.09; v.y += (Math.random() - 0.5) * 0.09; v.z += (Math.random() - 0.5) * 0.09;
+    } else {                                   // equatorial disc, like the reference
+      const th = Math.random() * Math.PI * 2;
+      v.set(Math.cos(th), (Math.random() - 0.5) * 0.05, Math.sin(th));
+    }
+    v.normalize();
+    dir.set([v.x, v.y, v.z], i * 3);
+    const len = 0.72 + 0.28 * Math.pow(Math.random(), 0.4);
+    const w = 0.016 + 0.022 * Math.random();
+    prm.set([len, w, Math.random() * Math.PI, Math.random()], i * 4);
+    prm2.set([Math.floor(Math.random() * 5), Math.random()], i * 2);
+  }
+  g.setAttribute('aDir', new THREE.InstancedBufferAttribute(dir, 3));
+  g.setAttribute('aPrm', new THREE.InstancedBufferAttribute(prm, 4));
+  g.setAttribute('aPrm2', new THREE.InstancedBufferAttribute(prm2, 2));
+  g.instanceCount = N;
+  return g;
+}
+
+const rodU = {
+  uTime: { value: 0 }, uSpread: { value: 0 }, uAir: { value: 0 }, uFlash: { value: 0 },
+  uVoice: { value: [0, 0, 0, 0, 0] }, uTint: { value: new THREE.Color(0.93, 0.96, 1.0) }
+};
+const rodMat = new THREE.ShaderMaterial({
+  uniforms: rodU, side: THREE.DoubleSide,
+  vertexShader: `
+    uniform float uTime, uSpread, uAir, uFlash;
+    uniform float uVoice[5];
+    attribute vec3 aDir; attribute vec4 aPrm; attribute vec2 aPrm2;
+    varying vec3 vN; varying vec3 vV; varying float vAlong; varying float vGlow; varying float vSeed; varying float vCross;
+    void main(){
+      vec3 d = normalize(aDir);
+      vec3 up = abs(d.y) < .99 ? vec3(0., 1., 0.) : vec3(1., 0., 0.);
+      vec3 bx = normalize(cross(up, d)); vec3 bz = cross(d, bx);
+      float c = cos(aPrm.z), s = sin(aPrm.z);
+      vec3 X = c * bx + s * bz, Z = -s * bx + c * bz;
+      float seed = aPrm.w;
+      int vi = int(aPrm2.x + .5);
+      float va = 0.;
+      for (int k = 0; k < 5; k++) { if (k == vi) va = uVoice[k]; }
+      float sp = uSpread;
+      float inner = .03 + .36 * max(sp, 0.) * (.55 + .9 * seed);
+      float wob = sin(uTime * (2. + seed * 5.) + seed * 61.) * .5 + .5;
+      float len = aPrm.x * (1. + .24 * sp) + va * .26 * wob + uFlash * .1 * aPrm2.y;
+      vec3 p = position;
+      vec3 local = X * (p.x * aPrm.y) + d * (inner + p.y * len) + Z * (p.z * aPrm.y * .72);
+      vec3 n = X * normal.x + d * normal.y + Z * normal.z;
+      vec4 mv = modelViewMatrix * vec4(local, 1.);
+      vN = normalize(normalMatrix * n); vV = -mv.xyz; vAlong = p.y; vGlow = va; vSeed = seed;
+      vCross = abs(normal.x) > .5 ? p.z * 2. : p.x * 2.;
+      gl_Position = projectionMatrix * mv;
+    }`,
+  fragmentShader: `
+    uniform float uTime, uFlash, uAir; uniform vec3 uTint;
+    varying vec3 vN; varying vec3 vV; varying float vAlong; varying float vGlow; varying float vSeed; varying float vCross;
+    void main(){
+      vec3 N = normalize(vN), V = normalize(vV);
+      if (!gl_FrontFacing) N = -N;
+      float ndv = abs(dot(N, V));
+      float fres = pow(1. - ndv, 2.5);
+      vec3 L1 = normalize(vec3(-.5, .8, .6)), L2 = normalize(vec3(.7, -.25, .8));
+      float s1 = pow(max(dot(N, normalize(L1 + V)), 0.), 48.);
+      float s2 = pow(max(dot(N, normalize(L2 + V)), 0.), 22.);
+      float lam = max(dot(N, L1), 0.);
+      float sky = .5 + .5 * N.y;                       // soft studio gradient
+      float b = .05 + .3 * lam + .12 * sky + .22 * fres + 1.1 * s1 + .45 * s2;
+      // fake acrylic: bright rims + thin inner core, darker see-through middle
+      float ac = abs(vCross);
+      float rim = smoothstep(.55, 1., ac);
+      float core = exp(-pow((vCross + .25 * sin(vSeed * 30.)) * 7., 2.));
+      b *= .5 + .9 * rim + .5 * core;
+      b *= mix(.18, 1., smoothstep(0., .85, vAlong));  // darker toward the dense core
+      b += smoothstep(.95, 1., vAlong) * .35;          // bright cut ends
+      float wave = .5 + .5 * sin(vAlong * 14. - uTime * 9. + vSeed * 40.);
+      b += vGlow * wave * .45 * smoothstep(0., .3, vAlong);
+      b += uFlash * .25 * vSeed * vAlong;
+      gl_FragColor = vec4(uTint * b, 1.);
+    }`
+});
+const rods = new THREE.Mesh(buildRods(N_RODS), rodMat);
+rods.frustumCulled = false;
+crystal.add(rods);
+
+/* post */
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(bgScene, bgCam));
+const crystalPass = new RenderPass(scene, camera);
+crystalPass.clear = false;
+composer.addPass(crystalPass);
+const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.5, 0.4, 0.72);
+composer.addPass(bloom);
+composer.addPass(new OutputPass());
+
+/* HUD canvas (hand dots) */
+const hud = $('hud'), hctx = hud.getContext('2d');
+function resize() {
+  const w = innerWidth, h = innerHeight;
+  renderer.setSize(w, h); composer.setSize(w, h); bloom.setSize(w, h);
+  camera.aspect = w / h; camera.updateProjectionMatrix();
+  bgU.uScreenA.value = w / h;
+  hud.width = w; hud.height = h;
+}
+addEventListener('resize', resize);
+resize();
+
+/* ───────── coordinate helpers ───────── */
+let vidA = 16 / 9, mirror = true;
+function lmToNdc(x, y) {                       // video-normalized -> screen NDC (mirrored for the front camera, cover-fit)
+  let sx = mirror ? 1 - x : x, sy = 1 - y;
+  const sA = innerWidth / innerHeight;
+  if (sA > vidA) sy = (sy - 0.5) / (vidA / sA) + 0.5;
+  else sx = (sx - 0.5) / (sA / vidA) + 0.5;
+  return [sx * 2 - 1, sy * 2 - 1];
+}
+const ndcToWorld = (nx, ny) => [nx * HALF_H * camera.aspect, ny * HALF_H];
+const worldToScreen = (wx, wy) => [(wx / (HALF_H * camera.aspect) + 1) / 2, (wy / HALF_H + 1) / 2]; // 0..1, y up
+const d2 = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
+
+/* ───────── control state ───────── */
+const S = {
+  cx: 0, cy: 0.15, tcx: 0, tcy: 0.15,
+  r: 0.95, tr: 0.95, lnPrev: Math.log(0.95),
+  roll: 0, troll: 0,
+  vel: 0, air: 0, speed: 0, spread: 0, flash: 0,
+  dir: -1, zone: 2, mode: 'idle', hold: 0,
+  sx: 0.5, sy: 0.55,
+};
+let hands = [];              // latest hand infos
+let lastHandT = -1;
+let showHands = true;
+let everHands = false;
+
+function handInfo(lm) {
+  const P = lm.map(p => { const n = lmToNdc(p.x, p.y); return ndcToWorld(n[0], n[1]); });
+  const ids = [0, 5, 9, 13, 17];
+  const palm = [0, 0];
+  ids.forEach(i => { palm[0] += P[i][0] / 5; palm[1] += P[i][1] / 5; });
+  const palmSize = Math.max(0.05, d2(P[0], P[9]));
+  let o = 0;
+  [4, 8, 12, 16, 20].forEach(i => { o += d2(P[i], palm) / 5; });
+  o /= palmSize;
+  const open = clamp((o - 0.8) / 0.95, 0, 1);
+  const roll = Math.atan2(P[9][1] - P[0][1], P[9][0] - P[0][0]) - Math.PI / 2;
+  return { P, palm, palmSize, open, roll };
+}
+
+// keep only hands with all 21 points real and finite
+const okP = q => q && isFinite(q.x) && isFinite(q.y);
+function onHands(list, now) {
+  const good = [];
+  if (Array.isArray(list)) for (const l of list) {
+    if (good.length >= 2) break;
+    if (!Array.isArray(l) || l.length < 21) continue;
+    let ok = true; for (let i = 0; i < 21; i++) if (!okP(l[i])) { ok = false; break; }
+    if (ok) good.push(l);
+  }
+  hands = good.map(handInfo);
+  if (!hands.length) return;
+  lastHandT = now;
+  if (!everHands) { everHands = true; setTimeout(() => hintEl.style.opacity = 0, 5000); }
+  if (hands.length >= 2) {
+    let [a, b] = hands;
+    if (a.palm[0] > b.palm[0]) [a, b] = [b, a];
+    S.tcx = (a.palm[0] + b.palm[0]) / 2; S.tcy = (a.palm[1] + b.palm[1]) / 2;
+    S.tr = clamp(d2(a.palm, b.palm) * 0.5 * 0.86, 0.12, 3.2);
+    let rl = Math.atan2(b.palm[1] - a.palm[1], b.palm[0] - a.palm[0]);
+    S.troll = clamp(rl, -1.3, 1.3);
+    setMode('h2');
+  } else {
+    const h = hands[0];
+    S.tcx = h.palm[0]; S.tcy = h.palm[1];
+    S.tr = clamp(h.palmSize * (0.45 + 1.75 * h.open), 0.12, 3.2);
+    let rl = h.roll; while (rl > Math.PI) rl -= Math.PI * 2; while (rl < -Math.PI) rl += Math.PI * 2;
+    S.troll = clamp(rl, -1.3, 1.3);
+    setMode('h1');
+  }
+}
+function setMode(m) { if (S.mode !== m) { S.mode = m; S.hold = 0.22; } }
+
+/* pointer / touch fallback (works without camera, too) */
+const pointers = new Map();
+let pinchBase = null, lastPtrT = -10;
+const ptrWorld = p => ndcToWorld(p.x / innerWidth * 2 - 1, -(p.y / innerHeight * 2 - 1));
+function pointerUpdate(now) {
+  if (now - lastHandT < 0.3) return;
+  const ps = [...pointers.values()];
+  if (ps.length === 1) {
+    const w = ptrWorld(ps[0]); S.tcx = w[0]; S.tcy = w[1]; pinchBase = null; setMode('p1');
+  } else if (ps.length >= 2) {
+    const a = ptrWorld(ps[0]), b = ptrWorld(ps[1]);
+    const d = Math.max(0.02, d2(a, b));
+    if (!pinchBase) pinchBase = { d, r: S.tr };
+    S.tcx = (a[0] + b[0]) / 2; S.tcy = (a[1] + b[1]) / 2;
+    S.tr = clamp(pinchBase.r * d / pinchBase.d, 0.12, 3.2);
+    S.troll = clamp(Math.atan2(b[1] - a[1], b[0] - a[0]), -1.3, 1.3);
+    if (Math.abs(S.troll) > Math.PI / 2) S.troll = 0;
+    setMode('p2');
+  }
+}
+canvas.addEventListener('pointerdown', e => { canvas.setPointerCapture(e.pointerId); pointers.set(e.pointerId, { x: e.clientX, y: e.clientY }); pinchBase = null; lastPtrT = performance.now() / 1000; });
+canvas.addEventListener('pointermove', e => { if (pointers.has(e.pointerId)) { pointers.set(e.pointerId, { x: e.clientX, y: e.clientY }); lastPtrT = performance.now() / 1000; } });
+const ptrEnd = e => { pointers.delete(e.pointerId); pinchBase = null; if (!pointers.size) S.troll = 0; };
+canvas.addEventListener('pointerup', ptrEnd);
+canvas.addEventListener('pointercancel', ptrEnd);
+canvas.addEventListener('wheel', e => { e.preventDefault(); S.tr = clamp(S.tr * Math.exp(-e.deltaY * 0.0009), 0.12, 3.2); lastPtrT = performance.now() / 1000; }, { passive: false });
+
+/* ───────── audio: reed accordion + glass shimmer + crystal pings ───────── */
+const A = { ctx: null, pings: 0 };
+function tanhCurve(k) {
+  const n = 1024, c = new Float32Array(n), t = Math.tanh(k);
+  for (let i = 0; i < n; i++) { const x = i / (n - 1) * 2 - 1; c[i] = Math.tanh(k * x) / t; }
+  return c;
+}
+function makeIR(ctx, sec) {
+  const rate = ctx.sampleRate, len = Math.floor(rate * sec), b = ctx.createBuffer(2, len, rate);
+  for (let ch = 0; ch < 2; ch++) {
+    const d = b.getChannelData(ch);
+    for (let i = 0; i < len; i++) {
+      const t = i / len, fade = i < rate * 0.012 ? i / (rate * 0.012) : 1;
+      d[i] = (Math.random() * 2 - 1) * Math.pow(1 - t, 2.8) * fade;
+    }
+  }
+  return b;
+}
+function initAudio() {
+  const ctx = new (window.AudioContext || window.webkitAudioContext)();
+  A.ctx = ctx;
+  const master = ctx.createGain(); master.gain.value = 0.9;
+  const comp = ctx.createDynamicsCompressor();
+  comp.threshold.value = -16; comp.knee.value = 10; comp.ratio.value = 4; comp.attack.value = 0.004; comp.release.value = 0.2;
+  master.connect(comp).connect(ctx.destination);
+  try { A.recDest = ctx.createMediaStreamDestination(); comp.connect(A.recDest); } catch (e) { A.recDest = null; }   // the recording gets the sound too
+  const rev = ctx.createConvolver(); rev.buffer = makeIR(ctx, 3.6);
+  const revOut = ctx.createGain(); revOut.gain.value = 0.55;
+  rev.connect(revOut).connect(master);
+
+  // reed chain
+  const reedBus = ctx.createGain(); reedBus.gain.value = 0.27;
+  const shaper = ctx.createWaveShaper(); shaper.curve = tanhCurve(2.0); shaper.oversample = '2x';
+  const nasal = ctx.createBiquadFilter(); nasal.type = 'peaking'; nasal.frequency.value = 1150; nasal.Q.value = 1.3; nasal.gain.value = 5;
+  const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 1200; lp.Q.value = 0.9;
+  const trem = ctx.createGain(); trem.gain.value = 1;
+  const bellows = ctx.createGain(); bellows.gain.value = 0;
+  const pan = ctx.createStereoPanner();
+  reedBus.connect(shaper).connect(nasal).connect(lp).connect(trem).connect(bellows).connect(pan);
+  pan.connect(master);
+  const revSend = ctx.createGain(); revSend.gain.value = 0.32; pan.connect(revSend).connect(rev);
+
+  // bellows shake (tilt)
+  const lfo = ctx.createOscillator(); lfo.frequency.value = 5.6;
+  const lfoAmt = ctx.createGain(); lfoAmt.gain.value = 0;
+  lfo.connect(lfoAmt).connect(trem.gain); lfo.start();
+
+  const ch = CHORDS[S.zone].push;
+  const voices = [];
+  for (let i = 0; i < 5; i++) {
+    const f = mtof(ch[i]);
+    const vg = ctx.createGain(); vg.gain.value = i === 0 ? 0.55 : 0.36; vg.connect(reedBus);
+    const mk = (type, freq, det, gain) => {
+      const o = ctx.createOscillator(); o.type = type; o.frequency.value = freq; o.detune.value = det;
+      const g = ctx.createGain(); g.gain.value = gain; o.connect(g).connect(vg); o.start(); return o;
+    };
+    voices.push({
+      o1: mk('sawtooth', f, -3, 0.5),
+      o2: mk('sawtooth', f, 9, 0.42),                       // musette reed
+      o3: mk(i === 0 ? 'square' : 'triangle', i === 0 ? f / 2 : f * 2, 0, i === 0 ? 0.22 : 0.16),
+    });
+  }
+
+  // breath / air noise
+  const nb = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate);
+  const nd = nb.getChannelData(0); for (let i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
+  const ns = ctx.createBufferSource(); ns.buffer = nb; ns.loop = true;
+  const nbp = ctx.createBiquadFilter(); nbp.type = 'bandpass'; nbp.frequency.value = 1500; nbp.Q.value = 0.6;
+  const ng = ctx.createGain(); ng.gain.value = 0.05;
+  ns.connect(nbp).connect(ng).connect(bellows); ns.start();
+
+  // glass shimmer (driven by moving the crystal)
+  const shBus = ctx.createGain(); shBus.gain.value = 0;
+  const shDry = ctx.createGain(); shDry.gain.value = 0.55;
+  const shRev = ctx.createGain(); shRev.gain.value = 0.9;
+  shBus.connect(shDry).connect(master); shBus.connect(shRev).connect(rev);
+  const shim = [];
+  for (let i = 1; i < 5; i++) {
+    const f = mtof(ch[i]);
+    const a = ctx.createOscillator(); a.type = 'sine'; a.frequency.value = f * 2; a.detune.value = -4;
+    const b = ctx.createOscillator(); b.type = 'sine'; b.frequency.value = f * 4; b.detune.value = 5;
+    const gb = ctx.createGain(); gb.gain.value = 0.45;
+    a.connect(shBus); b.connect(gb).connect(shBus); a.start(); b.start();
+    shim.push({ a, b });
+  }
+
+  // pings
+  const pingDry = ctx.createGain(); pingDry.gain.value = 0.5; pingDry.connect(master);
+  const pingRev = ctx.createGain(); pingRev.gain.value = 0.85; pingRev.connect(rev);
+
+  Object.assign(A, { master, revOut, lp, bellows, pan, lfoAmt, voices, shBus, shim, pingDry, pingRev });
+}
+
+function setChord(zone, dir) {
+  if (!A.ctx) return;
+  const ch = dir > 0 ? CHORDS[zone].pull : CHORDS[zone].push;
+  const t = A.ctx.currentTime;
+  A.voices.forEach((v, i) => {
+    const f = mtof(ch[i]);
+    v.o1.frequency.setTargetAtTime(f, t, 0.012);
+    v.o2.frequency.setTargetAtTime(f, t, 0.012);
+    v.o3.frequency.setTargetAtTime(i === 0 ? f / 2 : f * 2, t, 0.012);
+  });
+  A.shim.forEach((s, i) => {
+    const f = mtof(ch[i + 1]);
+    s.a.frequency.setTargetAtTime(f * 2, t, 0.03);
+    s.b.frequency.setTargetAtTime(f * 4, t, 0.03);
+  });
+}
+
+function ping(f, vel, delay = 0) {
+  if (!A.ctx || A.pings > 20) return;
+  const ctx = A.ctx, t = ctx.currentTime + delay;
+  A.pings++;
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vel, t + 0.004); g.gain.exponentialRampToValueAtTime(0.0001, t + 2.3);
+  const g2 = ctx.createGain();
+  g2.gain.setValueAtTime(0.0001, t); g2.gain.exponentialRampToValueAtTime(vel * 0.4, t + 0.003); g2.gain.exponentialRampToValueAtTime(0.0001, t + 0.5);
+  const o = ctx.createOscillator(); o.type = 'sine'; o.frequency.value = f;
+  const o2 = ctx.createOscillator(); o2.type = 'sine'; o2.frequency.value = f * 2.756;
+  const p = ctx.createStereoPanner(); p.pan.value = Math.random() * 1.4 - 0.7;
+  o.connect(g).connect(p); o2.connect(g2).connect(p);
+  p.connect(A.pingDry); p.connect(A.pingRev);
+  o.start(t); o2.start(t); o.stop(t + 2.4); o2.stop(t + 2.4);
+  o.onended = () => { A.pings--; p.disconnect(); };
+  S.flash = Math.min(1, S.flash + vel * 2.2);
+}
+function chordNotes() { const c = S.dir > 0 ? CHORDS[S.zone].pull : CHORDS[S.zone].push; return c.slice(1); }
+function pingChord(n, vel) {
+  const notes = chordNotes().slice().sort(() => Math.random() - 0.5);
+  for (let i = 0; i < n; i++) ping(mtof(notes[i % notes.length]) * 4, vel * (1 - i * 0.12), i * 0.055 + Math.random() * 0.02);
+}
+
+/* ───────── hand tracking ───────── */
+let landmarker = null, lastVT = -1, EXT = false;
+let facing = 'user', camStream = null, vidTex = null;
+async function startCamera() {
+  const md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) throw new Error('getUserMedia is unavailable');
+  // get the new stream first, so a failed flip keeps the old camera running
+  const stream = await md.getUserMedia({
+    video: { facingMode: { ideal: facing }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false
+  });
+  if (camStream) camStream.getTracks().forEach(t => t.stop());
+  camStream = stream;
+  video.srcObject = stream;
+  await video.play().catch(() => {});
+  if (video.readyState < 2) await new Promise(r => video.addEventListener('loadeddata', r, { once: true }));
+  mirror = facing === 'user'; bgU.uMirror.value = mirror ? 1 : 0;
+  if (!vidTex) {
+    vidTex = new THREE.VideoTexture(video);
+    vidTex.colorSpace = THREE.SRGBColorSpace;
+    vidTex.minFilter = THREE.LinearFilter; vidTex.generateMipmaps = false;
+  }
+  bgU.uTex.value = vidTex; bgU.uOn.value = 1;
+  hands = []; lastHandT = -1;
+}
+function camErrText(e) {
+  const m = (e && (e.message || e.name)) ? (e.message || e.name) : String(e || 'unknown');
+  return 'カメラを起動できませんでした：' + m + '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+}
+async function loadHands() {
+  statusEl.textContent = 'LOADING HAND TRACKER…';
+  const vision = await import(`${MP_BASE}/vision_bundle.mjs`);
+  const fileset = await vision.FilesetResolver.forVisionTasks(`${MP_BASE}/wasm`);
+  const opts = delegate => ({
+    baseOptions: { modelAssetPath: HAND_MODEL, delegate },
+    runningMode: 'VIDEO', numHands: 2,
+    minHandDetectionConfidence: 0.5, minHandPresenceConfidence: 0.5, minTrackingConfidence: 0.5
+  });
+  try { landmarker = await vision.HandLandmarker.createFromOptions(fileset, opts('GPU')); }
+  catch (e) { landmarker = await vision.HandLandmarker.createFromOptions(fileset, opts('CPU')); }
+  statusEl.textContent = '';
+}
+
+/* ───────── UI buttons ───────── */
+const DIMS = [{ v: 0.55, l: 'CAM ●' }, { v: 0.2, l: 'CAM ◐' }, { v: 0, l: 'CAM ○' }];
+let dimI = 0;
+$('bCam').onclick = () => { dimI = (dimI + 1) % DIMS.length; bgU.uDim.value = DIMS[dimI].v; $('bCam').textContent = DIMS[dimI].l; };
+$('bHands').onclick = () => { showHands = !showHands; $('bHands').classList.toggle('off', !showHands); };
+
+function ensureAudio() {
+  try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (e) {}
+  try { if (!A.ctx) initAudio(); A.ctx.resume(); } catch (e) { console.warn(e); }
+}
+$('go').onclick = async () => {
+  const go = $('go'), msg = $('startMsg');
+  go.disabled = true; msg.textContent = '';
+  ensureAudio();                               // the sound starts with this tap
+  try { await startCamera(); }
+  catch (e) {
+    console.warn(e);
+    msg.textContent = camErrText(e);
+    go.disabled = false; go.textContent = 'もう一度'; $('noCam').hidden = false;
+    return;
+  }
+  $('start').classList.add('hide');
+  if (!landmarker && !EXT) loadHands().catch(e => {
+    if (EXT) return;
+    console.warn(e);
+    statusEl.textContent = 'HAND TRACKER FAILED — TOUCH MODE';
+    hintEl.innerHTML = '手の認識を読み込めませんでした<br>1本指で移動 / 2本指でつまむ・広げる';
+  });
+};
+// no camera: the owner's touch mode
+$('noCam').onclick = () => {
+  ensureAudio();
+  $('start').classList.add('hide'); $('bFlip').hidden = true;
+  hintEl.innerHTML = 'カメラなし ― 指で演奏できます<br>1本指で移動 / 2本指でつまむ・広げる';
+};
+$('bFlip').onclick = async () => {
+  const prev = facing; facing = facing === 'user' ? 'environment' : 'user';
+  try { await startCamera(); statusEl.textContent = ''; }
+  catch (e) { facing = prev; statusEl.textContent = ''; hintEl.style.opacity = 1; hintEl.textContent = camErrText(e); }
+};
+const panel = $('panel');
+function setPanel(open) {
+  // just under the button row, which wraps below the title on narrow phones
+  if (open) panel.style.top = Math.round(document.querySelector('.btns').getBoundingClientRect().bottom + 8) + 'px';
+  panel.hidden = !open; $('bGear').setAttribute('aria-expanded', open ? 'true' : 'false');
+}
+$('bGear').onclick = () => setPanel(panel.hidden);
+canvas.addEventListener('pointerdown', () => { if (!panel.hidden) setPanel(false); }, true);
+$('sVol').oninput = e => { if (A.master) A.master.gain.value = +e.target.value; };
+$('sRev').oninput = e => { if (A.revOut) A.revOut.gain.value = +e.target.value; };
+
+// shot: the WebGL canvas does not keep its buffer, so it is copied right after a frame is drawn
+let shotReq = false;
+$('bShot').onclick = () => { shotReq = true; };
+function saveShot() {
+  try {
+    canvas.toBlob(b => { if (!b) return; const a = document.createElement('a'); a.href = URL.createObjectURL(b);
+      a.download = 'crystal-bellows_' + Date.now() + '.png'; document.body.appendChild(a); a.click();
+      setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 4000); }, 'image/png');
+  } catch (e) { statusEl.textContent = '保存できませんでした。'; }
+}
+let mr = null, chunks = [];
+$('bRec').onclick = () => {
+  const b = $('bRec');
+  if (mr && mr.state === 'recording') { mr.stop(); return; }
+  ensureAudio();
+  const tracks = [...canvas.captureStream(30).getVideoTracks()];
+  if (A.recDest) tracks.push(...A.recDest.stream.getAudioTracks());
+  const ms = new MediaStream(tracks);
+  const types = ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm'];
+  const mt = types.find(t => window.MediaRecorder && MediaRecorder.isTypeSupported(t)) || '';
+  try { mr = new MediaRecorder(ms, mt ? { mimeType: mt, videoBitsPerSecond: 6e6 } : {}); }
+  catch (err) { statusEl.textContent = '録画を開始できませんでした。' + (err && err.message ? ' ' + err.message : ''); return; }
+  chunks = []; mr.ondataavailable = ev => { if (ev.data && ev.data.size) chunks.push(ev.data); };
+  mr.onstop = () => {
+    b.classList.remove('rec'); b.textContent = '● REC';
+    const blob = new Blob(chunks, { type: mr.mimeType || 'video/mp4' }); const ext = (mr.mimeType || '').includes('mp4') ? 'mp4' : 'webm';
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'crystal-bellows_' + Date.now() + '.' + ext;
+    document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 4000);
+  };
+  mr.start(1000); b.classList.add('rec'); b.textContent = '■ STOP';
+};
+
+// test hook
+window.__bellows = {
+  state() { return { mode: S.mode, cx: S.cx, cy: S.cy, r: S.r, tr: S.tr, air: S.air, dir: S.dir, zone: S.zone, hands: hands.length,
+    mirror, facing, cam: !!camStream, vol: A.master ? A.master.gain.value : null, rev: A.revOut ? A.revOut.gain.value : null, audio: !!A.ctx }; },
+  // test only: hand landmarks as MediaPipe gives them ([[{x,y}] x21] per hand)
+  feedHands(list) { EXT = true; onHands(list, performance.now() / 1000); return hands.length; }
+};
+
+/* ───────── main loop ───────── */
+let lastT = performance.now() / 1000;
+let uiZone = -1, uiDir = 0;
+function frame() {
+  requestAnimationFrame(frame);
+  const now = performance.now() / 1000;
+  const dt = Math.min(0.05, Math.max(0.001, now - lastT));
+  lastT = now;
+
+  // video aspect (can change on rotation)
+  if (video.videoWidth) { vidA = video.videoWidth / video.videoHeight; bgU.uVideoA.value = vidA; }
+
+  // detection
+  if (!EXT && landmarker && video.readyState >= 2 && video.currentTime !== lastVT) {
+    lastVT = video.currentTime;
+    try { const res = landmarker.detectForVideo(video, performance.now()); onHands(res.landmarks || [], now); }
+    catch (e) { /* skip frame */ }
+  }
+  if (now - lastHandT > 0.3) hands = [];
+  if (pointers.size) pointerUpdate(now);
+  if (now - lastHandT > 0.3 && !pointers.size && now - lastPtrT > 0.3) setMode('idle');
+
+  // smoothing
+  const prevCx = S.cx, prevCy = S.cy;
+  const kPos = ease(dt, S.hold > 0 ? 8 : 16);
+  S.cx = lerp(S.cx, S.tcx, kPos); S.cy = lerp(S.cy, S.tcy, kPos);
+  S.r = lerp(S.r, S.tr, ease(dt, S.hold > 0 ? 6 : 13));
+  S.roll = lerp(S.roll, S.troll, ease(dt, 8));
+
+  // bellows: rate of change of log-size
+  const ln = Math.log(S.r);
+  let v = (ln - S.lnPrev) / dt;
+  S.lnPrev = ln;
+  if (S.hold > 0) { S.hold -= dt; v = 0; }
+  v = clamp(v, -5, 5);
+  S.vel = lerp(S.vel, v, ease(dt, 10));
+  const airT = 1 - Math.exp(-Math.max(Math.abs(S.vel) - 0.07, 0) * 1.7);
+  S.air = lerp(S.air, airT, ease(dt, airT > S.air ? 22 : 3.2));
+
+  // movement speed (relative to screen height)
+  const sp = Math.hypot(S.cx - prevCx, S.cy - prevCy) / dt / HALF_H;
+  S.speed = lerp(S.speed, clamp(sp, 0, 4), ease(dt, 6));
+
+  // screen position -> zone & brightness
+  const scr = worldToScreen(S.cx, S.cy);
+  S.sx = clamp(scr[0], 0, 0.9999); S.sy = clamp(scr[1], 0, 1);
+  const zf = S.sx * CHORDS.length;
+  if (zf < S.zone - 0.12 || zf > S.zone + 1.12) {
+    S.zone = clamp(Math.floor(zf), 0, CHORDS.length - 1);
+    setChord(S.zone, S.dir);
+    pingChord(3, 0.11 + 0.1 * S.air);
+  }
+  // push / pull
+  if (S.vel > 0.16 && S.dir < 0) { S.dir = 1; setChord(S.zone, S.dir); if (S.air > 0.2) pingChord(2, 0.08); }
+  else if (S.vel < -0.16 && S.dir > 0) { S.dir = -1; setChord(S.zone, S.dir); if (S.air > 0.2) pingChord(2, 0.08); }
+
+  // sparkles while playing hard
+  if (Math.random() < S.air * S.air * dt * 7) {
+    const n = chordNotes(); ping(mtof(n[(Math.random() * n.length) | 0]) * (Math.random() < 0.5 ? 4 : 8), 0.03 + 0.06 * S.air);
+  }
+
+  // audio params
+  if (A.ctx) {
+    const t = A.ctx.currentTime;
+    const sizeN = clamp(S.r / HALF_H, 0, 1.2);
+    A.bellows.gain.setTargetAtTime(Math.pow(S.air, 1.25) * 0.95, t, 0.015);
+    A.lp.frequency.setTargetAtTime(320 + 4300 * Math.pow(S.sy, 1.4) + 2000 * S.air + 900 * sizeN, t, 0.04);
+    const tilt = Math.abs(S.roll);
+    A.lfoAmt.gain.setTargetAtTime(clamp(tilt - 0.15, 0, 0.7) * 0.75, t, 0.08);
+    const mus = 6 + tilt * 18;
+    A.voices.forEach(vv => vv.o2.detune.setTargetAtTime(mus, t, 0.08));
+    A.pan.pan.setTargetAtTime((S.sx - 0.5) * 0.9, t, 0.1);
+    A.shBus.gain.setTargetAtTime(0.05 * clamp(S.speed * 0.9 - 0.04, 0, 1) + 0.025 * S.air * S.sy, t, 0.05);
+  }
+
+  // visuals
+  S.flash *= Math.exp(-dt * 4);
+  const spT = S.dir > 0 ? S.air : -0.55 * S.air;
+  S.spread = lerp(S.spread, spT, ease(dt, 7));
+  rodU.uTime.value = now;
+  rodU.uSpread.value = S.spread;
+  rodU.uAir.value = S.air;
+  rodU.uFlash.value = S.flash;
+  for (let i = 0; i < 5; i++) rodU.uVoice.value[i] = S.air * (0.55 + 0.45 * Math.sin(now * (3 + i * 1.7) + i * 2.1)) + S.speed * 0.08;
+
+  crystal.position.set(S.cx, S.cy, 0);
+  crystal.scale.setScalar(S.r);
+  crystal.rotation.y += dt * (0.12 + S.air * 1.1 * S.dir + S.speed * 0.3);
+  crystal.rotation.x = Math.sin(now * 0.21) * 0.25 + S.speed * 0.1;
+  crystal.rotation.z = S.roll;
+
+  composer.render();
+  if (shotReq) { shotReq = false; saveShot(); }
+  drawHud();
+  updateUI();
+}
+
+function drawHud() {
+  const w = hud.width, h = hud.height;
+  hctx.clearRect(0, 0, w, h);
+  if (!showHands || !hands.length) return;
+  hctx.fillStyle = 'rgba(242,244,247,.55)';
+  hctx.strokeStyle = 'rgba(242,244,247,.12)';
+  hctx.lineWidth = 1;
+  for (const hd of hands) {
+    const pts = hd.P.map(p => { const s = worldToScreen(p[0], p[1]); return [s[0] * w, (1 - s[1]) * h]; });
+    hctx.beginPath();
+    for (const f of [[0, 1, 2, 3, 4], [0, 5, 6, 7, 8], [9, 10, 11, 12], [13, 14, 15, 16], [0, 17, 18, 19, 20], [5, 9, 13, 17]]) {
+      f.forEach((k, j) => j ? hctx.lineTo(pts[k][0], pts[k][1]) : hctx.moveTo(pts[k][0], pts[k][1]));
+    }
+    hctx.stroke();
+    for (const k of [4, 8, 12, 16, 20]) { hctx.beginPath(); hctx.arc(pts[k][0], pts[k][1], 2.5, 0, Math.PI * 2); hctx.fill(); }
+  }
+}
+
+function updateUI() {
+  if (uiZone !== S.zone) { zoneCells.forEach((c, i) => c.classList.toggle('on', i === S.zone)); uiZone = S.zone; }
+  const wpc = S.air * 50;
+  fillEl.style.width = wpc + '%';
+  fillEl.style.left = (S.dir > 0 ? 50 : 50 - wpc) + '%';
+  if (uiDir !== S.dir) {
+    $('mPull').classList.toggle('on', S.dir > 0); $('mPush').classList.toggle('on', S.dir < 0); uiDir = S.dir;
+  }
+}
+
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
