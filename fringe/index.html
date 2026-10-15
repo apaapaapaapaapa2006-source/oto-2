@@ -34,18 +34,29 @@ if(AC&&AC.prototype.createMediaStreamDestination){const cmd=AC.prototype.createM
   FRINGE ─ 動くと透明な羽がまとわりつく                  ART DIRECTION SHEET
   ══════════════════════════════════════════════════════════════════════════
   ORIGIN     オーナーが持ち込んだ完成品（index.html、画面上のタイトル「FRINGE」）。
-             機構・シェーダ・三つの羽・配色・書体はオーナーの設計のまま。画廊に揃えたのは
-             開始ボタン・⟲ カメラ・⚙ で隠せる調整パネル・撮影・録画（REC-FIX）・
-             カメラ失敗時の定型文と再試行だけ。
+             仕組み（動きの検出→羽の束→屈折と残像の合成）・三つの羽・配色・書体はオーナーの
+             設計。画廊に揃えたのは開始ボタン・⟲ カメラ・⚙ で隠せる調整パネル・撮影・録画
+             （REC-FIX）・カメラ失敗時の定型文と再試行。
+  10-15 改訂 オーナーの声「なんか思ってたのとちがう」。実在の人の映像（正面の顔が首を振る・
+             部屋を人が歩く）で見ると、羽は頭の横の壁に黒っぽい細い線が数本出るだけだった。
+             ①動きの閾値を固定の 11 から、映像の静かな部分のざわつきに合わせる可変に
+             ②スマホは 60Hz 以上で描くのにカメラは 30 コマ／秒なので、同じコマを二度比べて
+             「動きなし」と読み、羽が半分以下になっていた → カメラの新しいコマでだけ動きを測る
+             ③羽の根元を動いている体の側に置き、根元が下の動きに乗って体についていく
+             （止まればそこに留まる）。羽は動きの後ろへなびき、先が遅れてしなる
+             ④流れの読めない所は周りの動きの向きに揃え、束が一方向に流れる
+             ⑤細い羽の縁の暗さは外側 1px だけにして黒い傷に見えないように、中は背景が透ける
+             ⑥GLASS は羽軸と羽枝の溝のあるガラスの羽に（縁だけ虹色）。
   MOOD       動いたところから、動きと逆向きに透明な羽が束になって生え、体の流れに
              乗ってまとわりつきながら細って消える。羽はガラスのように景色を曲げて分光し、
              中には生まれた瞬間の自分（少し前のコマ）が引きずられて映る。
-  STYLES     SILK 細く長い絹糸 ／ LEAF 幅広で残像の濃い葉 ／ GLASS 残像なし、屈折と虹色が最強
+  STYLES     SILK 細く長いガラスの糸 ／ LEAF 幅広で残像の濃い葉 ／ GLASS 羽軸と羽枝のある透明な羽
   PALETTE    地 #000 ／ 文字 #f4f4f2 ／ 色はカメラの映像と羽の虹色だけ
   TYPE       -apple-system / Helvetica Neue（オーナーの指定のまま、細く字間を広く）
   TECH       WebGL2。CPU の低解像度 Lucas–Kanade オプティカルフローで動きを拾い、
-             羽をインスタンス描画（最大 4000 本）。法線と残像色を MRT に描いて合成で屈折・
-             分光・鏡面・薄膜の虹色。過去 32 コマを TEXTURE_2D_ARRAY のリングに保持。
+             羽をインスタンス描画（最大 4000 本）。法線・残像色・縁／溝を MRT に描いて合成で
+             屈折・分光・鏡面・薄膜の虹色。過去 32 コマを TEXTURE_2D_ARRAY のリングに保持。
+             新しいコマは requestVideoFrameCallback で知る（無ければ毎回）。
              外部モデルを使わないので CDN が落ちていても動く。
   ══════════════════════════════════════════════════════════════════════════
 -->
@@ -115,7 +126,7 @@ if(AC&&AC.prototype.createMediaStreamDestination){const cmd=AC.prototype.createM
   <div class="row" id="dens"><button data-d="0">1</button><button data-d="1">2</button><button data-d="2">3</button></div>
   <label>感度<input id="sens" type="range" min="0.5" max="2" step="0.05" value="1"></label>
   <label>羽の長さ<input id="lenK" type="range" min="0.5" max="1.8" step="0.05" value="1"></label>
-  <div class="note">SILK は細く長い絹糸、LEAF は幅広で残像の濃い葉、GLASS は残像のないガラス。小さな動きにも羽を出したいときは感度を上げる。</div>
+  <div class="note">SILK は細く長い絹糸、LEAF は幅広で残像の濃い葉、GLASS は羽軸のある透きとおった羽。小さな動きにも羽を出したいときは感度を上げる。</div>
 </div>
 
 <script>
@@ -130,14 +141,17 @@ if (!gl) { errEl.textContent = 'このブラウザでは WebGL2 が使えない�
 let sens = 1, lenK = 1;
 
 /* ---------------- presets ---------------- */
-// sizes in CSS px
+// sizes in CSS px, life in seconds.
+// 2026-10-15: retuned after testing on real footage of a person. The owner's values gave a few dark
+// hairlines on the wall beside a moving head; these give a visible plume of clear feathers that rides
+// on the body. barb = how much of the strand is a feather vane (barbs off a shaft, ragged edge).
 const PRESETS = {
-  SILK:  {w:[1.0,2.6], len:[16,64],  life:[0.35,0.75], smear:0.30, smearLen:0.22, refr:0.010, disp:0.25, spec:1.3, specPow:70, irid:0.55,
-          alive:380, curve:0.18, spread:0.40, cluster:[2,5], rate:0.75,  follow:0.55, drift:0.35, dark:0.55},
-  LEAF:  {w:[4,11],   len:[50,170],  life:[0.55,1.0],  smear:0.82, smearLen:0.10, refr:0.018, disp:0.20, spec:0.9, specPow:45, irid:0.35,
-          alive:110, curve:0.22, spread:0.55, cluster:[2,5], rate:0.26, follow:0.45, drift:0.25, dark:0.40},
-  GLASS: {w:[2,7],    len:[30,140],  life:[0.5,1.0],   smear:0.0,  smearLen:0.0,  refr:0.032, disp:0.40, spec:1.5, specPow:80, irid:1.0,
-          alive:220, curve:0.20, spread:0.45, cluster:[2,5], rate:0.42, follow:0.55, drift:0.3, dark:0.30},
+  SILK:  {w:[1.2,2.8], len:[45,140],  life:[1.0,1.8], smear:0.22, smearLen:0.20, refr:0.012, disp:0.30, spec:1.3, specPow:70, irid:0.60,
+          alive:360, curve:0.20, spread:0.22, cluster:[3,6], rate:0.60, follow:0.85, dark:0.30, barb:0.0, sway:0.7},
+  LEAF:  {w:[6,14],   len:[50,150],  life:[0.9,1.6], smear:0.82, smearLen:0.10, refr:0.018, disp:0.20, spec:0.9, specPow:45, irid:0.35,
+          alive:150, curve:0.22, spread:0.35, cluster:[2,4], rate:0.35, follow:0.75, dark:0.35, barb:0.35, sway:0.4},
+  GLASS: {w:[9,20],   len:[55,150],  life:[1.0,1.9], smear:0.0,  smearLen:0.0,  refr:0.030, disp:0.40, spec:1.5, specPow:80, irid:1.00,
+          alive:120, curve:0.18, spread:0.30, cluster:[2,3], rate:0.35, follow:0.80, dark:0.35, barb:1.0, sway:0.5},
 };
 const STYLE_ORDER = ['SILK','LEAF','GLASS'];
 let styleIdx = 0, P = PRESETS.SILK;
@@ -168,7 +182,7 @@ layout(location=1) in vec4 aA; // x,y,angle,len
 layout(location=2) in vec4 aB; // width, age, curve, layer
 layout(location=3) in vec4 aC; // srcX, srcY, seed, smearLen
 uniform vec2 uRes;
-out vec2 vQ; out vec2 vPerp; out float vAge; out vec3 vSrc; out float vSeed;
+out vec2 vQ; out vec2 vPerp; out vec2 vTan; out float vAge; out vec3 vSrc; out float vSeed; out vec2 vWL;
 void main(){
   float s=aQ.x, t=aQ.y, age=aB.y;
   float grow=smoothstep(0.,.16,age);
@@ -177,48 +191,73 @@ void main(){
   vec2 d=vec2(cos(aA.z),sin(aA.z)); vec2 n=vec2(-d.y,d.x);
   float taper=pow(sin(3.14159*pow(s,.6)),.75);
   vec2 P=aA.xy + d*s*L + n*(aB.z*s*s*L) + n*t*W*taper*.5;
-  vec2 tg=normalize(d+n*2.*aB.z*s); vPerp=vec2(-tg.y,tg.x);
-  vQ=aQ; vAge=age; vSeed=aC.z;
+  vec2 tg=normalize(d+n*2.*aB.z*s); vPerp=vec2(-tg.y,tg.x); vTan=tg;
+  vQ=aQ; vAge=age; vSeed=aC.z; vWL=vec2(max(W*taper,1.),L);
   vec2 src=aC.xy + d*s*L*aC.w + n*t*W*.35;
   vSrc=vec3(src.x/uRes.x, 1.-src.y/uRes.y, aB.w);
   gl_Position=vec4(P.x/uRes.x*2.-1., 1.-P.y/uRes.y*2., 0., 1.);
 }`;
 
+// three targets: N = normal/height, C = afterimage colour, E = outline / shaft / barb glint
 const FS_STRAND = `#version 300 es
 precision highp float; precision highp sampler2DArray;
-in vec2 vQ; in vec2 vPerp; in float vAge; in vec3 vSrc; in float vSeed;
-uniform sampler2DArray uFrames;
-layout(location=0) out vec4 oN; layout(location=1) out vec4 oC;
+in vec2 vQ; in vec2 vPerp; in vec2 vTan; in float vAge; in vec3 vSrc; in float vSeed; in vec2 vWL;
+uniform sampler2DArray uFrames; uniform float uBarb, uDpr;
+layout(location=0) out vec4 oN; layout(location=1) out vec4 oC; layout(location=2) out vec4 oE;
+float hash(float n){ return fract(sin(n)*43758.5453); }
 void main(){
-  float t=vQ.y;
-  float h=sqrt(max(0.,1.-t*t));
-  // fine lengthwise ridges -> sparkly refraction
-  float ridge=sin(t*7.+vSeed*40.)*.18;
-  float tt=clamp(t+ridge*(1.-abs(t)),-1.,1.);
-  float edgeA=smoothstep(1.,.55,abs(t));
+  float s=vQ.x, t=vQ.y, at=abs(t);
+  float W=vWL.x, L=vWL.y;                  // local width and length, px
+  // barbs: fine lines leaving the shaft and leaning toward the tip, like the vane of a feather
+  float spc=mix(3.6,5.,fract(vSeed*7.31))*uDpr;
+  float ph=(s*L - at*W*.5*1.8)/spc;
+  float cell=floor(ph), f=fract(ph);
+  float rnd=hash(cell+vSeed*91.7);
+  float barb=smoothstep(0.,.35,f)*smoothstep(1.,.55,f);
+  // a ragged outline and the odd split between barbs
+  float lim=1.-uBarb*(.10+.40*rnd*rnd);
+  float split=uBarb*step(.87,hash(cell*1.71+vSeed*13.3))*smoothstep(.12,.45,at);
+  float soft=mix(.45,.2,uBarb);
+  float edgeA=smoothstep(lim,lim-soft,at)*(1.-split);
+  // silk keeps the owner's fine lengthwise ridges -> sparkly refraction
+  float ridge=sin(t*7.+vSeed*40.)*.18*(1.-uBarb);
+  float tt=clamp(t+ridge*(1.-at),-1.,1.);
+  float h=sqrt(max(0.,1.-tt*tt));
   float fade=(1.-smoothstep(.5,1.,vAge))*smoothstep(0.,.04,vAge);
-  float tip=smoothstep(1.,.8,vQ.x);
+  float tip=smoothstep(1.,.8,s);
   float a=edgeA*fade*tip;
-  vec2 n=vec2(vPerp.x,-vPerp.y)*tt;      // y-up
+  vec2 nS=vPerp*tt*mix(1.,.6,uBarb) + vTan*(barb-.5)*.12*uBarb;
+  vec2 n=vec2(nS.x,-nS.y);                 // y-up
+  float ln=length(n); if(ln>1.) n/=ln;
   oN=vec4((n*.5+.5)*a, h*a, a);
   vec3 c=texture(uFrames,vSrc).rgb;
-  c*= .88+.24*h;                          // slight bevel shading on the smear
+  c*= .88+.24*h;                           // slight bevel shading on the smear
   oC=vec4(c*a,a);
+  // the dark line is only the outermost ~1px, so thin strands no longer read as black scratches
+  float px=2./max(W,1.);
+  float rim=smoothstep(lim-soft*.5-1.6*px,lim-soft*.5,at);
+  // wide strands also get the owner's soft dark band inside the edge (glass seen against a light wall)
+  float band=smoothstep(.6,.95,at/lim)*clamp((W/uDpr-5.)/9.,0.,1.);
+  // the shaft and the fine lines between barbs show as faint grooves in the glass
+  float shaft=uBarb*(1.-smoothstep(.5*px,1.6*px,at))*smoothstep(.02,.12,s)*smoothstep(1.,.7,s);
+  float groove=max(uBarb*(1.-barb)*.8, shaft);
+  oE=vec4(vec3(rim,band,groove)*a,a);
 }`;
 
 const FS_COMP = `#version 300 es
 precision highp float;
 in vec2 vS; out vec4 o;
-uniform sampler2D uVid, uN, uC;
-uniform float uRefr, uSmear, uDisp, uSpec, uSpecPow, uIrid, uDark, uTime;
+uniform sampler2D uVid, uN, uC, uE;
+uniform float uRefr, uSmear, uDisp, uSpec, uSpecPow, uIrid, uDark, uTime, uBarb;
 ${MAP_GLSL}
 void main(){
   vec2 s=vS;
-  vec4 N=texture(uN,s), C=texture(uC,s);
+  vec4 N=texture(uN,s), C=texture(uC,s), E=texture(uE,s);
   float a=clamp(N.a,0.,1.);
   vec3 base=texture(uVid,vidUV(s)).rgb;
   if(a<.003){ o=vec4(base,1.); return; }
   vec2 n=(N.rg/a)*2.-1.; float h=N.b/a;
+  float rim=E.r/a, band=E.g/a, groove=E.b/a;
   vec2 asp=vec2(uRes.y/uRes.x,1.);
   vec2 off=n*uRefr*asp*(.6+.4*a);
   vec3 g=vec3(texture(uVid,vidUV(s+off)).r,
@@ -232,8 +271,11 @@ void main(){
           +.45*pow(max(dot(reflect(-L2,N3),vec3(0,0,1)),0.),uSpecPow*.6);
   float fr=pow(1.-N3.z,2.5);
   vec3 irid=.5+.5*cos(6.2832*(fr*1.3+n.x*.4+n.y*.25+uTime*.05+vec3(0.,.33,.67)));
-  float edge=smoothstep(.7,.97,length(n));
-  vec3 col=body*(1.-edge*uDark) + sp*uSpec + fr*.32*mix(vec3(1.),irid,uIrid);
+  vec3 film=mix(vec3(1.),irid,uIrid);
+  // clear glass: the fill is the bent background with a touch of caught light; the colour of the thin film
+  // and the dark line sit only at the very edge
+  // the barbs show as faint grooves in the glass, not as highlights
+  vec3 col=body*(1.+.03*h)*(1.-rim*uDark-band*uDark*.55)*(1.-.13*groove) + sp*uSpec*mix(1.,.45,uBarb) + fr*.10*film + rim*.25*film;
   o=vec4(mix(base,col,smoothstep(0.,.55,a)),1.);
 }`;
 
@@ -254,7 +296,7 @@ const fb=gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER,fb);
 gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,3,-1,-1,3]),gl.STATIC_DRAW);
 gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0,2,gl.FLOAT,false,0,0);
 
-const SEG=12, MAX=4000, STRIDE=12;
+const SEG=16, MAX=4000, STRIDE=12;
 const strVAO=gl.createVertexArray(); gl.bindVertexArray(strVAO);
 const qb=gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER,qb);
 const q=[]; for(let i=0;i<=SEG;i++){ const s=i/SEG; q.push(s,-1,s,1); }
@@ -277,19 +319,20 @@ gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE); gl.texParame
 gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,1,1,0,gl.RGBA,gl.UNSIGNED_BYTE,new Uint8Array([0,0,0,255]));
 
 const LAYERS=32;
-let W=0,H=0,dpr=1, nTex, cTex, strFBO, frames, capFBO, LW=0, LH=0;
+let W=0,H=0,dpr=1, nTex, cTex, eTex, strFBO, frames, capFBO, LW=0, LH=0;
 function resize(){
   dpr=Math.min(window.devicePixelRatio||1, 2);
   const cw=window.innerWidth, ch=window.innerHeight;
   // cap pixel count for mobile GPUs
   const maxPx=1.7e6; let s=dpr; if(cw*ch*s*s>maxPx) s=Math.sqrt(maxPx/(cw*ch)); dpr=s;
   W=Math.round(cw*dpr); H=Math.round(ch*dpr); cv.width=W; cv.height=H;
-  if(nTex){ gl.deleteTexture(nTex); gl.deleteTexture(cTex); gl.deleteFramebuffer(strFBO); gl.deleteTexture(frames); }
-  nTex=tex2D(W,H); cTex=tex2D(W,H);
+  if(nTex){ gl.deleteTexture(nTex); gl.deleteTexture(cTex); gl.deleteTexture(eTex); gl.deleteFramebuffer(strFBO); gl.deleteTexture(frames); }
+  nTex=tex2D(W,H); cTex=tex2D(W,H); eTex=tex2D(W,H);
   strFBO=gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER,strFBO);
   gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,nTex,0);
   gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT1,gl.TEXTURE_2D,cTex,0);
-  gl.drawBuffers([gl.COLOR_ATTACHMENT0,gl.COLOR_ATTACHMENT1]);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT2,gl.TEXTURE_2D,eTex,0);
+  gl.drawBuffers([gl.COLOR_ATTACHMENT0,gl.COLOR_ATTACHMENT1,gl.COLOR_ATTACHMENT2]);
   LW=Math.max(64,Math.round(W/3)); LH=Math.max(64,Math.round(H/3));
   frames=gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D_ARRAY,frames);
   gl.texStorage3D(gl.TEXTURE_2D_ARRAY,1,gl.RGBA8,LW,LH,LAYERS);
@@ -298,6 +341,7 @@ function resize(){
   if(!capFBO) capFBO=gl.createFramebuffer();
   gl.bindFramebuffer(gl.FRAMEBUFFER,null);
   updateMap();
+  S.length=0;   // the old strands were in the old pixel size
 }
 window.addEventListener('resize',resize);
 
@@ -311,13 +355,15 @@ function updateMap(){
 /* ---------------- optical flow (CPU, low-res Lucas–Kanade) ---------------- */
 const fc=document.createElement('canvas'); const fx=fc.getContext('2d',{willReadFrequently:true});
 let FW=80,FH=60, prevG=null, curG=null, Ix,Iy,It;
-const STEP=3, RAD=3; let GW=0,GH=0, flowU, flowV, flowM;
+const STEP=3, RAD=3; let GW=0,GH=0, flowU, flowV, flowM, mSort;
 function setupFlow(){
-  FW=80; FH=Math.max(16,Math.round(80*vh/vw)); fc.width=FW; fc.height=FH;
+  // the long side of the camera picture is 80 samples, whichever way the phone is held
+  const L=80; if(vw>=vh){ FW=L; FH=Math.max(16,Math.round(L*vh/vw)); } else { FH=L; FW=Math.max(16,Math.round(L*vw/vh)); }
+  fc.width=FW; fc.height=FH;
   prevG=new Float32Array(FW*FH); curG=new Float32Array(FW*FH);
   Ix=new Float32Array(FW*FH); Iy=new Float32Array(FW*FH); It=new Float32Array(FW*FH);
   GW=Math.floor((FW-2*RAD-2)/STEP); GH=Math.floor((FH-2*RAD-2)/STEP);
-  flowU=new Float32Array(GW*GH); flowV=new Float32Array(GW*GH); flowM=new Float32Array(GW*GH);
+  flowU=new Float32Array(GW*GH); flowV=new Float32Array(GW*GH); flowM=new Float32Array(GW*GH); mSort=new Float32Array(GW*GH);
   hasPrev=false;
 }
 let hasPrev=false;
@@ -345,27 +391,47 @@ function computeFlow(){
     // temporal smoothing
     flowU[k]=flowU[k]*.4+u*.6; flowV[k]=flowV[k]*.4+v*.6; flowM[k]=flowM[k]*.35+m*.65;
   }
+  flowStats();
   return true;
 }
+// how much the picture changes where nothing moves (sensor noise, flicker) sets the bar for "moving";
+// when most of the picture moves (the phone itself is moving) fewer feathers are born
+let noiseLvl=3, thrDyn=8, movingFrac=0;
+function flowStats(){
+  mSort.set(flowM); mSort.sort();
+  const q=mSort[Math.floor(mSort.length*.4)];
+  noiseLvl+=(q-noiseLvl)*.08;
+  thrDyn=Math.max(4, noiseLvl*2+2.5)/sens;
+  let c=0; for(let k=0;k<flowM.length;k++) if(flowM[k]>thrDyn) c++;
+  movingFrac=c/flowM.length;
+}
 // flow cell -> screen px
-function cellToScreen(gx,gy){
+function cellToScreen(gx,gy,out){
   let fxp=(RAD+1+gx*STEP)/FW, fyp=(RAD+1+gy*STEP)/FH;
   if(mirror) fxp=1-fxp;
-  return [map.ox+fxp*map.dw, map.oy+fyp*map.dh];
+  out[0]=map.ox+fxp*map.dw; out[1]=map.oy+fyp*map.dh; return out;
 }
-function sampleFlowAt(sx,sy){ // returns screen px per flow-frame
+// the motion around a screen point, in screen px per second. The 3x3 cells around it are weighed by how
+// much they move, so a strand sitting at the edge of a moving arm is carried along with the arm.
+function sampleFlowAt(sx,sy,out){
   let u=(sx-map.ox)/map.dw, v=(sy-map.oy)/map.dh; if(mirror) u=1-u;
   const gx=Math.round((u*FW-RAD-1)/STEP), gy=Math.round((v*FH-RAD-1)/STEP);
-  if(gx<0||gy<0||gx>=GW||gy>=GH) return [0,0];
-  const k=gy*GW+gx, sc=map.dw/FW;
-  return [flowU[k]*sc*(mirror?-1:1), flowV[k]*sc];
+  let su=0,sv=0,sw=0; const t0=thrDyn*.6;
+  for(let j=-1;j<=1;j++){ const y=gy+j; if(y<0||y>=GH) continue;
+    for(let i=-1;i<=1;i++){ const x=gx+i; if(x<0||x>=GW) continue;
+      const k=y*GW+x, w0=flowM[k]-t0; if(w0<=0) continue;
+      const w=w0*w0*((i||j)?.5:1); su+=flowU[k]*w; sv+=flowV[k]*w; sw+=w; } }
+  if(sw<=0){ out[0]=0; out[1]=0; return out; }
+  const k2=map.dw/FW/frameDt;
+  out[0]=su/sw*k2*(mirror?-1:1); out[1]=sv/sw*k2; return out;
 }
 
 /* ---------------- strands ---------------- */
 const S=[]; // pool of objects
 const rnd=(a,b)=>a+Math.random()*(b-a);
-let curLayer=0, frameCount=0;
-function spawnCluster(x,y,mx,my,mag){
+const tmpA=[0,0], tmpB=[0,0];
+let curLayer=0, freshCount=0, frameDt=1/30;
+function spawnCluster(x,y,mx,my){
   const n=Math.round(rnd(P.cluster[0],P.cluster[1]));
   const base=Math.atan2(-my,-mx); // trail opposite to motion
   const spd=Math.hypot(mx,my);
@@ -373,49 +439,72 @@ function spawnCluster(x,y,mx,my,mag){
   for(let i=0;i<n && S.length<cap;i++){
     const ang=base+(Math.random()-.5)*2*P.spread;
     const jx=(Math.random()-.5)*14*dpr, jy=(Math.random()-.5)*14*dpr;
-    const lenBoost=Math.min(1.6,.6+spd/(12*dpr));
+    const lenBoost=Math.min(1.3,.75+spd/(20*dpr));
     S.push({
       x:x+jx, y:y+jy, sx:x+jx, sy:y+jy,
       ang, len:rnd(P.len[0],P.len[1])*dpr*lenBoost*lenK, w:rnd(P.w[0],P.w[1])*dpr,
-      curve:(Math.random()-.5)*2*P.curve, age:0, life:rnd(P.life[0],P.life[1]),
-      layer:curLayer, seed:Math.random(), vx:mx*P.drift, vy:my*P.drift
+      curve:(Math.random()-.5)*2*P.curve, bend:0, age:0, life:rnd(P.life[0],P.life[1]),
+      layer:curLayer, seed:Math.random(), vx:mx/frameDt*P.follow, vy:my/frameDt*P.follow
     });
+  }
+}
+// once per new camera frame
+function spawnFromFlow(){
+  const cap=Math.min(MAX,P.alive*DENS[denIdx]); if(S.length>=cap) return;
+  const sc=map.dw/FW, NC=GW*GH, k0=(Math.random()*NC)|0;
+  const calm=1-Math.min(1,Math.max(0,(movingFrac-.45)/.4));
+  if(calm<=0) return;
+  // where the flow can't be read (a plain wall, the inside of dark hair) the feathers take the way the
+  // rest of the moving area goes, instead of a random one, so a plume streams in one direction
+  let du=0,dv=0,dw=0;
+  for(let k=0;k<NC;k++){ const m=flowM[k]-thrDyn; if(m<=0) continue; const u=flowU[k], v=flowV[k];
+    if(u*u+v*v<.0225) continue; du+=u*m; dv+=v*m; dw+=m; }
+  if(dw>0){ du/=dw; dv/=dw; }
+  const domOK=du*du+dv*dv>=.0225;
+  for(let kk=0;kk<NC;kk++){
+    const k=(kk+k0)%NC;
+    const m=flowM[k]; if(m<thrDyn) continue;
+    let u=flowU[k], v=flowV[k]; const fl=Math.hypot(u,v);
+    const real=fl>=.15;
+    if(!real){ if(!domOK) continue; u=du; v=dv; }
+    const p=Math.min(1,(m-thrDyn)/thrDyn*.45*P.rate*DENS[denIdx]*calm);
+    if(Math.random()<p){
+      const gx=k%GW, gy=(k/GW)|0; const c=cellToScreen(gx,gy,tmpA);
+      const mx=u*sc*(mirror?-1:1), my=v*sc;
+      // root half a cell ahead of the motion, so it sits on the moving body rather than on the wall it just left
+      let x=c[0]+(Math.random()-.5)*STEP*sc, y=c[1]+(Math.random()-.5)*STEP*sc;
+      if(real){ const l=Math.hypot(mx,my); x+=mx/l*STEP*sc*.5; y+=my/l*STEP*sc*.5; }
+      spawnCluster(x,y,mx,my);
+    }
+    if(S.length>=cap) break;
   }
 }
 
 let lastT=performance.now(), flowReady=false;
-function step(dt){
-  // spawn from flow
-  if(flowReady){
-    const thr=11/sens, budget=Math.round(45*DENS[denIdx]);
-    let made=0; const sc=map.dw/FW;
-    const NC=GW*GH, k0=(Math.random()*NC)|0;
-    for(let kk=0;kk<NC && made<budget;kk++){
-      const k=(kk+k0)%NC;
-      const m=flowM[k]; if(m<thr) continue;
-      let u=flowU[k], v=flowV[k]; const fl=Math.hypot(u,v);
-      if(fl<.15){ const a=Math.random()*6.283; u=Math.cos(a)*.4; v=Math.sin(a)*.4; }
-      const p=Math.min(1,(m-thr)*.006*P.rate*DENS[denIdx]*dt*60);
-      if(Math.random()<p){
-        const gx=k%GW, gy=(k/GW)|0; const [x,y]=cellToScreen(gx,gy);
-        const mx=u*sc*(mirror?-1:1), my=v*sc;
-        spawnCluster(x+(Math.random()-.5)*STEP*sc, y+(Math.random()-.5)*STEP*sc, mx, my, m); made++;
-      }
-    }
-  }
-  // update
+function step(dt,now,fresh){
+  if(fresh && flowReady) spawnFromFlow();
+  const kF=1-Math.exp(-dt*9), kB=1-Math.exp(-dt*6), dec=Math.exp(-dt*1.5), still=30*dpr;
   for(let i=S.length-1;i>=0;i--){ const s=S[i];
     s.age+=dt/s.life; if(s.age>=1){ S[i]=S[S.length-1]; S.pop(); continue; }
-    const [fu,fv]=sampleFlowAt(s.x,s.y);
-    s.vx=s.vx*Math.pow(.02,dt)+fu*P.follow*.5; s.vy=s.vy*Math.pow(.02,dt)+fv*P.follow*.5;
-    s.x+=s.vx*dt*6; s.y+=s.vy*dt*6;
+    // ride on the body: the root takes on the motion under it, and stays put where the body stops
+    const f=sampleFlowAt(s.x,s.y,tmpB);
+    s.vx+=(f[0]*P.follow-s.vx)*kF; s.vy+=(f[1]*P.follow-s.vy)*kF;
+    s.x+=s.vx*dt; s.y+=s.vy*dt;
+    // stream out behind the motion, the tip lagging like hair
+    const spd=Math.hypot(s.vx,s.vy);
+    if(spd>still){
+      let da=Math.atan2(-s.vy,-s.vx)-s.ang; da-=Math.round(da/6.2832)*6.2832;
+      s.ang+=da*(1-Math.exp(-dt*Math.min(6,spd/(150*dpr))));
+      s.bend+=(Math.max(-.5,Math.min(.5,-da*.6))-s.bend)*kB;
+    }
+    s.bend*=dec;
     s.ang+=s.curve*dt*.6;
   }
   // pack
-  const n=S.length;
+  const n=S.length, tt=now*.001;
   for(let i=0;i<n;i++){ const s=S[i], o=i*STRIDE;
     inst[o]=s.x; inst[o+1]=s.y; inst[o+2]=s.ang; inst[o+3]=s.len;
-    inst[o+4]=s.w; inst[o+5]=s.age; inst[o+6]=s.curve; inst[o+7]=s.layer;
+    inst[o+4]=s.w; inst[o+5]=s.age; inst[o+6]=s.curve+s.bend+Math.sin(tt*(1.6+s.seed)+s.seed*40)*P.sway*.08; inst[o+7]=s.layer;
     inst[o+8]=s.sx; inst[o+9]=s.sy; inst[o+10]=s.seed; inst[o+11]=P.smearLen; }
   return n;
 }
@@ -424,35 +513,50 @@ function setMapUniforms(u){
   gl.uniform4f(u.uMap,map.ox,map.oy,map.dw,map.dh); gl.uniform2f(u.uRes,W,H); gl.uniform1f(u.uMirror,mirror?1:0);
 }
 
-let running=false, shootReq=false;
+// Phones draw at 60 Hz or more while the camera gives 30 frames a second. The owner's loop measured the
+// motion on every draw, so every other measurement saw the same picture twice, read "no motion" and
+// halved the feathers. The motion is now measured only when the camera has delivered a new frame.
+let newFrame=true, rvfc=false;
+function armFrameClock(){
+  if(rvfc || !video.requestVideoFrameCallback) return;
+  rvfc=true; const cb=()=>{ newFrame=true; video.requestVideoFrameCallback(cb); };
+  video.requestVideoFrameCallback(cb);
+}
+let running=false, shootReq=false, lastFresh=0;
 function frame(now){
   if(!running) return; requestAnimationFrame(frame);
   const dt=Math.min(.05,(now-lastT)/1000); lastT=now;
   if(video.readyState<2) return;
   if(video.videoWidth!==vw||video.videoHeight!==vh){ updateMap(); setupFlow(); }
-  // upload video
-  gl.bindTexture(gl.TEXTURE_2D,vidTex);
-  gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,video);
-  frameCount++;
-  // flow
-  flowReady=computeFlow();
-  // capture frame into ring layer (every 2 frames)
-  if(frameCount%2===0){
-    curLayer=(curLayer+1)%LAYERS;
-    gl.bindFramebuffer(gl.FRAMEBUFFER,capFBO);
-    gl.framebufferTextureLayer(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,frames,0,curLayer);
-    gl.viewport(0,0,LW,LH); gl.disable(gl.BLEND);
-    gl.useProgram(pCap.p); setMapUniforms(pCap.u);
-    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,vidTex); gl.uniform1i(pCap.u.uVid,0);
-    gl.bindVertexArray(fullVAO); gl.drawArrays(gl.TRIANGLES,0,3);
+  // (if the frame clock ever goes quiet, fall back to measuring every 200 ms rather than freezing)
+  const fresh=!rvfc||newFrame||now-lastFresh>200; newFrame=false;
+  if(fresh){
+    if(lastFresh) frameDt+=(Math.min(.15,Math.max(1/90,(now-lastFresh)/1000))-frameDt)*.3;
+    lastFresh=now;
+    // upload video
+    gl.bindTexture(gl.TEXTURE_2D,vidTex);
+    gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,video);
+    freshCount++;
+    // flow
+    flowReady=computeFlow();
+    // capture frame into ring layer (every 2 camera frames)
+    if(freshCount%2===0){
+      curLayer=(curLayer+1)%LAYERS;
+      gl.bindFramebuffer(gl.FRAMEBUFFER,capFBO);
+      gl.framebufferTextureLayer(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,frames,0,curLayer);
+      gl.viewport(0,0,LW,LH); gl.disable(gl.BLEND);
+      gl.useProgram(pCap.p); setMapUniforms(pCap.u);
+      gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,vidTex); gl.uniform1i(pCap.u.uVid,0);
+      gl.bindVertexArray(fullVAO); gl.drawArrays(gl.TRIANGLES,0,3);
+    }
   }
-  const n=step(dt);
+  const n=step(dt,now,fresh);
   // strands pass
   gl.bindFramebuffer(gl.FRAMEBUFFER,strFBO); gl.viewport(0,0,W,H);
   gl.clearColor(0,0,0,0); gl.clear(gl.COLOR_BUFFER_BIT);
   if(n){
     gl.enable(gl.BLEND); gl.blendFunc(gl.ONE,gl.ONE_MINUS_SRC_ALPHA);
-    gl.useProgram(pStr.p); gl.uniform2f(pStr.u.uRes,W,H);
+    gl.useProgram(pStr.p); gl.uniform2f(pStr.u.uRes,W,H); gl.uniform1f(pStr.u.uBarb,P.barb); gl.uniform1f(pStr.u.uDpr,dpr);
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D_ARRAY,frames); gl.uniform1i(pStr.u.uFrames,0);
     gl.bindVertexArray(strVAO); gl.bindBuffer(gl.ARRAY_BUFFER,ib);
     gl.bufferSubData(gl.ARRAY_BUFFER,0,inst,0,n*STRIDE);
@@ -465,9 +569,10 @@ function frame(now){
   gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,vidTex); gl.uniform1i(u.uVid,0);
   gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D,nTex); gl.uniform1i(u.uN,1);
   gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D,cTex); gl.uniform1i(u.uC,2);
+  gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D,eTex); gl.uniform1i(u.uE,3);
   gl.uniform1f(u.uRefr,P.refr); gl.uniform1f(u.uSmear,P.smear); gl.uniform1f(u.uDisp,P.disp);
   gl.uniform1f(u.uSpec,P.spec); gl.uniform1f(u.uSpecPow,P.specPow); gl.uniform1f(u.uIrid,P.irid);
-  gl.uniform1f(u.uDark,P.dark); gl.uniform1f(u.uTime,now/1000);
+  gl.uniform1f(u.uDark,P.dark); gl.uniform1f(u.uTime,now/1000); gl.uniform1f(u.uBarb,P.barb);
   gl.bindVertexArray(fullVAO); gl.drawArrays(gl.TRIANGLES,0,3);
   if(shootReq){ shootReq=false; saveShot(); }
 }
@@ -487,7 +592,7 @@ async function startCam(){
   stream=s2; video.srcObject=stream; mirror=(facing==='user');
   await video.play().catch(()=>{});
   await new Promise(r=>{ if(video.videoWidth) r(); else video.onloadedmetadata=r; });
-  updateMap(); setupFlow(); S.length=0;
+  armFrameClock(); updateMap(); setupFlow(); S.length=0;
 }
 
 /* ---------------- UI ---------------- */
@@ -552,7 +657,7 @@ $('go').addEventListener('click',async function(){
 });
 
 // test hook
-window.__fringe={ get n(){ return S.length; }, state(){ return {n:S.length, style:STYLE_ORDER[styleIdx], den:denIdx, sens, lenK, W, H, mirror, running}; } };
+window.__fringe={ get n(){ return S.length; }, state(){ return {n:S.length, style:STYLE_ORDER[styleIdx], den:denIdx, sens, lenK, W, H, mirror, running, thr:thrDyn, noise:noiseLvl, moving:movingFrac, frameDt, rvfc}; } };
 })();
 </script>
 </body>
