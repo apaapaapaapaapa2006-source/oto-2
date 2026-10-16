@@ -25,7 +25,7 @@ if(AC&&AC.prototype.suspend){const sus=AC.prototype.suspend;AC.prototype.suspend
 if(AC&&AC.prototype.createMediaStreamDestination){const cmd=AC.prototype.createMediaStreamDestination;AC.prototype.createMediaStreamDestination=function(){const d=cmd.apply(this,arguments);
   try{const c=this.createConstantSource();c.offset.value=0;c.connect(d);c.start();}catch(e){}return d;};}})();</script>
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
-<meta name="description" content="カメラの映像を、親指と人差し指でつまんで引っぱれる。映像はゼリーのような透明な膜になって伸び、離すとぷるんと揺れて「ぼよん」と鳴りながら戻る。両手でつまめば手のあいだで引き伸ばせ、指ではじくと波紋が走る。撮影と録画ができる。">
+<meta name="description" content="カメラの映像を、親指と人差し指でつまんで引っぱれる。映像はゼリーのような透明な膜になって伸び、離すとぷるんと揺れて「ぼよん」と鳴りながら戻る。両手でつまめば手のあいだで引き伸ばせ、指ではじくと波紋が走る。色は素・銀・桃・藍・夜光の五つ。撮影と録画ができる。">
 <meta name="theme-color" content="#0b0b0c">
 <title>TSUMAMU ─ 映像をつまんで引っぱる</title>
 <!--
@@ -58,6 +58,8 @@ if(AC&&AC.prototype.createMediaStreamDestination){const cmd=AC.prototype.createM
              ⑤ はじく：つままずに人差し指をすばやく振ると、そこから波紋が走る
              ⑥ 素材 3 種：GEL（柔らかく長く揺れる）・LATEX（固く速く戻る、墨の艶）・
                 HONEY（重く、ゆっくり垂れるように戻る、琥珀色）
+             ⑥b 色 5 種：素・銀・桃・藍・夜光。影→中間→光の三色のグラデーションマップで、
+                元の色を少し残す。切り替えると新しい色が対角線に拭き込まれる
              ⑦ 素のカメラ ⇄ 膜：膜が上から落ちてきて一度波打ち、光沢が画面をなでる
              ⑧ 音：引くあいだはゴムのきしみ（伸ばすほど高い）、離すと音程つきの
                 「ぼよん」、はじくと低い太鼓。録画に入る
@@ -141,7 +143,7 @@ body.idle #brand{opacity:.45}
 <body>
 <canvas id="view"></canvas>
 <video id="cam" playsinline muted autoplay></video>
-<div id="brand"><div class="n">TSUMAMU</div><div class="p">摘む ・ <b id="pMat">GEL</b></div></div>
+<div id="brand"><div class="n">TSUMAMU</div><div class="p">摘む ・ <b id="pMat">GEL</b> ・ <span id="pCol">NATURAL</span></div></div>
 <div id="hint">親指と人差し指で、映像をつまんでみてください</div>
 <div id="status"></div>
 <button id="gear" class="btn" aria-label="調整">⚙</button>
@@ -151,8 +153,14 @@ body.idle #brand{opacity:.45}
   <button id="rec" class="btn">● 録画</button>
   <button id="shoot" class="btn" aria-label="撮る"></button>
   <button id="mat" class="btn">GEL ▸</button>
+  <button id="col" class="btn">素 ▸</button>
 </div>
 <div id="panel" class="hide">
+  <div class="hd">色 ─ COLOR</div>
+  <div class="tg" id="cols">
+    <button data-c="0" class="on">素<small>NATURAL</small></button><button data-c="1">銀<small>SILVER</small></button><button data-c="2">桃<small>PEACH</small></button>
+    <button data-c="3">藍<small>INDIGO</small></button><button data-c="4">夜光<small>NEON</small></button>
+  </div>
   <div class="hd">素材 ─ MATERIAL</div>
   <div class="tg" id="mats">
     <button data-m="0" class="on">ゼリー<small>GEL</small></button><button data-m="1">ゴム<small>LATEX</small></button><button data-m="2">蜜<small>HONEY</small></button>
@@ -188,13 +196,23 @@ const WASM_URL   = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14
 const HAND_MODEL = 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task';
 
 /* ---------- settings & materials ---------- */
-const S = { mat:0, soft:1, wob:1, rad:1, gloss:1, iri:1, vol:.6, freeze:false, dots:true };
+const S = { col:0, mat:0, soft:1, wob:1, rad:1, gloss:1, iri:1, vol:.6, freeze:false, dots:true };
 // K: pull back to rest, C: neighbour coupling (wave speed), D: damping, G: grip, lift: how far the pinch raises the sheet
 const MATS = [
   { en:'GEL',   jp:'ゼリー', K:20, C:950,  D:2.4, G:900,  lift:1.0, tint:[1, 1, 1],         spec:.6, shin:160,  iri:1.0, dark:0,   amber:0 },
   { en:'LATEX', jp:'ゴム',   K:70, C:1700, D:5.5, G:1100, lift:.7,  tint:[.92, .92, .95],   spec:1.2, shin:180, iri:.2, dark:.55, amber:0 },
   { en:'HONEY', jp:'蜜',     K:5,  C:420,  D:8.5, G:700,  lift:1.3, tint:[1.08, .86, .55],  spec:.85, shin:40,  iri:.25, dark:0,   amber:.55 },
 ];
+// colour modes for the picture: a gradient map (shadow → mid → light) that keeps a little of the original colour
+const COLS = [
+  { en:'NATURAL', jp:'素',   on:0, k:1,   d:[0, 0, 0],         m:[.5, .5, .5],      l:[1, 1, 1] },
+  { en:'SILVER',  jp:'銀',   on:1, k:0,   d:[.03, .035, .045], m:[.47, .49, .52],   l:[.95, .96, .97] },
+  { en:'PEACH',   jp:'桃',   on:1, k:.25, d:[.2, .05, .13],    m:[.86, .45, .45],   l:[1, .93, .84] },
+  { en:'INDIGO',  jp:'藍',   on:1, k:.2,  d:[.01, .03, .13],   m:[.08, .34, .66],   l:[.62, .97, 1] },
+  { en:'NEON',    jp:'夜光', on:1, k:.15, d:[.05, 0, .1],      m:[.92, .12, .52],   l:[1, .97, .55] },
+];
+const CW = { from:0, to:0, t:1 };
+const PAL = new Float32Array(18), PALK = new Float32Array(4);
 const SCALE = [146.83, 174.61, 196.0, 220.0, 261.63, 293.66, 349.23, 392.0, 440.0, 523.25, 587.33, 698.46, 783.99]; // D minor pentatonic
 
 /* ---------- canvas, camera mapping ---------- */
@@ -339,9 +357,16 @@ void main(){ vUV = aUV; vSh = aSh; gl_Position = vec4(aPos.x / uRes.x * 2.0 - 1.
 const FS = `#version 300 es
 precision highp float;
 in vec2 vUV; in vec4 vSh; out vec4 o;
-uniform sampler2D uCam; uniform float uFx, uSpec, uShin, uIri, uDark, uAmber, uSweep, uGloss, uTime;
+uniform sampler2D uCam; uniform float uFx, uSpec, uShin, uIri, uDark, uAmber, uSweep, uGloss, uTime, uGT;
+uniform vec3 uPal[6]; uniform vec4 uPalK;
 uniform vec3 uTint; uniform vec2 uRes;
 vec3 cam(vec2 u){ return texture(uCam, clamp(u, 0.0, 1.0)).rgb; }
+vec3 grade(vec3 c, vec3 d, vec3 m, vec3 l, float k, float on){
+  float y = dot(c, vec3(.299, .587, .114));
+  vec3 g = y < .5 ? mix(d, m, y * 2.0) : mix(m, l, y * 2.0 - 1.0);
+  g += (c - y) * k;
+  return mix(c, g, on);
+}
 void main(){
   float st = vSh.w, z = vSh.z;
   float pos = max(st, 0.0), neg = max(-st, 0.0);
@@ -350,6 +375,12 @@ void main(){
   // stretched gel is thinner: the picture behind it splits into its colours along the slope
   vec2 sh = n.xy * (.003 + .016 * min(pos, 1.2)) * uFx;
   vec3 c = vec3(cam(vUV + sh * 1.0).r, cam(vUV).g, cam(vUV - sh * 1.0).b);
+  // colour mode: the new one wipes in diagonally over the old, with a bright seam
+  vec2 q0 = gl_FragCoord.xy / uRes;
+  float diag = q0.x * .55 + (1.0 - q0.y) * .75, edge = uGT * 1.5 - .1;
+  float wnew = smoothstep(edge + .04, edge - .04, diag);
+  vec3 c0 = grade(c, uPal[0], uPal[1], uPal[2], uPalK.x, uPalK.y), c1 = grade(c, uPal[3], uPal[4], uPal[5], uPalK.z, uPalK.w);
+  c = mix(c0, c1, wnew) + vec3(exp(-pow((diag - edge) / .012, 2.0)) * .5 * step(uGT, .999));
   c *= mix(vec3(1.0), uTint, clamp(uAmber * (z * .6 + pos * .8 + .25), 0.0, 1.0) * uFx);
   c = mix(c, c * .28, clamp(uDark * (pos * 1.1 + z * .25), 0.0, .85) * uFx);
   c *= 1.0 - clamp(neg * 1.6, 0.0, .45) * uFx;                       // compressed: folds and shade
@@ -605,6 +636,7 @@ function sfxBoing(stretch, x){
   noiseHit(t, .04, 'lowpass', 900, .7, amp * .4, d);
 }
 function sfxFlick(x, sp){ if (!live()) return; const t = actx.currentTime, d = out(panOf(x)); const a = clamp(sp * .06, .08, .3); tone(t, 'sine', 190, 62, .38, a, d); noiseHit(t, .07, 'bandpass', 700, 1.2, a * .5, d); }
+function sfxColor(){ if (!live()) return; const t = actx.currentTime; noiseHit(t, .8, 'bandpass', 3000, 1.5, .05); tone(t, 'sine', 880, 880, .5, .03); tone(t + .07, 'sine', 1318.5, 1318.5, .45, .02); }
 function sfxSheet(on){ if (!live()) return; const t = actx.currentTime; noiseHit(t, .5, 'bandpass', on ? 1400 : 2600, .9, .07); if (on) tone(t + .18, 'sine', 110, 70, .7, .18); else tone(t, 'sine', 300, 600, .25, .05); }
 
 /* ---------- mode: plain camera ⇄ the sheet (it drops on and ripples once) ---------- */
@@ -613,7 +645,7 @@ function setMode(on){
   if (on === MODE.fx) return;
   MODE.fx = on; MODE.t = 0;
   $('mode').textContent = on ? '膜をはずす' : '膜をかける';
-  $('mat').style.visibility = on ? 'visible' : 'hidden';
+  $('mat').style.visibility = $('col').style.visibility = on ? 'visible' : 'hidden';
   if (on){
     settle();
     // the sheet lands: a ring of lift spreading from the middle, and a little sag along the top
@@ -645,6 +677,16 @@ function setMat(i){
 }
 $('mats').onclick = e => { const b = e.target.closest('button'); if (b) setMat(+b.dataset.m); };
 $('mat').onclick = () => setMat(S.mat + 1);
+function setCol(i, instant){
+  i = ((i % COLS.length) + COLS.length) % COLS.length;
+  // a switch mid-wipe starts from whatever is mostly showing
+  CW.from = instant ? i : (CW.t > .5 ? CW.to : CW.from); CW.to = i; CW.t = instant ? 1 : 0; S.col = i;
+  const c = COLS[i]; $('col').textContent = c.jp + ' ▸'; $('pCol').textContent = c.en;
+  [...$('cols').children].forEach(b => b.classList.toggle('on', +b.dataset.c === i));
+  if (!instant) sfxColor();
+}
+$('cols').onclick = e => { const b = e.target.closest('button'); if (b) setCol(+b.dataset.c); };
+$('col').onclick = () => setCol(S.col + 1);
 $('tFreeze').onclick = e => { S.freeze = !S.freeze; e.target.classList.toggle('on', S.freeze); };
 $('tDots').onclick = e => { S.dots = !S.dots; e.target.classList.toggle('on', S.dots); };
 [['sSoft', 'soft'], ['sWob', 'wob'], ['sRad', 'rad'], ['sGloss', 'gloss'], ['sIri', 'iri'], ['sVol', 'vol']]
@@ -655,14 +697,15 @@ addEventListener('keydown', e => {
   if (!started || document.activeElement.tagName === 'INPUT') return;
   if (e.key === ' ' || e.key === 'Enter'){ e.preventDefault(); setMode(!MODE.fx); }
   else if (e.key === 'm') setMat(S.mat + 1);
+  else if (e.key === 'c') setCol(S.col + 1);
 });
 $('go').onclick = async () => {
   $('err').textContent = '';
   ensureAudio();
   try { await startCam(); } catch(e){ camError(e); return; }
   $('start').style.display = 'none';
-  ['gear', 'flip', 'bar', 'rec', 'shoot', 'mat', 'mode', 'brand'].forEach(id => $(id).classList.add('show'));
-  if (!MODE.fx) $('mat').style.visibility = 'hidden';
+  ['gear', 'flip', 'bar', 'rec', 'shoot', 'mat', 'col', 'mode', 'brand'].forEach(id => $(id).classList.add('show'));
+  if (!MODE.fx) $('mat').style.visibility = $('col').style.visibility = 'hidden';
   if (!started){ started = true; if (!glOK) initGL(); if (glErr) setStatus(glErr); resize(); initModel(); requestAnimationFrame(loop); }
 };
 $('flip').onclick = async () => {
@@ -727,6 +770,10 @@ function render(){
   gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, texCam); gl.uniform1i(pr.u.uCam, 0);
   gl.uniform2f(pr.u.uRes, G.W, G.H); gl.uniform1f(pr.u.uFx, fx); gl.uniform1f(pr.u.uSpec, m.spec); gl.uniform1f(pr.u.uShin, m.shin);
   gl.uniform1f(pr.u.uIri, m.iri * S.iri); gl.uniform1f(pr.u.uDark, m.dark); gl.uniform1f(pr.u.uAmber, m.amber); gl.uniform3fv(pr.u.uTint, m.tint);
+  const ca = COLS[CW.from], cb = COLS[CW.to];
+  PAL.set(ca.d, 0); PAL.set(ca.m, 3); PAL.set(ca.l, 6); PAL.set(cb.d, 9); PAL.set(cb.m, 12); PAL.set(cb.l, 15);
+  PALK[0] = ca.k; PALK[1] = ca.on * fx; PALK[2] = cb.k; PALK[3] = cb.on * fx;
+  gl.uniform3fv(pr.u['uPal[0]'], PAL); gl.uniform4fv(pr.u.uPalK, PALK); gl.uniform1f(pr.u.uGT, smooth(CW.t));
   gl.uniform1f(pr.u.uSweep, sweepPos()); gl.uniform1f(pr.u.uGloss, S.gloss); gl.uniform1f(pr.u.uTime, clock);
   gl.drawElements(gl.TRIANGLES, IDX.length, IDX instanceof Uint32Array ? gl.UNSIGNED_INT : gl.UNSIGNED_SHORT, 0);
   gl.disable(gl.DEPTH_TEST);
@@ -761,7 +808,7 @@ function loop(){
   const rdt = lastT ? clamp((now - lastT) / 1000, 0, .1) : 0; lastT = now; clock += rdt; frameN++;
   detect(now);
   for (const h of HS) if (h.on && now - h.seen > 400) loseHand(h);
-  MODE.t += rdt;
+  MODE.t += rdt; CW.t = Math.min(1, CW.t + rdt / .9);
   applyGrabs();
   for (const g of GRABS) voiceTick(g);
   if (MODE.fx || MODE.t < 1) simulate(rdt); else if (M.n && M.dx[(M.ny >> 1) * M.nx + (M.nx >> 1)] !== 0) settle();
@@ -785,12 +832,12 @@ function loop(){
   const t = [(qx) * S0 * .84 + S0 * .08, qy * S0 * .84 + S0 * .08];
   c.strokeStyle = '#ff6a4d'; c.lineWidth = 3; c.beginPath(); c.arc(t[0], t[1], S0 * .045, 0, 7); c.stroke();
 })();
-setMat(0);
+setMat(0); setCol(0, true);
 
 /* ---------- test hook ---------- */
 window.__tsumamu = {
   feedHands(list, t){ EXT.hands = true; if (modelState !== 'ready') setStatus(''); ingestHands(list, t == null ? performance.now() : t); },
-  setMode, setMat, S, MODE, M, G, GRABS, HS,
+  setMode, setMat, setCol, CW, S, MODE, M, G, GRABS, HS,
   grab:grabStart, move:grabMove, release:k => grabEnd(k),
   probe(p){ PROBE.want = p; PROBE.out = null; }, probed(){ return PROBE.out; },
   toScreen(x, y){ const o = [0, 0]; toScreen(x, y, o, 0); return o; },
