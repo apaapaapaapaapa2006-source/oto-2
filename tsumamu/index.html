@@ -25,7 +25,7 @@ if(AC&&AC.prototype.suspend){const sus=AC.prototype.suspend;AC.prototype.suspend
 if(AC&&AC.prototype.createMediaStreamDestination){const cmd=AC.prototype.createMediaStreamDestination;AC.prototype.createMediaStreamDestination=function(){const d=cmd.apply(this,arguments);
   try{const c=this.createConstantSource();c.offset.value=0;c.connect(d);c.start();}catch(e){}return d;};}})();</script>
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
-<meta name="description" content="カメラの映像を、親指と人差し指でつまんで引っぱれる。映像はゼリーのような透明な膜になって伸び、離すとぷるんと揺れて「ぼよん」と鳴りながら戻る。両手でつまめば手のあいだで引き伸ばせ、指ではじくと波紋が走る。色は素・銀・桃・藍・夜光の五つ。撮影と録画ができる。">
+<meta name="description" content="カメラの映像を、親指と人差し指でつまんで引っぱれる。映像はゼリーのような透明な膜になって伸び、離すとぷるんと揺れて「ぼよん」と鳴りながら戻る。両手でつまめば手のあいだで引き伸ばせ、引っぱりすぎるとちぎれて切れ端を好きな所に貼れる。声や手拍子でも膜が震える。色は素・銀・桃・藍・夜光の五つ。撮影と録画ができる。">
 <meta name="theme-color" content="#0b0b0c">
 <title>TSUMAMU ─ 映像をつまんで引っぱる</title>
 <!--
@@ -60,6 +60,11 @@ if(AC&&AC.prototype.createMediaStreamDestination){const cmd=AC.prototype.createM
                 HONEY（重く、ゆっくり垂れるように戻る、琥珀色）
              ⑥b 色 5 種：素・銀・桃・藍・夜光。影→中間→光の三色のグラデーションマップで、
                 元の色を少し残す。切り替えると新しい色が対角線に拭き込まれる
+             ⑥c ちぎる：素材ごとの限界より引くと、ぎざぎざの切れ端がちぎれ、膜には穴が開いて
+                縁からゆっくり塞がる。切れ端はちぎれた瞬間の映像を持ったまま指についてきて、
+                離した所にシールのように貼りつく（つまめば動かせ、はじくと落ちる、8 枚まで）
+             ⑥d 声：マイクの声の高さで膜の定在波の形が変わり（低い声は大きくゆっくり、
+                高い声は細かく速く）、手拍子や叫びで中心から波の輪が走る
              ⑦ 素のカメラ ⇄ 膜：膜が上から落ちてきて一度波打ち、光沢が画面をなでる
              ⑧ 音：引くあいだはゴムのきしみ（伸ばすほど高い）、離すと音程つきの
                 「ぼよん」、はじくと低い太鼓。録画に入る
@@ -116,6 +121,8 @@ html,body{margin:0;height:100%;background:#0b0b0c;overflow:hidden;color:var(--ui
 #bar #shoot{position:relative;width:44px;height:44px;min-width:44px;border:1.5px solid var(--ui);border-radius:50%;padding:0;opacity:.9;margin:0 4px}
 #shoot::after{content:"";position:absolute;inset:7px;border-radius:50%;background:var(--ui)}
 #rec.on{opacity:1;color:var(--acc)}
+#mic{--lv:0;position:relative}
+#mic.on{opacity:1;color:var(--acc);text-shadow:0 0 calc(4px + var(--lv) * 18px) rgba(255,106,77,calc(.3 + var(--lv) * .7))}
 #mode{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom) + 74px);z-index:13;display:none;
   appearance:none;border:0;border-radius:100px;background:rgba(242,239,233,.16);color:#fff;
   -webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);
@@ -154,6 +161,7 @@ body.idle #brand{opacity:.45}
   <button id="shoot" class="btn" aria-label="撮る"></button>
   <button id="mat" class="btn">GEL ▸</button>
   <button id="col" class="btn">素 ▸</button>
+  <button id="mic" class="btn" aria-label="声で揺らす">声</button>
 </div>
 <div id="panel" class="hide">
   <div class="hd">色 ─ COLOR</div>
@@ -171,15 +179,17 @@ body.idle #brand{opacity:.45}
   <label><span>光沢</span><input type="range" id="sGloss" min="0" max="2" step="0.02" value="1"></label>
   <label><span>虹色</span><input type="range" id="sIri" min="0" max="2" step="0.02" value="1"></label>
   <label><span>音量</span><input type="range" id="sVol" min="0" max="1" step="0.01" value="0.6"></label>
+  <div class="tg"><button id="tTear" class="on">ちぎれる</button><button id="tVoice">声で揺らす</button></div>
   <div class="tg"><button id="tFreeze">映像を止める</button><button id="tDots" class="on">指の印</button></div>
-  <div class="note">親指と人差し指をくっつけると、その場所の映像をつかめます。画面を指やマウスでドラッグしてもつまめます。つままずに指をすばやく振ると波が立ちます。</div>
+  <div class="tg"><button id="tDrop">貼ったものを落とす</button></div>
+  <div class="note">親指と人差し指をくっつけると、その場所の映像をつかめます。画面を指やマウスでドラッグしてもつまめます。つままずに指をすばやく振ると波が立ちます。引っぱりすぎるとちぎれ、ちぎれた切れ端は指を離した所に貼りつきます（もう一度つまむと動かせ、はじくと落ちます）。「声」をオンにすると、声や手拍子で膜が震えます。</div>
 </div>
 <div id="start">
   <div class="t">PINCH THE PICTURE</div>
   <h1>TSUMAMU</h1>
   <div class="sub">映像を、つまんで引っぱる。</div>
   <canvas id="emblem" width="480" height="480"></canvas>
-  <p>カメラの映像に、透明な膜が一枚かかっています。<br>親指と人差し指でつまんで、引っぱって、はなす。<br>両手でつまむと、あいだで伸びます。</p>
+  <p>カメラの映像に、透明な膜が一枚かかっています。<br>親指と人差し指でつまんで、引っぱって、はなす。<br>両手でつまむと、あいだで伸びます。<br>引っぱりすぎると、ちぎれます。</p>
   <button id="go">はじめる</button>
   <div id="err"></div>
 </div>
@@ -196,12 +206,12 @@ const WASM_URL   = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14
 const HAND_MODEL = 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task';
 
 /* ---------- settings & materials ---------- */
-const S = { col:0, mat:0, soft:1, wob:1, rad:1, gloss:1, iri:1, vol:.6, freeze:false, dots:true };
+const S = { tear:true, voice:false, col:0, mat:0, soft:1, wob:1, rad:1, gloss:1, iri:1, vol:.6, freeze:false, dots:true };
 // K: pull back to rest, C: neighbour coupling (wave speed), D: damping, G: grip, lift: how far the pinch raises the sheet
 const MATS = [
-  { en:'GEL',   jp:'ゼリー', K:20, C:950,  D:2.4, G:900,  lift:1.0, tint:[1, 1, 1],         spec:.6, shin:160,  iri:1.0, dark:0,   amber:0 },
-  { en:'LATEX', jp:'ゴム',   K:70, C:1700, D:5.5, G:1100, lift:.7,  tint:[.92, .92, .95],   spec:1.2, shin:180, iri:.2, dark:.55, amber:0 },
-  { en:'HONEY', jp:'蜜',     K:5,  C:420,  D:8.5, G:700,  lift:1.3, tint:[1.08, .86, .55],  spec:.85, shin:40,  iri:.25, dark:0,   amber:.55 },
+  { en:'GEL',   jp:'ゼリー', K:20, C:950,  D:2.4, G:900,  lift:1.0, tear:.42, tint:[1, 1, 1],         spec:.6, shin:160,  iri:1.0, dark:0,   amber:0 },
+  { en:'LATEX', jp:'ゴム',   K:70, C:1700, D:5.5, G:1100, lift:.7,  tear:.62, tint:[.92, .92, .95],   spec:1.2, shin:180, iri:.2, dark:.55, amber:0 },
+  { en:'HONEY', jp:'蜜',     K:5,  C:420,  D:8.5, G:700,  lift:1.3, tear:.32, tint:[1.08, .86, .55],  spec:.85, shin:40,  iri:.25, dark:0,   amber:.55 },
 ];
 // colour modes for the picture: a gradient map (shadow → mid → light) that keeps a little of the original colour
 const COLS = [
@@ -225,14 +235,14 @@ function camUV(X, Y, out, o){ let x = mirror ? G.W - X : X; out[o] = (x - MAP.ox
 
 /* ---------- the sheet: a membrane on a grid, solved with a fixed step ---------- */
 const M = { nx:0, ny:0, n:0, cell:1, rx:null, ry:null, dx:null, dy:null, dz:null, vx:null, vy:null, vz:null, w:null, tx:null, ty:null, tz:null, acc:0 };
-let VBUF = null, IDX = null;           // per vertex: x, y, u, v, gx, gy, z, strain
+let VBUF = null, IDX = null;           // per vertex: x, y, u, v, gx, gy, z, strain, hole
 function buildGrid(){
   const cell = G.short / 50;
   const nx = Math.max(8, Math.round(G.W / cell) + 1), ny = Math.max(8, Math.round(G.H / cell) + 1), n = nx * ny;
   M.nx = nx; M.ny = ny; M.n = n; M.cell = cell;
-  for (const k of ['rx', 'ry', 'dx', 'dy', 'dz', 'vx', 'vy', 'vz', 'w', 'tx', 'ty', 'tz']) M[k] = new Float32Array(n);
+  for (const k of ['rx', 'ry', 'dx', 'dy', 'dz', 'vx', 'vy', 'vz', 'w', 'tx', 'ty', 'tz', 'hole']) M[k] = new Float32Array(n);
   for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++){ const k = j * nx + i; M.rx[k] = i / (nx - 1) * G.W; M.ry[k] = j / (ny - 1) * G.H; }
-  VBUF = new Float32Array(n * 8);
+  VBUF = new Float32Array(n * 9);
   const idx = [];
   for (let j = 0; j < ny - 1; j++) for (let i = 0; i < nx - 1; i++){
     const a = j * nx + i, b = a + 1, c = a + nx, d = c + 1;
@@ -267,13 +277,22 @@ function simulate(dt){
     for (let j = 1; j < ny - 1; j++) for (let k = j * nx + 1, e = j * nx + nx - 1; k < e; k++){ dx[k] += vx[k] * STEP; dy[k] += vy[k] * STEP; dz[k] += vz[k] * STEP; }
   }
 }
-function settle(){ for (const k of ['dx', 'dy', 'dz', 'vx', 'vy', 'vz', 'w']) M[k].fill(0); GRABS.length = 0; }
+function settle(){ for (const k of ['dx', 'dy', 'dz', 'vx', 'vy', 'vz', 'w', 'hole']) M[k].fill(0); GRABS.length = 0; }
 
 /* ---------- grabs: a pinch catches the vertices around it, weighted by distance ---------- */
 const GRABS = [];      // { key, p0:[x,y], p:[x,y], idx:Int32Array, wt:Float32Array, ox, oy, oz, t0, stretch, lastStretch, voice }
 function grabStart(key, x, y){
   if (!MODE.fx || !fin(x) || !fin(y) || !M.n) return null;
   grabEnd(key, true);
+  // a stuck piece under the fingers is picked up again instead of the sheet
+  for (let i = PIECES.length - 1; i >= 0; i--){
+    const p = PIECES[i];
+    if (p.st === 'stuck' && Math.hypot(p.x - x, p.y - y) < p.r * .9){
+      p.st = 'held'; p.key = key; p.ox = p.x - x; p.oy = p.y - y; p.tx = p.x; p.ty = p.y; p.t = 0;
+      PIECES.splice(i, 1); PIECES.push(p);          // to the top
+      sfxStick(x); hintSeen(); return p;
+    }
+  }
   const R = G.short * .2 * S.rad, R2 = R * R, list = [], ws = [];
   for (let k = 0; k < M.n; k++){
     const ex = M.rx[k] + M.dx[k] - x, ey = M.ry[k] + M.dy[k] - y, d2 = ex * ex + ey * ey;
@@ -290,10 +309,14 @@ function grabStart(key, x, y){
   return g;
 }
 function grabMove(key, x, y){
-  const g = GRABS.find(q => q.key === key); if (!g || !fin(x) || !fin(y)) return;
+  if (!fin(x) || !fin(y)) return;
+  const p = PIECES.find(q => q.key === key && q.st === 'held'); if (p){ p.tx = x + p.ox; p.ty = y + p.oy; return; }
+  const g = GRABS.find(q => q.key === key); if (!g) return;
   g.p[0] = x; g.p[1] = y;
 }
 function grabEnd(key, silent){
+  const p = PIECES.find(q => q.key === key && q.st === 'held');
+  if (p){ p.st = 'stuck'; p.key = null; p.t = 0; if (!silent) sfxPat(p.x); return; }
   const i = GRABS.findIndex(q => q.key === key); if (i < 0) return;
   const g = GRABS[i]; GRABS.splice(i, 1);
   voiceStop(g.voice);
@@ -302,9 +325,10 @@ function grabEnd(key, silent){
 function applyGrabs(){
   M.w.fill(0);
   const lift = MATS[S.mat].lift;
-  for (const g of GRABS){
+  for (const g of [...GRABS]){
     const mx = g.p[0] - g.p0[0], my = g.p[1] - g.p0[1];
     g.lastStretch = g.stretch; g.stretch = Math.hypot(mx, my) / G.short;
+    if (S.tear && MODE.fx && g.stretch > MATS[S.mat].tear * S.soft ** .5){ tearOff(g); continue; }
     const up = lift * (.35 + Math.min(1.6, g.stretch * 3));
     for (let i = 0; i < g.idx.length; i++){
       const k = g.idx[i], w = g.wt[i];
@@ -324,14 +348,141 @@ function flick(x, y, vx, vy){
     const ex = M.rx[k] + M.dx[k] - x, ey = M.ry[k] + M.dy[k] - y, d2 = ex * ex + ey * ey;
     if (d2 < R2){ const q = 1 - d2 / R2; M.vx[k] += vx * .5 * q * q; M.vy[k] += vy * .5 * q * q; M.vz[k] += 7 * q * q; }
   }
+  // a flick knocks a stuck piece off
+  for (const p of PIECES) if (p.st === 'stuck' && Math.hypot(p.x - x, p.y - y) < p.r * 1.25) dropPiece(p, vx * .6, vy * .6);
   sfxFlick(x, Math.hypot(vx, vy) / G.short);
+}
+
+/* ---------- torn pieces: pulled too far, a patch tears off; let go and it sticks where it is ---------- */
+const PIECES = [], NSEG = 40, MAXP = 8, SNAPFREE = [];
+let camTW = 1, camTH = 1, fbCam = null;
+function snapTexture(){
+  if (!glOK || camTW < 2) return null;
+  let t = SNAPFREE.pop();
+  if (!t){ t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t);
+    for (const [k, v] of [[gl.TEXTURE_MIN_FILTER, gl.LINEAR], [gl.TEXTURE_MAG_FILTER, gl.LINEAR], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]]) gl.texParameteri(gl.TEXTURE_2D, k, v); }
+  // copy the camera texture as it is right now (so a frozen picture tears off frozen)
+  gl.bindFramebuffer(gl.FRAMEBUFFER, fbCam);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texCam, 0);
+  gl.bindTexture(gl.TEXTURE_2D, t);
+  try{ gl.copyTexImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 0, 0, camTW, camTH, 0); }catch(e){}
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  return t;
+}
+function tearOff(g){
+  const i = GRABS.indexOf(g); if (i < 0) return;
+  GRABS.splice(i, 1); voiceStop(g.voice);
+  // the patch leaves a ragged hole in the sheet that slowly closes
+  for (let j = 0; j < g.idx.length; j++){ const k = g.idx[j], w = g.wt[j]; if (w > .2) M.hole[k] = Math.max(M.hole[k], Math.min(1.25, w * 1.6)); }
+  const r = G.short * .1 * S.rad;
+  const p = { key:g.key, x:g.p[0], y:g.p[1], tx:g.p[0], ty:g.p[1], ox:0, oy:0, vx:0, vy:0, r, rot:0, spin:0, st:'held', t:0, sq:0,
+    shape:new Float32Array(NSEG), uv:new Float32Array(NSEG * 2 + 2), tex:null };
+  const ph = Math.random() * 9;
+  for (let s = 0; s < NSEG; s++){ const a = s / NSEG * 6.2832; p.shape[s] = .82 + .1 * Math.sin(a * 3 + ph) + .07 * Math.sin(a * 7 + ph * 2) + (Math.random() - .5) * .12; }
+  // it carries the picture from where the pinch began
+  camUV(g.p0[0], g.p0[1], p.uv, 0);
+  for (let s = 0; s < NSEG; s++){ const a = s / NSEG * 6.2832, rr = r * p.shape[s]; camUV(g.p0[0] + Math.cos(a) * rr, g.p0[1] + Math.sin(a) * rr, p.uv, 2 + s * 2); }
+  p.tex = snapTexture();
+  PIECES.push(p);
+  const stuck = PIECES.filter(q => q.st === 'stuck');
+  if (PIECES.length > MAXP && stuck.length) dropPiece(stuck[0], 0, 0);
+  sfxTear(g.stretch, g.p[0]);
+}
+function dropPiece(p, vx, vy){ p.st = 'fall'; p.key = null; p.vx = vx; p.vy = vy - G.short * .3; p.spin = (Math.random() - .5) * 7; p.t = 0; sfxPeel(p.x); }
+function dropAll(){ for (const p of PIECES) if (p.st !== 'fall') dropPiece(p, (Math.random() - .5) * G.short * .4, 0); }
+function stepPieces(dt){
+  for (let i = PIECES.length - 1; i >= 0; i--){
+    const p = PIECES[i]; p.t += dt;
+    if (p.st === 'held'){
+      const k = Math.min(1, dt * 16), nx = lerp(p.x, p.tx, k), ny = lerp(p.y, p.ty, k);
+      const sp = dt > 0 ? Math.hypot(nx - p.x, ny - p.y) / dt / G.short : 0;
+      p.sq = lerp(p.sq, clamp(sp * .12, 0, .3), .3); p.x = nx; p.y = ny;
+    } else if (p.st === 'stuck'){
+      p.sq *= Math.exp(-dt * 5);
+    } else {
+      p.vy += G.short * 2.6 * dt; p.x += p.vx * dt; p.y += p.vy * dt; p.rot += p.spin * dt;
+      if (p.y - p.r > G.H * 1.05 || p.x < -p.r * 2 || p.x > G.W + p.r * 2){ if (p.tex) SNAPFREE.push(p.tex); PIECES.splice(i, 1); }
+    }
+  }
+  // the hole closes from its edges
+  if (M.n){ const f = Math.exp(-dt / 2.2); for (let k = 0; k < M.n; k++) if (M.hole[k] > 0) M.hole[k] = M.hole[k] > .01 ? M.hole[k] * f : 0; }
+}
+const PBUF = new Float32Array((MAXP + 6) * (NSEG + 2) * 7);
+function packPiece(p, o, shadow){
+  // a fan: centre, then the ragged rim (closed)
+  const held = p.st === 'held';
+  const wob = p.st === 'stuck' ? 1 + .1 * Math.sin(p.t * 22) * Math.exp(-p.t * 4.5) : held ? 1.07 : 1;
+  const sx = wob * (1 + p.sq), sy = wob * (1 - p.sq * .6);
+  const off = shadow ? G.short * (held ? .03 : p.st === 'fall' ? .045 : .011) : 0;
+  const cr = Math.cos(p.rot), sr = Math.sin(p.rot);
+  const put = (lx, ly, u, v, e) => {
+    const X = lx * p.r * sx, Y = ly * p.r * sy;
+    PBUF[o++] = p.x + X * cr - Y * sr + off * .6; PBUF[o++] = p.y + X * sr + Y * cr + off;
+    PBUF[o++] = u; PBUF[o++] = v; PBUF[o++] = lx; PBUF[o++] = ly; PBUF[o++] = e;
+  };
+  put(0, 0, p.uv[0], p.uv[1], 0);
+  for (let s = 0; s <= NSEG; s++){ const q = s % NSEG, a = q / NSEG * 6.2832, m = p.shape[q]; put(Math.cos(a) * m, Math.sin(a) * m, p.uv[2 + q * 2], p.uv[3 + q * 2], 1); }
+  return o;
+}
+
+/* ---------- voice: the sheet shakes to the mic (pitch picks the pattern, a clap sends a ring) ---------- */
+const VOICE = { on:false, an:null, td:null, fd:null, lvl:0, avg:.01, cool:0, cen:300, stream:null, fake:null };
+async function voiceToggle(){
+  if (VOICE.on){ VOICE.on = false; S.voice = false; if (VOICE.stream) VOICE.stream.getTracks().forEach(t => t.stop()); VOICE.stream = null; VOICE.an = null; syncVoiceUI(); return; }
+  ensureAudio();
+  if (!actx){ setStatus('音声を使えません。'); return; }
+  try{
+    const md = navigator.mediaDevices; if (!md || !md.getUserMedia) throw new Error('getUserMedia is unavailable');
+    const s = await md.getUserMedia({ audio:{ echoCancellation:false, noiseSuppression:false, autoGainControl:false } });
+    const src = actx.createMediaStreamSource(s), an = actx.createAnalyser(); an.fftSize = 1024; an.smoothingTimeConstant = .5; src.connect(an);
+    VOICE.an = an; VOICE.td = new Float32Array(an.fftSize); VOICE.fd = new Uint8Array(an.frequencyBinCount); VOICE.stream = s; VOICE.on = true; S.voice = true;
+  }catch(e){ setStatus('マイクを使えませんでした：' + ((e && (e.message || e.name)) || e)); }
+  syncVoiceUI();
+}
+function syncVoiceUI(){ $('mic').classList.toggle('on', VOICE.on); $('tVoice').classList.toggle('on', VOICE.on); }
+function voiceStep(dt){
+  let rms = 0, cen = VOICE.cen;
+  if (VOICE.fake){ rms = VOICE.fake[0]; cen = VOICE.fake[1]; }
+  else if (VOICE.on && VOICE.an){
+    VOICE.an.getFloatTimeDomainData(VOICE.td); let s2 = 0; for (let i = 0; i < VOICE.td.length; i++) s2 += VOICE.td[i] * VOICE.td[i];
+    rms = Math.sqrt(s2 / VOICE.td.length);
+    VOICE.an.getByteFrequencyData(VOICE.fd); let num = 0, den = 0; const hz = actx.sampleRate / VOICE.an.fftSize;
+    for (let i = 2; i < VOICE.fd.length; i++){ const f = i * hz; if (f > 3000) break; num += f * VOICE.fd[i]; den += VOICE.fd[i]; }
+    if (den > 0) cen = num / den;
+  } else { VOICE.lvl *= Math.exp(-dt * 8); $('mic').style.setProperty('--lv', 0); return; }
+  VOICE.cen = lerp(VOICE.cen, cen, .2);
+  const target = clamp((rms - .008) * 9, 0, 1.5);
+  VOICE.lvl = lerp(VOICE.lvl, target, target > VOICE.lvl ? .6 : .12);
+  VOICE.avg = lerp(VOICE.avg, rms, .02); VOICE.cool -= dt;
+  if (rms > VOICE.avg * 2.6 && rms > .06 && VOICE.cool <= 0){ VOICE.cool = .2; voiceRing(clamp(rms * 6, .3, 2)); }
+  $('mic').style.setProperty('--lv', Math.min(1, VOICE.lvl).toFixed(2));
+  if (!MODE.fx || !M.n || VOICE.lvl < .02) return;
+  // a standing wave: low voices shake big slow shapes, high voices make fine fast ripples
+  const c = clamp((VOICE.cen - 150) / 1200, 0, 1), m = 1 + Math.round(c * 5), n = 1 + Math.round(c * 3);
+  const ph = Math.sin(clock * 6.2832 * (2.5 + c * 5)), L = VOICE.lvl;
+  const A = L * dt * G.short * .7 * ph, Az = L * dt * 15 * ph, { nx, ny } = M;
+  for (let j = 1; j < ny - 1; j++){
+    const Y = j / (ny - 1) * Math.PI * n, syv = Math.sin(Y), cyv = Math.cos(Y);
+    for (let i = 1; i < nx - 1; i++){
+      const X = i / (nx - 1) * Math.PI * m, sxv = Math.sin(X), k = j * nx + i;
+      M.vz[k] += Az * sxv * syv; M.vx[k] += A * .5 * Math.cos(X) * syv; M.vy[k] += A * .5 * sxv * cyv;
+    }
+  }
+}
+function voiceRing(s){
+  if (!MODE.fx || !M.n) return;
+  const cx = G.W / 2, cy = G.H / 2, R = G.short * .25;
+  for (let k = 0; k < M.n; k++){
+    const ex = M.rx[k] - cx, ey = M.ry[k] - cy, r = Math.hypot(ex, ey) || 1, q = Math.exp(-((r / R) ** 2));
+    M.vx[k] += ex / r * q * s * G.short * .9; M.vy[k] += ey / r * q * s * G.short * .9; M.vz[k] += 9 * q * s;
+  }
 }
 // pack positions, the sheet's slope and how much each patch is stretched
 function packVerts(){
   const { nx, ny, rx, ry, dx, dy, dz } = M, cell = M.cell;
   for (let j = 0; j < ny; j++){
     for (let i = 0; i < nx; i++){
-      const k = j * nx + i, o = k * 8;
+      const k = j * nx + i, o = k * 9;
       const x = rx[k] + dx[k], y = ry[k] + dy[k];
       VBUF[o] = x; VBUF[o + 1] = y;
       camUV(rx[k], ry[k], VBUF, o + 2);
@@ -344,6 +495,7 @@ function packVerts(){
       const ex = (rx[r] + dx[r] - rx[l] - dx[l]) / (sx * cell), ey = (ry[d] + dy[d] - ry[u] - dy[u]) / (sy * cell);
       const fx = (dy[r] - dy[l]) / (sx * cell), fy = (dx[d] - dx[u]) / (sy * cell);
       VBUF[o + 7] = Math.abs(ex * ey - fx * fy) - 1;
+      VBUF[o + 8] = M.hole[k];
     }
   }
 }
@@ -351,16 +503,19 @@ function packVerts(){
 /* ---------- WebGL ---------- */
 let gl = null, glOK = false, glErr = '';
 const VS = `#version 300 es
-layout(location=0) in vec2 aPos; layout(location=1) in vec2 aUV; layout(location=2) in vec4 aSh;
-uniform vec2 uRes; out vec2 vUV; out vec4 vSh;
-void main(){ vUV = aUV; vSh = aSh; gl_Position = vec4(aPos.x / uRes.x * 2.0 - 1.0, 1.0 - aPos.y / uRes.y * 2.0, clamp(-aSh.z * .2, -.99, .99), 1.0); }`;
+layout(location=0) in vec2 aPos; layout(location=1) in vec2 aUV; layout(location=2) in vec4 aSh; layout(location=3) in float aHole;
+uniform vec2 uRes; out vec2 vUV; out vec4 vSh; out float vHole;
+void main(){ vUV = aUV; vSh = aSh; vHole = aHole; gl_Position = vec4(aPos.x / uRes.x * 2.0 - 1.0, 1.0 - aPos.y / uRes.y * 2.0, clamp(-aSh.z * .2, -.99, .99), 1.0); }`;
 const FS = `#version 300 es
 precision highp float;
-in vec2 vUV; in vec4 vSh; out vec4 o;
+in vec2 vUV; in vec4 vSh; in float vHole; out vec4 o;
 uniform sampler2D uCam; uniform float uFx, uSpec, uShin, uIri, uDark, uAmber, uSweep, uGloss, uTime, uGT;
 uniform vec3 uPal[6]; uniform vec4 uPalK;
 uniform vec3 uTint; uniform vec2 uRes;
 vec3 cam(vec2 u){ return texture(uCam, clamp(u, 0.0, 1.0)).rgb; }
+float hsh(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float vn(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(hsh(i), hsh(i + vec2(1.0, 0.0)), f.x), mix(hsh(i + vec2(0.0, 1.0)), hsh(i + vec2(1.0, 1.0)), f.x), f.y); }
 vec3 grade(vec3 c, vec3 d, vec3 m, vec3 l, float k, float on){
   float y = dot(c, vec3(.299, .587, .114));
   vec3 g = y < .5 ? mix(d, m, y * 2.0) : mix(m, l, y * 2.0 - 1.0);
@@ -396,8 +551,33 @@ void main(){
   vec2 q = gl_FragCoord.xy / uRes;
   float sweep = exp(-pow((q.x * .6 + (1.0 - q.y) * .8 - uSweep) / .07, 2.0)) * step(-.5, uSweep);
   vec3 col = c * (1.0 + lam * .55 * uFx) + vec3(spec) * uFx + film * iri * .3 * uFx + fres * .12 * uFx + vec3(sweep * .35);
+  // a torn hole: ragged edge, a dark gap, a wet bright rim
+  float hn = vHole + (vn(vUV * 38.0) - .5) * .5 + (vn(vUV * 95.0) - .5) * .22;
+  float torn = smoothstep(.5, .56, hn) * uFx, rim = smoothstep(.38, .5, hn) * (1.0 - smoothstep(.5, .6, hn)) * uFx;
+  vec3 holeCol = mix(vec3(.035, .035, .04), uPal[3] * .22 + .02, uPalK.w * .6);
+  col = mix(col, holeCol, torn) + rim * vec3(.75, .72, .7) * .5;
   col = col / (1.0 + max(col - .85, 0.0) * 1.4);
   o = vec4(col, 1.0);
+}`;
+const VS_PC = `#version 300 es
+layout(location=0) in vec2 aPos; layout(location=1) in vec2 aUV; layout(location=2) in vec2 aLoc; layout(location=3) in float aE;
+uniform vec2 uRes; out vec2 vUV; out vec2 vLoc; out float vE;
+void main(){ vUV = aUV; vLoc = aLoc; vE = aE; gl_Position = vec4(aPos.x / uRes.x * 2.0 - 1.0, 1.0 - aPos.y / uRes.y * 2.0, 0.0, 1.0); }`;
+const FS_PC = `#version 300 es
+precision highp float;
+in vec2 vUV; in vec2 vLoc; in float vE; out vec4 o;
+uniform sampler2D uT; uniform float uShadow; uniform vec3 uP[3]; uniform vec2 uPK;
+void main(){
+  if (uShadow > .5){ float a = .34 * (1.0 - smoothstep(.55, 1.0, vE)); o = vec4(0.0, 0.0, 0.0, a); return; }
+  vec3 c = texture(uT, clamp(vUV, 0.0, 1.0)).rgb;
+  float y = dot(c, vec3(.299, .587, .114));
+  vec3 g = (y < .5 ? mix(uP[0], uP[1], y * 2.0) : mix(uP[1], uP[2], y * 2.0 - 1.0)) + (c - y) * uPK.x;
+  c = mix(c, g, uPK.y);
+  // a chunk of gel: a soft highlight toward the light, a bright cut edge
+  vec2 d = vLoc - vec2(-.35, -.42);
+  float hl = exp(-dot(d, d) * 5.0) * .3, rim = smoothstep(.8, 1.0, vE);
+  c = c * (1.0 - rim * .2) + hl + rim * .32 * vec3(1.0, .98, .95);
+  o = vec4(c, 1.0);
 }`;
 const VS_PT = `#version 300 es
 layout(location=0) in vec4 aP;
@@ -413,7 +593,7 @@ void main(){
   float a = mix(dot_, ring, vK) * vA;
   o = vec4(uCol * a, a);
 }`;
-let PR = null, PP = null, texCam = null, vao = null, bufV = null, bufI = null, vaoP = null, bufP = null;
+let PR = null, PP = null, PC = null, vaoC = null, bufC = null, texCam = null, vao = null, bufV = null, bufI = null, vaoP = null, bufP = null;
 const PTS = new Float32Array(4 * 24);
 function compile(vs, fs){
   const mk = (t, s) => { const sh = gl.createShader(t); gl.shaderSource(sh, s); gl.compileShader(sh);
@@ -428,17 +608,24 @@ function initGL(){
   try{
     gl = view.getContext('webgl2', { antialias:true, alpha:false, preserveDrawingBuffer:false });
     if (!gl) throw new Error('WebGL2 が使えません');
-    PR = compile(VS, FS); PP = compile(VS_PT, FS_PT);
+    PR = compile(VS, FS); PP = compile(VS_PT, FS_PT); PC = compile(VS_PC, FS_PC); fbCam = gl.createFramebuffer();
     texCam = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, texCam);
     for (const [k, v] of [[gl.TEXTURE_MIN_FILTER, gl.LINEAR], [gl.TEXTURE_MAG_FILTER, gl.LINEAR], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]]) gl.texParameteri(gl.TEXTURE_2D, k, v);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([20, 20, 20, 255]));
     bufV = gl.createBuffer(); bufI = gl.createBuffer();
     vao = gl.createVertexArray(); gl.bindVertexArray(vao);
     gl.bindBuffer(gl.ARRAY_BUFFER, bufV);
-    gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 32, 0);
-    gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 2, gl.FLOAT, false, 32, 8);
-    gl.enableVertexAttribArray(2); gl.vertexAttribPointer(2, 4, gl.FLOAT, false, 32, 16);
+    gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 36, 0);
+    gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 2, gl.FLOAT, false, 36, 8);
+    gl.enableVertexAttribArray(2); gl.vertexAttribPointer(2, 4, gl.FLOAT, false, 36, 16);
+    gl.enableVertexAttribArray(3); gl.vertexAttribPointer(3, 1, gl.FLOAT, false, 36, 32);
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, bufI);
+    vaoC = gl.createVertexArray(); gl.bindVertexArray(vaoC);
+    bufC = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, bufC); gl.bufferData(gl.ARRAY_BUFFER, PBUF.byteLength, gl.DYNAMIC_DRAW);
+    gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 28, 0);
+    gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 2, gl.FLOAT, false, 28, 8);
+    gl.enableVertexAttribArray(2); gl.vertexAttribPointer(2, 2, gl.FLOAT, false, 28, 16);
+    gl.enableVertexAttribArray(3); gl.vertexAttribPointer(3, 1, gl.FLOAT, false, 28, 24);
     vaoP = gl.createVertexArray(); gl.bindVertexArray(vaoP);
     bufP = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, bufP); gl.bufferData(gl.ARRAY_BUFFER, PTS.byteLength, gl.DYNAMIC_DRAW);
     gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 4, gl.FLOAT, false, 0, 0);
@@ -636,6 +823,11 @@ function sfxBoing(stretch, x){
   noiseHit(t, .04, 'lowpass', 900, .7, amp * .4, d);
 }
 function sfxFlick(x, sp){ if (!live()) return; const t = actx.currentTime, d = out(panOf(x)); const a = clamp(sp * .06, .08, .3); tone(t, 'sine', 190, 62, .38, a, d); noiseHit(t, .07, 'bandpass', 700, 1.2, a * .5, d); }
+function sfxTear(st, x){ if (!live()) return; const t = actx.currentTime, d = out(panOf(x));
+  noiseHit(t, .16, 'highpass', 2600, .8, .22, d); for (let i = 0; i < 5; i++) noiseHit(t + .015 + i * .018 + Math.random() * .01, .025, 'bandpass', 3000 + Math.random() * 3000, 5, .09, d);
+  tone(t, 'sine', 520, 110, .22, .22, d); tone(t + .02, 'triangle', 220, 70, .4, .12, d); }
+function sfxPat(x){ if (!live()) return; const t = actx.currentTime, d = out(panOf(x)); noiseHit(t, .09, 'lowpass', 500, .7, .16, d); tone(t, 'sine', 170, 105, .14, .14, d); }
+function sfxPeel(x){ if (!live()) return; const t = actx.currentTime, d = out(panOf(x)); noiseHit(t, .22, 'bandpass', 1800, 2, .08, d); tone(t, 'sine', 300, 600, .18, .04, d); }
 function sfxColor(){ if (!live()) return; const t = actx.currentTime; noiseHit(t, .8, 'bandpass', 3000, 1.5, .05); tone(t, 'sine', 880, 880, .5, .03); tone(t + .07, 'sine', 1318.5, 1318.5, .45, .02); }
 function sfxSheet(on){ if (!live()) return; const t = actx.currentTime; noiseHit(t, .5, 'bandpass', on ? 1400 : 2600, .9, .07); if (on) tone(t + .18, 'sine', 110, 70, .7, .18); else tone(t, 'sine', 300, 600, .25, .05); }
 
@@ -645,7 +837,7 @@ function setMode(on){
   if (on === MODE.fx) return;
   MODE.fx = on; MODE.t = 0;
   $('mode').textContent = on ? '膜をはずす' : '膜をかける';
-  $('mat').style.visibility = $('col').style.visibility = on ? 'visible' : 'hidden';
+  $('mat').style.visibility = $('col').style.visibility = $('mic').style.visibility = on ? 'visible' : 'hidden';
   if (on){
     settle();
     // the sheet lands: a ring of lift spreading from the middle, and a little sag along the top
@@ -657,6 +849,7 @@ function setMode(on){
     showHint();
   } else {
     for (const g of [...GRABS]) grabEnd(g.key, true);
+    dropAll();
     for (const h of HS){ h.pinch = false; h.hold = 0; h.rel = 0; }
   }
   sfxSheet(on);
@@ -689,6 +882,10 @@ $('cols').onclick = e => { const b = e.target.closest('button'); if (b) setCol(+
 $('col').onclick = () => setCol(S.col + 1);
 $('tFreeze').onclick = e => { S.freeze = !S.freeze; e.target.classList.toggle('on', S.freeze); };
 $('tDots').onclick = e => { S.dots = !S.dots; e.target.classList.toggle('on', S.dots); };
+$('tTear').onclick = e => { S.tear = !S.tear; e.target.classList.toggle('on', S.tear); };
+$('tVoice').onclick = () => voiceToggle();
+$('mic').onclick = () => voiceToggle();
+$('tDrop').onclick = () => dropAll();
 [['sSoft', 'soft'], ['sWob', 'wob'], ['sRad', 'rad'], ['sGloss', 'gloss'], ['sIri', 'iri'], ['sVol', 'vol']]
   .forEach(([id, k]) => { $(id).oninput = e => { S[k] = +e.target.value; if (k === 'vol' && master) master.gain.value = S.vol; }; });
 $('mode').onclick = () => setMode(!MODE.fx);
@@ -704,8 +901,8 @@ $('go').onclick = async () => {
   ensureAudio();
   try { await startCam(); } catch(e){ camError(e); return; }
   $('start').style.display = 'none';
-  ['gear', 'flip', 'bar', 'rec', 'shoot', 'mat', 'col', 'mode', 'brand'].forEach(id => $(id).classList.add('show'));
-  if (!MODE.fx) $('mat').style.visibility = $('col').style.visibility = 'hidden';
+  ['gear', 'flip', 'bar', 'rec', 'shoot', 'mat', 'col', 'mic', 'mode', 'brand'].forEach(id => $(id).classList.add('show'));
+  if (!MODE.fx) $('mat').style.visibility = $('col').style.visibility = $('mic').style.visibility = 'hidden';
   if (!started){ started = true; if (!glOK) initGL(); if (glErr) setStatus(glErr); resize(); initModel(); requestAnimationFrame(loop); }
 };
 $('flip').onclick = async () => {
@@ -759,7 +956,7 @@ const wake = () => { idleAt = performance.now(); document.body.classList.remove(
 let lastT = 0, frameN = 0, clock = 0;
 const PROBE = { want:null, out:null };
 function render(){
-  if (video.readyState >= 2 && !S.freeze){ gl.bindTexture(gl.TEXTURE_2D, texCam); try{ gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video); }catch(e){} }
+  if (video.readyState >= 2 && !S.freeze){ gl.bindTexture(gl.TEXTURE_2D, texCam); try{ gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video); camTW = video.videoWidth || camTW; camTH = video.videoHeight || camTH; }catch(e){} }
   packVerts();
   gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, 0, G.W, G.H);
   gl.clearColor(.04, .04, .045, 1); gl.clearDepth(1); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
@@ -777,6 +974,22 @@ function render(){
   gl.uniform1f(pr.u.uSweep, sweepPos()); gl.uniform1f(pr.u.uGloss, S.gloss); gl.uniform1f(pr.u.uTime, clock);
   gl.drawElements(gl.TRIANGLES, IDX.length, IDX instanceof Uint32Array ? gl.UNSIGNED_INT : gl.UNSIGNED_SHORT, 0);
   gl.disable(gl.DEPTH_TEST);
+  if (PIECES.length){
+    let o = 0; const spans = [];
+    for (const p of PIECES){ if (!p.tex) continue; const a = o / 7; o = packPiece(p, o, true); const b = o / 7; o = packPiece(p, o, false); spans.push([p, a, b]); }
+    gl.useProgram(PC.p); gl.bindVertexArray(vaoC);
+    gl.bindBuffer(gl.ARRAY_BUFFER, bufC); gl.bufferSubData(gl.ARRAY_BUFFER, 0, PBUF.subarray(0, o));
+    gl.uniform2f(PC.u.uRes, G.W, G.H);
+    const cb = COLS[CW.to]; PAL.set(cb.d, 9); PAL.set(cb.m, 12); PAL.set(cb.l, 15);
+    gl.uniform3fv(PC.u['uP[0]'], PAL.subarray(9, 18)); gl.uniform2f(PC.u.uPK, cb.k, cb.on * fx);
+    gl.activeTexture(gl.TEXTURE0); gl.uniform1i(PC.u.uT, 0);
+    for (const [p, a, b] of spans){
+      gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA); gl.uniform1f(PC.u.uShadow, 1);
+      gl.drawArrays(gl.TRIANGLE_FAN, a, NSEG + 2); gl.disable(gl.BLEND);
+      gl.bindTexture(gl.TEXTURE_2D, p.tex); gl.uniform1f(PC.u.uShadow, 0);
+      gl.drawArrays(gl.TRIANGLE_FAN, b, NSEG + 2);
+    }
+  }
   if (PROBE.want){
     const px = new Uint8Array(4); PROBE.out = PROBE.want.map(([x, y]) => { gl.readPixels(Math.round(x), Math.round(G.H - 1 - y), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px); return [px[0], px[1], px[2]]; });
     PROBE.want = null;
@@ -811,6 +1024,7 @@ function loop(){
   MODE.t += rdt; CW.t = Math.min(1, CW.t + rdt / .9);
   applyGrabs();
   for (const g of GRABS) voiceTick(g);
+  stepPieces(rdt); voiceStep(rdt);
   if (MODE.fx || MODE.t < 1){ simulate(rdt); M.flat = false; } else if (!M.flat){ settle(); M.flat = true; }
   if (MODE.fx && MODE.t > 3 && now - idleAt > 3500 && $('panel').classList.contains('hide') && !(rec && rec.state === 'recording')) document.body.classList.add('idle');
   if (!glOK) return;
@@ -837,7 +1051,9 @@ setMat(0); setCol(0, true);
 /* ---------- test hook ---------- */
 window.__tsumamu = {
   feedHands(list, t){ EXT.hands = true; if (modelState !== 'ready') setStatus(''); ingestHands(list, t == null ? performance.now() : t); },
-  setMode, setMat, setCol, CW, S, MODE, M, G, GRABS, HS,
+  setMode, setMat, setCol, CW, S, PIECES, VOICE, dropAll,
+  voiceFake(l, c){ VOICE.fake = l == null ? null : [l, c || 300]; },
+  hole(){ let m = 0; for (let k = 0; k < M.n; k++) m = Math.max(m, M.hole[k]); return m; }, MODE, M, G, GRABS, HS,
   grab:grabStart, move:grabMove, release:k => grabEnd(k),
   probe(p){ PROBE.want = p; PROBE.out = null; }, probed(){ return PROBE.out; },
   toScreen(x, y){ const o = [0, 0]; toScreen(x, y, o, 0); return o; },
@@ -846,7 +1062,7 @@ window.__tsumamu = {
     return b < 0 ? null : [M.dx[b], M.dy[b], M.dz[b]]; },
   state(){ let mx = 0, fin_ = true; for (let k = 0; k < M.n; k++){ const v = Math.hypot(M.dx[k], M.dy[k]); if (v > mx) mx = v; if (!fin(v) || !fin(M.dz[k])) fin_ = false; }
     return { frame:frameN, fx:MODE.fx, modeT:MODE.t, glOK, glErr, model:modelState, grabs:GRABS.map(g => ({ key:g.key, n:g.idx.length, stretch:+g.stretch.toFixed(3) })),
-      hands:HS.map(h => ({ on:h.on, pinch:h.pinch })), maxDisp:mx / G.short, finite:fin_, n:M.n }; },
+      hands:HS.map(h => ({ on:h.on, pinch:h.pinch })), pieces:PIECES.map(p => ({ st:p.st, x:Math.round(p.x), y:Math.round(p.y), tex:!!p.tex })), maxDisp:mx / G.short, finite:fin_, n:M.n }; },
 };
 
 </script>
