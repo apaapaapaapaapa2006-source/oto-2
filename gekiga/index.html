@@ -1,0 +1,576 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<script>/* REC-FIX (2026-10-12) — iPhone Safari で録画が途中で止まる・壊れる対策。どの作品でも同じ内容。
+   ・mp4 は映像と音声の両方のコーデックを宣言する（avc1 だけだと音声付きで止まることがある）
+   ・1 秒ごとにデータを受け取る（最後に一括で書き出さない）／ビットレートに上限
+   ・保存が終わる前に次の録画を始めない（前のファイルが消えるのを防ぐ）
+   ・録画中は AudioContext を止めない（音声トラックが止まると mp4 ごと止まる） */
+(()=>{const MR=window.MediaRecorder;if(!MR||MR.__recfix)return;let busy=0,active=0;
+class R extends MR{
+  constructor(s,o){if(busy)throw new Error('前の録画を保存しています');o=Object.assign({},o||{});
+    const au=s&&s.getAudioTracks&&s.getAudioTracks().length>0;
+    if(!o.mimeType||/^video\/mp4/.test(o.mimeType)){
+      const c=[au?'video/mp4;codecs="avc1.42E01E,mp4a.40.2"':'video/mp4;codecs="avc1.42E01E"','video/mp4'].find(m=>MR.isTypeSupported(m));
+      if(c)o.mimeType=c;else if(o.mimeType&&!MR.isTypeSupported(o.mimeType))delete o.mimeType;}
+    if(!o.videoBitsPerSecond&&!o.bitsPerSecond)o.videoBitsPerSecond=6e6;
+    super(s,o);this.addEventListener('stop',()=>{active=Math.max(0,active-1);setTimeout(()=>{busy=0;},0);});}
+  start(t){const r=super.start(t==null?1000:t);active++;return r;}
+  stop(){if(this.state!=='inactive'){busy=1;setTimeout(()=>{busy=0;},15000);}return super.stop();}}
+R.__recfix=1;window.MediaRecorder=R;
+const AC=window.AudioContext||window.webkitAudioContext;
+if(AC&&AC.prototype.suspend){const sus=AC.prototype.suspend;AC.prototype.suspend=function(){return active?Promise.resolve():sus.call(this);};}
+/* 録音用の出口には常に無音を流しておく（何も鳴っていないと音声トラックにデータが来ず、録画全体が止まる） */
+if(AC&&AC.prototype.createMediaStreamDestination){const cmd=AC.prototype.createMediaStreamDestination;AC.prototype.createMediaStreamDestination=function(){const d=cmd.apply(this,arguments);
+  try{const c=this.createConstantSource();c.offset.value=0;c.connect(d);c.start();}catch(e){}return d;};}})();</script>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#0d0b09">
+<meta name="description" content="カメラの映像が、そのまま昔の劇画の一コマになる。絵の具のように平らに塗られた面、墨の輪郭線、べた塗りの影、染みと焼けのある紙、ちぎれた紙のふち。劇画セピア・浮世絵・墨・夕焼け・ポップの五つ。写真と動画で撮れる。">
+<title>GEKIGA CAM ─ 劇画カメラ</title>
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  GEKIGA CAM ─ 劇画カメラ                                 ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  ORIGIN     オーナーが持ち込んだ完成品（index.html、作者表記「アパート / APARTMENT」、
+             画面上のタイトル「GEKIGA CAM 劇画カメラ」）。絵作り（桑原フィルタで面を平らにし、
+             DoG で墨線、階調を段に分けてパレットへ、べた影、紙の染み・粒・焼け、ちぎれたふち）・
+             五つのパレット・調整・写真と動画のシャッター・書体・配色はオーナーの設計のまま。
+             画廊に揃えたのは、カメラ失敗時の定型文、録画の REC-FIX、カメラ切替で失敗したとき
+             前のカメラを止めないこと、だけ。写真・動画ファイルの読み込みは他の作品に合わせて外した。
+  PALETTE    地 #0d0b09 ／ 紙 #e9d9b4 ／ 差し色 #c8402c（朱）
+  TYPE       Dela Gothic One ／ Zen Kaku Gothic New（オーナーの指定のまま）
+  TECH       WebGL1、2 パス（桑原の 4 象限を滑らかに重みづけ → DoG・ポスタライズ・紙）。
+             背面カメラが既定（オーナーの設計のまま、⟲ で前面）。
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Dela+Gothic+One&family=Zen+Kaku+Gothic+New:wght@500;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0d0b09; --ink:#15110e; --paper:#e9d9b4; --paper2:#c9b083;
+  --accent:#c8402c; --text:#f3e8cf; --dim:rgba(243,232,207,.55);
+  --glass:rgba(13,11,9,.55);
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;background:var(--bg);color:var(--text);overflow:hidden;
+  font-family:"Zen Kaku Gothic New",system-ui,-apple-system,sans-serif;touch-action:manipulation;
+  -webkit-user-select:none;user-select:none}
+canvas#gl{position:fixed;inset:0;width:100vw;height:100vh;height:100dvh;display:block}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+
+/* ---------- start ---------- */
+#start{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:28px;padding:24px;background:
+  radial-gradient(120% 80% at 50% 30%,#3a2416 0%,#140f0b 60%,#0d0b09 100%);z-index:20;text-align:center}
+#start h1{font-family:"Dela Gothic One",sans-serif;font-weight:400;font-size:clamp(44px,13vw,84px);line-height:.95;
+  color:var(--paper);letter-spacing:.02em;text-shadow:3px 3px 0 var(--accent)}
+#start h1 small{display:block;font-size:.32em;letter-spacing:.5em;margin-top:14px;color:var(--paper2);text-shadow:none}
+#start p{color:var(--dim);font-size:14px;line-height:1.8;max-width:320px}
+.bigbtn{display:block;width:min(300px,80vw);padding:16px 0;border-radius:999px;font-weight:700;font-size:16px;letter-spacing:.08em}
+.bigbtn.primary{background:var(--paper);color:var(--ink);box-shadow:4px 4px 0 var(--accent)}
+.bigbtn.ghost{border:1.5px solid rgba(233,217,180,.4);color:var(--paper)}
+#startErr{color:#f19a85;font-size:13px;min-height:1em;white-space:pre-line;line-height:1.8;max-width:340px}
+#fileBtn{visibility:hidden}
+.brand{position:absolute;bottom:calc(18px + env(safe-area-inset-bottom));font-size:11px;letter-spacing:.3em;color:rgba(233,217,180,.35)}
+
+/* ---------- HUD ---------- */
+#hud{position:fixed;inset:0;pointer-events:none;z-index:5;transition:opacity .25s}
+#hud.hidden{opacity:0}
+#hud.hidden *{pointer-events:none!important}
+.top{position:absolute;left:0;right:0;top:0;padding:calc(10px + env(safe-area-inset-top)) 12px 10px;
+  display:flex;gap:8px;align-items:center;background:linear-gradient(#0009,#0000)}
+.chips{display:flex;gap:6px;overflow-x:auto;flex:1;scrollbar-width:none;pointer-events:auto;padding:2px}
+.chips::-webkit-scrollbar{display:none}
+.chip{flex:none;padding:8px 13px;border-radius:999px;background:var(--glass);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
+  font-size:13px;font-weight:700;border:1px solid rgba(243,232,207,.18);white-space:nowrap}
+.chip.on{background:var(--paper);color:var(--ink);border-color:var(--paper)}
+.iconbtn{pointer-events:auto;width:44px;height:44px;border-radius:50%;display:grid;place-items:center;
+  background:var(--glass);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border:1px solid rgba(243,232,207,.18)}
+.iconbtn svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.iconbtn.on{background:var(--paper);color:var(--ink)}
+
+.bottom{position:absolute;left:0;right:0;bottom:0;padding:14px 22px calc(18px + env(safe-area-inset-bottom));
+  background:linear-gradient(#0000,#000a)}
+.modes{display:flex;justify-content:center;gap:22px;margin-bottom:14px;pointer-events:auto}
+.mode{font-size:13px;font-weight:700;letter-spacing:.15em;color:var(--dim);padding:4px 2px}
+.mode.on{color:var(--paper);border-bottom:2px solid var(--accent)}
+.bar{display:flex;align-items:center;justify-content:space-between}
+#shutter{pointer-events:auto;width:76px;height:76px;border-radius:50%;border:4px solid var(--paper);display:grid;place-items:center}
+#shutter i{display:block;width:60px;height:60px;border-radius:50%;background:var(--paper);transition:all .2s}
+#shutter.video i{background:var(--accent)}
+#shutter.rec i{width:28px;height:28px;border-radius:6px;background:var(--accent)}
+#shutter:active i{transform:scale(.92)}
+#recTime{position:absolute;left:50%;top:calc(64px + env(safe-area-inset-top));transform:translateX(-50%);
+  background:var(--accent);color:#fff;font-weight:700;font-size:13px;padding:4px 12px;border-radius:999px;
+  display:none;font-variant-numeric:tabular-nums;letter-spacing:.05em}
+#recTime.show{display:block}
+
+/* ---------- settings sheet ---------- */
+#sheet{position:fixed;left:0;right:0;bottom:0;z-index:8;background:rgba(18,14,11,.92);
+  backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-radius:18px 18px 0 0;
+  padding:14px 20px calc(20px + env(safe-area-inset-bottom));transform:translateY(105%);transition:transform .28s ease}
+#sheet.open{transform:none}
+#sheet .grab{width:40px;height:4px;border-radius:2px;background:rgba(243,232,207,.3);margin:0 auto 12px}
+#sheet h3{font-size:12px;letter-spacing:.3em;color:var(--dim);margin-bottom:6px;display:flex;justify-content:space-between;align-items:center}
+#sheet h3 button{font-size:12px;letter-spacing:.1em;color:var(--paper);padding:4px 8px}
+.row{display:grid;grid-template-columns:52px 1fr 38px;align-items:center;gap:10px;padding:7px 0}
+.row label{font-size:13px;font-weight:700}
+.row output{font-size:12px;color:var(--dim);text-align:right;font-variant-numeric:tabular-nums}
+input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:28px;background:transparent}
+input[type=range]::-webkit-slider-runnable-track{height:4px;border-radius:2px;background:rgba(243,232,207,.22)}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:22px;height:22px;border-radius:50%;background:var(--paper);margin-top:-9px;box-shadow:2px 2px 0 var(--accent)}
+input[type=range]::-moz-range-track{height:4px;border-radius:2px;background:rgba(243,232,207,.22)}
+input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;background:var(--paper);border:0}
+
+/* ---------- result overlay ---------- */
+#result{position:fixed;inset:0;z-index:30;background:rgba(8,6,5,.94);display:none;flex-direction:column;
+  align-items:center;justify-content:center;gap:16px;padding:calc(16px + env(safe-area-inset-top)) 16px calc(20px + env(safe-area-inset-bottom))}
+#result.show{display:flex}
+#result .media{flex:1;min-height:0;width:100%;display:flex;align-items:center;justify-content:center}
+#result img,#result video{max-width:100%;max-height:100%;border-radius:6px;box-shadow:0 10px 40px #000}
+#result .acts{display:flex;gap:12px;width:100%;max-width:420px}
+#result .acts button{flex:1;padding:14px 0;border-radius:999px;font-weight:700;letter-spacing:.06em}
+#saveBtn{background:var(--paper);color:var(--ink)}
+#closeBtn{border:1.5px solid rgba(233,217,180,.4);color:var(--paper)}
+#result .hint{font-size:12px;color:var(--dim);text-align:center}
+#flash{position:fixed;inset:0;background:#fff;opacity:0;pointer-events:none;z-index:9;transition:opacity .35s}
+#toast{position:fixed;left:50%;top:40%;transform:translate(-50%,-50%);background:var(--glass);padding:10px 16px;border-radius:10px;
+  font-size:13px;z-index:40;opacity:0;transition:opacity .3s;pointer-events:none;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+
+<div id="start">
+  <h1>GEKIGA<br>CAM<small>劇 画 カ メ ラ</small></h1>
+  <p>カメラ映像をリアルタイムで<br>レトロな劇画タッチに変換します。</p>
+  <div style="display:grid;gap:12px">
+    <button class="bigbtn primary" id="camBtn">カメラを起動</button>
+  </div>
+  <div id="startErr"></div>
+  <div class="brand">アパート / APARTMENT</div>
+</div>
+
+<div id="hud" class="hidden">
+  <div class="top">
+    <div class="chips" id="chips"></div>
+    <button class="iconbtn" id="setBtn" aria-label="調整">
+      <svg viewBox="0 0 24 24"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg>
+    </button>
+  </div>
+  <div id="recTime">● 00:00</div>
+  <div class="bottom">
+    <div class="modes"><button class="mode on" data-m="photo">写真</button><button class="mode" data-m="video">動画</button></div>
+    <div class="bar">
+      <!-- keeps the shutter centred; the owner's file button was removed (no file loading in the gallery) -->
+      <span class="iconbtn" id="fileBtn" aria-hidden="true"></span>
+      <button id="shutter" aria-label="撮影"><i></i></button>
+      <button class="iconbtn" id="flipBtn" aria-label="カメラ切替">
+        <svg viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><path d="M9.5 13.5a2.8 2.8 0 0 0 5 1.2M14.5 12.5a2.8 2.8 0 0 0-5-1.2"/><path d="M14.5 15.5v-1.6h-1.6M9.5 10.5v1.6h1.6"/></svg>
+      </button>
+    </div>
+  </div>
+</div>
+
+<div id="sheet">
+  <div class="grab"></div>
+  <h3>ADJUST <button id="resetBtn">リセット</button></h3>
+  <div id="sliders"></div>
+</div>
+
+<div id="result">
+  <div class="media" id="resMedia"></div>
+  <div class="hint" id="resHint"></div>
+  <div class="acts"><button id="closeBtn">閉じる</button><button id="saveBtn">保存 / 共有</button></div>
+</div>
+<div id="flash"></div>
+<div id="toast"></div>
+<video id="vid" playsinline muted autoplay loop style="display:none"></video>
+
+<script>
+(() => {
+'use strict';
+const $ = s => document.querySelector(s);
+const cv = $('#gl');
+const gl = cv.getContext('webgl', {preserveDrawingBuffer:true, antialias:false, alpha:false});
+if (!gl) { $('#startErr').textContent = 'WebGLが使えない環境です'; return; }
+
+/* ================= shaders ================= */
+const VS = `attribute vec2 p;varying vec2 v;void main(){v=p*.5+.5;gl_Position=vec4(p,0.,1.);}`;
+
+// Pass 1: Kuwahara smoothing (flattens surfaces into paint-like patches)
+const FS_SMOOTH = `precision highp float;
+varying vec2 v;
+uniform sampler2D src; uniform vec2 sc, off, st; uniform float mir;
+vec3 S(vec2 p){return texture2D(src,clamp(p,0.001,0.999)).rgb;}
+void main(){
+  vec2 sv=v; if(mir>.5) sv.x=1.-sv.x;
+  vec2 b=sv*sc+off;
+  vec3 m0=vec3(0.),m1=m0,m2=m0,m3=m0,s0=m0,s1=m0,s2=m0,s3=m0,c;
+  for(int j=0;j<=3;j++)for(int i=0;i<=3;i++){
+    vec2 o=vec2(float(i),float(j))*st;
+    c=S(b+vec2(-o.x,-o.y));m0+=c;s0+=c*c;
+    c=S(b+vec2( o.x,-o.y));m1+=c;s1+=c*c;
+    c=S(b+vec2( o.x, o.y));m2+=c;s2+=c*c;
+    c=S(b+vec2(-o.x, o.y));m3+=c;s3+=c*c;
+  }
+  m0/=16.;m1/=16.;m2/=16.;m3/=16.;
+  vec3 q0=abs(s0/16.-m0*m0),q1=abs(s1/16.-m1*m1),q2=abs(s2/16.-m2*m2),q3=abs(s3/16.-m3*m3);
+  float v0=q0.r+q0.g+q0.b,v1=q1.r+q1.g+q1.b,v2=q2.r+q2.g+q2.b,v3=q3.r+q3.g+q3.b;
+  // smooth weighting instead of hard argmin -> no blocky artifacts
+  float w0=1./pow(v0*60.+.02,3.),w1=1./pow(v1*60.+.02,3.),w2=1./pow(v2*60.+.02,3.),w3=1./pow(v3*60.+.02,3.);
+  vec3 r=(m0*w0+m1*w1+m2*w2+m3*w3)/(w0+w1+w2+w3);
+  gl_FragColor=vec4(r,1.);
+}`;
+
+// Pass 2: ink lines (DoG) + tone posterize + palette + paper + torn border
+const FS_FINAL = `precision highp float;
+varying vec2 v;
+uniform sampler2D tex; uniform vec2 px, res;
+uniform float uLine,uLineAmt,uLevels,uWarm,uSat,uShadow,uTime,uPaper,uBorder;
+uniform vec3 uP0,uP1,uP2,uP3,uP4,uInk,uPaperCol;
+float luma(vec3 c){return dot(c,vec3(.299,.587,.114));}
+float hash(vec2 p){p=fract(p*vec2(123.34,456.21));p+=dot(p,p+45.32);return fract(p.x*p.y);}
+float vn(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);
+  return mix(mix(hash(i),hash(i+vec2(1.,0.)),f.x),mix(hash(i+vec2(0.,1.)),hash(i+1.),f.x),f.y);}
+float fbm(vec2 p){float s=0.,a=.5;for(int i=0;i<5;i++){s+=a*vn(p);p=p*2.03+7.1;a*=.5;}return s;}
+vec3 grad(float t){
+  t=clamp(t,0.,1.);
+  if(t<.25) return mix(uP0,uP1,t*4.);
+  if(t<.5)  return mix(uP1,uP2,(t-.25)*4.);
+  if(t<.75) return mix(uP2,uP3,(t-.5)*4.);
+  return mix(uP3,uP4,(t-.75)*4.);
+}
+void main(){
+  vec3 c=texture2D(tex,v).rgb;
+  float l=luma(c);
+  // --- Difference of Gaussians -> ink lines
+  float g1=0.,g2=0.,w1s=0.,w2s=0.;
+  for(int j=-2;j<=2;j++)for(int i=-2;i<=2;i++){
+    vec2 o=vec2(float(i),float(j));
+    float d2=dot(o,o);
+    float s=luma(texture2D(tex,v+o*px*uLine).rgb);
+    float w1=exp(-d2*.5), w2=exp(-d2*.195);
+    g1+=s*w1;w1s+=w1;g2+=s*w2;w2s+=w2;
+  }
+  g1/=w1s;g2/=w2s;
+  float d=g1-g2;
+  float ink=smoothstep(.0035,.013,-d);
+  ink=max(ink,smoothstep(.015,.04,abs(d))*.15);
+  ink*=uLineAmt;
+  // --- tone posterize (soft steps) + palette
+  float x=l*uLevels;
+  float lq=clamp((floor(x)+smoothstep(.38,.62,fract(x)))/uLevels,0.,1.);
+  vec3 chroma=c-vec3(l);
+  vec3 base=mix(vec3(lq),grad(lq),uWarm);
+  vec3 col=clamp(base+chroma*uSat,0.,1.);
+  // --- solid black shadows
+  float sh=1.-smoothstep(uShadow-.03,uShadow+.03,l);
+  col=mix(col,uInk,sh);
+  col=mix(col,uInk,clamp(ink,0.,1.));
+  // --- paper: stains, grain, burnt vignette
+  vec2 fp=v*res; float m=min(res.x,res.y);
+  float stain=fbm(fp/m*5.+3.1);
+  float grain=hash(fp+floor(uTime*12.)*17.13);
+  col*=mix(1.,.86+.24*stain,uPaper);
+  col+=(grain-.5)*.06*uPaper;
+  vec2 q=v-.5; float vig=dot(q,q);
+  col=mix(col,col*vec3(.72,.52,.34),smoothstep(.1,.55,vig)*uPaper);
+  // --- torn paper border
+  if(uBorder>.001){
+    float de=min(min(fp.x,res.x-fp.x),min(fp.y,res.y-fp.y));
+    float bw=m*.03*uBorder;
+    float edge=bw+(fbm(fp/m*14.)-.5)*m*.035*uBorder+(vn(fp/m*90.)-.5)*m*.006*uBorder;
+    float inside=smoothstep(edge-1.,edge+1.,de);
+    float burn=1.-smoothstep(edge,edge+m*.05,de);
+    col=mix(col,col*vec3(.5,.34,.22),burn*.75);
+    vec3 pc=uPaperCol*(.86+.2*fbm(fp/m*9.))+(hash(fp*1.7)-.5)*.05;
+    float lip=smoothstep(edge-m*.007,edge,de);
+    pc=mix(pc,pc*vec3(.62,.5,.38),lip);
+    col=mix(pc,col,inside);
+  }
+  gl_FragColor=vec4(col,1.);
+}`;
+
+function compile(type, src){
+  const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s));
+  return s;
+}
+function program(fs){
+  const p = gl.createProgram();
+  gl.attachShader(p, compile(gl.VERTEX_SHADER, VS));
+  gl.attachShader(p, compile(gl.FRAGMENT_SHADER, fs));
+  gl.bindAttribLocation(p, 0, 'p');
+  gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+  const u = {}; const n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+  for (let i=0;i<n;i++){ const a = gl.getActiveUniform(p,i); u[a.name] = gl.getUniformLocation(p,a.name); }
+  return {p, u};
+}
+let P1, P2;
+try { P1 = program(FS_SMOOTH); P2 = program(FS_FINAL); }
+catch(e){ $('#startErr').textContent = 'シェーダーエラー: ' + e.message; console.error(e); return; }
+
+const buf = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1,1,-1,-1,1,1,1]), gl.STATIC_DRAW);
+gl.enableVertexAttribArray(0);
+gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+
+function makeTex(){
+  const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  return t;
+}
+const srcTex = makeTex();
+const fboTex = makeTex();
+const fbo = gl.createFramebuffer();
+let W=0,H=0,PW=0,PH=0;
+
+function resize(){
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  let w = Math.round(cv.clientWidth * dpr), h = Math.round(cv.clientHeight * dpr);
+  const cap = 1600, k = Math.min(1, cap / Math.max(w,h));
+  w = Math.round(w*k); h = Math.round(h*k);
+  if (w === W && h === H) return;
+  W = cv.width = w; H = cv.height = h;
+  const pk = Math.min(1, 720 / Math.max(w,h));
+  PW = Math.max(2, Math.round(w*pk)); PH = Math.max(2, Math.round(h*pk));
+  gl.bindTexture(gl.TEXTURE_2D, fboTex);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, PW, PH, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, fboTex, 0);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+}
+window.addEventListener('resize', resize);
+window.addEventListener('orientationchange', () => setTimeout(resize, 300));
+
+/* ================= presets & params ================= */
+const hex = h => [1,3,5].map(i => parseInt(h.substr(i,2),16)/255);
+const PRESETS = [
+  {name:'劇画セピア', pal:['#17120f','#5e3322','#b8773c','#e6c588','#f5e7c6'], ink:'#16110e', paperCol:'#cdb587',
+   p:{line:1.3, lineAmt:1, levels:5, warm:.72, sat:1.0, shadow:.15, paper:.8, border:1}},
+  {name:'浮世絵', pal:['#151a2b','#2f4a6d','#9c8a63','#e5cf9c','#f4ead2'], ink:'#141826', paperCol:'#d8c69c',
+   p:{line:1.2, lineAmt:1, levels:4, warm:.55, sat:1.4, shadow:.13, paper:.7, border:1}},
+  {name:'墨', pal:['#121010','#3c3632','#86796c','#cfc3ae','#f1e8d6'], ink:'#0f0d0c', paperCol:'#d6cbb5',
+   p:{line:1.5, lineAmt:1, levels:3, warm:1, sat:0, shadow:.2, paper:.9, border:1}},
+  {name:'夕焼け', pal:['#1b1022','#5a2240','#c4553a','#f0a54c','#fde4a6'], ink:'#170d18', paperCol:'#d9b98b',
+   p:{line:1.2, lineAmt:.9, levels:5, warm:.6, sat:1.2, shadow:.14, paper:.6, border:1}},
+  {name:'ポップ', pal:['#111111','#444444','#999999','#dddddd','#ffffff'], ink:'#111111', paperCol:'#efe6d2',
+   p:{line:1.1, lineAmt:1, levels:6, warm:.05, sat:1.6, shadow:.12, paper:.35, border:0}},
+];
+const SLIDERS = [
+  ['line','線幅',.6,2.6,.05], ['lineAmt','線量',0,1,.05], ['levels','階調',2,9,1], ['shadow','影',0,.4,.01],
+  ['sat','彩度',0,2.5,.05], ['warm','色調',0,1,.05], ['paper','紙',0,1,.05], ['border','フチ',0,2,.05],
+];
+let preset = PRESETS[0], params = {...preset.p};
+
+const chips = $('#chips');
+PRESETS.forEach((pr,i) => {
+  const b = document.createElement('button'); b.className = 'chip' + (i===0?' on':''); b.textContent = pr.name;
+  b.onclick = () => { preset = pr; params = {...pr.p}; syncSliders();
+    [...chips.children].forEach(c => c.classList.toggle('on', c===b)); };
+  chips.appendChild(b);
+});
+const sl = $('#sliders'); const inputs = {};
+SLIDERS.forEach(([k,label,min,max,step]) => {
+  const row = document.createElement('div'); row.className='row';
+  row.innerHTML = `<label>${label}</label><input type="range" min="${min}" max="${max}" step="${step}"><output></output>`;
+  const inp = row.querySelector('input'), out = row.querySelector('output');
+  inp.oninput = () => { params[k] = +inp.value; out.textContent = (+inp.value).toFixed(step<1?2:0); };
+  inputs[k] = [inp,out,step]; sl.appendChild(row);
+});
+function syncSliders(){ for (const k in inputs){ const [i,o,s]=inputs[k]; i.value=params[k]; o.textContent=(+params[k]).toFixed(s<1?2:0);} }
+syncSliders();
+$('#resetBtn').onclick = () => { params = {...preset.p}; syncSliders(); };
+const sheet = $('#sheet');
+$('#setBtn').onclick = e => { e.stopPropagation(); sheet.classList.toggle('open'); $('#setBtn').classList.toggle('on'); };
+
+/* ================= sources ================= */
+const vid = $('#vid');
+let srcKind = null;        // 'camera' | 'video' | 'image'
+let srcEl = null, srcW = 0, srcH = 0, mirror = false, imageDirty = false;
+let facing = 'environment', stream = null;
+
+async function startCamera(){
+  const md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) throw new Error('getUserMedia is unavailable');
+  // get the new stream first, so a failed flip keeps the old camera running
+  const s = await md.getUserMedia({audio:false, video:{
+    facingMode:{ideal:facing}, width:{ideal:1920}, height:{ideal:1080}, frameRate:{ideal:30}}});
+  stopStream();
+  stream = s;
+  vid.srcObject = s; vid.loop = false; vid.muted = true;
+  await vid.play();
+  const track = s.getVideoTracks()[0];
+  const fm = track.getSettings ? track.getSettings().facingMode : null;
+  mirror = (fm ? fm === 'user' : facing === 'user');
+  srcKind = 'camera'; srcEl = vid;
+}
+function stopStream(){ if (stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; } }
+
+
+function enterApp(){ $('#start').style.display='none'; $('#hud').classList.remove('hidden'); resize(); }
+
+function camErrText(e){
+  const m = (e && (e.message || e.name)) ? (e.message || e.name) : String(e || 'unknown');
+  return 'カメラを起動できませんでした：' + m + '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+}
+$('#camBtn').onclick = async () => {
+  $('#startErr').textContent = '';
+  try { await startCamera(); enterApp(); }
+  catch(e){ $('#startErr').textContent = camErrText(e); }
+};
+$('#flipBtn').onclick = async e => {
+  e.stopPropagation();
+  if (recording) return;
+  const prev = facing; facing = facing === 'environment' ? 'user' : 'environment';
+  try { await startCamera(); } catch(err){ facing = prev; toast('切替できませんでした'); }
+};
+
+/* tap canvas → toggle UI / close sheet */
+cv.addEventListener('click', () => {
+  if (sheet.classList.contains('open')){ sheet.classList.remove('open'); $('#setBtn').classList.remove('on'); return; }
+  if ($('#start').style.display === 'none') $('#hud').classList.toggle('hidden');
+});
+
+/* ================= render loop ================= */
+function setPal(u){
+  const pal = preset.pal.map(hex);
+  gl.uniform3fv(u.uP0, pal[0]); gl.uniform3fv(u.uP1, pal[1]); gl.uniform3fv(u.uP2, pal[2]);
+  gl.uniform3fv(u.uP3, pal[3]); gl.uniform3fv(u.uP4, pal[4]);
+  gl.uniform3fv(u.uInk, hex(preset.ink)); gl.uniform3fv(u.uPaperCol, hex(preset.paperCol));
+}
+function render(t){
+  resize();
+  // upload source
+  gl.bindTexture(gl.TEXTURE_2D, srcTex);
+  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+  if (srcKind === 'image'){
+    if (imageDirty){ gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,srcEl); imageDirty=false; }
+  } else {
+    if (vid.readyState < 2 || !vid.videoWidth) return false;
+    srcW = vid.videoWidth; srcH = vid.videoHeight;
+    gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,vid);
+  }
+  // cover-fit mapping
+  const ca = W/H, va = srcW/srcH; let sc, off;
+  if (va > ca){ sc=[ca/va,1]; off=[(1-ca/va)/2,0]; } else { sc=[1,va/ca]; off=[0,(1-va/ca)/2]; }
+
+  // pass 1
+  gl.bindFramebuffer(gl.FRAMEBUFFER, fbo); gl.viewport(0,0,PW,PH);
+  gl.useProgram(P1.p);
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, srcTex);
+  gl.uniform1i(P1.u.src, 0);
+  gl.uniform2f(P1.u.sc, sc[0], sc[1]); gl.uniform2f(P1.u.off, off[0], off[1]);
+  const kr = 1.25;
+  gl.uniform2f(P1.u.st, sc[0]/PW*kr, sc[1]/PH*kr);
+  gl.uniform1f(P1.u.mir, mirror?1:0);
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+  // pass 2
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0,0,W,H);
+  gl.useProgram(P2.p);
+  gl.bindTexture(gl.TEXTURE_2D, fboTex); gl.uniform1i(P2.u.tex, 0);
+  const u = P2.u;
+  gl.uniform2f(u.px, 1/PW, 1/PH); gl.uniform2f(u.res, W, H);
+  gl.uniform1f(u.uLine, params.line); gl.uniform1f(u.uLineAmt, params.lineAmt);
+  gl.uniform1f(u.uLevels, params.levels); gl.uniform1f(u.uWarm, params.warm);
+  gl.uniform1f(u.uSat, params.sat); gl.uniform1f(u.uShadow, params.shadow);
+  gl.uniform1f(u.uPaper, params.paper); gl.uniform1f(u.uBorder, params.border);
+  gl.uniform1f(u.uTime, t/1000);
+  setPal(u);
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  return true;
+}
+function loop(t){ requestAnimationFrame(loop); if (srcKind) render(t); }
+requestAnimationFrame(loop);
+window.__gekiga = { render, get ready(){ return !!srcKind && (srcKind==='image' || vid.readyState>=2); } };
+
+/* ================= capture ================= */
+let mode = 'photo', recording = false, recorder = null, chunks = [], recStart = 0, recTimer = 0;
+document.querySelectorAll('.mode').forEach(b => b.onclick = e => {
+  e.stopPropagation(); if (recording) return;
+  mode = b.dataset.m;
+  document.querySelectorAll('.mode').forEach(x => x.classList.toggle('on', x===b));
+  $('#shutter').classList.toggle('video', mode==='video');
+});
+$('#shutter').onclick = e => {
+  e.stopPropagation();
+  if (mode === 'photo') takePhoto(); else (recording ? stopRec() : startRec());
+};
+function takePhoto(){
+  render(performance.now());
+  const f = $('#flash'); f.style.transition='none'; f.style.opacity=.8;
+  requestAnimationFrame(()=>{ f.style.transition='opacity .35s'; f.style.opacity=0; });
+  cv.toBlob(b => { if (b) showResult(b, 'image'); }, 'image/jpeg', .93);
+}
+function pickMime(){
+  const c = ['video/mp4;codecs=avc1','video/mp4','video/webm;codecs=vp9','video/webm'];
+  if (!window.MediaRecorder) return null;
+  for (const m of c) if (MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(m)) return m;
+  return '';
+}
+function startRec(){
+  const mime = pickMime();
+  if (mime === null || !cv.captureStream){ toast('この端末は動画録画に未対応です'); return; }
+  const s = cv.captureStream(30);
+  try { recorder = new MediaRecorder(s, mime ? {mimeType:mime, videoBitsPerSecond:8e6} : undefined); }
+  catch(e){ toast('録画を開始できませんでした'); return; }
+  chunks = [];
+  recorder.ondataavailable = ev => { if (ev.data && ev.data.size) chunks.push(ev.data); };
+  recorder.onstop = () => {
+    const type = recorder.mimeType || mime || 'video/mp4';
+    showResult(new Blob(chunks, {type}), 'video');
+  };
+  recorder.start(500);
+  recording = true; recStart = performance.now();
+  $('#shutter').classList.add('rec'); $('#recTime').classList.add('show');
+  recTimer = setInterval(() => {
+    const s = Math.floor((performance.now()-recStart)/1000);
+    $('#recTime').textContent = '● ' + String(Math.floor(s/60)).padStart(2,'0') + ':' + String(s%60).padStart(2,'0');
+  }, 250);
+}
+function stopRec(){
+  recording = false; clearInterval(recTimer);
+  $('#shutter').classList.remove('rec'); $('#recTime').classList.remove('show'); $('#recTime').textContent='● 00:00';
+  if (recorder && recorder.state !== 'inactive') recorder.stop();
+}
+
+let lastBlob = null, lastUrl = null;
+function showResult(blob, kind){
+  lastBlob = blob; if (lastUrl) URL.revokeObjectURL(lastUrl); lastUrl = URL.createObjectURL(blob);
+  const m = $('#resMedia'); m.innerHTML = '';
+  const el = document.createElement(kind==='image' ? 'img' : 'video');
+  el.src = lastUrl;
+  if (kind === 'video'){ el.controls = true; el.playsInline = true; el.loop = true; el.autoplay = true; el.muted = true; }
+  m.appendChild(el);
+  $('#resHint').textContent = kind==='image' ? '共有シートから「画像を保存」で写真に追加できます' : '共有シートから「ビデオを保存」で写真に追加できます';
+  $('#result').classList.add('show');
+}
+$('#closeBtn').onclick = () => { $('#result').classList.remove('show'); $('#resMedia').innerHTML=''; };
+$('#saveBtn').onclick = async () => {
+  if (!lastBlob) return;
+  const isImg = lastBlob.type.startsWith('image');
+  const ext = isImg ? 'jpg' : (lastBlob.type.includes('mp4') ? 'mp4' : 'webm');
+  const name = 'gekiga_' + new Date().toISOString().replace(/[-:T]/g,'').slice(0,14) + '.' + ext;
+  const file = new File([lastBlob], name, {type: lastBlob.type});
+  if (navigator.canShare && navigator.canShare({files:[file]})){
+    try { await navigator.share({files:[file]}); return; } catch(e){ if (e.name === 'AbortError') return; }
+  }
+  const a = document.createElement('a'); a.href = lastUrl; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+};
+
+let toastT = 0;
+function toast(msg){ const t=$('#toast'); t.textContent=msg; t.style.opacity=1; clearTimeout(toastT); toastT=setTimeout(()=>t.style.opacity=0,1800); }
+document.addEventListener('visibilitychange', () => { if (document.hidden && recording) stopRec(); });
+})();
+</script>
+</body>
+</html>
