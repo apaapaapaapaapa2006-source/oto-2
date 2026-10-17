@@ -1,0 +1,812 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<script>/* REC-FIX (2026-10-12) — iPhone Safari で録画が途中で止まる・壊れる対策。どの作品でも同じ内容。
+   ・mp4 は映像と音声の両方のコーデックを宣言する（avc1 だけだと音声付きで止まることがある）
+   ・1 秒ごとにデータを受け取る（最後に一括で書き出さない）／ビットレートに上限
+   ・保存が終わる前に次の録画を始めない（前のファイルが消えるのを防ぐ）
+   ・録画中は AudioContext を止めない（音声トラックが止まると mp4 ごと止まる） */
+(()=>{const MR=window.MediaRecorder;if(!MR||MR.__recfix)return;let busy=0,active=0;
+class R extends MR{
+  constructor(s,o){if(busy)throw new Error('前の録画を保存しています');o=Object.assign({},o||{});
+    const au=s&&s.getAudioTracks&&s.getAudioTracks().length>0;
+    if(!o.mimeType||/^video\/mp4/.test(o.mimeType)){
+      const c=[au?'video/mp4;codecs="avc1.42E01E,mp4a.40.2"':'video/mp4;codecs="avc1.42E01E"','video/mp4'].find(m=>MR.isTypeSupported(m));
+      if(c)o.mimeType=c;else if(o.mimeType&&!MR.isTypeSupported(o.mimeType))delete o.mimeType;}
+    if(!o.videoBitsPerSecond&&!o.bitsPerSecond)o.videoBitsPerSecond=6e6;
+    super(s,o);this.addEventListener('stop',()=>{active=Math.max(0,active-1);setTimeout(()=>{busy=0;},0);});}
+  start(t){const r=super.start(t==null?1000:t);active++;return r;}
+  stop(){if(this.state!=='inactive'){busy=1;setTimeout(()=>{busy=0;},15000);}return super.stop();}}
+R.__recfix=1;window.MediaRecorder=R;
+const AC=window.AudioContext||window.webkitAudioContext;
+if(AC&&AC.prototype.suspend){const sus=AC.prototype.suspend;AC.prototype.suspend=function(){return active?Promise.resolve():sus.call(this);};}
+/* 録音用の出口には常に無音を流しておく（何も鳴っていないと音声トラックにデータが来ず、録画全体が止まる） */
+if(AC&&AC.prototype.createMediaStreamDestination){const cmd=AC.prototype.createMediaStreamDestination;AC.prototype.createMediaStreamDestination=function(){const d=cmd.apply(this,arguments);
+  try{const c=this.createConstantSource();c.offset.value=0;c.connect(d);c.start();}catch(e){}return d;};}})();</script>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="description" content="TSUMAMU の最初の版。カメラの映像を、親指と人差し指でつまんで引っぱれる。映像はゼリーのような透明な膜になって伸び、離すとぷるんと揺れて「ぼよん」と鳴りながら戻る。両手でつまめば手のあいだで引き伸ばせ、指ではじくと波紋が走る。撮影と録画ができる。">
+<meta name="theme-color" content="#0b0b0c">
+<title>TSUMAMU NAKED ─ 映像をつまんで引っぱる（最初の版）</title>
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  TSUMAMU NAKED 摘む ─ 映像をつまんで引っぱる（最初の版）   ART DIRECTION SHEET
+  VERSION    オーナーの依頼（2026-10-17）で残した TSUMAMU の最初の状態。色の切り替え・ちぎる・
+             はがして貼る・声で揺らすを足す前の、つまむ・離す・はじくと素材 3 種だけの版。
+             足した機能のある最新版は tsumamu/。ここで直したのは、素のカメラに戻したとき膜が
+             平らに戻らないことがある不具合だけ。
+  ══════════════════════════════════════════════════════════════════════════
+  ORIGIN     オーナーの「hiku みたいな作品がほしい」（2026-10-17）。HIKU と同じく、主役は
+             人の見た目ではなく「指と映像のあいだで起きること」。HIKU が指どうしの糸で
+             映像を伸ばすのに対し、こちらは映像の面そのものをつまんで引く。
+  REFERENCE  ラテックスやゼリーの膜を指でつまんで持ち上げたときの、つままれた一点に
+             向かって寄るしわと、離した瞬間のぷるんとした揺れ戻り。素材写真の世界で言えば
+             ハイスピードで撮った水風船やゼリーの揺れ（ぬめった反射と縁の虹色）。
+  MOOD       画面いっぱいのカメラ映像に、透明な膜が一枚かかっている。触るまでは
+             ただの映像で、つまんだ瞬間だけ「これは柔らかい物だった」と分かる。
+  PALETTE    映像の色がそのまま主役。膜が足すのは光だけ：白い鏡面反射、伸びた所の
+             薄膜の虹色、色ずれ。素材ごとに一色だけ差す ── GEL は無色、LATEX は墨、
+             HONEY は琥珀 #e0a040。UI は白 #f2efe9 と差し色の珊瑚 #ff6a4d。
+  TYPE       Bricolage Grotesque 300/600（題字・ラベル）・M PLUS 2 300（和文）。
+  MOTION     つまんだ点を中心に、まわりの映像が距離に応じてなめらかに付いてくる。
+             離すと膜が自分の張力で揺れ戻り、波が端まで行って返ってくる。
+  SIGNATURE  離した瞬間の「ぼよん」── 伸ばした長さで音程が決まり（D のマイナー
+             ペンタトニック）、膜の揺れと同じ速さでビブラートがかかる。
+  LAYERS     ① 主役：映像の面を親指と人差し指でつまんで引く。つまんだ点のまわりが
+                重みつきで付いてきて、膜は持ち上がる
+             ② 素材の光：膜の傾きで鏡面反射と縁の明るさ、伸びて薄くなった所に薄膜の
+                虹色と色ずれ。縮んだ所はしわの影
+             ③ 揺れ戻り：離すと膜の波動として揺れながら戻る（端は額縁に留まっている）
+             ④ 両手：二か所をつまめば、そのあいだで映像が引き伸ばされる。画面を指で
+                ドラッグしてもつまめる
+             ⑤ はじく：つままずに人差し指をすばやく振ると、そこから波紋が走る
+             ⑥ 素材 3 種：GEL（柔らかく長く揺れる）・LATEX（固く速く戻る、墨の艶）・
+                HONEY（重く、ゆっくり垂れるように戻る、琥珀色）
+             ⑦ 素のカメラ ⇄ 膜：膜が上から落ちてきて一度波打ち、光沢が画面をなでる
+             ⑧ 音：引くあいだはゴムのきしみ（伸ばすほど高い）、離すと音程つきの
+                「ぼよん」、はじくと低い太鼓。録画に入る
+  TECH       WebGL2。画面を約 36 マス（短辺）の格子にし、各頂点の変位（x・y・持ち上がり）を
+             膜の波動方程式（元の位置へのばね＋隣どうしのラプラシアン＋減衰）で
+             固定刻みで解く。つまみは開始時に半径内の頂点を重み付きで捕まえ、
+             目標位置へ強いばねで引く。頂点ごとに面の傾きと面積の伸び率を出して、
+             シェーダで反射・虹色・色ずれを計算する。HandLandmarker（2 手、動的 import）。
+             つまみは親指と人差し指の先の距離を手の大きさで割った値に履歴差をつけ、
+             観測時間で判定する。
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,300;12..96,600&family=M+PLUS+2:wght@300;500&display=swap" rel="stylesheet">
+<style>
+:root{--ui:#f2efe9;--dim:rgba(242,239,233,.6);--acc:#ff6a4d}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none}
+html,body{margin:0;height:100%;background:#0b0b0c;overflow:hidden;color:var(--ui);font-family:"M PLUS 2","Hiragino Sans",sans-serif}
+#view{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:grab}
+#view:active{cursor:grabbing}
+#cam{position:fixed;left:0;top:0;width:2px;height:2px;opacity:.01;pointer-events:none}
+#start{position:fixed;inset:0;z-index:30;display:flex;flex-direction:column;align-items:center;justify-content:safe center;gap:14px;overflow-y:auto;
+  padding:28px;text-align:center;background:radial-gradient(120% 90% at 50% 40%,#1c1a1a 0%,#0b0b0c 60%)}
+#start .t{font:300 10px "Bricolage Grotesque",sans-serif;letter-spacing:.5em;margin-right:-.5em;color:var(--dim)}
+#start h1{margin:0;font:600 min(17vw,118px)/.9 "Bricolage Grotesque",sans-serif;letter-spacing:-.02em;color:#fff}
+#start .sub{font-size:14px;letter-spacing:.3em;margin-right:-.3em;color:#e8e2da;font-weight:300}
+#emblem{width:min(56vw,240px);height:min(56vw,240px);margin:2px 0}
+#start p{margin:0;font-size:12.5px;line-height:2.05;letter-spacing:.05em;color:#aaa39b;font-weight:300}
+#go{appearance:none;border:0;border-radius:100px;background:var(--acc);color:#140806;font:600 13px "Bricolage Grotesque","M PLUS 2",sans-serif;
+  letter-spacing:.3em;padding:14px 34px 14px 40px;cursor:pointer;margin-top:4px;box-shadow:0 8px 30px rgba(255,106,77,.3)}
+@media (max-height:640px){#start{gap:9px;padding:16px}#start h1{font-size:min(14vh,90px)}#emblem{width:min(26vh,150px);height:min(26vh,150px)}}
+@media (max-height:440px){#emblem{display:none}#start .t{display:none}}
+#err{font-size:12px;line-height:1.8;max-width:380px;min-height:1em;white-space:pre-line;color:#ff8a78;font-family:sans-serif;font-weight:600}
+.btn{position:fixed;z-index:12;appearance:none;border:0;background:transparent;color:var(--ui);text-shadow:0 0 8px rgba(0,0,0,.7);
+  font:600 11px "Bricolage Grotesque","M PLUS 2",sans-serif;letter-spacing:.14em;padding:10px 8px;display:none;cursor:pointer;opacity:.8;transition:opacity .4s}
+.btn.show{display:block}
+.btn:hover{opacity:1}
+#gear{right:10px;top:calc(env(safe-area-inset-top) + 6px);font:15px sans-serif;letter-spacing:0}
+#flip{right:10px;top:calc(env(safe-area-inset-top) + 40px);letter-spacing:.06em}
+#brand{position:fixed;left:14px;top:calc(env(safe-area-inset-top) + 12px);z-index:11;pointer-events:none;display:none;text-shadow:0 0 8px rgba(0,0,0,.6);transition:opacity .6s}
+#brand.show{display:block}
+#brand .n{font:600 17px "Bricolage Grotesque",sans-serif;letter-spacing:.02em;color:#fff}
+#brand .p{font:300 10px "Bricolage Grotesque",sans-serif;letter-spacing:.28em;color:var(--dim);margin-top:4px}
+#brand .p b{color:var(--acc);font-weight:600}
+#status{position:fixed;left:14px;top:calc(env(safe-area-inset-top) + 58px);z-index:11;font:11px sans-serif;letter-spacing:.04em;
+  color:var(--ui);text-shadow:0 0 8px rgba(0,0,0,.9);pointer-events:none;max-width:76vw;line-height:1.7;white-space:pre-line}
+#hint{position:fixed;left:50%;transform:translateX(-50%);top:calc(env(safe-area-inset-top) + 16px);z-index:11;pointer-events:none;
+  font:300 12px "M PLUS 2",sans-serif;letter-spacing:.12em;color:#fff;text-shadow:0 1px 10px rgba(0,0,0,.8);opacity:0;transition:opacity .8s;white-space:nowrap}
+#hint.on{opacity:.9}
+#bar{position:fixed;left:0;right:0;bottom:calc(env(safe-area-inset-bottom) + 10px);z-index:12;display:none;justify-content:center;align-items:center;gap:20px;pointer-events:none}
+#bar.show{display:flex}
+#bar .btn{position:static;display:block;pointer-events:auto;min-width:64px}
+#bar #shoot{position:relative;width:44px;height:44px;min-width:44px;border:1.5px solid var(--ui);border-radius:50%;padding:0;opacity:.9;margin:0 4px}
+#shoot::after{content:"";position:absolute;inset:7px;border-radius:50%;background:var(--ui)}
+#rec.on{opacity:1;color:var(--acc)}
+#mode{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom) + 74px);z-index:13;display:none;
+  appearance:none;border:0;border-radius:100px;background:rgba(242,239,233,.16);color:#fff;
+  -webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);
+  font:600 12px "Bricolage Grotesque","M PLUS 2",sans-serif;letter-spacing:.24em;padding:11px 24px 11px 28px;cursor:pointer;transition:opacity .4s}
+#mode.show{display:block}
+body.idle .btn,body.idle #mode,body.idle #bar #shoot{opacity:.15}
+body.idle #brand{opacity:.45}
+#panel{position:fixed;right:10px;top:calc(env(safe-area-inset-top) + 76px);z-index:12;width:min(280px,calc(100vw - 20px));
+  max-height:calc(100vh - 180px);overflow:auto;color:#ece8e1;background:rgba(18,17,17,.82);border-radius:16px;
+  -webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);
+  padding:14px 16px;display:flex;flex-direction:column;gap:12px;transition:opacity .2s}
+#panel.hide{opacity:0;pointer-events:none}
+#panel .hd{font:600 9px "Bricolage Grotesque",sans-serif;letter-spacing:.3em;color:rgba(236,232,225,.45);margin-bottom:-4px}
+#panel label{display:flex;align-items:center;gap:10px;font-size:11px;letter-spacing:.04em}
+#panel label span{width:80px;flex:none;color:rgba(236,232,225,.7)}
+#panel input[type=range]{flex:1;accent-color:#ff6a4d}
+#panel .tg{display:flex;gap:6px;flex-wrap:wrap}
+#panel .tg button{flex:1;appearance:none;border:1px solid rgba(236,232,225,.22);border-radius:100px;background:transparent;color:#ece8e1;padding:7px 4px;
+  font:500 11px "M PLUS 2",sans-serif;cursor:pointer;opacity:.55;min-width:60px}
+#panel .tg button small{display:block;font:600 7.5px "Bricolage Grotesque",sans-serif;letter-spacing:.16em;opacity:.8}
+#panel .tg button.on{opacity:1;border-color:#ff6a4d;background:rgba(255,106,77,.14)}
+#panel .note{font-size:10px;color:rgba(236,232,225,.55);line-height:1.85}
+</style>
+</head>
+<body>
+<canvas id="view"></canvas>
+<video id="cam" playsinline muted autoplay></video>
+<div id="brand"><div class="n">TSUMAMU <span style="font-weight:300;letter-spacing:.2em;font-size:11px">NAKED</span></div><div class="p">摘む ・ <b id="pMat">GEL</b></div></div>
+<div id="hint">親指と人差し指で、映像をつまんでみてください</div>
+<div id="status"></div>
+<button id="gear" class="btn" aria-label="調整">⚙</button>
+<button id="flip" class="btn">⟲ カメラ</button>
+<button id="mode">膜をかける</button>
+<div id="bar">
+  <button id="rec" class="btn">● 録画</button>
+  <button id="shoot" class="btn" aria-label="撮る"></button>
+  <button id="mat" class="btn">GEL ▸</button>
+</div>
+<div id="panel" class="hide">
+  <div class="hd">素材 ─ MATERIAL</div>
+  <div class="tg" id="mats">
+    <button data-m="0" class="on">ゼリー<small>GEL</small></button><button data-m="1">ゴム<small>LATEX</small></button><button data-m="2">蜜<small>HONEY</small></button>
+  </div>
+  <label><span>やわらかさ</span><input type="range" id="sSoft" min="0.4" max="2" step="0.02" value="1"></label>
+  <label><span>揺れの長さ</span><input type="range" id="sWob" min="0.3" max="2.5" step="0.02" value="1"></label>
+  <label><span>つかむ広さ</span><input type="range" id="sRad" min="0.5" max="1.8" step="0.02" value="1"></label>
+  <label><span>光沢</span><input type="range" id="sGloss" min="0" max="2" step="0.02" value="1"></label>
+  <label><span>虹色</span><input type="range" id="sIri" min="0" max="2" step="0.02" value="1"></label>
+  <label><span>音量</span><input type="range" id="sVol" min="0" max="1" step="0.01" value="0.6"></label>
+  <div class="tg"><button id="tFreeze">映像を止める</button><button id="tDots" class="on">指の印</button></div>
+  <div class="note">親指と人差し指をくっつけると、その場所の映像をつかめます。画面を指やマウスでドラッグしてもつまめます。つままずに指をすばやく振ると波が立ちます。</div>
+</div>
+<div id="start">
+  <div class="t">PINCH THE PICTURE</div>
+  <h1>TSUMAMU</h1>
+  <div class="t">NAKED</div>
+  <div class="sub">映像を、つまんで引っぱる。</div>
+  <canvas id="emblem" width="480" height="480"></canvas>
+  <p>カメラの映像に、透明な膜が一枚かかっています。<br>親指と人差し指でつまんで、引っぱって、はなす。<br>両手でつまむと、あいだで伸びます。</p>
+  <button id="go">はじめる</button>
+  <div id="err"></div>
+</div>
+<script>
+'use strict';
+const $ = id => document.getElementById(id);
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+const lerp = (a, b, t) => a + (b - a) * t;
+const smooth = t => { t = clamp(t, 0, 1); return t * t * (3 - 2 * t); };
+const fin = Number.isFinite;
+
+const VISION_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs';
+const WASM_URL   = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm';
+const HAND_MODEL = 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task';
+
+/* ---------- settings & materials ---------- */
+const S = { mat:0, soft:1, wob:1, rad:1, gloss:1, iri:1, vol:.6, freeze:false, dots:true };
+// K: pull back to rest, C: neighbour coupling (wave speed), D: damping, G: grip, lift: how far the pinch raises the sheet
+const MATS = [
+  { en:'GEL',   jp:'ゼリー', K:20, C:950,  D:2.4, G:900,  lift:1.0, tint:[1, 1, 1],         spec:.6, shin:160,  iri:1.0, dark:0,   amber:0 },
+  { en:'LATEX', jp:'ゴム',   K:70, C:1700, D:5.5, G:1100, lift:.7,  tint:[.92, .92, .95],   spec:1.2, shin:180, iri:.2, dark:.55, amber:0 },
+  { en:'HONEY', jp:'蜜',     K:5,  C:420,  D:8.5, G:700,  lift:1.3, tint:[1.08, .86, .55],  spec:.85, shin:40,  iri:.25, dark:0,   amber:.55 },
+];
+const SCALE = [146.83, 174.61, 196.0, 220.0, 261.63, 293.66, 349.23, 392.0, 440.0, 523.25, 587.33, 698.46, 783.99]; // D minor pentatonic
+
+/* ---------- canvas, camera mapping ---------- */
+const view = $('view'), video = $('cam');
+const G = { W:2, H:2, short:2 };
+let vidW = 1280, vidH = 720, mirror = true;
+const MAP = { ox:0, oy:0, dw:1, dh:1 };
+function toScreen(x, y, out, o){ let X = MAP.ox + x * MAP.dw; if (mirror) X = G.W - X; out[o] = X; out[o + 1] = MAP.oy + y * MAP.dh; }
+function camUV(X, Y, out, o){ let x = mirror ? G.W - X : X; out[o] = (x - MAP.ox) / MAP.dw; out[o + 1] = (Y - MAP.oy) / MAP.dh; }
+
+/* ---------- the sheet: a membrane on a grid, solved with a fixed step ---------- */
+const M = { nx:0, ny:0, n:0, cell:1, rx:null, ry:null, dx:null, dy:null, dz:null, vx:null, vy:null, vz:null, w:null, tx:null, ty:null, tz:null, acc:0 };
+let VBUF = null, IDX = null;           // per vertex: x, y, u, v, gx, gy, z, strain
+function buildGrid(){
+  const cell = G.short / 50;
+  const nx = Math.max(8, Math.round(G.W / cell) + 1), ny = Math.max(8, Math.round(G.H / cell) + 1), n = nx * ny;
+  M.nx = nx; M.ny = ny; M.n = n; M.cell = cell;
+  for (const k of ['rx', 'ry', 'dx', 'dy', 'dz', 'vx', 'vy', 'vz', 'w', 'tx', 'ty', 'tz']) M[k] = new Float32Array(n);
+  for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++){ const k = j * nx + i; M.rx[k] = i / (nx - 1) * G.W; M.ry[k] = j / (ny - 1) * G.H; }
+  VBUF = new Float32Array(n * 8);
+  const idx = [];
+  for (let j = 0; j < ny - 1; j++) for (let i = 0; i < nx - 1; i++){
+    const a = j * nx + i, b = a + 1, c = a + nx, d = c + 1;
+    // alternate the diagonal so the mesh has no grain
+    if ((i + j) & 1) idx.push(a, b, d, a, d, c); else idx.push(a, b, c, b, d, c);
+  }
+  IDX = n > 65535 ? new Uint32Array(idx) : new Uint16Array(idx);
+  if (glOK){
+    gl.bindBuffer(gl.ARRAY_BUFFER, bufV); gl.bufferData(gl.ARRAY_BUFFER, VBUF.byteLength, gl.DYNAMIC_DRAW);
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, bufI); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, IDX, gl.STATIC_DRAW);
+  }
+  GRABS.length = 0;
+}
+const STEP = 1 / 120;
+function simulate(dt){
+  M.acc = Math.min(M.acc + dt, STEP * 8);
+  const mt = MATS[S.mat], K = mt.K / S.soft, C = mt.C, D = mt.D / S.wob, Gk = mt.G;
+  const { nx, ny, dx, dy, dz, vx, vy, vz, w, tx, ty, tz } = M;
+  while (M.acc >= STEP){
+    M.acc -= STEP;
+    for (let j = 1; j < ny - 1; j++){
+      for (let i = 1; i < nx - 1; i++){
+        const k = j * nx + i, l = k - 1, r = k + 1, u = k - nx, d = k + nx;
+        let ax = -K * dx[k] + C * (dx[l] + dx[r] + dx[u] + dx[d] - 4 * dx[k]) - D * vx[k];
+        let ay = -K * dy[k] + C * (dy[l] + dy[r] + dy[u] + dy[d] - 4 * dy[k]) - D * vy[k];
+        let az = -K * 1.6 * dz[k] + C * .7 * (dz[l] + dz[r] + dz[u] + dz[d] - 4 * dz[k]) - D * vz[k];
+        const g = w[k];
+        if (g > 0){ ax += Gk * g * (tx[k] - dx[k]) - 18 * g * vx[k]; ay += Gk * g * (ty[k] - dy[k]) - 18 * g * vy[k]; az += Gk * .5 * g * (tz[k] - dz[k]) - 10 * g * vz[k]; }
+        vx[k] += ax * STEP; vy[k] += ay * STEP; vz[k] += az * STEP;
+      }
+    }
+    for (let j = 1; j < ny - 1; j++) for (let k = j * nx + 1, e = j * nx + nx - 1; k < e; k++){ dx[k] += vx[k] * STEP; dy[k] += vy[k] * STEP; dz[k] += vz[k] * STEP; }
+  }
+}
+function settle(){ for (const k of ['dx', 'dy', 'dz', 'vx', 'vy', 'vz', 'w']) M[k].fill(0); GRABS.length = 0; }
+
+/* ---------- grabs: a pinch catches the vertices around it, weighted by distance ---------- */
+const GRABS = [];      // { key, p0:[x,y], p:[x,y], idx:Int32Array, wt:Float32Array, ox, oy, oz, t0, stretch, lastStretch, voice }
+function grabStart(key, x, y){
+  if (!MODE.fx || !fin(x) || !fin(y) || !M.n) return null;
+  grabEnd(key, true);
+  const R = G.short * .2 * S.rad, R2 = R * R, list = [], ws = [];
+  for (let k = 0; k < M.n; k++){
+    const ex = M.rx[k] + M.dx[k] - x, ey = M.ry[k] + M.dy[k] - y, d2 = ex * ex + ey * ey;
+    if (d2 < R2){ const q = 1 - d2 / R2; list.push(k); ws.push(q * q * (1.3 - .3 * q)); }
+  }
+  if (!list.length) return null;
+  const n = list.length, g = { key, p0:[x, y], p:[x, y], idx:Int32Array.from(list), wt:Float32Array.from(ws),
+    ox:new Float32Array(n), oy:new Float32Array(n), oz:new Float32Array(n), t0:performance.now(), stretch:0, lastStretch:0, voice:null };
+  for (let i = 0; i < n; i++){ const k = g.idx[i]; g.ox[i] = M.dx[k]; g.oy[i] = M.dy[k]; g.oz[i] = M.dz[k]; }
+  GRABS.push(g);
+  g.voice = voiceStart(x);
+  sfxStick(x);
+  hintSeen();
+  return g;
+}
+function grabMove(key, x, y){
+  const g = GRABS.find(q => q.key === key); if (!g || !fin(x) || !fin(y)) return;
+  g.p[0] = x; g.p[1] = y;
+}
+function grabEnd(key, silent){
+  const i = GRABS.findIndex(q => q.key === key); if (i < 0) return;
+  const g = GRABS[i]; GRABS.splice(i, 1);
+  voiceStop(g.voice);
+  if (!silent) sfxBoing(g.stretch, g.p[0]);
+}
+function applyGrabs(){
+  M.w.fill(0);
+  const lift = MATS[S.mat].lift;
+  for (const g of GRABS){
+    const mx = g.p[0] - g.p0[0], my = g.p[1] - g.p0[1];
+    g.lastStretch = g.stretch; g.stretch = Math.hypot(mx, my) / G.short;
+    const up = lift * (.35 + Math.min(1.6, g.stretch * 3));
+    for (let i = 0; i < g.idx.length; i++){
+      const k = g.idx[i], w = g.wt[i];
+      if (w > M.w[k]){ M.w[k] = w; M.tx[k] = g.ox[i] + mx * w; M.ty[k] = g.oy[i] + my * w; M.tz[k] = g.oz[i] + up * w; }
+    }
+  }
+  // the frame holds the edges
+  const { nx, ny } = M;
+  for (let i = 0; i < nx; i++){ M.w[i] = 0; M.w[(ny - 1) * nx + i] = 0; }
+  for (let j = 0; j < ny; j++){ M.w[j * nx] = 0; M.w[j * nx + nx - 1] = 0; }
+}
+// a flick: velocity poured into the sheet around the fingertip
+function flick(x, y, vx, vy){
+  if (!MODE.fx || !M.n) return;
+  const R = G.short * .14, R2 = R * R;
+  for (let k = 0; k < M.n; k++){
+    const ex = M.rx[k] + M.dx[k] - x, ey = M.ry[k] + M.dy[k] - y, d2 = ex * ex + ey * ey;
+    if (d2 < R2){ const q = 1 - d2 / R2; M.vx[k] += vx * .5 * q * q; M.vy[k] += vy * .5 * q * q; M.vz[k] += 7 * q * q; }
+  }
+  sfxFlick(x, Math.hypot(vx, vy) / G.short);
+}
+// pack positions, the sheet's slope and how much each patch is stretched
+function packVerts(){
+  const { nx, ny, rx, ry, dx, dy, dz } = M, cell = M.cell;
+  for (let j = 0; j < ny; j++){
+    for (let i = 0; i < nx; i++){
+      const k = j * nx + i, o = k * 8;
+      const x = rx[k] + dx[k], y = ry[k] + dy[k];
+      VBUF[o] = x; VBUF[o + 1] = y;
+      camUV(rx[k], ry[k], VBUF, o + 2);
+      const l = i > 0 ? k - 1 : k, r = i < nx - 1 ? k + 1 : k, u = j > 0 ? k - nx : k, d = j < ny - 1 ? k + nx : k;
+      const sx = (r - l) || 1, sy = ((d - u) / nx) || 1;
+      // slope of the lifted sheet, in units of its own cell
+      VBUF[o + 4] = (dz[r] - dz[l]) / sx; VBUF[o + 5] = (dz[d] - dz[u]) / sy;
+      VBUF[o + 6] = dz[k];
+      // stretch: current edge lengths against the rest cell
+      const ex = (rx[r] + dx[r] - rx[l] - dx[l]) / (sx * cell), ey = (ry[d] + dy[d] - ry[u] - dy[u]) / (sy * cell);
+      const fx = (dy[r] - dy[l]) / (sx * cell), fy = (dx[d] - dx[u]) / (sy * cell);
+      VBUF[o + 7] = Math.abs(ex * ey - fx * fy) - 1;
+    }
+  }
+}
+
+/* ---------- WebGL ---------- */
+let gl = null, glOK = false, glErr = '';
+const VS = `#version 300 es
+layout(location=0) in vec2 aPos; layout(location=1) in vec2 aUV; layout(location=2) in vec4 aSh;
+uniform vec2 uRes; out vec2 vUV; out vec4 vSh;
+void main(){ vUV = aUV; vSh = aSh; gl_Position = vec4(aPos.x / uRes.x * 2.0 - 1.0, 1.0 - aPos.y / uRes.y * 2.0, clamp(-aSh.z * .2, -.99, .99), 1.0); }`;
+const FS = `#version 300 es
+precision highp float;
+in vec2 vUV; in vec4 vSh; out vec4 o;
+uniform sampler2D uCam; uniform float uFx, uSpec, uShin, uIri, uDark, uAmber, uSweep, uGloss, uTime;
+uniform vec3 uTint; uniform vec2 uRes;
+vec3 cam(vec2 u){ return texture(uCam, clamp(u, 0.0, 1.0)).rgb; }
+void main(){
+  float st = vSh.w, z = vSh.z;
+  float pos = max(st, 0.0), neg = max(-st, 0.0);
+  vec3 n = normalize(vec3(-vSh.x * 2.4, -vSh.y * 2.4, 1.0));
+  n = normalize(mix(vec3(0.0, 0.0, 1.0), n, uFx));
+  // stretched gel is thinner: the picture behind it splits into its colours along the slope
+  vec2 sh = n.xy * (.003 + .016 * min(pos, 1.2)) * uFx;
+  vec3 c = vec3(cam(vUV + sh * 1.0).r, cam(vUV).g, cam(vUV - sh * 1.0).b);
+  c *= mix(vec3(1.0), uTint, clamp(uAmber * (z * .6 + pos * .8 + .25), 0.0, 1.0) * uFx);
+  c = mix(c, c * .28, clamp(uDark * (pos * 1.1 + z * .25), 0.0, .85) * uFx);
+  c *= 1.0 - clamp(neg * 1.6, 0.0, .45) * uFx;                       // compressed: folds and shade
+  vec3 L = normalize(vec3(-.45, -.62, .65)), V = vec3(0.0, 0.0, 1.0), H = normalize(L + V);
+  float spec = pow(max(dot(n, H), 0.0), uShin) * uSpec * uGloss;
+  float fres = pow(1.0 - max(n.z, 0.0), 2.2);
+  float lam = dot(n, L) - dot(vec3(0.0, 0.0, 1.0), L);
+  // thin film: colour from thickness, which falls as the sheet stretches
+  float thick = 1.0 / (1.0 + pos * 1.8) + z * .15;
+  vec3 film = .5 + .5 * cos(6.2832 * (thick * 2.3 + vec3(0.0, .33, .67)));
+  float iri = (fres * 1.1 + smoothstep(.15, 1.2, pos) * .35) * uIri;
+  // the sheen that runs across when the sheet goes on or off
+  vec2 q = gl_FragCoord.xy / uRes;
+  float sweep = exp(-pow((q.x * .6 + (1.0 - q.y) * .8 - uSweep) / .07, 2.0)) * step(-.5, uSweep);
+  vec3 col = c * (1.0 + lam * .55 * uFx) + vec3(spec) * uFx + film * iri * .3 * uFx + fres * .12 * uFx + vec3(sweep * .35);
+  col = col / (1.0 + max(col - .85, 0.0) * 1.4);
+  o = vec4(col, 1.0);
+}`;
+const VS_PT = `#version 300 es
+layout(location=0) in vec4 aP;
+uniform vec2 uRes; out float vA; out float vK;
+void main(){ vA = aP.w; vK = aP.z > 0.0 ? 1.0 : 0.0; gl_PointSize = abs(aP.z); gl_Position = vec4(aP.x / uRes.x * 2.0 - 1.0, 1.0 - aP.y / uRes.y * 2.0, 0.0, 1.0); }`;
+const FS_PT = `#version 300 es
+precision highp float;
+in float vA; in float vK; out vec4 o; uniform vec3 uCol;
+void main(){
+  vec2 p = gl_PointCoord * 2.0 - 1.0; float r = length(p);
+  float ring = smoothstep(.98, .86, r) * smoothstep(.62, .74, r);
+  float dot_ = smoothstep(.95, .7, r);
+  float a = mix(dot_, ring, vK) * vA;
+  o = vec4(uCol * a, a);
+}`;
+let PR = null, PP = null, texCam = null, vao = null, bufV = null, bufI = null, vaoP = null, bufP = null;
+const PTS = new Float32Array(4 * 24);
+function compile(vs, fs){
+  const mk = (t, s) => { const sh = gl.createShader(t); gl.shaderSource(sh, s); gl.compileShader(sh);
+    if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(sh)); return sh; };
+  const p = gl.createProgram(); gl.attachShader(p, mk(gl.VERTEX_SHADER, vs)); gl.attachShader(p, mk(gl.FRAGMENT_SHADER, fs)); gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+  const u = {}, n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+  for (let i = 0; i < n; i++){ const a = gl.getActiveUniform(p, i); u[a.name] = gl.getUniformLocation(p, a.name); }
+  return { p, u };
+}
+function initGL(){
+  try{
+    gl = view.getContext('webgl2', { antialias:true, alpha:false, preserveDrawingBuffer:false });
+    if (!gl) throw new Error('WebGL2 が使えません');
+    PR = compile(VS, FS); PP = compile(VS_PT, FS_PT);
+    texCam = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, texCam);
+    for (const [k, v] of [[gl.TEXTURE_MIN_FILTER, gl.LINEAR], [gl.TEXTURE_MAG_FILTER, gl.LINEAR], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]]) gl.texParameteri(gl.TEXTURE_2D, k, v);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([20, 20, 20, 255]));
+    bufV = gl.createBuffer(); bufI = gl.createBuffer();
+    vao = gl.createVertexArray(); gl.bindVertexArray(vao);
+    gl.bindBuffer(gl.ARRAY_BUFFER, bufV);
+    gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 32, 0);
+    gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 2, gl.FLOAT, false, 32, 8);
+    gl.enableVertexAttribArray(2); gl.vertexAttribPointer(2, 4, gl.FLOAT, false, 32, 16);
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, bufI);
+    vaoP = gl.createVertexArray(); gl.bindVertexArray(vaoP);
+    bufP = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, bufP); gl.bufferData(gl.ARRAY_BUFFER, PTS.byteLength, gl.DYNAMIC_DRAW);
+    gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 4, gl.FLOAT, false, 0, 0);
+    gl.bindVertexArray(null);
+    glOK = true;
+    if (M.n) buildGrid();
+  }catch(e){ glOK = false; glErr = '描画を初期化できませんでした：' + (e && e.message ? e.message : e); }
+}
+function resize(){
+  const dpr = Math.min(devicePixelRatio || 1, 2);
+  let W = Math.round(innerWidth * dpr), H = Math.round(innerHeight * dpr);
+  const cap = 2.4e6, s = W * H > cap ? Math.sqrt(cap / (W * H)) : 1;
+  W = Math.max(2, Math.round(W * s)); H = Math.max(2, Math.round(H * s));
+  const changed = W !== G.W || H !== G.H;
+  G.W = W; G.H = H; G.short = Math.min(W, H); view.width = W; view.height = H;
+  const sc = Math.max(W / vidW, H / vidH);
+  MAP.dw = vidW * sc; MAP.dh = vidH * sc; MAP.ox = (W - MAP.dw) / 2; MAP.oy = (H - MAP.dh) / 2;
+  if (changed || !M.n) buildGrid();
+}
+
+/* ---------- hands: pinch with hysteresis on observation time, flicks from fingertip speed ---------- */
+const HS = [0, 1].map(i => ({ i, on:false, seen:-1e9, pinch:false, hold:0, rel:0, tip:[0, 0], thumb:[0, 0], mid:[0, 0], vel:[0, 0], lastTip:null, flickCool:0, k:'h' + i }));
+const EXT = { hands:false };
+function pt(lm, i, o){ const p = lm[i]; if (!p || !fin(p.x) || !fin(p.y)) return false; toScreen(p.x, p.y, o, 0); return true; }
+const P0 = [0, 0], P4 = [0, 0], P8 = [0, 0], P9 = [0, 0];
+function validHand(lm){ return Array.isArray(lm) && lm.length >= 21 && [0, 4, 8, 9].every(i => lm[i] && fin(lm[i].x) && fin(lm[i].y)); }
+function ingestHands(list, now){
+  const arr = Array.isArray(list) ? list.filter(validHand).slice(0, 2) : [];
+  const used = [false, false];
+  for (const lm of arr){
+    pt(lm, 8, P8);
+    let best = -1, bd = 1e18;
+    for (const h of HS){ if (used[h.i]) continue; const d = h.on ? (h.tip[0] - P8[0]) ** 2 + (h.tip[1] - P8[1]) ** 2 : 1e12 + h.i; if (d < bd){ bd = d; best = h.i; } }
+    if (best < 0) continue;
+    used[best] = true;
+    handObs(HS[best], lm, now);
+  }
+}
+function handObs(h, lm, now){
+  pt(lm, 0, P0); pt(lm, 4, P4); pt(lm, 8, P8); pt(lm, 9, P9);
+  const size = Math.hypot(P9[0] - P0[0], P9[1] - P0[1]);
+  if (!(size > 4)) return;
+  const dtObs = h.on ? clamp((now - h.seen) / 1000, 0, .25) : 0;
+  const ratio = Math.hypot(P4[0] - P8[0], P4[1] - P8[1]) / size;
+  const mx = (P4[0] + P8[0]) / 2, my = (P4[1] + P8[1]) / 2;
+  if (h.on && dtObs > 0){
+    const vx = (P8[0] - h.tip[0]) / dtObs, vy = (P8[1] - h.tip[1]) / dtObs;
+    h.vel[0] = lerp(h.vel[0], vx, .6); h.vel[1] = lerp(h.vel[1], vy, .6);
+  } else { h.vel[0] = h.vel[1] = 0; }
+  h.tip[0] = P8[0]; h.tip[1] = P8[1]; h.thumb[0] = P4[0]; h.thumb[1] = P4[1];
+  h.mid[0] = h.on ? lerp(h.mid[0], mx, .7) : mx; h.mid[1] = h.on ? lerp(h.mid[1], my, .7) : my;
+  h.on = true; h.seen = now;
+  // pinch: close below .3 of the hand for 60 ms of observation; open above .45 for 60 ms
+  if (!h.pinch){
+    if (ratio < .3){ h.hold += dtObs; if (h.hold >= .06){ h.pinch = true; h.hold = 0; grabStart(h.k, h.mid[0], h.mid[1]); } }
+    else h.hold = 0;
+  } else {
+    grabMove(h.k, h.mid[0], h.mid[1]);
+    if (ratio > .45){ h.rel += dtObs; if (h.rel >= .06){ h.pinch = false; h.rel = 0; grabEnd(h.k); } }
+    else h.rel = 0;
+  }
+  h.flickCool = Math.max(0, h.flickCool - dtObs);
+  const sp = Math.hypot(h.vel[0], h.vel[1]);
+  if (!h.pinch && h.flickCool <= 0 && sp > G.short * 2.2 && dtObs > 0){ h.flickCool = .35; flick(h.tip[0], h.tip[1], h.vel[0], h.vel[1]); }
+}
+function loseHand(h){
+  if (h.pinch) grabEnd(h.k);
+  h.on = false; h.pinch = false; h.hold = 0; h.rel = 0; h.vel[0] = h.vel[1] = 0; h.flickCool = 0;
+}
+
+/* ---------- models ---------- */
+let landmarker = null, lastTs = 0, lastVT = -1, modelState = 'none';
+async function initModel(){
+  modelState = 'loading';
+  try{
+    const vision = await import(VISION_URL);
+    const fs = await vision.FilesetResolver.forVisionTasks(WASM_URL);
+    const o = d => ({ baseOptions:{ modelAssetPath:HAND_MODEL, delegate:d }, runningMode:'VIDEO', numHands:2,
+      minHandDetectionConfidence:.5, minHandPresenceConfidence:.5, minTrackingConfidence:.5 });
+    try { landmarker = await vision.HandLandmarker.createFromOptions(fs, o('GPU')); }
+    catch(e){ landmarker = await vision.HandLandmarker.createFromOptions(fs, o('CPU')); }
+    modelState = 'ready';
+  }catch(e){
+    modelState = 'failed';
+    if (EXT.hands) return;
+    setStatus('手の検出モデルを読み込めませんでした（ネット接続を確認）。\n画面を指やマウスでドラッグすると、つまめます。');
+  }
+}
+function detect(now){
+  if (!landmarker || EXT.hands || video.readyState < 2) return;
+  const vt = video.currentTime; if (vt === lastVT) return; lastVT = vt;
+  const ts = Math.max(lastTs + 1, Math.round(now)); lastTs = ts;
+  try{ const r = landmarker.detectForVideo(video, ts); ingestHands(r && r.landmarks, now); }catch(e){}
+}
+
+/* ---------- camera ---------- */
+let stream = null, facing = 'user', started = false;
+function setStatus(t){ $('status').textContent = t || ''; }
+function camError(e){
+  const msg = (e && (e.message || e.name)) ? (e.message || e.name) : String(e || 'unknown');
+  const text = 'カメラを起動できませんでした：' + msg + '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+  $('err').textContent = text;
+  if (started) setStatus(text);
+}
+async function startCam(){
+  const md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) throw new Error('getUserMedia is unavailable');
+  const s = await md.getUserMedia({ video:{ facingMode:{ ideal:facing }, width:{ ideal:1280 }, height:{ ideal:720 } }, audio:false });
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = s; mirror = facing === 'user';
+  video.srcObject = s;
+  await new Promise(r => { if (video.readyState >= 1) r(); else video.onloadedmetadata = () => r(); });
+  await video.play().catch(() => {});
+  vidW = video.videoWidth || 1280; vidH = video.videoHeight || 720;
+  for (const h of HS) loseHand(h);
+  resize();
+}
+
+/* ---------- sound: rubber creak while pulling, a pitched boing on release, a soft drum for flicks ---------- */
+let actx = null, master = null, recDest = null, noiseBuf = null;
+function ensureAudio(){
+  if (actx){ if (actx.state === 'suspended') actx.resume().catch(() => {}); return; }
+  const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+  try{
+    actx = new AC(); master = actx.createGain(); master.gain.value = S.vol;
+    const comp = actx.createDynamicsCompressor(); comp.threshold.value = -14; comp.ratio.value = 3;
+    master.connect(comp); comp.connect(actx.destination);
+    // a small room so the boings have somewhere to go
+    const conv = actx.createConvolver(), len = actx.sampleRate * 1.4 | 0, ir = actx.createBuffer(2, len, actx.sampleRate);
+    for (let c = 0; c < 2; c++){ const d = ir.getChannelData(c); for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 3.2); }
+    conv.buffer = ir; const wet = actx.createGain(); wet.gain.value = .22; master.connect(conv); conv.connect(wet); wet.connect(comp);
+    recDest = actx.createMediaStreamDestination(); comp.connect(recDest);
+    const nl = actx.sampleRate | 0; noiseBuf = actx.createBuffer(1, nl, actx.sampleRate);
+    const d = noiseBuf.getChannelData(0); for (let i = 0; i < nl; i++) d[i] = Math.random() * 2 - 1;
+    actx.resume().catch(() => {});
+  }catch(e){ actx = null; }
+}
+const live = () => actx && actx.state === 'running';
+const panOf = x => clamp((x / G.W) * 2 - 1, -1, 1) * .7;
+function out(pan){
+  if (actx.createStereoPanner){ const p = actx.createStereoPanner(); p.pan.value = pan; p.connect(master); return p; }
+  return master;
+}
+function voiceStart(x){
+  if (!live()) return null;
+  const t = actx.currentTime, dst = out(panOf(x));
+  const o = actx.createOscillator(); o.type = 'sawtooth'; o.frequency.value = 80;
+  const o2 = actx.createOscillator(); o2.type = 'triangle'; o2.frequency.value = 40;
+  const bp = actx.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = 7; bp.frequency.value = 500;
+  const g = actx.createGain(); g.gain.value = 0;
+  o.connect(bp); o2.connect(bp); bp.connect(g); g.connect(dst); o.start(t); o2.start(t);
+  return { o, o2, bp, g, dst };
+}
+function voiceTick(g){
+  const v = g.voice; if (!v || !live()) return;
+  const t = actx.currentTime, s = g.stretch, ds = Math.abs(g.stretch - g.lastStretch);
+  const f = 70 * Math.pow(2, Math.min(3.2, s * 4.2));
+  v.o.frequency.setTargetAtTime(f, t, .03); v.o2.frequency.setTargetAtTime(f / 2, t, .03);
+  v.bp.frequency.setTargetAtTime(f * 3.5, t, .05);
+  v.g.gain.setTargetAtTime(clamp(ds * 9, 0, .1) + Math.min(.035, s * .06), t, .04);
+}
+function voiceStop(v){
+  if (!v || !actx) return;
+  const t = actx.currentTime;
+  try{ v.g.gain.setTargetAtTime(0, t, .03); v.o.stop(t + .2); v.o2.stop(t + .2); }catch(e){}
+}
+function tone(t, type, f0, f1, dur, peak, dst){
+  const o = actx.createOscillator(), g = actx.createGain(); o.type = type;
+  o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(Math.max(20, f1), t + dur);
+  g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime(peak, t + .008); g.gain.exponentialRampToValueAtTime(.0001, t + dur);
+  o.connect(g); g.connect(dst || master); o.start(t); o.stop(t + dur + .05); return o;
+}
+function noiseHit(t, dur, type, f, q, peak, dst){
+  const s = actx.createBufferSource(), fl = actx.createBiquadFilter(), g = actx.createGain();
+  s.buffer = noiseBuf; fl.type = type; fl.frequency.value = f; fl.Q.value = q;
+  g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime(peak, t + .004); g.gain.exponentialRampToValueAtTime(.0001, t + dur);
+  s.connect(fl); fl.connect(g); g.connect(dst || master); s.start(t, Math.random() * .5); s.stop(t + dur + .05);
+}
+function sfxStick(x){ if (!live()) return; const t = actx.currentTime, d = out(panOf(x)); noiseHit(t, .05, 'bandpass', 1800, 4, .08, d); tone(t, 'sine', 320, 260, .06, .05, d); }
+function sfxBoing(stretch, x){
+  if (!live() || stretch < .015) return;
+  const t = actx.currentTime, d = out(panOf(x));
+  // pitch from how far it was pulled, snapped to the scale; vibrato at the sheet's own wobble
+  const i = clamp(Math.round(stretch * 22), 0, SCALE.length - 1), f0 = SCALE[i] * (S.mat === 2 ? .5 : S.mat === 1 ? 1.5 : 1);
+  const amp = clamp(stretch * 2.2, .08, .32);
+  const dur = S.mat === 1 ? .55 : S.mat === 2 ? 1.6 : 1.1;
+  const o = actx.createOscillator(), g = actx.createGain(); o.type = 'sine';
+  o.frequency.setValueAtTime(f0 * 1.45, t); o.frequency.exponentialRampToValueAtTime(f0, t + .05); o.frequency.exponentialRampToValueAtTime(f0 * .82, t + dur);
+  const lfo = actx.createOscillator(), lg = actx.createGain(); lfo.frequency.value = S.mat === 1 ? 11 : S.mat === 2 ? 3.5 : 6.5;
+  lg.gain.setValueAtTime(f0 * .09, t); lg.gain.exponentialRampToValueAtTime(f0 * .005, t + dur);
+  lfo.connect(lg); lg.connect(o.frequency);
+  g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime(amp, t + .012); g.gain.exponentialRampToValueAtTime(.0001, t + dur);
+  o.connect(g); g.connect(d); o.start(t); lfo.start(t); o.stop(t + dur + .05); lfo.stop(t + dur + .05);
+  tone(t, 'triangle', f0 * 2.01, f0 * 1.7, dur * .5, amp * .25, d);
+  noiseHit(t, .04, 'lowpass', 900, .7, amp * .4, d);
+}
+function sfxFlick(x, sp){ if (!live()) return; const t = actx.currentTime, d = out(panOf(x)); const a = clamp(sp * .06, .08, .3); tone(t, 'sine', 190, 62, .38, a, d); noiseHit(t, .07, 'bandpass', 700, 1.2, a * .5, d); }
+function sfxSheet(on){ if (!live()) return; const t = actx.currentTime; noiseHit(t, .5, 'bandpass', on ? 1400 : 2600, .9, .07); if (on) tone(t + .18, 'sine', 110, 70, .7, .18); else tone(t, 'sine', 300, 600, .25, .05); }
+
+/* ---------- mode: plain camera ⇄ the sheet (it drops on and ripples once) ---------- */
+const MODE = { fx:false, t:9 };
+function setMode(on){
+  if (on === MODE.fx) return;
+  MODE.fx = on; MODE.t = 0;
+  $('mode').textContent = on ? '膜をはずす' : '膜をかける';
+  $('mat').style.visibility = on ? 'visible' : 'hidden';
+  if (on){
+    settle();
+    // the sheet lands: a ring of lift spreading from the middle, and a little sag along the top
+    const cx = G.W / 2, cy = G.H * .45;
+    for (let k = 0; k < M.n; k++){
+      const r = Math.hypot(M.rx[k] - cx, M.ry[k] - cy) / G.short;
+      M.vz[k] = 9 * Math.exp(-r * r * 10); M.vy[k] = G.short * .25 * Math.exp(-r * r * 6);
+    }
+    showHint();
+  } else {
+    for (const g of [...GRABS]) grabEnd(g.key, true);
+    for (const h of HS){ h.pinch = false; h.hold = 0; h.rel = 0; }
+  }
+  sfxSheet(on);
+}
+function fxAmount(){ return MODE.fx ? smooth(MODE.t / .5) : 1 - smooth(MODE.t / .45); }
+function sweepPos(){ const d = MODE.fx ? .9 : .6; return MODE.t < d ? -.15 + MODE.t / d * 1.7 : -9; }
+let hintT = null;
+function showHint(){ if (hintSeenOnce) return; $('hint').classList.add('on'); clearTimeout(hintT); hintT = setTimeout(() => $('hint').classList.remove('on'), 7000); }
+let hintSeenOnce = false;
+function hintSeen(){ hintSeenOnce = true; $('hint').classList.remove('on'); }
+
+/* ---------- UI ---------- */
+function setMat(i){
+  S.mat = ((i % 3) + 3) % 3;
+  const m = MATS[S.mat];
+  $('pMat').textContent = m.en; $('mat').textContent = m.en + ' ▸';
+  [...$('mats').children].forEach(b => b.classList.toggle('on', +b.dataset.m === S.mat));
+}
+$('mats').onclick = e => { const b = e.target.closest('button'); if (b) setMat(+b.dataset.m); };
+$('mat').onclick = () => setMat(S.mat + 1);
+$('tFreeze').onclick = e => { S.freeze = !S.freeze; e.target.classList.toggle('on', S.freeze); };
+$('tDots').onclick = e => { S.dots = !S.dots; e.target.classList.toggle('on', S.dots); };
+[['sSoft', 'soft'], ['sWob', 'wob'], ['sRad', 'rad'], ['sGloss', 'gloss'], ['sIri', 'iri'], ['sVol', 'vol']]
+  .forEach(([id, k]) => { $(id).oninput = e => { S[k] = +e.target.value; if (k === 'vol' && master) master.gain.value = S.vol; }; });
+$('mode').onclick = () => setMode(!MODE.fx);
+$('gear').onclick = () => $('panel').classList.toggle('hide');
+addEventListener('keydown', e => {
+  if (!started || document.activeElement.tagName === 'INPUT') return;
+  if (e.key === ' ' || e.key === 'Enter'){ e.preventDefault(); setMode(!MODE.fx); }
+  else if (e.key === 'm') setMat(S.mat + 1);
+});
+$('go').onclick = async () => {
+  $('err').textContent = '';
+  ensureAudio();
+  try { await startCam(); } catch(e){ camError(e); return; }
+  $('start').style.display = 'none';
+  ['gear', 'flip', 'bar', 'rec', 'shoot', 'mat', 'mode', 'brand'].forEach(id => $(id).classList.add('show'));
+  if (!MODE.fx) $('mat').style.visibility = 'hidden';
+  if (!started){ started = true; if (!glOK) initGL(); if (glErr) setStatus(glErr); resize(); initModel(); requestAnimationFrame(loop); }
+};
+$('flip').onclick = async () => {
+  const prev = facing; facing = facing === 'user' ? 'environment' : 'user';
+  try { await startCam(); } catch(e){ facing = prev; camError(e); }
+};
+// a finger or the mouse can pinch too
+const PTRS = new Map();
+function ptrXY(e){ const r = view.getBoundingClientRect(); return [(e.clientX - r.left) / r.width * G.W, (e.clientY - r.top) / r.height * G.H]; }
+view.addEventListener('pointerdown', e => {
+  if (!$('panel').classList.contains('hide')){ $('panel').classList.add('hide'); return; }
+  if (!MODE.fx) return;
+  const [x, y] = ptrXY(e); try{ view.setPointerCapture(e.pointerId); }catch(_){}
+  PTRS.set(e.pointerId, true); grabStart('p' + e.pointerId, x, y);
+});
+view.addEventListener('pointermove', e => { if (PTRS.has(e.pointerId)){ const [x, y] = ptrXY(e); grabMove('p' + e.pointerId, x, y); } });
+const ptrUp = e => { if (PTRS.delete(e.pointerId)) grabEnd('p' + e.pointerId); };
+view.addEventListener('pointerup', ptrUp); view.addEventListener('pointercancel', ptrUp);
+let wantShot = false;
+$('shoot').onclick = () => { wantShot = true; };
+function doShot(){
+  try{ view.toBlob(b => { if (!b) return; const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = 'tsumamu-naked-' + Date.now() + '.png'; a.click(); }, 'image/png'); }
+  catch(e){ setStatus('保存できませんでした。'); }
+}
+let rec = null, chunks = [];
+$('rec').onclick = () => {
+  if (rec && rec.state === 'recording'){ rec.stop(); return; }
+  try{
+    ensureAudio();
+    const tracks = [...view.captureStream(30).getVideoTracks()];
+    if (recDest) tracks.push(...recDest.stream.getAudioTracks());
+    const mime = ['video/mp4;codecs=avc1', 'video/webm;codecs=vp9,opus', 'video/webm'].find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || '';
+    rec = new MediaRecorder(new MediaStream(tracks), mime ? { mimeType:mime } : {});
+    chunks = [];
+    rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+    rec.onstop = () => {
+      $('rec').classList.remove('on'); $('rec').textContent = '● 録画';
+      const ext = (rec.mimeType || '').includes('mp4') ? 'mp4' : 'webm';
+      const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(chunks, { type:rec.mimeType || 'video/webm' }));
+      a.download = 'tsumamu-naked.' + ext; a.click();
+    };
+    rec.start(); $('rec').classList.add('on'); $('rec').textContent = '■ 停止';
+  }catch(e){ setStatus('録画を開始できませんでした。' + (e && e.message ? '\n' + e.message : '')); }
+};
+addEventListener('resize', () => { if (started) resize(); });
+let idleAt = performance.now();
+const wake = () => { idleAt = performance.now(); document.body.classList.remove('idle'); };
+['pointermove', 'pointerdown', 'keydown'].forEach(ev => addEventListener(ev, wake, { passive:true }));
+
+/* ---------- frame ---------- */
+let lastT = 0, frameN = 0, clock = 0;
+const PROBE = { want:null, out:null };
+function render(){
+  if (video.readyState >= 2 && !S.freeze){ gl.bindTexture(gl.TEXTURE_2D, texCam); try{ gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video); }catch(e){} }
+  packVerts();
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, 0, G.W, G.H);
+  gl.clearColor(.04, .04, .045, 1); gl.clearDepth(1); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+  gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.LEQUAL);
+  const pr = PR, m = MATS[S.mat], fx = fxAmount();
+  gl.useProgram(pr.p); gl.bindVertexArray(vao);
+  gl.bindBuffer(gl.ARRAY_BUFFER, bufV); gl.bufferSubData(gl.ARRAY_BUFFER, 0, VBUF);
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, texCam); gl.uniform1i(pr.u.uCam, 0);
+  gl.uniform2f(pr.u.uRes, G.W, G.H); gl.uniform1f(pr.u.uFx, fx); gl.uniform1f(pr.u.uSpec, m.spec); gl.uniform1f(pr.u.uShin, m.shin);
+  gl.uniform1f(pr.u.uIri, m.iri * S.iri); gl.uniform1f(pr.u.uDark, m.dark); gl.uniform1f(pr.u.uAmber, m.amber); gl.uniform3fv(pr.u.uTint, m.tint);
+  gl.uniform1f(pr.u.uSweep, sweepPos()); gl.uniform1f(pr.u.uGloss, S.gloss); gl.uniform1f(pr.u.uTime, clock);
+  gl.drawElements(gl.TRIANGLES, IDX.length, IDX instanceof Uint32Array ? gl.UNSIGNED_INT : gl.UNSIGNED_SHORT, 0);
+  gl.disable(gl.DEPTH_TEST);
+  if (PROBE.want){
+    const px = new Uint8Array(4); PROBE.out = PROBE.want.map(([x, y]) => { gl.readPixels(Math.round(x), Math.round(G.H - 1 - y), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px); return [px[0], px[1], px[2]]; });
+    PROBE.want = null;
+  }
+  // fingertip marks: two small dots per hand, a ring where a pinch holds
+  let n = 0;
+  if (MODE.fx && S.dots){
+    const sz = Math.max(8, G.short * .022);
+    for (const h of HS){
+      if (!h.on || n > 20) continue;
+      if (h.pinch){ PTS.set([h.mid[0], h.mid[1], sz * 2.6, .9], n * 4); n++; }
+      else { PTS.set([h.tip[0], h.tip[1], -sz, .75], n * 4); n++; PTS.set([h.thumb[0], h.thumb[1], -sz, .75], n * 4); n++; }
+    }
+    for (const g of GRABS) if (g.key[0] === 'p' && n < 22){ PTS.set([g.p[0], g.p[1], sz * 2.6, .8], n * 4); n++; }
+  }
+  if (n){
+    gl.useProgram(PP.p); gl.bindVertexArray(vaoP);
+    gl.bindBuffer(gl.ARRAY_BUFFER, bufP); gl.bufferSubData(gl.ARRAY_BUFFER, 0, PTS.subarray(0, n * 4));
+    gl.uniform2f(PP.u.uRes, G.W, G.H); gl.uniform3f(PP.u.uCol, 1, 1, 1);
+    gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+    gl.drawArrays(gl.POINTS, 0, n);
+    gl.disable(gl.BLEND);
+  }
+  gl.bindVertexArray(null);
+}
+function loop(){
+  requestAnimationFrame(loop);
+  const now = performance.now();
+  const rdt = lastT ? clamp((now - lastT) / 1000, 0, .1) : 0; lastT = now; clock += rdt; frameN++;
+  detect(now);
+  for (const h of HS) if (h.on && now - h.seen > 400) loseHand(h);
+  MODE.t += rdt;
+  applyGrabs();
+  for (const g of GRABS) voiceTick(g);
+  if (MODE.fx || MODE.t < 1){ simulate(rdt); M.flat = false; } else if (!M.flat){ settle(); M.flat = true; }
+  if (MODE.fx && MODE.t > 3 && now - idleAt > 3500 && $('panel').classList.contains('hide') && !(rec && rec.state === 'recording')) document.body.classList.add('idle');
+  if (!glOK) return;
+  render();
+  if (wantShot){ wantShot = false; doShot(); }
+}
+
+/* ---------- start-screen emblem: a grid with one point pinched and pulled ---------- */
+(function emblem(){
+  const c = $('emblem').getContext('2d'), S0 = $('emblem').width, N = 14, px = .62, py = .4, qx = .74, qy = .26;
+  c.clearRect(0, 0, S0, S0);
+  const P = (i, j) => {
+    const x = i / N, y = j / N, d2 = (x - px) ** 2 + (y - py) ** 2, w = Math.exp(-d2 / .045) * (x > 0 && x < 1 && y > 0 && y < 1 ? 1 : 0);
+    return [(x + (qx - px) * w) * S0 * .84 + S0 * .08, (y + (qy - py) * w) * S0 * .84 + S0 * .08, w];
+  };
+  c.lineWidth = 1.4;
+  for (let j = 0; j <= N; j++){ c.beginPath(); for (let i = 0; i <= N; i++){ const p = P(i, j); c.strokeStyle = 'rgba(242,239,233,.55)'; i ? c.lineTo(p[0], p[1]) : c.moveTo(p[0], p[1]); } c.stroke(); }
+  for (let i = 0; i <= N; i++){ c.beginPath(); for (let j = 0; j <= N; j++){ const p = P(i, j); j ? c.lineTo(p[0], p[1]) : c.moveTo(p[0], p[1]); } c.stroke(); }
+  const t = [(qx) * S0 * .84 + S0 * .08, qy * S0 * .84 + S0 * .08];
+  c.strokeStyle = '#ff6a4d'; c.lineWidth = 3; c.beginPath(); c.arc(t[0], t[1], S0 * .045, 0, 7); c.stroke();
+})();
+setMat(0);
+
+/* ---------- test hook ---------- */
+window.__tsumamu = {
+  feedHands(list, t){ EXT.hands = true; if (modelState !== 'ready') setStatus(''); ingestHands(list, t == null ? performance.now() : t); },
+  setMode, setMat, S, MODE, M, G, GRABS, HS,
+  grab:grabStart, move:grabMove, release:k => grabEnd(k),
+  probe(p){ PROBE.want = p; PROBE.out = null; }, probed(){ return PROBE.out; },
+  toScreen(x, y){ const o = [0, 0]; toScreen(x, y, o, 0); return o; },
+  // displacement of the vertex nearest a screen point
+  dispAt(x, y){ let b = -1, bd = 1e18; for (let k = 0; k < M.n; k++){ const d = (M.rx[k] - x) ** 2 + (M.ry[k] - y) ** 2; if (d < bd){ bd = d; b = k; } }
+    return b < 0 ? null : [M.dx[b], M.dy[b], M.dz[b]]; },
+  state(){ let mx = 0, fin_ = true; for (let k = 0; k < M.n; k++){ const v = Math.hypot(M.dx[k], M.dy[k]); if (v > mx) mx = v; if (!fin(v) || !fin(M.dz[k])) fin_ = false; }
+    return { frame:frameN, fx:MODE.fx, modeT:MODE.t, glOK, glErr, model:modelState, grabs:GRABS.map(g => ({ key:g.key, n:g.idx.length, stretch:+g.stretch.toFixed(3) })),
+      hands:HS.map(h => ({ on:h.on, pinch:h.pinch })), maxDisp:mx / G.short, finite:fin_, n:M.n }; },
+};
+
+</script>
+</body>
+</html>
