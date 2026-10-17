@@ -1,0 +1,1002 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<script>/* REC-FIX (2026-10-12) — iPhone Safari で録画が途中で止まる・壊れる対策。どの作品でも同じ内容。
+   ・mp4 は映像と音声の両方のコーデックを宣言する（avc1 だけだと音声付きで止まることがある）
+   ・1 秒ごとにデータを受け取る（最後に一括で書き出さない）／ビットレートに上限
+   ・保存が終わる前に次の録画を始めない（前のファイルが消えるのを防ぐ）
+   ・録画中は AudioContext を止めない（音声トラックが止まると mp4 ごと止まる） */
+(()=>{const MR=window.MediaRecorder;if(!MR||MR.__recfix)return;let busy=0,active=0;
+class R extends MR{
+  constructor(s,o){if(busy)throw new Error('前の録画を保存しています');o=Object.assign({},o||{});
+    const au=s&&s.getAudioTracks&&s.getAudioTracks().length>0;
+    if(!o.mimeType||/^video\/mp4/.test(o.mimeType)){
+      const c=[au?'video/mp4;codecs="avc1.42E01E,mp4a.40.2"':'video/mp4;codecs="avc1.42E01E"','video/mp4'].find(m=>MR.isTypeSupported(m));
+      if(c)o.mimeType=c;else if(o.mimeType&&!MR.isTypeSupported(o.mimeType))delete o.mimeType;}
+    if(!o.videoBitsPerSecond&&!o.bitsPerSecond)o.videoBitsPerSecond=6e6;
+    super(s,o);this.addEventListener('stop',()=>{active=Math.max(0,active-1);setTimeout(()=>{busy=0;},0);});}
+  start(t){const r=super.start(t==null?1000:t);active++;return r;}
+  stop(){if(this.state!=='inactive'){busy=1;setTimeout(()=>{busy=0;},15000);}return super.stop();}}
+R.__recfix=1;window.MediaRecorder=R;
+const AC=window.AudioContext||window.webkitAudioContext;
+if(AC&&AC.prototype.suspend){const sus=AC.prototype.suspend;AC.prototype.suspend=function(){return active?Promise.resolve():sus.call(this);};}
+/* 録音用の出口には常に無音を流しておく（何も鳴っていないと音声トラックにデータが来ず、録画全体が止まる） */
+if(AC&&AC.prototype.createMediaStreamDestination){const cmd=AC.prototype.createMediaStreamDestination;AC.prototype.createMediaStreamDestination=function(){const d=cmd.apply(this,arguments);
+  try{const c=this.createConstantSource();c.offset.value=0;c.connect(d);c.start();}catch(e){}return d;};}})();</script>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="description" content="手のひらをカメラに向けて指を曲げると、指の付け根の線で部屋の景色が紙のように折れて、こちらへ起き上がり頭上に覆いかぶさる。両手なら両側の壁が立ち上がり、タップで折り目を残して部屋を箱のように組める。めくれた下には二秒前の自分が暗い層になって動いている。">
+<meta name="theme-color" content="#11161a">
+<title>TATAMU ─ 手のひらで景色を折りたたむ</title>
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  TATAMU 畳む ─ 手のひらで景色を折りたたむ                ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  REFERENCE  『インセプション』（2010）のパリの街路が折れて頭上に覆いかぶさる場面。
+             追った細部：曇天の平たい光、青緑に寄せた影と少し暖かい肌、
+             折れて起き上がった街が奥へ遠ざかりながら逆さまに頭上へ来る遠近、
+             折り目のなめらかな曲面、低い金管が膨らむ「BRAAAM」。
+  IDEA       あなたの手が紙を折る。指の付け根の線が折り目、指の曲げ具合が折る角度。
+             折れて起き上がるのは折り目の外側（画面の端の側）なので、部屋が人のまわりで
+             内側へ折れ込む。指をまっすぐにすれば景色は平らに戻る。
+             主役は人の見た目ではなく「手と映像のあいだで起きること」（10-17 の指示）。
+  LAYERS     ① 手の付け根を折り目に、指の曲げで映像が三次元に折れる（なめらかな曲面）
+             ② 両手なら二本の折り目（両側から起き上がる回廊）
+             ③ めくれた下は「夢の一段下」── 二秒前の自分が暗い層で動いている
+             ④ 紙の質感：折り目を走るハイライト、裏面は灰色の紙の裏に像が透ける、
+                起き上がった面が落とす影、画面の外まで続く街（鏡で継いだ続き）
+             ⑤ 慣性：速く動かすと紙がしなってはためき、手を離すと跳ねて平らに落ちる
+             ⑥ タップで折り目を残す（四本まで）。重ねて建築を組み、「ひらく」で順にほどく
+             ⑦ 音：折る角度で膨らむ低い金管、紙のこすれ、着地の音、残すときの重い一打
+             ⑧ 切り替え：素のカメラ ⇄ 折。入るときは画面上端から世界が一度折れて戻る
+  PALETTE    OVERCAST  地 #11161a ／ 影 #1a2b33 ／ 光 #ece6da ／ 線 #e9e2d4
+             SILVER    地 #050505 ／ 銀塩の白黒 ／ 線 #f2f2f2
+             SODIUM    地 #04060c ／ 紺 #0b1430 → ナトリウム灯 #ff9e38 ／ 線 #ffb04d
+  TYPE       Commissioner 200（題字、字間を広く）／ Anonymous Pro（折り図の注記）／
+             Zen Kaku Gothic New 300（日本語）
+  MOTION     ばねで追う折り角（減衰比 0.55、少しだけ行き過ぎて戻る）。
+             折り線は折り紙の図法どおり、谷折りの破線と矢印で示す。
+  SOUND      A1 の鋸歯波を四声重ねた金管、歪ませて低域通過、折り角で開く。
+             生成した残響。紙は帯域を絞ったノイズ。
+  TECH       WebGL1。380×240 の格子を頂点シェーダで折る（折り目ごとに円柱の曲面＋
+             はためきの第二曲率、剛体回転を順に合成するので何本でも裂けない）。
+             下の層は 256×144 の 36 枚のリング。HandLandmarker（2 手、動的 import）。
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Commissioner:wght@200;300;500&family=Anonymous+Pro:wght@400;700&family=Zen+Kaku+Gothic+New:wght@300;500&display=swap" rel="stylesheet">
+<style>
+  :root{--fg:#ece6da;--dim:rgba(236,230,218,.55);--bg:#11161a;--acc:#e9e2d4;--line:rgba(236,230,218,.28)}
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);overflow:hidden;
+    font-family:"Zen Kaku Gothic New","Hiragino Sans",sans-serif;font-weight:300;touch-action:none;user-select:none;-webkit-user-select:none}
+  canvas{position:fixed;inset:0;width:100vw;height:100vh;height:100dvh;display:block}
+  #ov{pointer-events:none}
+  video{position:fixed;width:2px;height:2px;opacity:0;pointer-events:none;left:0;top:0}
+  .mono{font-family:"Anonymous Pro",ui-monospace,monospace}
+  #brand{position:fixed;left:16px;top:calc(env(safe-area-inset-top) + 14px);pointer-events:none;display:none;z-index:2}
+  #brand.on{display:block}
+  #brand b{font-family:"Commissioner",sans-serif;font-weight:300;letter-spacing:.42em;font-size:13px}
+  #brand span{font-size:11px;letter-spacing:.3em;color:var(--dim);margin-left:6px}
+  #status{position:fixed;left:16px;top:calc(env(safe-area-inset-top) + 36px);font-size:10px;letter-spacing:.16em;color:var(--dim);pointer-events:none;display:none;z-index:2}
+  #status.on{display:block}
+  #hint{position:fixed;left:16px;right:16px;bottom:calc(env(safe-area-inset-bottom) + 84px);text-align:center;font-size:12px;letter-spacing:.18em;
+    color:var(--fg);opacity:0;transition:opacity .8s;pointer-events:none;text-shadow:0 1px 10px rgba(0,0,0,.6);z-index:2}
+  #hint.on{opacity:.85}
+  #ui{position:fixed;left:0;right:0;bottom:0;padding:14px 16px calc(env(safe-area-inset-bottom) + 16px);display:none;
+    gap:10px;align-items:center;justify-content:center;background:linear-gradient(transparent,rgba(0,0,0,.42));z-index:3}
+  #ui.on{display:flex}
+  .btn{appearance:none;border:1px solid var(--line);background:rgba(10,12,14,.38);color:var(--fg);font-family:inherit;font-weight:300;
+    border-radius:2px;height:38px;min-width:38px;padding:0 14px;font-size:12px;letter-spacing:.18em;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);cursor:pointer}
+  .btn:active{background:rgba(236,230,218,.18)}
+  .btn.act{background:var(--fg);color:#111;border-color:var(--fg)}
+  #rec.act{background:#b3261e;border-color:#b3261e;color:#fff}
+  #mode{min-width:92px}
+  #shoot{width:46px;height:46px;padding:0;position:relative;border-radius:50%}
+  #shoot::after{content:"";position:absolute;inset:9px;border-radius:50%;border:1px solid var(--fg)}
+  .tb{position:fixed;right:14px;display:none;z-index:3}
+  .tb.on{display:block}
+  #gear{top:calc(env(safe-area-inset-top) + 12px);font-size:15px;letter-spacing:0;padding:0}
+  #flip{top:calc(env(safe-area-inset-top) + 58px)}
+  #panel{position:fixed;right:14px;top:calc(env(safe-area-inset-top) + 106px);z-index:4;width:min(272px,calc(100vw - 28px));
+    padding:16px;border:1px solid var(--line);background:rgba(12,14,16,.78);
+    backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);display:flex;flex-direction:column;gap:12px;transition:opacity .25s}
+  #panel.hide{opacity:0;pointer-events:none}
+  #panel .sl{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:11px;letter-spacing:.12em;color:var(--dim)}
+  #panel input[type=range]{width:140px;accent-color:var(--fg)}
+  #panel .row{display:flex;gap:6px}
+  #panel .row .btn{flex:1;padding:0 4px;font-size:10px;letter-spacing:.14em;height:32px}
+  #panel .note{font-size:10px;line-height:1.9;color:var(--dim);letter-spacing:.06em}
+  #start{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;
+    background:radial-gradient(ellipse at 50% 40%,#1d262b 0%,#0b0e10 72%);z-index:6;padding:24px;text-align:center}
+  #start svg{width:min(300px,70vw);height:auto;overflow:visible}
+  #start h1{margin:0;font-family:"Commissioner",sans-serif;font-size:clamp(40px,11vw,64px);letter-spacing:.42em;font-weight:200;padding-left:.42em}
+  #start .jp{font-size:13px;letter-spacing:.7em;color:var(--dim);margin-top:-10px;padding-left:.7em}
+  #start p{max-width:330px;font-size:12px;line-height:2.1;color:var(--dim);margin:0;letter-spacing:.06em}
+  #go{appearance:none;border:1px solid var(--fg);background:transparent;color:var(--fg);padding:13px 44px;font-family:"Commissioner",sans-serif;font-size:12px;letter-spacing:.5em;padding-left:calc(44px + .5em);cursor:pointer}
+  #go:active{background:var(--fg);color:#111}
+  #err{color:#ff8f7a;font-size:11px;max-width:340px;white-space:pre-line;line-height:1.8}
+  #msg{position:fixed;left:16px;right:70px;top:calc(env(safe-area-inset-top) + 58px);font-size:11px;line-height:1.8;color:#ffb09a;white-space:pre-line;pointer-events:none;text-shadow:0 1px 6px #000;z-index:2}
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<canvas id="ov"></canvas>
+<video id="vid" playsinline muted autoplay></video>
+
+<div id="brand"><b>TATAMU</b><span>畳む</span></div>
+<div id="status" class="mono"></div>
+<div id="hint">手のひらをカメラに向けて、指を曲げる</div>
+
+<div id="start">
+  <svg viewBox="0 0 300 120" aria-hidden="true">
+    <path d="M20 96 L150 96 L150 96" stroke="#ece6da" stroke-width="1" fill="none" opacity=".75"/>
+    <path d="M150 96 C176 96 186 70 178 44 L150 16 L20 16" stroke="#ece6da" stroke-width="1" fill="none" opacity=".35"/>
+    <path d="M150 96 L280 96" stroke="#ece6da" stroke-width="1" stroke-dasharray="6 5" fill="none" opacity=".6"/>
+    <path d="M20 96 L20 16" stroke="#ece6da" stroke-width="1" fill="none" opacity=".2"/>
+    <path d="M232 92 C246 60 226 36 196 30" stroke="#ece6da" stroke-width="1" fill="none" opacity=".7"/>
+    <path d="M196 30 l9 -4 M196 30 l7 7" stroke="#ece6da" stroke-width="1" fill="none" opacity=".7"/>
+  </svg>
+  <h1>TATAMU</h1>
+  <div class="jp">畳 む</div>
+  <p>手のひらをカメラに向けて、指を曲げる。<br>指の付け根の線で、景色が紙のように折れて起き上がる。<br>両手なら両側から。タップでその折り目が残る。</p>
+  <button id="go">START</button>
+  <div id="err"></div>
+</div>
+
+<div id="msg"></div>
+<button class="btn tb" id="gear" aria-label="調整">⚙</button>
+<button class="btn tb" id="flip">⟲ カメラ</button>
+<div id="ui">
+  <button class="btn" id="mode">素 ⇄ 折</button>
+  <button class="btn" id="rec">● REC</button>
+  <button class="btn" id="shoot" aria-label="撮る"></button>
+  <button class="btn" id="open">ひらく</button>
+</div>
+<div id="panel" class="hide">
+  <div class="row" id="pals">
+    <button class="btn act" data-p="0">OVERCAST</button>
+    <button class="btn" data-p="1">SILVER</button>
+    <button class="btn" data-p="2">SODIUM</button>
+  </div>
+  <label class="sl">しなり<input id="soft" type="range" min="0.03" max="0.22" step="0.005" value="0.09"></label>
+  <label class="sl">指の感度<input id="sens" type="range" min="0.5" max="2" step="0.05" value="1"></label>
+  <label class="sl">はためき<input id="flut" type="range" min="0" max="2" step="0.05" value="1"></label>
+  <label class="sl">下の層の遅れ<input id="lag" type="range" min="0.3" max="2.3" step="0.1" value="2"></label>
+  <label class="sl">音量<input id="vol" type="range" min="0" max="1" step="0.01" value="0.8"></label>
+  <div class="row"><button class="btn act" id="guides">折り線</button><button class="btn" id="keep">手を離しても残す</button></div>
+  <div class="note">指の付け根の線が折り目、指の曲げが折る角度。折り目の外側が起き上がる。両手なら二か所で折れる。画面をタップするとその折り目が残り（四本まで）、「ひらく」で順にほどける。画面を指でつまんで引いても折れる。</div>
+</div>
+
+<script>
+'use strict';
+(() => {
+const $ = id => document.getElementById(id);
+const cv = $('gl'), ov = $('ov'), vid = $('vid'), octx = ov.getContext('2d');
+const TAU = Math.PI * 2, PI = Math.PI;
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+const fin = v => typeof v === 'number' && isFinite(v);
+const smoothstep = (a, b, x) => { const t = clamp((x - a)/(b - a), 0, 1); return t*t*(3 - 2*t); };
+
+/* ───────────────────────── WebGL ───────────────────────── */
+const gl = cv.getContext('webgl', {antialias:true, alpha:false, depth:true, premultipliedAlpha:false, preserveDrawingBuffer:true});
+if (!gl) $('err').textContent = 'WebGL が使えないため表示できません。';
+
+const NF = 8;                       // fold slots: 0 intro, 1-4 pins, 5 touch, 6-7 hands
+const SHEET_VS = `
+precision highp float;
+attribute vec2 a;
+uniform vec2 lo, hi;
+uniform mat4 VP;
+uniform vec4 FA[${NF}];
+uniform vec4 FB[${NF}];
+uniform float zOff;
+varying vec2 vF;
+varying vec3 vN, vP;
+varying float vAO;
+vec3 rot(vec3 ax, float an, vec3 v){
+  float c=cos(an), s=sin(an);
+  return v*c + cross(ax,v)*s + ax*dot(ax,v)*(1.-c);
+}
+void main(){
+  vec2 f = mix(lo, hi, a);
+  vec3 p = vec3(f, zOff), nr = vec3(0.,0.,1.);
+  float ao = 1.;
+  for(int i=0;i<${NF};i++){
+    vec4 A = FA[i], B = FB[i];
+    float th = B.x;
+    if(th > 1e-4){
+      vec2 c = A.xy, n = A.zw;
+      float ka = B.y, R = B.z;
+      float d = dot(f - c, n);
+      // occlusion in the crease: continuous across it (both sides start equally dark), so no seam
+      float occ = .38*smoothstep(0., 1.4, th), reach = .10 + .55*(1. - cos(th))*.5;
+      if(d <= 0.){
+        ao *= 1. - occ*exp(d/reach);
+      } else {
+        ao *= 1. - occ*exp(-d/(R*th*.6 + .04));
+        float phi, X, Z, arc = R*th;
+        if(d <= arc){ phi = d/R; X = R*sin(phi); Z = R*(1.-cos(phi)); }
+        else {
+          float s = d - arc, Aq, Bq;
+          phi = th + ka*s;
+          if(abs(ka) < 1e-3){ Aq = s; Bq = .5*ka*s*s; }
+          else { Aq = sin(ka*s)/ka; Bq = (1.-cos(ka*s))/ka; }
+          X = R*sin(th) + Aq*cos(th) - Bq*sin(th);
+          Z = R*(1.-cos(th)) + Aq*sin(th) + Bq*cos(th);
+        }
+        vec3 ax = vec3(n.y, -n.x, 0.);
+        vec3 tgt = vec3(f - d*n, 0.) + vec3(n, 0.)*X + vec3(0.,0.,Z);
+        p = tgt + rot(ax, phi, p - vec3(f, 0.));
+        nr = rot(ax, phi, nr);
+      }
+    }
+  }
+  vF = f; vN = nr; vP = p; vAO = ao;
+  gl_Position = VP * vec4(p, 1.);
+}`;
+const SHEET_FS = `
+#ifdef GL_FRAGMENT_PRECISION_HIGH
+precision highp float;
+#else
+precision mediump float;
+#endif
+varying vec2 vF;
+varying vec3 vN, vP;
+varying float vAO;
+uniform sampler2D cam;
+uniform vec2 sxy, res, lo, hi;
+uniform float mir, asp, pal, gradeAmt, camOK, time, under, margin;
+uniform vec3 eye, voidC, rimC;
+float hash(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233)))*43758.5453); }
+vec3 camAt(vec2 f){
+  vec2 u = vec2((f.x/asp + 1.)*.5, (1. - f.y)*.5);
+  u = 1. - abs(mod(u, 2.) - 1.);                  // the street continues past the frame, mirrored
+  vec2 c = vec2(.5 + (u.x - .5)*sxy.x, .5 + (u.y - .5)*sxy.y);
+  if(mir > .5) c.x = 1. - c.x;
+  vec3 col = texture2D(cam, clamp(c, .001, .999)).rgb;
+  vec3 ph = mix(vec3(.12,.15,.17), vec3(.32,.34,.35), u.y) + .03*sin(u.x*30. + time);
+  return mix(ph, col, camOK);
+}
+vec3 grade(vec3 c){
+  float l = dot(c, vec3(.299,.587,.114));
+  vec3 g;
+  if(pal < .5){
+    vec3 d = mix(vec3(l), c, .5);
+    d = mix(d, smoothstep(vec3(-.04), vec3(1.02), d), .65);
+    d *= mix(vec3(.80,.94,1.03), vec3(1.05,1.0,.93), smoothstep(.15,.85,l));
+    g = d*.93 + vec3(.025,.045,.055);
+  } else if(pal < 1.5){
+    float s = smoothstep(.04, .94, l);
+    s = s*s*(3. - 2.*s);
+    g = vec3(mix(l, s, .8))*vec3(1.,.992,.975);
+  } else {
+    float s = smoothstep(.03, .88, l);
+    g = mix(vec3(.018,.03,.085), vec3(.98,.56,.17), s);
+    g = mix(g, vec3(1.,.86,.62), smoothstep(.72, 1., l));
+    g = mix(g, vec3(.05,.09,.22), (1. - s)*smoothstep(.0,.35,l)*.6);
+  }
+  return mix(c, g, gradeAmt);
+}
+void main(){
+  vec3 base = grade(camAt(vF));
+  vec3 N = normalize(vN);
+  bool front = gl_FrontFacing;
+  if(under > .5) front = true;
+  if(!front) N = -N;
+  vec3 L = normalize(vec3(-.30, .42, .86));
+  vec3 V = normalize(eye - vP);
+  float diff = max(dot(N, L), 0.);
+  float lit = clamp(.60 + .40*dot(N, L)/L.z, .38, 1.2);
+  vec3 H = normalize(L + V);
+  float spec = pow(max(dot(N, H), 0.), 70.)*.36 + pow(max(dot(N, H), 0.), 12.)*.06;
+  vec3 col;
+  if(front){
+    col = base*mix(1., lit, gradeAmt);
+  } else {
+    // the back of the print: plain paper, with the picture showing through faintly
+    float l = dot(base, vec3(.333));
+    vec3 paper = pal < .5 ? vec3(.30,.34,.36) : pal < 1.5 ? vec3(.16) : vec3(.05,.07,.16);
+    vec3 thru = mix(paper, base*vec3(.82,.9,1.)*.85, .62);
+    col = (thru + (hash(floor(vF*300.)) - .5)*.02)*(.42 + .62*diff/L.z);
+  }
+  // highlights only where the sheet bends (a flat print has no hot spot)
+  col += spec*smoothstep(.0, .12, 1. - abs(N.z))*gradeAmt*(front ? 1. : .5)*vec3(1.,.98,.94);
+  col *= mix(1., vAO, gradeAmt);
+  // beyond the frame the street is still there, but sinks into haze
+  float outside = max(abs(vF.x) - asp, abs(vF.y) - 1.);
+  col = mix(col, voidC, smoothstep(0., margin, outside)*.55*gradeAmt);
+  // the cut edge of the sheet
+  float e = min(min(vF.x - lo.x, hi.x - vF.x), min(vF.y - lo.y, hi.y - vF.y));
+  col = mix(col, rimC, smoothstep(.012, .0, e)*.55*gradeAmt);
+  if(under > .5){
+    // the level below: colder, quieter, further away
+    float l = dot(col, vec3(.299,.587,.114));
+    col = mix(vec3(l)*vec3(.86,.95,1.05), col, .35);
+    col = mix(col*.52, voidC, .40);
+  }
+  vec2 q = gl_FragCoord.xy/res;
+  float vg = smoothstep(1.25, .35, length((q - .5)*vec2(1.1, 1.)));
+  col *= mix(1., .55 + .45*vg, gradeAmt);
+  col += (hash(gl_FragCoord.xy + fract(time*7.3)*91.) - .5)*.055*gradeAmt;
+  gl_FragColor = vec4(col, 1.);
+}`;
+const BG_VS = `attribute vec2 p;varying vec2 v;void main(){v=p;gl_Position=vec4(p,.9999,1.);}`;
+const BG_FS = `precision mediump float;varying vec2 v;uniform vec3 voidC;uniform float time;
+float hash(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233)))*43758.5453); }
+void main(){float r=length(v*vec2(1.,.8));vec3 c=voidC*(1.15-.55*r);c+=(hash(gl_FragCoord.xy+fract(time*5.1)*77.)-.5)*.03;gl_FragColor=vec4(c,1.);}`;
+const COPY_VS = `attribute vec2 p;varying vec2 v;void main(){v=p*.5+.5;gl_Position=vec4(p,0.,1.);}`;
+const COPY_FS = `precision mediump float;varying vec2 v;uniform sampler2D cam;void main(){gl_FragColor=texture2D(cam,v);}`;
+
+function mkProg(vs, fs){
+  const sh = (t, s) => { const o = gl.createShader(t); gl.shaderSource(o, s); gl.compileShader(o);
+    if (!gl.getShaderParameter(o, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(o)); return o; };
+  const p = gl.createProgram(); gl.attachShader(p, sh(gl.VERTEX_SHADER, vs)); gl.attachShader(p, sh(gl.FRAGMENT_SHADER, fs));
+  gl.linkProgram(p); if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+  const u = {}; const n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+  for (let i = 0; i < n; i++){ const inf = gl.getActiveUniform(p, i); const nm = inf.name.replace(/\[0\]$/, ''); u[nm] = gl.getUniformLocation(p, inf.name); }
+  return {p, u};
+}
+let PS = null, PB = null, PC = null;
+try { if (gl){ PS = mkProg(SHEET_VS, SHEET_FS); PB = mkProg(BG_VS, BG_FS); PC = mkProg(COPY_VS, COPY_FS); } }
+catch (e) { console.error(e); $('err').textContent = 'シェーダを用意できませんでした：' + (e && e.message || e); }
+
+// sheet mesh: the grid is dense enough that a crease of radius 0.03 still bends smoothly
+let GX = 240, GY = 150;
+let meshBuf, idxBuf, nIdx = 0, quadBuf, flatBuf, idx32 = false;
+if (gl){
+  idx32 = !!gl.getExtension('OES_element_index_uint');
+  if (idx32){ GX = 380; GY = 240; }
+  const v = new Float32Array((GX + 1)*(GY + 1)*2);
+  let k = 0; for (let j = 0; j <= GY; j++) for (let i = 0; i <= GX; i++){ v[k++] = i/GX; v[k++] = j/GY; }
+  meshBuf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, meshBuf); gl.bufferData(gl.ARRAY_BUFFER, v, gl.STATIC_DRAW);
+  const nv = (GX + 1)*(GY + 1);
+  const I = nv < 65536 ? new Uint16Array(GX*GY*6) : new Uint32Array(GX*GY*6);
+  k = 0; for (let j = 0; j < GY; j++) for (let i = 0; i < GX; i++){
+    const a = j*(GX + 1) + i, b = a + 1, c = a + GX + 1, d = c + 1;
+    I[k++] = a; I[k++] = b; I[k++] = c; I[k++] = b; I[k++] = d; I[k++] = c;
+  }
+  nIdx = k; idx32 = I instanceof Uint32Array;
+  idxBuf = gl.createBuffer(); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, idxBuf); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, I, gl.STATIC_DRAW);
+  quadBuf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, quadBuf); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
+  // the level below never folds: two triangles are enough
+  flatBuf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, flatBuf); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0,0, 1,0, 0,1, 1,1]), gl.STATIC_DRAW);
+}
+function mkTex(){ const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE); return t; }
+const camTex = gl ? mkTex() : null;
+if (gl){ gl.bindTexture(gl.TEXTURE_2D, camTex); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, 1, 1, 0, gl.RGB, gl.UNSIGNED_BYTE, new Uint8Array([30,36,40])); }
+
+// the level below: a ring of small frames, played back a couple of seconds late
+const RING = 36, RW = 480, RH = 270, RING_HZ = 15;
+const ring = [];
+if (gl) for (let i = 0; i < RING; i++){
+  const t = mkTex(); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, RW, RH, 0, gl.RGB, gl.UNSIGNED_BYTE, null);
+  const f = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, f); gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, t, 0);
+  ring.push({t, f, at: -1});
+}
+if (gl) gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+let ringHead = -1, ringLast = 0;
+
+let W = 1, H = 1, asp = 1, dpr = 1;
+function resize(){
+  dpr = Math.min(devicePixelRatio || 1, 2);
+  W = Math.max(1, Math.round(innerWidth*dpr)); H = Math.max(1, Math.round(innerHeight*dpr));
+  cv.width = W; cv.height = H; ov.width = W; ov.height = H; asp = W/H;
+}
+addEventListener('resize', resize); resize();
+
+/* ───────────────────────── camera ───────────────────────── */
+let facing = 'user', camOK = 0, stream = null;
+async function startCam(){
+  const md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) throw new Error('getUserMedia is unavailable');
+  const s2 = await md.getUserMedia({audio:false, video:{facingMode:{ideal:facing}, width:{ideal:1280}, height:{ideal:720}}});
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = s2; vid.srcObject = stream; await vid.play().catch(() => {}); camOK = 1;
+  rawHands = []; dropHands();
+  ring.forEach(r => r.at = -1); ringHead = -1;
+}
+function camErrText(e){
+  const m = (e && (e.message || e.name)) ? (e.message || e.name) : String(e || 'unknown');
+  return 'カメラを起動できませんでした：' + m + '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+}
+function coverScale(){ const vw = vid.videoWidth || 16, vh = vid.videoHeight || 9, va = vw/vh; return va > asp ? [asp/va, 1] : [1, va/asp]; }
+const mirrored = () => facing === 'user';
+// landmark (normalised video coords) -> view space (x in [-asp, asp], y in [-1, 1], y up)
+function lmToView(x, y){
+  const s = coverScale(); const cx = mirrored() ? 1 - x : x;
+  const u = .5 + (cx - .5)/s[0], v = .5 + (y - .5)/s[1];
+  return [(u*2 - 1)*asp, 1 - v*2];
+}
+
+/* ───────────────────────── hand tracking ───────────────────────── */
+let landmarker = null, lastVT = -1, lastTs = 0, rawHands = [], EXT = false;
+async function initHands(){
+  const {FilesetResolver, HandLandmarker} = await import('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs');
+  const fs = await FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm');
+  const opts = d => ({baseOptions:{modelAssetPath:'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task', delegate:d},
+    runningMode:'VIDEO', numHands:2, minHandDetectionConfidence:.5, minHandPresenceConfidence:.5, minTrackingConfidence:.5});
+  try { landmarker = await HandLandmarker.createFromOptions(fs, opts('GPU')); }
+  catch (e) { console.warn('GPU delegate failed', e); landmarker = await HandLandmarker.createFromOptions(fs, opts('CPU')); }
+}
+function detect(now){
+  if (EXT || !landmarker || vid.readyState < 2 || vid.currentTime === lastVT) return;
+  lastVT = vid.currentTime;
+  const ts = Math.max(lastTs + 1, Math.round(now)); lastTs = ts;
+  let r = null; try { r = landmarker.detectForVideo(vid, ts); } catch (e) { return; }
+  rawHands = parseHands(r && r.landmarks, r && r.worldLandmarks, now);
+}
+const okP = q => q && fin(q.x) && fin(q.y);
+const okP3 = q => okP(q) && fin(q.z === undefined ? 0 : q.z);
+const FINGERS = [[5,6,7,8],[9,10,11,12],[13,14,15,16],[17,18,19,20]];
+function sub3(a, b){ return [a.x - b.x, a.y - b.y, (a.z || 0) - (b.z || 0)]; }
+function ang3(a, b){ const la = Math.hypot(a[0], a[1], a[2]), lb = Math.hypot(b[0], b[1], b[2]);
+  if (la < 1e-9 || lb < 1e-9) return 0; return Math.acos(clamp((a[0]*b[0] + a[1]*b[1] + a[2]*b[2])/(la*lb), -1, 1)); }
+// one observed hand -> a fold: crease through the knuckles, flap on the finger side, angle from the finger bend
+function parseHands(list, worlds, now){
+  const out = []; if (!Array.isArray(list)) return out;
+  for (let h = 0; h < list.length && out.length < 2; h++){
+    const L = list[h];
+    if (!Array.isArray(L) || L.length < 21) continue;
+    let ok = true; for (let i = 0; i < 21; i++) if (!okP3(L[i])) { ok = false; break; }
+    if (!ok) continue;
+    const Wd = Array.isArray(worlds) && Array.isArray(worlds[h]) && worlds[h].length >= 21 && worlds[h].every(okP3) ? worlds[h] : null;
+    const P = Wd || L;
+    const w = lmToView(L[0].x, L[0].y), m9 = lmToView(L[9].x, L[9].y);
+    let K = [0, 0]; for (const i of [5,9,13,17]){ const q = lmToView(L[i].x, L[i].y); K[0] += q[0]/4; K[1] += q[1]/4; }
+    let ux = m9[0] - w[0], uy = m9[1] - w[1]; const pl = Math.hypot(ux, uy);
+    if (!(pl > 1e-3) || !fin(pl)) continue;
+    ux /= pl; uy /= pl;
+    // the bend, measured in 3D so that a hand seen from the side still reads correctly
+    const palm = sub3(P[9], P[0]);
+    let bend = 0;
+    for (const f of FINGERS){
+      const a = sub3(P[f[1]], P[f[0]]), b = sub3(P[f[2]], P[f[1]]), c = sub3(P[f[3]], P[f[2]]);
+      bend += ang3(palm, a) + ang3(a, b) + ang3(b, c);
+    }
+    bend /= 4;
+    if (!fin(bend)) continue;
+    out.push({c: K, n: [ux, uy], bend, palm: pl, t: now});
+  }
+  return out;
+}
+
+/* ───────────────────────── folds ───────────────────────── */
+// a fold: crease point c, unit normal n (towards the flap), angle th with a spring, radius R, flutter curvature ka
+function mkFold(){ return {c:[0,0], n:[0,1], th:0, om:0, tt:0, ka:0, R:.09, on:false, seen:0, vc:[0,0], kind:'', born:0, hold:null, sgn:1}; }
+const F = []; for (let i = 0; i < NF; i++) F.push(mkFold());
+const INTRO = 0, PIN0 = 1, NPIN = 4, TOUCH = 5, HAND0 = 6, TH_MAX = PI*.64;
+const P = {pal:0, soft:.09, sens:1, flut:1, lag:2, vol:.8, guides:true, keep:false};
+let mode = 'plain', modeT = 0, gradeAmt = 0, gradeTarget = 0, introT = -1, foldedOnce = false;
+
+function stepSpring(f, dt){
+  // underdamped spring on the angle: it overshoots a little and settles, like a sheet with some stiffness
+  const k = 95, c = 2*.55*Math.sqrt(k);
+  let n = Math.ceil(dt/(1/240)); const h = dt/n;
+  for (let i = 0; i < n; i++){ f.om += (k*(f.tt - f.th) - c*f.om)*h; f.th += f.om*h; }
+  if (f.th < 0){ f.th = 0; if (f.om < 0) f.om *= -.25; }
+  if (f.th > PI*.985){ f.th = PI*.985; if (f.om > 0) f.om = 0; }
+}
+function dropHands(){ for (let i = HAND0; i < NF; i++){ const f = F[i]; f.on = false; f.tt = 0; f.vc[0] = f.vc[1] = 0; } }
+let lastHandUpdate = 0;
+function updateHands(now, dt){
+  // match each observed hand to the nearest live slot
+  const used = [false, false];
+  const obs = rawHands.filter(o => now - o.t < 400);
+  for (const o of obs){
+    let best = -1, bd = 1e9;
+    for (let s = 0; s < 2; s++){ if (used[s]) continue; const f = F[HAND0 + s];
+      const d = f.on ? Math.hypot(f.c[0] - o.c[0], f.c[1] - o.c[1]) : 5 + s; if (d < bd){ bd = d; best = s; } }
+    if (best < 0) continue; used[best] = true;
+    const f = F[HAND0 + best];
+    const bendN = clamp((o.bend - .45)/(3.1/P.sens), 0, 1);
+    const tt = Math.pow(bendN, 1.1)*TH_MAX;
+    if (!f.on){ f.c[0] = o.c[0]; f.c[1] = o.c[1]; const s0 = o.c[0]*o.n[0] + o.c[1]*o.n[1] >= 0 ? 1 : -1;
+      f.n[0] = o.n[0]*s0; f.n[1] = o.n[1]*s0; f.vc[0] = f.vc[1] = 0; f.born = now; }
+    const a = 1 - Math.exp(-dt/.07);
+    const nc0 = f.c[0] + (o.c[0] - f.c[0])*a, nc1 = f.c[1] + (o.c[1] - f.c[1])*a;
+    if (f.on && dt > 0){ f.vc[0] += ((nc0 - f.c[0])/dt - f.vc[0])*.3; f.vc[1] += ((nc1 - f.c[1])/dt - f.vc[1])*.3; }
+    f.c[0] = nc0; f.c[1] = nc1;
+    // the hand sets the crease line; the side away from the middle of the picture is the one that lifts,
+    // so the room folds in around the person instead of a flap burying them (with hysteresis near the middle)
+    const cu = f.c[0]*o.n[0] + f.c[1]*o.n[1];
+    if (!f.on) f.sgn = cu >= 0 ? 1 : -1;
+    else if (cu*f.sgn < -.08) f.sgn = -f.sgn;
+    const ox = o.n[0]*f.sgn, oy = o.n[1]*f.sgn;
+    // rotate the normal smoothly
+    let nx = f.n[0] + (ox - f.n[0])*a*.9, ny = f.n[1] + (oy - f.n[1])*a*.9; const nl = Math.hypot(nx, ny) || 1;
+    f.n[0] = nx/nl; f.n[1] = ny/nl;
+    // after a pin, this hand stays quiet until it opens or moves away (or the same crease would fold twice)
+    if (f.hold && (bendN < .15 || Math.hypot(f.c[0] - f.hold[0], f.c[1] - f.hold[1]) > .3)) f.hold = null;
+    // a crease near the middle would lift half the picture into the lens: keep that one lower
+    const ext = Math.abs(f.n[0])*asp + Math.abs(f.n[1]), sz = (f.c[0]*f.n[0] + f.c[1]*f.n[1])/ext;
+    const cap = Math.min(PI*(.40 + .24*smoothstep(.08, .5, sz)), lengthCap(f));
+    f.tt = mode === 'fx' && !f.hold ? Math.min(tt, cap) : 0; f.on = true; f.seen = now; f.R = P.soft*Math.min(asp, 1)/.56;
+  }
+  for (let s = 0; s < 2; s++){
+    const f = F[HAND0 + s];
+    if (f.on && now - f.seen > 220){
+      // tracking lost: let go (or keep it as a pin)
+      if (P.keep && f.th > .2 && pinFold(f)){ f.th = 0; f.om = 0; }
+      f.on = false; f.tt = 0; f.vc[0] = f.vc[1] = 0; f.hold = null;
+    }
+  }
+}
+function pinFold(src){
+  // the oldest pin lets go when a fifth is added
+  let slot = -1;
+  for (let i = PIN0; i < PIN0 + NPIN; i++) if (F[i].kind === '' && F[i].th < .004){ slot = i; break; }
+  if (slot < 0){
+    let old = PIN0; for (let i = PIN0; i < PIN0 + NPIN; i++) if (F[i].born < F[old].born) old = i;
+    F[old].tt = 0; F[old].kind = 'leaving';
+    for (let i = PIN0; i < PIN0 + NPIN; i++) if (F[i].kind === '' ){ slot = i; break; }
+    if (slot < 0) return false;
+  }
+  const d = F[slot];
+  d.c = src.c.slice(); d.n = src.n.slice(); d.th = src.th; d.om = 0; d.tt = src.th; d.R = src.R; d.ka = 0;
+  d.kind = 'pin'; d.born = performance.now(); d.on = true;
+  return true;
+}
+function pinNow(){
+  let any = false;
+  for (const i of [HAND0, HAND0 + 1, TOUCH]){ const f = F[i];
+    if (f.th > .2 && (f.on || i === TOUCH) && pinFold(f)){ any = true; f.th = 0; f.om = 0; f.tt = 0; f.ka = 0; if (i !== TOUCH) f.hold = f.c.slice(); } }
+  if (any){ sfxPin(); foldedOnce = true; }
+  return any;
+}
+function openAll(){
+  let k = 0;
+  for (let i = PIN0; i < PIN0 + NPIN; i++) if (F[i].kind === 'pin'){ const f = F[i]; const delay = k++*180;
+    f.kind = 'leaving'; setTimeout(() => { f.tt = 0; }, delay); }
+}
+function updateFolds(now, dt){
+  // intro: the top of the picture lifts, comes over, and lays back down
+  const fi = F[INTRO];
+  if (introT >= 0){
+    const t = (now - introT)/1000;
+    // rises for 1.4 s while the crease travels down to the shoulders, hangs, then lies back down
+    const e = t < 1.4 ? Math.sin(t/1.4*PI*.5) : t < 1.9 ? 1 : Math.max(0, 1 - (t - 1.9)/1.1);
+    fi.c[0] = 0; fi.c[1] = .95 - .7*Math.sin(Math.min(1, t/1.6)*PI*.5); fi.n[0] = 0; fi.n[1] = 1; fi.R = .16*Math.min(asp, 1)/.56;
+    fi.tt = e*PI*.5; fi.on = true;
+    if (t > 3.2){ introT = -1; fi.tt = 0; }
+  } else fi.tt = 0;
+  for (let i = 0; i < NF; i++){
+    const f = F[i];
+    const th0 = f.th;
+    stepSpring(f, dt);
+    // flutter: the free part of the sheet lags behind the angle and the crease motion
+    const vn = f.vc[0]*f.n[0] + f.vc[1]*f.n[1];
+    const tk = clamp((-f.om*.07 - vn*.35)*P.flut, -.85, .85);
+    f.ka += (tk - f.ka)*Math.min(1, dt*10);
+    if (i >= PIN0 && i < PIN0 + NPIN && f.kind === 'leaving' && f.tt === 0 && f.th < .004 && Math.abs(f.om) < .05){ f.kind = ''; f.on = false; }
+    // landing: the sheet slaps back flat
+    if (th0 > .06 && f.th <= .06 && f.om < -1.2) sfxSlap(Math.min(1, -f.om/7));
+    if (f.th > .3) foldedOnce = true;
+  }
+}
+
+/* ─── same fold in JS (for the crease guides drawn on top) ─── */
+function rot3(ax, an, v){ const c = Math.cos(an), s = Math.sin(an);
+  const cx = ax[1]*v[2] - ax[2]*v[1], cy = ax[2]*v[0] - ax[0]*v[2], cz = ax[0]*v[1] - ax[1]*v[0];
+  const d = ax[0]*v[0] + ax[1]*v[1] + ax[2]*v[2];
+  return [v[0]*c + cx*s + ax[0]*d*(1 - c), v[1]*c + cy*s + ax[1]*d*(1 - c), v[2]*c + cz*s + ax[2]*d*(1 - c)]; }
+function foldPoint(fx, fy){
+  let p = [fx, fy, 0];
+  for (let i = 0; i < NF; i++){
+    const f = F[i], th = f.th; if (th <= 1e-4) continue;
+    const n = f.n, d = (fx - f.c[0])*n[0] + (fy - f.c[1])*n[1]; if (d <= 0) continue;
+    const R = f.R, ka = f.ka, arc = R*th; let phi, X, Z;
+    if (d <= arc){ phi = d/R; X = R*Math.sin(phi); Z = R*(1 - Math.cos(phi)); }
+    else { const s = d - arc; phi = th + ka*s; let A, B;
+      if (Math.abs(ka) < 1e-3){ A = s; B = .5*ka*s*s; } else { A = Math.sin(ka*s)/ka; B = (1 - Math.cos(ka*s))/ka; }
+      X = R*Math.sin(th) + A*Math.cos(th) - B*Math.sin(th); Z = R*(1 - Math.cos(th)) + A*Math.sin(th) + B*Math.cos(th); }
+    const ax = [n[1], -n[0], 0];
+    const r = rot3(ax, phi, [p[0] - fx, p[1] - fy, p[2]]);
+    p = [fx - d*n[0] + n[0]*X + r[0], fy - d*n[1] + n[1]*X + r[1], Z + r[2]];
+  }
+  return p;
+}
+
+/* ───────────────────────── view ───────────────────────── */
+const FOV = 62*PI/180, DIST = 1/Math.tan(FOV/2);
+const eye = [0, 0, DIST], look = [0, 0, 0];
+const VP = new Float32Array(16);
+function computeVP(){
+  const ex = eye[0], ey = eye[1], ez = eye[2];
+  // look at `look`, up = +y
+  let zx = ex - look[0], zy = ey - look[1], zz = ez - look[2]; const zl = Math.hypot(zx, zy, zz); zx /= zl; zy /= zl; zz /= zl;
+  let xx = zz, xy = 0, xz = -zx; let xl = Math.hypot(xx, xy, xz); xx /= xl; xy /= xl; xz /= xl;
+  const yx = zy*xz - zz*xy, yy = zz*xx - zx*xz, yz = zx*xy - zy*xx;
+  const near = .05, far = 30, f = 1/Math.tan(FOV/2), a = asp;
+  const p0 = f/a, p5 = f, p10 = (far + near)/(near - far), p14 = 2*far*near/(near - far);
+  // view matrix rows
+  const v = [xx, xy, xz, -(xx*ex + xy*ey + xz*ez), yx, yy, yz, -(yx*ex + yy*ey + yz*ez), zx, zy, zz, -(zx*ex + zy*ey + zz*ez)];
+  // P*V, column-major
+  for (let c = 0; c < 4; c++){
+    VP[c*4 + 0] = p0*v[c];
+    VP[c*4 + 1] = p5*v[4 + c];
+    VP[c*4 + 2] = p10*v[8 + c] + (c === 3 ? p14 : 0);
+    VP[c*4 + 3] = -v[8 + c];
+  }
+}
+function project(p){
+  const x = VP[0]*p[0] + VP[4]*p[1] + VP[8]*p[2] + VP[12], y = VP[1]*p[0] + VP[5]*p[1] + VP[9]*p[2] + VP[13], w = VP[3]*p[0] + VP[7]*p[1] + VP[11]*p[2] + VP[15];
+  if (w < .05) return null; return [(x/w*.5 + .5)*W, (.5 - y/w*.5)*H];
+}
+
+const PALS = [
+  {voidC:[.067,.086,.10], rim:[.92,.89,.83], line:'rgba(233,226,212,', bg:'#11161a'},
+  {voidC:[.02,.02,.02], rim:[.95,.95,.95], line:'rgba(242,242,242,', bg:'#050505'},
+  {voidC:[.015,.022,.05], rim:[1.,.69,.30], line:'rgba(255,176,77,', bg:'#04060c'},
+];
+const FA = new Float32Array(NF*4), FB = new Float32Array(NF*4), FZ = new Float32Array(NF*4);
+
+function captureRing(now){
+  if (!camOK || vid.readyState < 2) return;
+  if (now - ringLast < 1000/RING_HZ) return; ringLast = now;
+  ringHead = (ringHead + 1) % RING; const r = ring[ringHead];
+  gl.bindFramebuffer(gl.FRAMEBUFFER, r.f); gl.viewport(0, 0, RW, RH);
+  gl.disable(gl.DEPTH_TEST); gl.useProgram(PC.p);
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, camTex); gl.uniform1i(PC.u.cam, 0);
+  gl.bindBuffer(gl.ARRAY_BUFFER, quadBuf); const loc = gl.getAttribLocation(PC.p, 'p');
+  gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4); gl.disableVertexAttribArray(loc);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null); r.at = now;
+}
+function ringFrame(now){
+  // the newest frame that is at least `lag` seconds old
+  const want = now - P.lag*1000; let best = null;
+  for (const r of ring) if (r.at > 0 && r.at <= want && (!best || r.at > best.at)) best = r;
+  if (!best) for (const r of ring) if (r.at > 0 && (!best || r.at < best.at)) best = r;
+  return best;
+}
+function drawSheet(tex, zOff, under, lo, hi, now, folds){
+  const u = PS.u;
+  gl.useProgram(PS.p);
+  gl.uniform2f(u.lo, lo[0], lo[1]); gl.uniform2f(u.hi, hi[0], hi[1]);
+  gl.uniformMatrix4fv(u.VP, false, VP);
+  gl.uniform4fv(u.FA, folds ? FA : FZ); gl.uniform4fv(u.FB, folds ? FB : FZ);
+  gl.uniform1f(u.zOff, zOff);
+  const s = coverScale(); gl.uniform2f(u.sxy, s[0], s[1]); gl.uniform2f(u.res, W, H);
+  gl.uniform1f(u.mir, mirrored() ? 1 : 0); gl.uniform1f(u.asp, asp); gl.uniform1f(u.pal, P.pal);
+  gl.uniform1f(u.gradeAmt, gradeAmt); gl.uniform1f(u.camOK, camOK); gl.uniform1f(u.time, now/1000 % 1000);
+  gl.uniform1f(u.under, under); gl.uniform1f(u.margin, MARGIN);
+  gl.uniform3f(u.eye, eye[0], eye[1], eye[2]);
+  const pc = PALS[P.pal]; gl.uniform3fv(u.voidC, pc.voidC); gl.uniform3fv(u.rimC, pc.rim);
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, tex); gl.uniform1i(u.cam, 0);
+  const loc = gl.getAttribLocation(PS.p, 'a');
+  if (folds){
+    gl.bindBuffer(gl.ARRAY_BUFFER, meshBuf); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, idxBuf);
+    gl.drawElements(gl.TRIANGLES, nIdx, idx32 ? gl.UNSIGNED_INT : gl.UNSIGNED_SHORT, 0);
+  } else {
+    gl.bindBuffer(gl.ARRAY_BUFFER, flatBuf); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  }
+  gl.disableVertexAttribArray(loc);
+}
+let MARGIN = .7;
+// how far the street continues past the frame (anchored to the short edge)
+function sheetMargin(){ return .25 + .3*Math.min(asp, 1); }
+// a flap long enough to reach the lens is held lower
+function lengthCap(f){
+  const ext = Math.abs(f.n[0])*asp + Math.abs(f.n[1]);
+  const Lf = ext - (f.c[0]*f.n[0] + f.c[1]*f.n[1]) + sheetMargin(), reach = DIST;
+  return Lf > reach ? Math.max(.45*PI, Math.asin(reach/Lf) + .25*PI*(1 - reach/Lf)) : PI;
+}
+function render(now){
+  if (!gl || !PS) return;
+  if (camOK && vid.readyState >= 2){
+    gl.bindTexture(gl.TEXTURE_2D, camTex);
+    try { gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, gl.RGB, gl.UNSIGNED_BYTE, vid); } catch (e) {}
+    captureRing(now);
+  }
+  for (let i = 0; i < NF; i++){
+    const f = F[i];
+    FA[i*4] = f.c[0]; FA[i*4 + 1] = f.c[1]; FA[i*4 + 2] = f.n[0]; FA[i*4 + 3] = f.n[1];
+    FB[i*4] = f.th; FB[i*4 + 1] = f.ka; FB[i*4 + 2] = Math.max(.01, f.R); FB[i*4 + 3] = 0;
+  }
+  computeVP();
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, 0, W, H);
+  const pc = PALS[P.pal];
+  gl.clearColor(pc.voidC[0], pc.voidC[1], pc.voidC[2], 1); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+  // haze behind everything
+  gl.disable(gl.DEPTH_TEST); gl.useProgram(PB.p);
+  gl.uniform3fv(PB.u.voidC, pc.voidC); gl.uniform1f(PB.u.time, now/1000 % 1000);
+  gl.bindBuffer(gl.ARRAY_BUFFER, quadBuf); let loc = gl.getAttribLocation(PB.p, 'p');
+  gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4); gl.disableVertexAttribArray(loc);
+  gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.LEQUAL);
+  MARGIN = sheetMargin();
+  const lo = [-asp - MARGIN, -1 - MARGIN], hi = [asp + MARGIN, 1 + MARGIN];
+  // the level below (only when something is lifted)
+  let lifted = 0; for (const f of F) lifted = Math.max(lifted, f.th);
+  if (lifted > .01 && gradeAmt > .01){
+    const r = ringFrame(now);
+    const zU = -1.1, sc = (DIST - zU)/DIST*1.02;
+    drawSheet(r ? r.t : camTex, zU, 1, [lo[0]*sc, lo[1]*sc], [hi[0]*sc, hi[1]*sc], now, false);
+  }
+  drawSheet(camTex, 0, 0, lo, hi, now, true);
+}
+
+/* ─── overlay: origami notation for each fold ─── */
+function drawOverlay(now){
+  octx.setTransform(1, 0, 0, 1, 0, 0); octx.clearRect(0, 0, W, H);
+  if (!P.guides || gradeAmt < .05) return;
+  const col = PALS[P.pal].line;
+  const sc = Math.min(W, H);
+  octx.lineWidth = Math.max(1, dpr*.9);
+  for (let i = 1; i < NF; i++){
+    const f = F[i]; if (f.th < .04) continue;
+    const a = Math.min(1, f.th/.4)*gradeAmt*(i < PIN0 + NPIN ? .55 : .85);
+    const tx = -f.n[1], ty = f.n[0];
+    // the crease, as a dashed valley line clipped to the view
+    const pts = [];
+    for (let k = -40; k <= 40; k++){
+      const s = k/40*3.2, x = f.c[0] + tx*s, y = f.c[1] + ty*s;
+      if (Math.abs(x) > asp*1.02 || Math.abs(y) > 1.02) continue;
+      const q = project(foldPoint(x - f.n[0]*.002, y - f.n[1]*.002)); if (q) pts.push(q);
+    }
+    if (pts.length > 1){
+      octx.strokeStyle = col + a.toFixed(3) + ')';
+      octx.setLineDash([10*dpr, 7*dpr]); octx.lineDashOffset = -now/60;
+      octx.beginPath(); octx.moveTo(pts[0][0], pts[0][1]); for (const q of pts) octx.lineTo(q[0], q[1]); octx.stroke();
+      octx.setLineDash([]);
+    }
+    // the fold arrow and the angle, beside the crease
+    const off = i >= HAND0 ? .5 : .25;
+    const bx = f.c[0] + tx*off, by = f.c[1] + ty*off;
+    if (Math.abs(bx) < asp*.95 && Math.abs(by) < .95){
+      const base = project([bx - f.n[0]*.05, by - f.n[1]*.05, 0]);
+      const tip = project(foldPoint(bx + f.n[0]*.22, by + f.n[1]*.22));
+      if (base && tip){
+        octx.strokeStyle = col + (a*.9).toFixed(3) + ')';
+        const mx = (base[0] + tip[0])/2 - (tip[1] - base[1])*.25, my = (base[1] + tip[1])/2 + (tip[0] - base[0])*.25;
+        octx.beginPath(); octx.moveTo(base[0], base[1]); octx.quadraticCurveTo(mx, my, tip[0], tip[1]); octx.stroke();
+        const ang = Math.atan2(tip[1] - my, tip[0] - mx), hl = 7*dpr;
+        octx.beginPath(); octx.moveTo(tip[0] - Math.cos(ang - .45)*hl, tip[1] - Math.sin(ang - .45)*hl); octx.lineTo(tip[0], tip[1]);
+        octx.lineTo(tip[0] - Math.cos(ang + .45)*hl, tip[1] - Math.sin(ang + .45)*hl); octx.stroke();
+        octx.fillStyle = col + (a*.95).toFixed(3) + ')';
+        octx.font = `${Math.round(10*dpr)}px "Anonymous Pro", monospace`;
+        const lab = (i < PIN0 + NPIN && i >= PIN0 ? 'PIN ' : '') + '谷折り ' + Math.round(f.th*180/PI) + '°';
+        octx.fillText(lab, base[0] + 8*dpr, base[1] + 16*dpr);
+      }
+    }
+  }
+}
+
+/* ───────────────────────── audio ───────────────────────── */
+let AC = null, master = null, recDest = null, horn = null, paper = null, verb = null;
+function initAudio(){
+  try {
+    AC = new (window.AudioContext || window.webkitAudioContext)();
+  } catch (e) { AC = null; return; }
+  const comp = AC.createDynamicsCompressor(); comp.threshold.value = -16; comp.ratio.value = 4; comp.connect(AC.destination);
+  master = AC.createGain(); master.gain.value = P.vol; master.connect(comp);
+  try { recDest = AC.createMediaStreamDestination(); comp.connect(recDest); } catch (e) { recDest = null; }
+  // a big generated hall
+  verb = AC.createConvolver(); const len = Math.round(AC.sampleRate*3.4), ir = AC.createBuffer(2, len, AC.sampleRate);
+  for (let ch = 0; ch < 2; ch++){ const d = ir.getChannelData(ch); for (let i = 0; i < len; i++) d[i] = (Math.random()*2 - 1)*Math.pow(1 - i/len, 2.6)*(i < 80 ? i/80 : 1); }
+  verb.buffer = ir; const vg = AC.createGain(); vg.gain.value = .55; verb.connect(vg); vg.connect(master);
+  // the horn: detuned saws on A1, driven, low-passed; the angle opens it
+  const pre = AC.createGain(); pre.gain.value = .9;
+  const shp = AC.createWaveShaper(); const cu = new Float32Array(1024); for (let i = 0; i < 1024; i++){ const x = i/511.5 - 1; cu[i] = Math.tanh(x*2.6); } shp.curve = cu;
+  const lp = AC.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 90; lp.Q.value = 1.6;
+  const g = AC.createGain(); g.gain.value = 0;
+  pre.connect(shp); shp.connect(lp); lp.connect(g); g.connect(master); g.connect(verb);
+  const freqs = [[55, 0], [55, 11], [55, -9], [82.41, 4], [110, -5], [27.5, 0]];
+  const oscs = freqs.map(([fq, dt], i) => { const o = AC.createOscillator(); o.type = i === 5 ? 'sine' : 'sawtooth'; o.frequency.value = fq; o.detune.value = dt;
+    const og = AC.createGain(); og.gain.value = i === 5 ? .9 : i >= 3 ? .18 : .3; o.connect(og); og.connect(pre); o.start(); return o; });
+  horn = {lp, g, oscs, lvl: 0};
+  // paper: band-passed noise, gated by how fast the sheet moves
+  const nb = AC.createBuffer(1, AC.sampleRate*2, AC.sampleRate), nd = nb.getChannelData(0); for (let i = 0; i < nd.length; i++) nd[i] = Math.random()*2 - 1;
+  const ns = AC.createBufferSource(); ns.buffer = nb; ns.loop = true;
+  const bp = AC.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 2600; bp.Q.value = .9;
+  const pg = AC.createGain(); pg.gain.value = 0; ns.connect(bp); bp.connect(pg); pg.connect(master); pg.connect(verb); ns.start();
+  paper = {bp, g: pg, nb};
+}
+function audioTick(now, dt){
+  if (!AC || !horn) return;
+  const t = AC.currentTime;
+  let lv = 0, sp = 0;
+  for (const f of F){ lv = Math.max(lv, f.th/PI); sp += Math.abs(f.om); }
+  if (mode !== 'fx') lv *= .3;
+  horn.lvl += (lv - horn.lvl)*Math.min(1, dt*6);
+  const L = horn.lvl, swell = Math.min(1, sp*.05);
+  horn.g.gain.setTargetAtTime(Math.pow(L, 1.4)*.42 + swell*.05, t, .08);
+  horn.lp.frequency.setTargetAtTime(80 + 1900*L*L + 900*swell, t, .07);
+  horn.oscs[4].detune.setTargetAtTime(-5 + L*12, t, .2);
+  const crackle = Math.random() < .5 ? 1 : .35;
+  paper.g.gain.setTargetAtTime(Math.min(.16, sp*.012)*crackle, t, .03);
+  paper.bp.frequency.setTargetAtTime(1800 + 2600*Math.random(), t, .02);
+}
+function burst(freq, q, dur, gain, toVerb){
+  if (!AC || !paper) return;
+  const t = AC.currentTime, s = AC.createBufferSource(); s.buffer = paper.nb; s.playbackRate.value = .8 + Math.random()*.4;
+  const f = AC.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = freq; f.Q.value = q;
+  const g = AC.createGain(); g.gain.setValueAtTime(gain, t); g.gain.exponentialRampToValueAtTime(.0005, t + dur);
+  s.connect(f); f.connect(g); g.connect(master); if (toVerb) g.connect(verb);
+  s.start(t, Math.random()*1.5); s.stop(t + dur + .05);
+}
+function thump(f0, dur, gain){
+  if (!AC) return; const t = AC.currentTime, o = AC.createOscillator(), g = AC.createGain();
+  o.type = 'sine'; o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(f0*.45, t + dur);
+  g.gain.setValueAtTime(gain, t); g.gain.exponentialRampToValueAtTime(.0005, t + dur);
+  o.connect(g); g.connect(master); g.connect(verb); o.start(t); o.stop(t + dur + .05);
+}
+function sfxSlap(k){ burst(900, .7, .22, .5*k + .08, true); thump(70, .35, .5*k); }
+function sfxPin(){ thump(48, .9, .7); burst(5200, 3, .08, .25, true);
+  if (!AC || !horn) return; const t = AC.currentTime; horn.g.gain.cancelScheduledValues(t);
+  horn.g.gain.setValueAtTime(horn.g.gain.value, t); horn.g.gain.linearRampToValueAtTime(.55, t + .12); }
+function sfxBraam(){
+  if (!AC || !horn) return; const t = AC.currentTime;
+  const o = [55, 55.4, 82.41, 27.5].map((fq, i) => { const x = AC.createOscillator(); x.type = i === 3 ? 'sine' : 'sawtooth'; x.frequency.value = fq; return x; });
+  const lp = AC.createBiquadFilter(); lp.type = 'lowpass'; lp.Q.value = 2; lp.frequency.setValueAtTime(70, t);
+  lp.frequency.linearRampToValueAtTime(1500, t + .9); lp.frequency.exponentialRampToValueAtTime(90, t + 3.2);
+  const sh = AC.createWaveShaper(); const cu = new Float32Array(512); for (let i = 0; i < 512; i++){ const x = i/255.5 - 1; cu[i] = Math.tanh(x*3); } sh.curve = cu;
+  const g = AC.createGain(); g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime(.5, t + .55); g.gain.exponentialRampToValueAtTime(.0005, t + 3.4);
+  o.forEach(x => { x.connect(sh); x.start(t); x.stop(t + 3.5); }); sh.connect(lp); lp.connect(g); g.connect(master); g.connect(verb);
+}
+
+/* ───────────────────────── modes ───────────────────────── */
+function setMode(m){
+  if (m === mode) return;
+  mode = m; modeT = performance.now();
+  $('mode').classList.toggle('act', mode === 'fx');
+  if (mode === 'fx'){
+    gradeTarget = 1; introT = performance.now(); sfxBraam();
+  } else {
+    gradeTarget = 0; introT = -1; openAll();
+    for (let i = HAND0; i < NF; i++) F[i].tt = 0; F[TOUCH].tt = 0;
+  }
+}
+
+/* ───────────────────────── pointer: tap = pin, drag from anywhere = fold by finger ───────────────────────── */
+let pd = null;
+function toView(e){ const r = cv.getBoundingClientRect(); const u = (e.clientX - r.left)/r.width, v = (e.clientY - r.top)/r.height; return [(u*2 - 1)*asp, 1 - v*2]; }
+cv.addEventListener('pointerdown', e => {
+  if (!started) return; $('panel').classList.add('hide');
+  pd = {p0: toView(e), t: performance.now(), moved: false, id: e.pointerId};
+  try { cv.setPointerCapture(e.pointerId); } catch (_) {}
+});
+cv.addEventListener('pointermove', e => {
+  if (!pd || e.pointerId !== pd.id) return;
+  const p = toView(e), dx = pd.p0[0] - p[0], dy = pd.p0[1] - p[1], d = Math.hypot(dx, dy);
+  if (d > .04) pd.moved = true;
+  if (!pd.moved || mode !== 'fx') return;
+  // the grabbed point is carried to the finger: the crease is the perpendicular bisector
+  const f = F[TOUCH]; f.n[0] = dx/d; f.n[1] = dy/d; f.c[0] = (pd.p0[0] + p[0])/2; f.c[1] = (pd.p0[1] + p[1])/2;
+  f.tt = clamp(d*1.6, 0, TH_MAX); f.R = P.soft*Math.min(asp, 1)/.56; f.on = true;
+});
+const endPointer = e => {
+  if (!pd || (e && e.pointerId !== pd.id)) return;
+  const tap = !pd.moved && performance.now() - pd.t < 400; pd = null;
+  if (tap && mode === 'fx') pinNow();
+  if (P.keep && F[TOUCH].th > .2 && pinFold(F[TOUCH])) { sfxPin(); F[TOUCH].th = 0; F[TOUCH].om = 0; }
+  F[TOUCH].tt = 0; F[TOUCH].on = false;
+};
+cv.addEventListener('pointerup', endPointer); cv.addEventListener('pointercancel', endPointer);
+addEventListener('keydown', e => {
+  if (!started || document.activeElement && document.activeElement.tagName === 'INPUT') return;
+  if (e.key === ' '){ e.preventDefault(); if (mode === 'fx') pinNow(); }
+  if (e.key === 'Enter'){ e.preventDefault(); setMode(mode === 'fx' ? 'plain' : 'fx'); }
+  if (e.key === 'Backspace' || e.key === 'o'){ openAll(); }
+});
+
+/* ───────────────────────── UI ───────────────────────── */
+let started = false;
+$('go').onclick = async () => {
+  if (started) return;
+  $('err').textContent = '';
+  try { if (!AC) initAudio(); if (AC && AC.state === 'suspended') await AC.resume(); } catch (e) {}
+  try { await startCam(); }
+  catch (e) { $('err').textContent = camErrText(e); return; }
+  started = true;
+  $('start').style.display = 'none';
+  ['ui', 'gear', 'flip', 'brand', 'status'].forEach(id => $(id).classList.add('on'));
+  setTimeout(() => setMode('fx'), 700);
+  if (!EXT) initHands().catch(e => { console.warn(e); if (!EXT) $('msg').textContent = '手の追跡を読み込めませんでした（' + (e && e.message || e) + '）。\n画面を指でなぞっても折れます。'; });
+};
+$('flip').onclick = async () => {
+  facing = facing === 'user' ? 'environment' : 'user';
+  try { await startCam(); $('msg').textContent = ''; } catch (e) { $('msg').textContent = camErrText(e); }
+};
+$('gear').onclick = e => { e.stopPropagation(); $('panel').classList.toggle('hide'); };
+$('mode').onclick = () => setMode(mode === 'fx' ? 'plain' : 'fx');
+$('open').onclick = () => openAll();
+document.querySelectorAll('#pals .btn').forEach(b => b.onclick = () => {
+  P.pal = +b.dataset.p; document.querySelectorAll('#pals .btn').forEach(x => x.classList.toggle('act', x === b));
+  document.documentElement.style.setProperty('--bg', PALS[P.pal].bg);
+});
+$('soft').oninput = e => P.soft = +e.target.value;
+$('sens').oninput = e => P.sens = +e.target.value;
+$('flut').oninput = e => P.flut = +e.target.value;
+$('lag').oninput = e => P.lag = +e.target.value;
+$('vol').oninput = e => { P.vol = +e.target.value; if (master) master.gain.value = P.vol; };
+$('guides').onclick = e => { P.guides = !P.guides; e.currentTarget.classList.toggle('act', P.guides); };
+$('keep').onclick = e => { P.keep = !P.keep; e.currentTarget.classList.toggle('act', P.keep); };
+
+// the picture that gets saved or recorded: the folded sheet plus the fold notation
+const comp = document.createElement('canvas'), cctx = comp.getContext('2d');
+function composite(){
+  if (comp.width !== W || comp.height !== H){ comp.width = W; comp.height = H; }
+  cctx.drawImage(cv, 0, 0); cctx.drawImage(ov, 0, 0);
+}
+$('shoot').onclick = () => {
+  try { composite(); comp.toBlob(b => { if (!b) return; const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = 'tatamu_' + Date.now() + '.png'; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000); }, 'image/png'); }
+  catch (e) { $('msg').textContent = '保存できませんでした。'; }
+};
+let mr = null, chunks = [], recording = false;
+$('rec').onclick = e => {
+  const b = e.currentTarget;
+  if (mr && mr.state === 'recording'){ mr.stop(); return; }
+  composite();
+  let ms;
+  try { const vs = comp.captureStream(30); const tracks = [...vs.getVideoTracks()]; if (recDest) tracks.push(...recDest.stream.getAudioTracks()); ms = new MediaStream(tracks); }
+  catch (err) { $('msg').textContent = '録画を開始できませんでした。'; return; }
+  const types = ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm'];
+  const mt = types.find(t => window.MediaRecorder && MediaRecorder.isTypeSupported(t)) || '';
+  try { mr = new MediaRecorder(ms, mt ? {mimeType: mt, videoBitsPerSecond: 6e6} : {}); }
+  catch (err) { $('msg').textContent = '録画を開始できませんでした。' + (err && err.message ? '\n' + err.message : ''); return; }
+  chunks = []; mr.ondataavailable = ev => ev.data && ev.data.size && chunks.push(ev.data);
+  mr.onstop = () => { recording = false; b.classList.remove('act'); b.textContent = '● REC';
+    const blob = new Blob(chunks, {type: mr.mimeType || 'video/mp4'}); const ext = (mr.mimeType || '').includes('mp4') ? 'mp4' : 'webm';
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'tatamu_' + Date.now() + '.' + ext; document.body.appendChild(a); a.click();
+    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 4000); };
+  mr.start(1000); recording = true; b.classList.add('act'); b.textContent = '■ STOP';
+};
+
+/* ───────────────────────── loop ───────────────────────── */
+let lastNow = performance.now(), frames = 0;
+function frame(now){
+  requestAnimationFrame(frame);
+  const dt = clamp((now - lastNow)/1000, 0, .1); lastNow = now; frames++;
+  if (started){ detect(now); updateHands(now, dt); }
+  updateFolds(now, dt);
+  gradeAmt += (gradeTarget - gradeAmt)*Math.min(1, dt*(gradeTarget > gradeAmt ? 2.2 : 3.5));
+  // the camera drops below each crease (away from the flap), so a lifted flap is seen from underneath,
+  // like the street overhead in the film; it looks a little up at it rather than at the centre
+  let ex = 0, ey = 0;
+  for (let i = 0; i < NF; i++){ const f = F[i]; if (f.th < .01) continue;
+    const w = Math.sin(Math.min(f.th, PI*.5))*(i === INTRO ? .5 : 1);
+    const cn = f.c[0]*f.n[0] + f.c[1]*f.n[1], k = Math.min(0, cn - .5)*w;
+    ex += f.n[0]*k; ey += f.n[1]*k; }
+  const el = Math.hypot(ex, ey); if (el > .8){ ex *= .8/el; ey *= .8/el; }
+  const ea = Math.min(1, dt*2.2);
+  eye[0] += (ex*gradeAmt - eye[0])*ea; eye[1] += (ey*gradeAmt - eye[1])*ea;
+  look[0] = eye[0]*.45; look[1] = eye[1]*.45;
+  render(now);
+  drawOverlay(now);
+  if (recording) composite();
+  audioTick(now, dt);
+  if (started){
+    const live = F.slice(HAND0).filter(f => f.on).length, pins = F.slice(PIN0, PIN0 + NPIN).filter(f => f.kind === 'pin').length;
+    let mx = 0; for (const f of F) mx = Math.max(mx, f.th);
+    $('status').textContent = (mode === 'fx' ? 'FOLD ' + String(Math.round(mx*180/PI)).padStart(3, '0') + '°' : 'PLAIN') + '  ·  HANDS ' + live + '  ·  PIN ' + pins;
+    const wantHint = mode === 'fx' && !foldedOnce && now - modeT > 2600;
+    $('hint').classList.toggle('on', wantHint);
+  }
+}
+requestAnimationFrame(frame);
+
+/* ───────────────────────── test hook ───────────────────────── */
+window.__tatamu = {
+  feedHands(list, worlds){ EXT = true; $('msg').textContent = ''; rawHands = parseHands(list, worlds, performance.now()); return rawHands.length; },
+  setMode(m){ setMode(m ? 'fx' : 'plain'); },
+  skipIntro(){ introT = -1; F[INTRO].th = 0; F[INTRO].om = 0; F[INTRO].tt = 0; gradeAmt = gradeTarget; },
+  pin(){ return pinNow(); }, open(){ openAll(); },
+  setPal(i){ document.querySelectorAll('#pals .btn')[i].click(); },
+  set(k, v){ P[k] = v; },
+  state(){ return {mode, gradeAmt, frames, eye: eye.slice(), raw: rawHands.length,
+    folds: F.map(f => ({c: f.c.slice(), n: f.n.slice(), th: f.th, tt: f.tt, ka: f.ka, on: f.on, kind: f.kind}))}; },
+  foldPoint(x, y){ return foldPoint(x, y); }, asp: () => asp
+};
+})();
+</script>
+</body>
+</html>
