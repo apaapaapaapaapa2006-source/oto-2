@@ -1,0 +1,981 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<script>/* REC-FIX (2026-10-12) — iPhone Safari で録画が途中で止まる・壊れる対策。どの作品でも同じ内容。
+   ・mp4 は映像と音声の両方のコーデックを宣言する（avc1 だけだと音声付きで止まることがある）
+   ・1 秒ごとにデータを受け取る（最後に一括で書き出さない）／ビットレートに上限
+   ・保存が終わる前に次の録画を始めない（前のファイルが消えるのを防ぐ）
+   ・録画中は AudioContext を止めない（音声トラックが止まると mp4 ごと止まる） */
+(()=>{const MR=window.MediaRecorder;if(!MR||MR.__recfix)return;let busy=0,active=0;
+class R extends MR{
+  constructor(s,o){if(busy)throw new Error('前の録画を保存しています');o=Object.assign({},o||{});
+    const au=s&&s.getAudioTracks&&s.getAudioTracks().length>0;
+    if(!o.mimeType||/^video\/mp4/.test(o.mimeType)){
+      const c=[au?'video/mp4;codecs="avc1.42E01E,mp4a.40.2"':'video/mp4;codecs="avc1.42E01E"','video/mp4'].find(m=>MR.isTypeSupported(m));
+      if(c)o.mimeType=c;else if(o.mimeType&&!MR.isTypeSupported(o.mimeType))delete o.mimeType;}
+    if(!o.videoBitsPerSecond&&!o.bitsPerSecond)o.videoBitsPerSecond=6e6;
+    super(s,o);this.addEventListener('stop',()=>{active=Math.max(0,active-1);setTimeout(()=>{busy=0;},0);});}
+  start(t){const r=super.start(t==null?1000:t);active++;return r;}
+  stop(){if(this.state!=='inactive'){busy=1;setTimeout(()=>{busy=0;},15000);}return super.stop();}}
+R.__recfix=1;window.MediaRecorder=R;
+const AC=window.AudioContext||window.webkitAudioContext;
+if(AC&&AC.prototype.suspend){const sus=AC.prototype.suspend;AC.prototype.suspend=function(){return active?Promise.resolve():sus.call(this);};}
+/* 録音用の出口には常に無音を流しておく（何も鳴っていないと音声トラックにデータが来ず、録画全体が止まる） */
+if(AC&&AC.prototype.createMediaStreamDestination){const cmd=AC.prototype.createMediaStreamDestination;AC.prototype.createMediaStreamDestination=function(){const d=cmd.apply(this,arguments);
+  try{const c=this.createConstantSource();c.offset.value=0;c.connect(d);c.start();}catch(e){}return d;};}})();</script>
+<script>/* RESUME-FIX (2026-10-17) — iPhone で写真や動画を保存しに行ったり、別のアプリへ行ったりして戻ると、
+   カメラが消える・映像が固まる・画面が壊れる対策。どの作品でも同じ内容。
+   ・ページが裏に回ると、iPhone はカメラを止め、動画を一時停止し、音を止め、ときに WebGL の描画を捨てる
+   ・戻ったら：止められたカメラを同じ条件で取り直して同じ MediaStream に差し込み、止まった動画を再生し、音を再開する
+   ・WebGL の描画が捨てられ、作品が自分で立て直せないときは「タップして再開」を出して読み込み直す */
+(()=>{if(window.__resumefix)return;window.__resumefix=1;
+const md=navigator.mediaDevices,streams=new Map(),vids=new Set(),ctxs=new Set(),lost=new WeakSet(),mutedAt=new Map();
+const watch=t=>{try{t.addEventListener('ended',()=>lost.add(t));t.addEventListener('mute',()=>mutedAt.set(t,performance.now()));
+  t.addEventListener('unmute',()=>mutedAt.delete(t));if(t.muted)mutedAt.set(t,performance.now());}catch(e){}};
+let gum=null;
+if(md&&md.getUserMedia){gum=md.getUserMedia.bind(md);
+  md.getUserMedia=async function(c){const s=await gum(c);try{streams.set(s,c);s.getTracks().forEach(watch);}catch(e){}return s;};}
+/* every <video> that is given a camera stream, also ones never put in the page */
+const MP=HTMLMediaElement.prototype,play=MP.play,so=Object.getOwnPropertyDescriptor(MP,'srcObject');
+MP.play=function(){try{if(this.srcObject)vids.add(this);}catch(e){}return play.apply(this,arguments);};
+if(so&&so.set)Object.defineProperty(MP,'srcObject',{configurable:true,enumerable:so.enumerable,
+  get(){return so.get.call(this);},set(v){if(v)vids.add(this);so.set.call(this,v);}});
+for(const k of['AudioContext','webkitAudioContext']){const C=window[k];if(!C||C.__resumefix)continue;
+  const W=function(...a){const c=new C(...a);ctxs.add(c);return c;};W.prototype=C.prototype;W.__resumefix=1;
+  try{Object.setPrototypeOf(W,C);}catch(e){}window[k]=W;}
+const shown=s=>{for(const v of vids){try{if(so.get.call(v)===s)return true;}catch(e){}}return false;};
+let busy=0;
+async function revive(){
+  if(busy||document.hidden)return;busy=1;
+  try{
+    for(const[s,c]of[...streams]){
+      const tr=s.getTracks();
+      if(!shown(s)){if(tr.every(t=>t.readyState==='ended'))streams.delete(s);continue;}
+      const now=performance.now();
+      const dead=tr.filter(t=>(t.readyState==='ended'&&lost.has(t))||(t.kind==='video'&&mutedAt.has(t)&&now-mutedAt.get(t)>1500));
+      if(!dead.length||!gum)continue;
+      let ns=null;try{ns=await gum(c);}catch(e){continue;}
+      const kinds=new Set(dead.map(t=>t.kind));
+      for(const t of dead){try{t.stop();}catch(e){}s.removeTrack(t);mutedAt.delete(t);}
+      for(const t of ns.getTracks()){if(kinds.has(t.kind)){s.addTrack(t);watch(t);}else t.stop();}
+      for(const v of vids){try{if(so.get.call(v)===s){so.set.call(v,null);so.set.call(v,s);}}catch(e){}}
+    }
+  }finally{busy=0;}
+  for(const v of vids){try{if(so.get.call(v)&&v.paused)play.call(v).catch(()=>{});}catch(e){}}
+  for(const c of ctxs){try{if(c.state!=='running'&&c.state!=='closed')c.resume().catch(()=>{});}catch(e){}}
+}
+const soon=()=>{if(document.hidden)return;const n=performance.now();for(const t of mutedAt.keys())mutedAt.set(t,n);
+  setTimeout(revive,250);setTimeout(revive,1900);};
+document.addEventListener('visibilitychange',soon);
+addEventListener('pageshow',soon);addEventListener('focus',soon);
+/* iPhone sometimes only lets sound and video restart from a tap */
+const tap=()=>{for(const c of ctxs){try{if(c.state!=='running'&&c.state!=='closed')c.resume().catch(()=>{});}catch(e){}}
+  for(const v of vids){try{if(so.get.call(v)&&v.paused)play.call(v).catch(()=>{});}catch(e){}}};
+addEventListener('pointerdown',tap,true);addEventListener('touchend',tap,true);
+/* WebGL: if the drawing is thrown away and the piece does not rebuild it, offer a clean restart */
+const ET=EventTarget.prototype,ael=ET.addEventListener,rebuilds=new WeakSet(),gls=new WeakMap();
+ET.addEventListener=function(t){if(t==='webglcontextrestored'&&this instanceof HTMLCanvasElement)rebuilds.add(this);return ael.apply(this,arguments);};
+let box=null;
+function offer(){
+  if(box)return;box=document.createElement('div');
+  box.style.cssText='position:fixed;inset:0;z-index:2147483647;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;'+
+    'background:rgba(0,0,0,.82);color:#fff;font:14px/1.8 system-ui,sans-serif;text-align:center;padding:24px';
+  box.innerHTML='<div>画面の表示が止まりました。<br>（別のアプリから戻ったとき、iPhone が描画を止めることがあります）</div>'+
+    '<button style="font:inherit;font-size:16px;padding:12px 28px;border-radius:999px;border:0;background:#fff;color:#000">タップして再開</button>';
+  box.querySelector('button').onclick=()=>location.reload();
+  (document.body||document.documentElement).appendChild(box);
+}
+const GC=HTMLCanvasElement.prototype,getCtx=GC.getContext;
+GC.getContext=function(type){
+  const g=getCtx.apply(this,arguments);
+  if(g&&/webgl/i.test(String(type))&&!gls.has(this)){gls.set(this,g);const cv=this;
+    ael.call(cv,'webglcontextlost',e=>{e.preventDefault();let vis=0;
+      const iv=setInterval(()=>{vis=document.hidden?0:vis+500;let still=false;try{still=g.isContextLost();}catch(_){}
+        if(!still){clearInterval(iv);return;}                     /* came back: the 'restored' handler below decides */
+        if(vis>=4000){clearInterval(iv);if(cv.isConnected)offer();}},500);},false);
+    ael.call(cv,'webglcontextrestored',()=>{const f=()=>{if(document.hidden){setTimeout(f,500);return;}
+      if(cv.isConnected&&!rebuilds.has(cv))offer();};f();},false);}
+  return g;
+};
+})();</script>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>TAMASUDARE ─ 硝子の玉すだれ</title>
+<meta name="description" content="カメラの前に硝子の玉すだれが下りてくる。手を入れると玉がよけて揺れ、からからと鳴る。握れば玉の束をつかんで寄せられ、はなせば揺れもどる。玉はひとつずつ、向こうの景色をさかさまに映す。">
+<meta name="theme-color" content="#0b0a0d">
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  TAMASUDARE ─ 硝子の玉すだれ                 ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  元ネタ    70年代のホテルのラウンジやディスコにあったクリスタルのビーズ
+            カーテン（玉のれん）と、それ越しに撮るファッション写真。
+            ガラス玉は小さなレンズなので、一粒ずつ向こうの景色を上下左右
+            さかさまに、縁に虹をつけて映す ── この光学をそのまま描く。
+
+  主役      手で映像のこちら側に触る。カメラの前に何千粒の硝子玉を通した
+            糸が下がっていて、手と腕を入れるとそこだけ糸がよけ、玉が揺れて
+            鳴り、腕を抜くと揺れながら戻る。
+
+  層        ① 糸は一本ずつ本物の鎖（上から順に長さを保つ）で、手の骨と
+              手首から先の腕に押されて分かれる
+            ② 握ると近くの糸を束でつかめる。引けば寄せられ、はなせば揺れ戻る
+            ③ 速く払うと、手の速さが玉に移って大きく跳ねる
+            ④ 玉の中にさかさまの景色と虹のにじみ、二つの照明の照り返し
+            ⑤ 向こうの部屋は少しピントが外れ、すだれを抜けた手だけがくっきり
+            ⑥ すだれを下ろす・上げる（左から波のように）。玉どうしが当たる
+              からからという音（和音に揃えたガラスの音）
+            玉は クリスタル（多面カット）・オーロラ（虹の膜）・琥珀・黒硝子 の四つ。
+
+  PALETTE   夜のラウンジ。黒 #0b0a0d・シャンパン #e9d9b8・硝子の白 #f4f6ff・
+            差し色は玉の種類ごと（オーロラは菫、琥珀は橙、黒硝子は金）。
+
+  TYPE      Limelight（アール・デコの題字）と Kaisei HarunoUmi（本文）。
+
+  MOTION    玉はゆっくり重く揺れる（少しスローモーション）。照り返しは揺れに
+            つれて玉から玉へ渡っていく。
+
+  TECH      WebGL2。玉は位置と半径を毎フレーム一枚のバッファに書いて
+            インスタンス描画、糸は同じバッファを一要素ずらして読む。
+            手は MediaPipe HandLandmarker（動的 import、二本まで）。
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Limelight&family=Kaisei+HarunoUmi:wght@400;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ink:#0b0a0d; --champ:#e9d9b8; --glass:#f4f6ff; --dim:rgba(233,217,184,.62); --faint:rgba(233,217,184,.2);
+  --ui-bg:rgba(11,10,13,.58);
+  --jp:"Kaisei HarunoUmi","Hiragino Mincho ProN","Yu Mincho",serif;
+  --disp:"Limelight","Didot","Bodoni 72",serif;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;background:var(--ink);color:var(--champ);font-family:var(--jp);overflow:hidden;-webkit-user-select:none;user-select:none}
+#gl{position:fixed;inset:0;width:100vw;height:100vh;height:100dvh;display:block;touch-action:none}
+#cam{position:fixed;left:0;top:0;width:2px;height:2px;opacity:0;pointer-events:none}
+
+#start{position:fixed;inset:0;z-index:10;display:grid;place-items:center;overflow:hidden;padding:24px;
+  padding-top:calc(24px + env(safe-area-inset-top,0px));padding-bottom:calc(24px + env(safe-area-inset-bottom,0px));
+  background:radial-gradient(ellipse at 50% 38%,#2a2218 0%,#120f12 55%,#0b0a0d 100%);transition:opacity .9s ease,visibility .9s}
+#start.hide{opacity:0;visibility:hidden}
+.strands{position:absolute;inset:0;opacity:.55;pointer-events:none;
+  background:
+   radial-gradient(circle at 50% 50%,rgba(255,255,255,.85) 0 1.4px,rgba(233,217,184,.35) 2.2px,transparent 3.6px) 0 0/22px 13px,
+   linear-gradient(90deg,transparent 10.5px,rgba(233,217,184,.12) 10.5px 11.5px,transparent 11.5px) 0 0/22px 100%;
+  -webkit-mask:linear-gradient(180deg,#000 0%,rgba(0,0,0,.8) 40%,transparent 92%);mask:linear-gradient(180deg,#000 0%,rgba(0,0,0,.8) 40%,transparent 92%);
+  animation:sway 7s ease-in-out infinite alternate}
+@keyframes sway{from{background-position:0 0,0 0}to{background-position:3px 4px,3px 0}}
+@media (prefers-reduced-motion:reduce){.strands{animation:none}}
+.card{position:relative;max-width:420px;width:100%;text-align:center;padding:30px 22px 24px}
+.card::before{content:"";position:absolute;inset:-26px -12px;z-index:-1;border-radius:6px;
+  background:radial-gradient(ellipse at 50% 50%,rgba(11,10,13,.94) 0 58%,rgba(11,10,13,.7) 72%,rgba(11,10,13,0) 86%)}
+h1{font-family:var(--disp);font-weight:400;font-size:clamp(40px,12vw,72px);line-height:1;margin:0;letter-spacing:.06em;color:var(--glass);
+  text-shadow:0 0 18px rgba(233,217,184,.35)}
+.sub{font-size:17px;letter-spacing:.42em;margin:12px 0 22px;padding-left:.42em;color:var(--champ)}
+.how{font-size:13.5px;line-height:2.15;opacity:.9;margin:0 auto 24px;text-align:left;display:inline-block;color:#efe6d4}
+.how b{font-weight:700;color:#fff}
+button.go{font-family:var(--jp);font-weight:700;font-size:16px;letter-spacing:.24em;padding:14px 34px 14px 38px;cursor:pointer;color:#16120d;
+  background:linear-gradient(180deg,#f6ebd2,#d9c497);border:0;border-radius:2px;box-shadow:0 0 0 1px rgba(255,255,255,.25) inset,0 10px 28px rgba(0,0,0,.45)}
+button.go:disabled{opacity:.55;cursor:default}
+button:focus-visible{outline:2px solid var(--glass);outline-offset:3px}
+#err{min-height:1.4em;font-size:12.5px;color:#ffc9b3;margin-top:14px;line-height:1.75;white-space:pre-wrap}
+.note{font-size:11px;opacity:.5;margin-top:8px;line-height:1.7}
+
+#status{position:fixed;left:50%;top:calc(14px + env(safe-area-inset-top,0px));transform:translateX(-50%);z-index:5;padding:7px 16px;
+  background:var(--ui-bg);border:1px solid var(--faint);border-radius:2px;font-size:13px;letter-spacing:.08em;white-space:nowrap;pointer-events:none;
+  -webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);transition:opacity .5s;max-width:calc(100vw - 24px);overflow:hidden;text-overflow:ellipsis}
+#status.off{opacity:0}
+#toast{position:fixed;left:50%;top:44%;transform:translate(-50%,-50%);z-index:6;font-family:var(--disp);font-size:clamp(22px,6vw,38px);letter-spacing:.12em;
+  color:#fff;text-shadow:0 0 16px rgba(233,217,184,.8);opacity:0;transition:opacity .35s;pointer-events:none;white-space:nowrap}
+#toast.on{opacity:1}
+#ui{position:fixed;left:0;right:0;bottom:0;z-index:5;display:none;flex-wrap:wrap;gap:8px;justify-content:center;align-items:center;
+  padding:10px 10px calc(env(safe-area-inset-bottom,0px) + 14px);background:linear-gradient(transparent,rgba(0,0,0,.5))}
+#ui.on{display:flex}
+.btn{appearance:none;font-family:var(--jp);font-weight:700;font-size:13px;letter-spacing:.06em;color:var(--champ);background:var(--ui-bg);
+  border:1px solid var(--faint);border-radius:2px;height:40px;min-width:40px;padding:0 13px;cursor:pointer;white-space:nowrap;
+  -webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px)}
+#rec.act{background:#b8232c;border-color:#b8232c;color:#fff}
+#shot{width:42px;padding:0;position:relative}
+#shot::after{content:"";position:absolute;left:50%;top:50%;width:16px;height:16px;margin:-8px 0 0 -8px;border-radius:50%;
+  background:radial-gradient(circle at 35% 35%,#fff,#d9c497 60%,#8a7a5a)}
+#panel{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom,0px) + 72px);z-index:6;width:min(340px,calc(100vw - 24px));
+  padding:16px 16px 14px;background:rgba(11,10,13,.84);border:1px solid var(--faint);border-radius:3px;display:flex;flex-direction:column;gap:12px;
+  font-size:12.5px;color:var(--dim);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px)}
+#panel[hidden]{display:none}
+#panel .row{display:flex;gap:6px}
+#panel .row button{flex:1;appearance:none;font-family:var(--jp);font-weight:700;font-size:12px;color:var(--champ);background:rgba(255,255,255,.04);
+  border:1px solid var(--faint);border-radius:2px;padding:8px 0;cursor:pointer;white-space:nowrap}
+#panel .row button.on{border-color:var(--glass);color:var(--glass)}
+#panel label{display:flex;justify-content:space-between;align-items:center;gap:10px}
+#panel input[type=range]{width:168px;accent-color:#d9c497}
+#panel .note{font-size:11px;line-height:1.75;opacity:.85}
+#panel .x{position:absolute;right:6px;top:4px;background:none;border:0;color:var(--champ);font:inherit;font-size:14px;padding:6px 8px;cursor:pointer}
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<video id="cam" playsinline muted autoplay></video>
+
+<div id="start">
+  <div class="strands"></div>
+  <div class="card">
+    <h1>TAMASUDARE</h1>
+    <div class="sub">硝子の玉すだれ</div>
+    <div class="how">
+      カメラの前に、硝子の玉すだれが下りてくる<br>
+      <b>手を入れる</b>と、玉がよけて、揺れて、鳴る<br>
+      <b>握る</b>と玉の束をつかめる。はなすと揺れもどる<br>
+      玉はひとつずつ、向こうの景色をさかさまに映す
+    </div><br>
+    <button class="go" id="go" type="button">すだれを下ろす</button>
+    <div id="err"></div>
+    <div class="note">映像はこの端末の中だけで処理されます。</div>
+  </div>
+</div>
+
+<div id="status" class="off"></div>
+<div id="toast"></div>
+<div id="ui">
+  <button class="btn" id="flip" type="button">⟲ カメラ</button>
+  <button class="btn" id="kind" type="button">◇ クリスタル</button>
+  <button class="btn" id="lift" type="button">▴ 上げる</button>
+  <button class="btn" id="rec" type="button">● REC</button>
+  <button class="btn" id="shot" type="button" aria-label="撮る"></button>
+  <button class="btn" id="gear" type="button" aria-label="調整" aria-expanded="false">⚙</button>
+</div>
+<div id="panel" hidden>
+  <button class="x" id="panelX" type="button" aria-label="閉じる">✕</button>
+  <label>玉の大きさ<input id="sSize" type="range" min="0.7" max="1.6" step="0.05" value="1"></label>
+  <label>糸のすきま<input id="sGap" type="range" min="1.05" max="2.4" step="0.05" value="1.45"></label>
+  <label>揺れやすさ<input id="sSwing" type="range" min="0.3" max="1.6" step="0.05" value="1"></label>
+  <label>奥のぼけ<input id="sBlur" type="range" min="0" max="3" step="0.1" value="1.3"></label>
+  <div class="row"><button type="button" id="bBreeze" class="on">そよ風：入</button><button type="button" id="bSound" class="on">音：入</button><button type="button" id="bFs">全画面</button></div>
+  <div class="note">手や腕を入れると糸が分かれ、握ると近くの糸を束でつかめる。速く払うと玉が跳ねる。画面を指でなぞっても触れる。</div>
+</div>
+
+<script type="module">
+/* =========================================================
+   TAMASUDARE — カメラの前の硝子の玉すだれを、手でかき分ける
+   ========================================================= */
+const TAU = Math.PI * 2;
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+const lerp = (a, b, t) => a + (b - a) * t;
+const rand = (a, b) => a + Math.random() * (b - a);
+const smooth = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
+const $ = id => document.getElementById(id);
+const hash1 = n => { const s = Math.sin(n * 127.1 + 311.7) * 43758.5453; return s - Math.floor(s); };
+
+/* ---------- bead kinds ---------- */
+const KINDS = [
+  { name: 'クリスタル', facet: 1, iri: 0.0, tint: [0.96, 0.98, 1.0], trans: 0.92, disp: 0.10, shiny: 90, light: [1.0, 0.98, 0.94], glint: [1, 1, 1],
+    grade: [0.93, 0.95, 1.0], dim: 0.72 },
+  { name: 'オーロラ', facet: 0, iri: 1.0, tint: [0.95, 0.94, 1.0], trans: 0.88, disp: 0.07, shiny: 70, light: [1.0, 0.95, 1.0], glint: [0.95, 0.85, 1.0],
+    grade: [0.9, 0.86, 1.0], dim: 0.66 },
+  { name: '琥珀', facet: 0, iri: 0.0, tint: [1.0, 0.62, 0.22], trans: 0.8, disp: 0.04, shiny: 60, light: [1.0, 0.88, 0.7], glint: [1.0, 0.85, 0.55],
+    grade: [1.0, 0.86, 0.7], dim: 0.62 },
+  { name: '黒硝子', facet: 1, iri: 0.0, tint: [0.32, 0.3, 0.34], trans: 0.25, disp: 0.03, shiny: 110, light: [1.0, 0.86, 0.55], glint: [1.0, 0.82, 0.45],
+    grade: [0.98, 0.9, 0.8], dim: 0.6 },
+];
+
+/* ---------- MediaPipe ---------- */
+const MP_BASE = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14';
+const HAND_MODEL = 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task';
+const DELEGATE = /[?&]cpu=1/.test(location.search) ? 'CPU' : 'GPU';
+const BONES = [[0, 1], [1, 2], [2, 3], [3, 4], [5, 6], [6, 7], [7, 8], [9, 10], [10, 11], [11, 12], [13, 14], [14, 15], [15, 16], [17, 18], [18, 19], [19, 20],
+  [0, 5], [5, 9], [9, 13], [13, 17], [0, 17], [0, 9], [0, 13], [2, 5]];
+
+/* ---------- DOM / GL ---------- */
+const cv = $('gl'), video = $('cam'), statusEl = $('status'), toastEl = $('toast');
+const gl = cv.getContext('webgl2', { antialias: true, alpha: false, premultipliedAlpha: false, preserveDrawingBuffer: false });
+if (!gl) { $('err').textContent = 'この端末のブラウザは WebGL2 に対応していないため表示できません。'; $('go').disabled = true; }
+
+const VS_FULL = `#version 300 es
+out vec2 vUv;
+void main(){vec2 p=vec2(float((gl_VertexID<<1)&2),float(gl_VertexID&2));vUv=p;gl_Position=vec4(p*2.-1.,0.,1.);}`;
+
+/* the room behind the curtain: a little out of focus, except the hand that reaches through */
+const FS_BG = `#version 300 es
+precision highp float;
+in vec2 vUv; out vec4 o;
+uniform sampler2D uVid; uniform vec2 uVA, uVB; uniform float uAsp, uBlur, uDim, uLive;
+uniform vec4 uCap[48]; uniform float uCapR[48]; uniform int uNCap; uniform vec3 uGrade; uniform vec2 uLamp;
+float segd(vec2 p, vec4 s){vec2 a=s.xy,b=s.zw,ab=b-a; float t=clamp(dot(p-a,ab)/max(dot(ab,ab),1e-8),0.,1.); return length(p-a-ab*t);}
+void main(){
+  vec2 s=vec2(vUv.x,1.-vUv.y), q=vec2(s.x*uAsp,s.y);
+  float dmin=1e3;
+  for(int i=0;i<48;i++){ if(i>=uNCap) break; dmin=min(dmin,segd(q,uCap[i])-uCapR[i]); }
+  float hand=1.-smoothstep(0.,.035,dmin);
+  vec2 vv=s*uVA+uVB;
+  vec3 c=textureLod(uVid,vv,uBlur*(1.-hand)).rgb;
+  if(uLive<.5) c=vec3(.05,.045,.05);
+  float vig=smoothstep(1.3,.3,length((s-.5)*vec2(uAsp,1.)*1.1));
+  float lamp=1.1-.6*smoothstep(0.,1.5,length((q-uLamp)*vec2(.8,1.)));
+  c=pow(c,vec3(1.18));
+  c=c*uGrade*mix(uDim,1.05,hand*.8)*mix(.5,1.,vig)*lamp;
+  o=vec4(c,1.);
+}`;
+
+/* one bead per instance; the buffer also feeds the threads, read one element apart */
+const VS_BEAD = `#version 300 es
+precision highp float;
+layout(location=0) in vec4 aB;   // x, y (q), radius (q), seed (<0 = the top anchor, not drawn)
+layout(location=1) in vec2 aV;   // the bead's swing (tilts its highlights)
+uniform float uAsp;
+out vec2 vL; out vec2 vC; out float vR; out float vSeed; out vec2 vTilt;
+void main(){
+  if(aB.w<0.){gl_Position=vec4(2.,2.,2.,1.);return;}
+  vec2 c=vec2(float(gl_VertexID&1),float(gl_VertexID>>1))*2.-1.;
+  vec2 P=aB.xy+c*aB.z*1.08;
+  vL=c*1.08; vC=aB.xy; vR=aB.z; vSeed=aB.w; vTilt=clamp(aV,-1.,1.);
+  gl_Position=vec4(P.x/uAsp*2.-1.,1.-P.y*2.,0.,1.);
+}`;
+const FS_BEAD = `#version 300 es
+precision highp float;
+in vec2 vL; in vec2 vC; in float vR; in float vSeed; in vec2 vTilt;
+out vec4 o;
+uniform sampler2D uVid; uniform vec2 uVA, uVB; uniform float uAsp, uPx, uT, uLive;
+uniform float uFacet, uIri, uTrans, uDisp, uShiny; uniform vec3 uTint, uLight, uGlint; uniform vec2 uLamp;
+vec3 cam(vec2 q,float lod){ vec2 s=vec2(q.x/uAsp,q.y); return uLive>.5?textureLod(uVid,s*uVA+uVB,lod).rgb:vec3(.06); }
+void main(){
+  float r=length(vL);
+  float aa=uPx/max(vR,1e-5)*1.1;
+  float a=1.-smoothstep(1.-aa,1.+aa*.3,r);
+  if(a<=.001) discard;
+  vec2 l=vL/max(r,1.);
+  float rr=min(r,.999);
+  vec3 n=vec3(l,sqrt(1.-rr*rr));
+  float edgeLine=0., facetLit=0.;
+  /* a swinging bead turns a little: its highlights slide and flash */
+  float tilt=vTilt.x*.9+sin(vSeed*40.)*.15;
+  if(uFacet>.5){
+    /* a cut stone: an octagonal table and two rings of facets */
+    float seg=6.28318/8., ang=atan(l.y,l.x)+vSeed*6.28+tilt;
+    float k=floor(ang/seg), aq=(k+.5)*seg-vSeed*6.28-tilt;
+    float rq=rr<.4?0.:(rr<.76?.62:.92);
+    n=rq==0.?vec3(0.,0.,1.):normalize(vec3(cos(aq)*rq,sin(aq)*rq,sqrt(1.-rq*rq)));
+    float fa=abs(fract(ang/seg)-.5)*2.;
+    edgeLine=max(smoothstep(.86,1.,fa)*step(.4,rr),1.-smoothstep(0.,.05,min(abs(rr-.4),abs(rr-.76))));
+    facetLit=pow(max(dot(n,normalize(vec3(-.4+tilt*.3,-.6,.7))),0.),6.)*step(.4,rr)*(.5+.5*sin(k*2.1+vSeed*30.+tilt*4.));
+  } else {
+    n=normalize(vec3(n.xy+vec2(tilt*.12,0.),n.z));
+  }
+  /* the lamp is up and to one side: the curtain is brighter near it */
+  float lamp=1.15-.75*smoothstep(0.,1.4,length((vC-uLamp)*vec2(.8,1.)));
+  /* through the bead: the world behind, upside down, with a rainbow at the rim */
+  float K=3.2;
+  vec2 off=-n.xy*vR*K;
+  vec3 tr;
+  tr.r=cam(vC+off*(1.+uDisp),.6).r;
+  tr.g=cam(vC+off,.6).g;
+  tr.b=cam(vC+off*(1.-uDisp),.6).b;
+  tr=pow(tr,vec3(1.25))*1.25;                      /* glass gathers light: deeper and brighter */
+  tr*=uTint*uTrans;
+  vec3 env=cam(vC+n.xy*vR*8.,5.)*.4;
+  float fres=.04+.96*pow(1.-n.z,4.);
+  vec3 L1=normalize(vec3(-.42,-.62,.66)), L2=normalize(vec3(.75,.3,.6));
+  vec3 R=reflect(vec3(0.,0.,-1.),n);
+  float s1=pow(max(dot(R,L1),0.),uShiny), s1b=pow(max(dot(R,L1),0.),uShiny*.12)*.18, s2=pow(max(dot(R,L2),0.),uShiny*.5)*.35;
+  vec3 col=mix(tr,env,fres);
+  /* light focused through the bead lands on its far side */
+  float caus=smoothstep(.35,.85,rr)*max(0.,dot(l,-normalize(L1.xy)))*(1.-smoothstep(.85,.98,rr));
+  col+=uLight*caus*.55*uTrans*lamp;
+  if(uIri>0.){
+    vec3 iri=.5+.5*cos(6.28318*(vec3(0.,.33,.67)+n.z*1.6+vSeed*.6+tilt*.3+uT*.02));
+    col+=iri*(fres*1.1+.16)*uIri*lamp;
+  }
+  col+=(uLight*(s1*2.4+s1b)+uGlint*s2)*lamp;
+  col+=uGlint*(edgeLine*.25+facetLit*.9)*lamp;
+  col*=mix(.18,1.,smoothstep(1.,.66,rr));          /* glass looks dark toward the rim */
+  o=vec4(col*a,a);
+}`;
+const VS_THREAD = `#version 300 es
+precision highp float;
+layout(location=0) in vec4 aA;   // this bead
+layout(location=1) in vec4 aN;   // the next element in the buffer
+uniform float uAsp, uPx;
+void main(){
+  if(aN.w<0.){gl_Position=vec4(2.,2.,2.,1.);return;}
+  vec2 d=aN.xy-aA.xy; float l=length(d); vec2 u=l>1e-6?d/l:vec2(0.,1.), nn=vec2(-u.y,u.x);
+  vec2 c=vec2(float(gl_VertexID&1),float(gl_VertexID>>1));
+  vec2 P=mix(aA.xy,aN.xy,c.x)+nn*(c.y-.5)*uPx*1.2;
+  gl_Position=vec4(P.x/uAsp*2.-1.,1.-P.y*2.,0.,1.);
+}`;
+const FS_THREAD = `#version 300 es
+precision highp float;
+out vec4 o; uniform vec3 uCol;
+void main(){ o=vec4(uCol*.22,.22); }`;
+
+function mkProg(vsSrc, fsSrc) {
+  const sh = (t, s) => { const o = gl.createShader(t); gl.shaderSource(o, s); gl.compileShader(o);
+    if (!gl.getShaderParameter(o, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(o)); return o; };
+  const p = gl.createProgram(); gl.attachShader(p, sh(gl.VERTEX_SHADER, vsSrc)); gl.attachShader(p, sh(gl.FRAGMENT_SHADER, fsSrc)); gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+  const u = {}, n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+  for (let i = 0; i < n; i++) { const info = gl.getActiveUniform(p, i); u[info.name.replace(/\[0\]$/, '')] = gl.getUniformLocation(p, info.name); }
+  return { p, u };
+}
+const f1 = (P, n, v) => { const l = P.u[n]; if (l) gl.uniform1f(l, v); };
+const f2 = (P, n, a, b) => { const l = P.u[n]; if (l) gl.uniform2f(l, a, b); };
+const f3 = (P, n, c) => { const l = P.u[n]; if (l) gl.uniform3f(l, c[0], c[1], c[2]); };
+const i1 = (P, n, v) => { const l = P.u[n]; if (l) gl.uniform1i(l, v); };
+
+let PR = null, emptyVAO = null, beadVAO = null, threadVAO = null, beadBuf = null, velBuf = null, texVid = null;
+function initGL() {
+  PR = { bg: mkProg(VS_FULL, FS_BG), bead: mkProg(VS_BEAD, FS_BEAD), thread: mkProg(VS_THREAD, FS_THREAD) };
+  emptyVAO = gl.createVertexArray();
+  beadBuf = gl.createBuffer(); velBuf = gl.createBuffer();
+  texVid = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, texVid);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([14, 12, 14, 255]));
+}
+function bindBeadVAOs() {
+  if (beadVAO) { gl.deleteVertexArray(beadVAO); gl.deleteVertexArray(threadVAO); }
+  gl.bindBuffer(gl.ARRAY_BUFFER, beadBuf); gl.bufferData(gl.ARRAY_BUFFER, inst.byteLength, gl.DYNAMIC_DRAW);
+  beadVAO = gl.createVertexArray(); gl.bindVertexArray(beadVAO);
+  gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 4, gl.FLOAT, false, 16, 0); gl.vertexAttribDivisor(0, 1);
+  gl.bindBuffer(gl.ARRAY_BUFFER, velBuf); gl.bufferData(gl.ARRAY_BUFFER, vinst.byteLength, gl.DYNAMIC_DRAW);
+  gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 2, gl.FLOAT, false, 8, 0); gl.vertexAttribDivisor(1, 1);
+  gl.bindBuffer(gl.ARRAY_BUFFER, beadBuf);
+  threadVAO = gl.createVertexArray(); gl.bindVertexArray(threadVAO);
+  gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 4, gl.FLOAT, false, 16, 0); gl.vertexAttribDivisor(0, 1);
+  gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 4, gl.FLOAT, false, 16, 16); gl.vertexAttribDivisor(1, 1);
+  gl.bindVertexArray(null);
+}
+
+/* ---------- state ---------- */
+let W = 0, H = 0, DPR = 1, ASP = 1;
+let vw = 0, vh = 0, vs = 1, vox = 0, voy = 0;
+let running = false, facing = 'user', mirror = true, stream = null;
+let handLM = null, modelErr = false, EXT = false, lastVT = -1, mpTs = 0;
+let kindIdx = 0, sizeAmt = 1, gapAmt = 1.45, swingAmt = 1, blurAmt = 1.3, breeze = true, soundOn = true;
+let T = 0, T0 = performance.now() / 1000, lastT = T0, shotReq = false, lastHandSeen = -1e9;
+const TEST = { dt: 0, freeze: false, frames: 0 };
+
+/* ---------- the curtain ---------- */
+let NS = 0, NB = 0, D = 0.01, RB = 0.005, SPX = 0.013;
+let px, py, ox, oy, rad, seed, inst, vinst, hitPrev;
+let anchorY = new Float32Array(0), anchorGoal = new Float32Array(0), anchorDelay = new Float32Array(0);
+let curtain = 'up';                        // up | lowering | down | raising
+const UP_Y = -1.25;
+function buildCurtain(keepState) {
+  const short = Math.min(W, H) / H;
+  D = short / 28 * sizeAmt; RB = D * 0.48; SPX = D * gapAmt;
+  NS = Math.max(4, Math.ceil(ASP / SPX) + 1); NB = Math.ceil(1.08 / D) + 2;
+  const N = NS * NB;
+  px = new Float32Array(N); py = new Float32Array(N); ox = new Float32Array(N); oy = new Float32Array(N);
+  rad = new Float32Array(N); seed = new Float32Array(N); inst = new Float32Array(N * 4); vinst = new Float32Array(N * 2); hitPrev = new Uint8Array(N);
+  anchorY = new Float32Array(NS); anchorGoal = new Float32Array(NS); anchorDelay = new Float32Array(NS);
+  heldIdx = new Int32Array(NS).fill(-1); heldHand = new Int32Array(NS);
+  const x0 = (ASP - (NS - 1) * SPX) / 2;
+  const startY = keepState && curtain === 'down' ? -D : UP_Y;
+  for (let s = 0; s < NS; s++) {
+    const x = x0 + s * SPX + (hash1(s * 7.3) - 0.5) * SPX * 0.12;
+    anchorY[s] = startY; anchorGoal[s] = startY;
+    for (let i = 0; i < NB; i++) {
+      const k = s * NB + i;
+      px[k] = ox[k] = x; py[k] = oy[k] = startY + i * D;
+      rad[k] = i === 0 ? 0 : RB * (0.88 + 0.12 * hash1(k * 1.7));
+      seed[k] = i === 0 ? -1 : hash1(k * 3.1 + 0.5);
+    }
+  }
+  grabs.length = 0;
+  if (gl && beadBuf) bindBeadVAOs();
+}
+function setCurtain(down) {
+  curtain = down ? 'lowering' : 'raising';
+  for (let s = 0; s < NS; s++) {
+    anchorGoal[s] = down ? -D : UP_Y;
+    anchorDelay[s] = T + (down ? s / NS : 1 - s / NS) * 0.9 + hash1(s * 2.3) * 0.12;
+  }
+  AE.sweep(down);
+  $('lift').textContent = down ? '▴ 上げる' : '▾ 下ろす';
+}
+
+/* ---------- hands → capsules in screen space (q units, y down) ---------- */
+const MAXH = 2;
+const hands = [];           // {id, P:[21][2], palmW, cx, cy, vx, vy, grip, closed, seen, caps:[[ax,ay,bx,by,r]], bb}
+let nextHandId = 1;
+const capF = new Float32Array(48 * 4), capR = new Float32Array(48); let nCap = 0;
+function lmToQ(p) { const x = p.x * vw * vs + vox; return [(mirror ? W - x : x) / H, (p.y * vh * vs + voy) / H]; }
+function okLM(lm) {
+  if (!Array.isArray(lm) || lm.length < 21) return false;
+  for (let i = 0; i < 21; i++) { const p = lm[i]; if (!p || !Number.isFinite(p.x) || !Number.isFinite(p.y)) return false; }
+  return true;
+}
+function ingestHands(list, now) {
+  const seenIds = new Set();
+  for (const lm of list) {
+    if (!okLM(lm)) continue;
+    const P = lm.map(lmToQ);
+    const d = (a, b) => Math.hypot(P[a][0] - P[b][0], P[a][1] - P[b][1]);
+    const palmW = Math.max(0.02, d(5, 17), d(0, 9) * 0.75);
+    const cx = (P[0][0] + P[5][0] + P[9][0] + P[13][0] + P[17][0]) / 5, cy = (P[0][1] + P[5][1] + P[9][1] + P[13][1] + P[17][1]) / 5;
+    /* match to the hand we had before, so a grab stays with its hand */
+    let best = null, bd = 1e9;
+    for (const h of hands) { if (seenIds.has(h.id)) continue; const dd = Math.hypot(h.cx - cx, h.cy - cy); if (dd < bd) { bd = dd; best = h; } }
+    if (!best || bd > palmW * 4) { best = { id: nextHandId++, cx, cy, vx: 0, vy: 0, grip: 0, closed: false, seen: now, caps: [], P }; hands.push(best); }
+    const dt = Math.max(1 / 120, now - best.seen);
+    const k = 1 - Math.exp(-dt * 18);
+    best.vx += (clamp((cx - best.cx) / dt, -6, 6) - best.vx) * k; best.vy += (clamp((cy - best.cy) / dt, -6, 6) - best.vy) * k;
+    if (now - best.seen > 0.3) { best.vx = 0; best.vy = 0; }
+    best.cx = cx; best.cy = cy; best.P = P; best.palmW = palmW; best.seen = now;
+    /* how closed the hand is: fingertips against the size of the palm */
+    const curl = (d(8, 0) + d(12, 0) + d(16, 0) + d(20, 0)) / 4 / Math.max(1e-4, d(0, 9));
+    const g = smooth(1.6, 1.1, curl);
+    best.grip += (g - best.grip) * 0.5;
+    if (!best.closed && best.grip > 0.72) { best.closed = true; startGrab(best); }
+    else if (best.closed && best.grip < 0.38) { best.closed = false; endGrab(best); }
+    seenIds.add(best.id); lastHandSeen = performance.now();
+  }
+  for (let i = hands.length - 1; i >= 0; i--) {
+    const h = hands[i];
+    if (!seenIds.has(h.id) && now - h.seen > 0.35) { endGrab(h); hands.splice(i, 1); }   // lost: let go of what it held
+  }
+  if (hands.length > MAXH) hands.length = MAXH;
+  buildCaps();
+}
+function buildCaps() {
+  nCap = 0;
+  for (const h of hands) {
+    const P = h.P, fr = h.palmW * 0.16, caps = [];
+    for (const [a, b] of BONES) {
+      const r = (a === 0 || b === 0 || (a >= 5 && b <= 17 && b - a === 4) || (a === 2 && b === 5)) ? h.palmW * 0.24 : fr;
+      caps.push([P[a][0], P[a][1], P[b][0], P[b][1], r]);
+    }
+    /* the forearm, out of the wrist away from the hand */
+    let ux = P[0][0] - P[9][0], uy = P[0][1] - P[9][1]; const ul = Math.hypot(ux, uy) || 1; ux /= ul; uy /= ul;
+    const L = Math.max(0.35, ul * 4.5);
+    caps.push([P[0][0] + ux * ul * 0.2, P[0][1] + uy * ul * 0.2, P[0][0] + ux * L, P[0][1] + uy * L, h.palmW * 0.42]);
+    h.caps = caps;
+    let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+    for (const c of caps) { x0 = Math.min(x0, c[0] - c[4], c[2] - c[4]); x1 = Math.max(x1, c[0] + c[4], c[2] + c[4]); y0 = Math.min(y0, c[1] - c[4], c[3] - c[4]); y1 = Math.max(y1, c[1] + c[4], c[3] + c[4]); }
+    h.bb = [x0, y0, x1, y1];
+    for (const c of caps) { if (nCap >= 48) break; capF.set([c[0], c[1], c[2], c[3]], nCap * 4); capR[nCap++] = c[4]; }
+  }
+}
+
+/* ---------- finger on the screen: a small round pusher ---------- */
+const touch = { on: false, x: 0, y: 0, vx: 0, vy: 0, t: 0, hold: 0, closed: false, id: -7 };
+
+/* ---------- grabbing a bunch of strands ---------- */
+const grabs = [];   // {hand, s, k, offx, offy}
+function startGrab(h) {
+  const R = h.palmW * 1.25, cands = [];
+  for (let s = 0; s < NS; s++) {
+    let bk = -1, bd = R;
+    for (let i = 2; i < NB; i++) { const k = s * NB + i; const d = Math.hypot(px[k] - h.cx, py[k] - h.cy); if (d < bd) { bd = d; bk = i; } }
+    if (bk > 0) cands.push([bd, s, bk]);
+  }
+  cands.sort((a, b) => a[0] - b[0]);
+  for (const [, s, i] of cands.slice(0, 14)) { const k = s * NB + i; grabs.push({ hand: h.id, s, k: i, offx: px[k] - h.cx, offy: py[k] - h.cy }); }
+  if (cands.length) AE.gather(Math.min(1, cands.length / 8));
+}
+function endGrab(h) {
+  let n = 0;
+  for (let i = grabs.length - 1; i >= 0; i--) if (grabs[i].hand === h.id) { grabs.splice(i, 1); n++; }
+  if (n) AE.release(Math.min(1, n / 8));
+}
+
+/* ---------- physics ---------- */
+const G = 3.6;
+let hitCount = 0, hitEnergy = 0, kinetic = 0;
+function step(dt) {
+  const g = G * (0.75 + 0.25 * swingAmt) * dt * dt, damp = 0.988 - 0.014 * clamp(1 - swingAmt, 0, 1);
+  /* anchors: lowering and raising come in as a wave */
+  let moving = false;
+  for (let s = 0; s < NS; s++) {
+    if (T < anchorDelay[s]) { moving = moving || anchorY[s] !== anchorGoal[s]; continue; }
+    const dy = anchorGoal[s] - anchorY[s];
+    if (Math.abs(dy) > 1e-5) {
+      const m = Math.sign(dy) * Math.min(Math.abs(dy), dt * 1.6);
+      anchorY[s] += m; moving = true;
+      /* the whole strand travels with its top, so it never folds onto itself; it keeps the speed and swings when the top stops */
+      for (let i = 1, base = s * NB; i < NB; i++) py[base + i] += m;
+    }
+  }
+  if (!moving && (curtain === 'lowering' || curtain === 'raising')) curtain = curtain === 'lowering' ? 'down' : 'up';
+  const wind = breeze ? 0.006 * swingAmt : 0;
+  for (let s = 0; s < NS; s++) {
+    const base = s * NB;
+    px[base] = ox[base] = px[base]; py[base] = oy[base] = anchorY[s];
+    const wx = wind * (Math.sin(T * 0.6 + s * 0.21) + 0.6 * Math.sin(T * 1.7 + s * 0.53)) * dt * dt * 60;
+    for (let i = 1; i < NB; i++) {
+      const k = base + i;
+      const vx = (px[k] - ox[k]) * damp, vy = (py[k] - oy[k]) * damp;
+      ox[k] = px[k]; oy[k] = py[k];
+      px[k] += vx + wx * (i / NB); py[k] += vy + g;
+    }
+  }
+  /* held strands: the held bead follows the fist, sliding along the string if it is pulled too far */
+  for (const gr of grabs) {
+    const h = gr.hand === touch.id ? touch : hands.find(x => x.id === gr.hand); if (!h) continue;
+    const hx = h.cx !== undefined ? h.cx : h.x, hy = h.cy !== undefined ? h.cy : h.y;
+    gr.offx *= 0.93; gr.offy *= 0.93;
+    const tx = hx + gr.offx, ty = hy + gr.offy, base = gr.s * NB;
+    const need = Math.hypot(tx - px[base], ty - py[base]) / D;
+    if (need > gr.k - 0.5) gr.k = Math.min(NB - 1, Math.ceil(need) + 1);
+    const k = base + gr.k; ox[k] = px[k]; oy[k] = py[k]; px[k] = tx; py[k] = ty;
+  }
+  heldIdx.fill(-1);
+  for (const gr of grabs) { heldIdx[gr.s] = gr.k; heldHand[gr.s] = gr.hand; }
+  for (let it = 0; it < 3; it++) { ftl(it === 0 ? 0.9 : 0); collide(it === 0); }
+  /* energy for the sound */
+  let e = 0;
+  for (let k = 0; k < px.length; k += 7) { const vx = px[k] - ox[k], vy = py[k] - oy[k]; e += vx * vx + vy * vy; }
+  kinetic = kinetic * 0.9 + e / Math.max(1, px.length / 7) / (dt * dt) * 0.1;
+}
+let heldIdx = new Int32Array(1), heldHand = new Int32Array(1);
+function ftl(sv) {
+  /* follow the leader from the top: every bead sits exactly one pitch below the previous one */
+  for (let s = 0; s < NS; s++) {
+    const base = s * NB;
+    const hk = heldIdx[s];
+    if (hk > 0) {
+      /* the stretch between the top and the hand: pull from both ends a few times */
+      for (let rep = 0; rep < 3; rep++) {
+        for (let i = 1; i < hk; i++) link(base + i - 1, base + i, 0);
+        for (let i = hk - 1; i >= 1; i--) link(base + i + 1, base + i, 0);
+      }
+      for (let i = hk + 1; i < NB; i++) link(base + i - 1, base + i, sv);
+    } else {
+      for (let i = 1; i < NB; i++) link(base + i - 1, base + i, sv);
+    }
+  }
+}
+function link(a, b, s) {
+  const dx = px[b] - px[a], dy = py[b] - py[a], l = Math.hypot(dx, dy) || 1e-9;
+  const nx = px[a] + dx / l * D, ny = py[a] + dy / l * D;
+  const cx = nx - px[b], cy = ny - py[b];
+  px[b] = nx; py[b] = ny;
+  /* the correction of the next bead takes some speed off this one, so the chain does not whip (dynamic follow-the-leader) */
+  if (s > 0 && a % NB !== 0) { ox[a] += cx * s; oy[a] += cy * s; }
+}
+function collide(countHits) {
+  const pushers = [];
+  for (const h of hands) pushers.push(h);
+  if (touch.on) pushers.push({ id: touch.id, caps: [[touch.x, touch.y, touch.x, touch.y, D * 2.2]], bb: [touch.x - D * 3, touch.y - D * 3, touch.x + D * 3, touch.y + D * 3], vx: touch.vx, vy: touch.vy });
+  const dtv = TEST.dt || 1 / 60;
+  for (const h of pushers) {
+    const [bx0, by0, bx1, by1] = h.bb, m = RB * 1.2;
+    const hvx = (h.vx || 0) * dtv, hvy = (h.vy || 0) * dtv;
+    for (let s = 0; s < NS; s++) {
+      const base = s * NB, hk = heldHand[s] === h.id ? heldIdx[s] : -99;
+      for (let i = 1; i < NB; i++) {
+        const k = base + i, x = px[k], y = py[k];
+        if (Math.abs(i - hk) < 8) continue;            // the strands this hand is holding
+        if (x < bx0 - m || x > bx1 + m || y < by0 - m || y > by1 + m) { if (countHits) hitPrev[k] = 0; continue; }
+        let hit = false;
+        for (const c of h.caps) {
+          const ax = c[0], ay = c[1], abx = c[2] - ax, aby = c[3] - ay, ll = abx * abx + aby * aby;
+          let t = ll > 1e-12 ? ((x - ax) * abx + (y - ay) * aby) / ll : 0; t = t < 0 ? 0 : t > 1 ? 1 : t;
+          const qx = ax + abx * t, qy = ay + aby * t, dx = px[k] - qx, dy = py[k] - qy, d = Math.hypot(dx, dy), R = c[4] + rad[k];
+          if (d < R) {
+            const nx = d > 1e-9 ? dx / d : 1, ny = d > 1e-9 ? dy / d : 0;
+            px[k] = qx + nx * R; py[k] = qy + ny * R;
+            /* the hand gives its speed to the bead it pushes */
+            let vx = px[k] - ox[k], vy = py[k] - oy[k];
+            const rel = (hvx - vx) * nx + (hvy - vy) * ny;
+            if (rel > 0) { vx += nx * rel * 1.05; vy += ny * rel * 1.05; }
+            ox[k] = px[k] - vx; oy[k] = py[k] - vy;
+            hit = true;
+            if (countHits && !hitPrev[k]) { hitCount++; hitEnergy += Math.hypot(hvx, hvy) / dtv; }
+          }
+        }
+        if (countHits) hitPrev[k] = hit ? 1 : 0;
+      }
+    }
+  }
+}
+
+/* ---------- audio: glass beads ---------- */
+const PENTA = [0, 2, 4, 7, 9];
+const AE = {
+  ac: null, ready: false, bucket: 0, recDest: null,
+  init() {
+    if (this.ac) { this.ac.resume && this.ac.resume(); return; }
+    try {
+      const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+      const ac = this.ac = new AC();
+      this.master = ac.createGain(); this.master.gain.value = 0.8;
+      const comp = ac.createDynamicsCompressor(); comp.threshold.value = -18; comp.ratio.value = 3;
+      this.master.connect(comp); comp.connect(ac.destination);
+      try { this.recDest = ac.createMediaStreamDestination(); comp.connect(this.recDest); } catch (e) { this.recDest = null; }
+      const len = ac.sampleRate * 1.6 | 0, ir = ac.createBuffer(2, len, ac.sampleRate);
+      for (let c = 0; c < 2; c++) { const d = ir.getChannelData(c); for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 3); }
+      const conv = ac.createConvolver(); conv.buffer = ir; const wet = ac.createGain(); wet.gain.value = 0.32;
+      this.bus = ac.createGain(); this.bus.connect(this.master); this.bus.connect(conv); conv.connect(wet); wet.connect(this.master);
+      this.noise = ac.createBuffer(1, ac.sampleRate | 0, ac.sampleRate);
+      const nd = this.noise.getChannelData(0); for (let i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
+      /* the rustle of many beads, following how much the curtain moves */
+      const rs = ac.createBufferSource(); rs.buffer = this.noise; rs.loop = true;
+      const hp = ac.createBiquadFilter(); hp.type = 'bandpass'; hp.frequency.value = 5200; hp.Q.value = 0.7;
+      this.rustle = ac.createGain(); this.rustle.gain.value = 0; rs.connect(hp); hp.connect(this.rustle); this.rustle.connect(this.bus); rs.start();
+      this.ready = true;
+    } catch (e) { console.warn('audio', e); }
+  },
+  click(x, vel) {
+    if (!this.ready || !soundOn) return;
+    const ac = this.ac, t = ac.currentTime + Math.random() * 0.02;
+    const f = 1568 * Math.pow(2, (PENTA[(Math.random() * 5) | 0] + 12 * ((Math.random() * 2) | 0)) / 12) * (1 + (Math.random() - 0.5) * 0.004);
+    const v = clamp(vel, 0.05, 1) * 0.16;
+    const o = ac.createOscillator(); o.type = 'sine'; o.frequency.value = f;
+    const o2 = ac.createOscillator(); o2.type = 'sine'; o2.frequency.value = f * 2.76;
+    const g = ac.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(v, t + 0.002); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.09 + Math.random() * 0.08);
+    const g2 = ac.createGain(); g2.gain.value = 0.3;
+    const n = ac.createBufferSource(); n.buffer = this.noise; const bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = rand(3500, 7000); bp.Q.value = 3;
+    const ng = ac.createGain(); ng.gain.setValueAtTime(v * 0.9, t); ng.gain.exponentialRampToValueAtTime(0.0001, t + 0.018);
+    let out = g;
+    if (ac.createStereoPanner) { const p = ac.createStereoPanner(); p.pan.value = clamp(x * 2 - 1, -0.9, 0.9); g.connect(p); ng.connect(p); out = p; } else ng.connect(g);
+    o.connect(g); o2.connect(g2); g2.connect(g); n.connect(bp); bp.connect(ng);
+    out.connect(this.bus);
+    o.start(t); o2.start(t); n.start(t, Math.random() * 0.5); o.stop(t + 0.2); o2.stop(t + 0.2); n.stop(t + 0.03);
+  },
+  tick(dt) {
+    if (!this.ready) return;
+    const t = this.ac.currentTime;
+    this.master.gain.setTargetAtTime(soundOn ? 0.8 : 0, t, 0.1);
+    this.rustle.gain.setTargetAtTime(clamp(kinetic * 2.2, 0, 0.12), t, 0.08);
+    /* clicks: beads hit by a hand, and beads knocking together while the curtain swings */
+    this.bucket = Math.min(8, this.bucket + dt * 34);
+    const want = hitCount * 0.35 + clamp(kinetic * 40, 0, 14) * dt;
+    let n = Math.min(Math.floor(want + Math.random()), Math.floor(this.bucket));
+    const vel = clamp(hitEnergy / Math.max(1, hitCount) * 0.6 + kinetic * 3, 0.15, 1);
+    while (n-- > 0) { this.bucket--; this.click(Math.random(), vel * rand(0.5, 1)); }
+    hitCount = 0; hitEnergy = 0;
+  },
+  sweep(down) { if (!this.ready || !soundOn) return; for (let i = 0; i < 14; i++) setTimeout(() => this.click(down ? i / 14 : 1 - i / 14, 0.5), i * 60 + Math.random() * 40); },
+  gather(a) { if (!this.ready || !soundOn) return; for (let i = 0; i < 3 + a * 5; i++) setTimeout(() => this.click(0.5, 0.6), i * 18); },
+  release(a) { if (!this.ready || !soundOn) return; for (let i = 0; i < 4 + a * 8; i++) setTimeout(() => this.click(Math.random(), 0.7), i * 45 + Math.random() * 30); },
+};
+
+/* ---------- layout / video ---------- */
+function resize() {
+  const pW = W, pH = H;
+  W = innerWidth; H = innerHeight; ASP = W / H;
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  if (W * H * DPR * DPR > 2.4e6) DPR = Math.sqrt(2.4e6 / (W * H));
+  cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR);
+  if (PR && (pW !== W || pH !== H)) buildCurtain(true);
+}
+function updateVideoMap() {
+  vw = video.videoWidth || 0; vh = video.videoHeight || 0; if (!vw) return;
+  vs = Math.max(W / vw, H / vh); vox = (W - vw * vs) / 2; voy = (H - vh * vs) / 2;
+}
+function videoMapUniforms(P) {
+  if (!vw) { f2(P, 'uVA', 0, 0); f2(P, 'uVB', 0.5, 0.5); return; }
+  const ax = W / (vs * vw), ay = H / (vs * vh);
+  if (mirror) { f2(P, 'uVA', -ax, ay); f2(P, 'uVB', (W - vox) / (vs * vw), -voy / (vs * vh)); }
+  else { f2(P, 'uVA', ax, ay); f2(P, 'uVB', -vox / (vs * vw), -voy / (vs * vh)); }
+}
+
+/* ---------- hand model ---------- */
+async function initHands() {
+  try {
+    let V; try { V = await import(`${MP_BASE}/vision_bundle.mjs`); } catch (e) { V = await import(MP_BASE); }
+    const fs = await V.FilesetResolver.forVisionTasks(`${MP_BASE}/wasm`);
+    const opts = { baseOptions: { modelAssetPath: HAND_MODEL, delegate: DELEGATE }, runningMode: 'VIDEO', numHands: 2,
+      minHandDetectionConfidence: 0.5, minHandPresenceConfidence: 0.5, minTrackingConfidence: 0.5 };
+    try { handLM = await V.HandLandmarker.createFromOptions(fs, opts); }
+    catch (e) { opts.baseOptions.delegate = 'CPU'; handLM = await V.HandLandmarker.createFromOptions(fs, opts); }
+  } catch (e) { console.warn('hand model failed', e); modelErr = true; }
+}
+function detect(nowMs) {
+  if (EXT || !handLM || video.readyState < 2 || !vw) return;
+  if (video.currentTime === lastVT) return;
+  lastVT = video.currentTime;
+  let r; try { mpTs = Math.max(nowMs, mpTs + 1); r = handLM.detectForVideo(video, mpTs); } catch (e) { return; }
+  const list = r && Array.isArray(r.landmarks) ? r.landmarks : [];
+  if (list.length) lastHandSeen = nowMs;
+  ingestHands(list, nowMs / 1000);
+}
+
+/* ---------- render ---------- */
+function draw() {
+  const kd = KINDS[kindIdx], live = vw ? 1 : 0;
+  gl.viewport(0, 0, cv.width, cv.height);
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, texVid);
+  /* the room */
+  let P = PR.bg; gl.useProgram(P.p); gl.bindVertexArray(emptyVAO); gl.disable(gl.BLEND);
+  i1(P, 'uVid', 0); videoMapUniforms(P); f1(P, 'uAsp', ASP); f1(P, 'uBlur', blurAmt * (curtain === 'up' ? 0.25 : 1)); f1(P, 'uDim', kd.dim + (curtain === 'up' ? 0.2 : 0));
+  f1(P, 'uLive', live); f3(P, 'uGrade', kd.grade); f2(P, 'uLamp', ASP * 0.22, 0.05);
+  const lc = P.u.uCap, lr = P.u.uCapR; if (lc) gl.uniform4fv(lc, capF); if (lr) gl.uniform1fv(lr, capR); i1(P, 'uNCap', nCap);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+  /* instance data */
+  const N = NS * NB;
+  const vk = 1 / (D * 0.25);
+  for (let k = 0; k < N; k++) { const o = k * 4; inst[o] = px[k]; inst[o + 1] = py[k]; inst[o + 2] = rad[k]; inst[o + 3] = seed[k];
+    const j = k * 2; vinst[j] = vinst[j] * 0.8 + (px[k] - ox[k]) * vk * 0.2; vinst[j + 1] = vinst[j + 1] * 0.8 + (py[k] - oy[k]) * vk * 0.2; }
+  gl.bindBuffer(gl.ARRAY_BUFFER, beadBuf); gl.bufferSubData(gl.ARRAY_BUFFER, 0, inst);
+  gl.bindBuffer(gl.ARRAY_BUFFER, velBuf); gl.bufferSubData(gl.ARRAY_BUFFER, 0, vinst);
+  gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+  /* threads */
+  P = PR.thread; gl.useProgram(P.p); gl.bindVertexArray(threadVAO);
+  f1(P, 'uAsp', ASP); f1(P, 'uPx', 1 / (H * DPR)); f3(P, 'uCol', kd.light);
+  gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, N - 1);
+  /* beads */
+  P = PR.bead; gl.useProgram(P.p); gl.bindVertexArray(beadVAO);
+  i1(P, 'uVid', 0); videoMapUniforms(P); f1(P, 'uAsp', ASP); f1(P, 'uPx', 1 / (H * DPR)); f1(P, 'uT', T); f1(P, 'uLive', live);
+  f1(P, 'uFacet', kd.facet); f1(P, 'uIri', kd.iri); f1(P, 'uTrans', kd.trans); f1(P, 'uDisp', kd.disp); f1(P, 'uShiny', kd.shiny);
+  f3(P, 'uTint', kd.tint); f3(P, 'uLight', kd.light); f3(P, 'uGlint', kd.glint); f2(P, 'uLamp', ASP * 0.22, 0.05);
+  gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, N);
+  gl.bindVertexArray(null); gl.disable(gl.BLEND);
+}
+
+/* ---------- loop ---------- */
+let acc = 0, lastUpVT = -1;
+function frame(nowMs) {
+  requestAnimationFrame(frame);
+  const now = nowMs / 1000; let dt = now - lastT; lastT = now; dt = clamp(dt, 0, 0.05);
+  if (!running || !PR) return;
+  if (TEST.freeze) dt = 0; else if (TEST.dt) { dt = TEST.dt; }
+  T += dt; TEST.frames++;
+  updateVideoMap();
+  if (vw && video.readyState >= 2 && video.currentTime !== lastUpVT) {
+    lastUpVT = video.currentTime;
+    gl.bindTexture(gl.TEXTURE_2D, texVid);
+    try { gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video); gl.generateMipmap(gl.TEXTURE_2D); } catch (e) {}
+  }
+  detect(nowMs);
+  if (EXT) buildCaps();
+  if (touch.on) {
+    touch.hold += dt;
+    if (!touch.closed && touch.hold > 0.5 && Math.hypot(touch.vx, touch.vy) < 0.25) { touch.closed = true; startGrab({ id: touch.id, cx: touch.x, cy: touch.y, palmW: D * 4 }); }
+  }
+  acc += dt; let n = 0;
+  while (acc >= 1 / 60 && n < 3) { step(1 / 60); acc -= 1 / 60; n++; }
+  if (n === 3) acc = 0;
+  AE.tick(dt);
+  draw();
+  updateStatus(nowMs);
+  if (shotReq) { shotReq = false; saveShot(); }
+}
+let lastStatus = null;
+function updateStatus(nowMs) {
+  let s = '';
+  if (!EXT && !handLM && !modelErr) s = '手の検出を準備中…';
+  else if (modelErr && !EXT) s = '手の検出が読めませんでした。画面を指でなぞって触れられます';
+  else if (curtain === 'down' && hands.length === 0 && nowMs - lastHandSeen > 4000 && T > 4) s = 'すだれに手を入れてみて';
+  if (s !== lastStatus) { lastStatus = s; if (s) statusEl.textContent = s; statusEl.classList.toggle('off', !s); }
+}
+
+/* ---------- UI ---------- */
+let toastTimer = 0;
+function toast(s) { toastEl.textContent = s; toastEl.classList.add('on'); clearTimeout(toastTimer); toastTimer = setTimeout(() => toastEl.classList.remove('on'), 1200); }
+function nextKind() { kindIdx = (kindIdx + 1) % KINDS.length; $('kind').textContent = '◇ ' + KINDS[kindIdx].name; toast(KINDS[kindIdx].name); AE.release(0.4); }
+$('kind').onclick = nextKind;
+$('lift').onclick = () => setCurtain(curtain === 'up' || curtain === 'raising');
+const panel = $('panel');
+$('gear').onclick = () => { panel.hidden = !panel.hidden; $('gear').setAttribute('aria-expanded', String(!panel.hidden)); };
+$('panelX').onclick = () => { panel.hidden = true; $('gear').setAttribute('aria-expanded', 'false'); };
+$('sSize').onchange = e => { sizeAmt = +e.target.value; buildCurtain(true); };
+$('sGap').onchange = e => { gapAmt = +e.target.value; buildCurtain(true); };
+$('sSwing').oninput = e => { swingAmt = +e.target.value; };
+$('sBlur').oninput = e => { blurAmt = +e.target.value; };
+const tog = (id, on, a, b) => { const el = $(id); el.classList.toggle('on', on); el.textContent = on ? a : b; };
+$('bBreeze').onclick = () => { breeze = !breeze; tog('bBreeze', breeze, 'そよ風：入', 'そよ風：切'); };
+$('bSound').onclick = () => { soundOn = !soundOn; tog('bSound', soundOn, '音：入', '音：切'); if (soundOn) AE.init(); };
+const fsBtn = $('bFs');
+if (!document.documentElement.requestFullscreen) fsBtn.style.display = 'none';
+else fsBtn.onclick = () => document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen().catch(() => {});
+$('shot').onclick = () => { shotReq = true; };
+function saveShot() {
+  try {
+    cv.toBlob(b => { if (!b) return; const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = 'tamasudare_' + Date.now() + '.png';
+      document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 4000); }, 'image/png');
+  } catch (e) { toast('保存できませんでした'); }
+}
+let mr = null, chunks = [];
+$('rec').onclick = () => {
+  const b = $('rec');
+  if (mr && mr.state === 'recording') { mr.stop(); return; }
+  AE.init();
+  const tracks = [...cv.captureStream(30).getVideoTracks()];
+  if (AE.recDest) tracks.push(...AE.recDest.stream.getAudioTracks());
+  const ms = new MediaStream(tracks);
+  const types = ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm'];
+  const mt = types.find(t => window.MediaRecorder && MediaRecorder.isTypeSupported(t)) || '';
+  try { mr = new MediaRecorder(ms, mt ? { mimeType: mt, videoBitsPerSecond: 6e6 } : {}); }
+  catch (err) { toast('録画を開始できませんでした'); return; }
+  chunks = []; mr.ondataavailable = ev => { if (ev.data && ev.data.size) chunks.push(ev.data); };
+  mr.onstop = () => {
+    b.classList.remove('act'); b.textContent = '● REC';
+    const blob = new Blob(chunks, { type: mr.mimeType || 'video/mp4' }); const ext = (mr.mimeType || '').includes('mp4') ? 'mp4' : 'webm';
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'tamasudare_' + Date.now() + '.' + ext;
+    document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 4000);
+  };
+  mr.start(1000); b.classList.add('act'); b.textContent = '■ STOP';
+};
+/* a finger on the screen pushes the beads too; holding still for a moment grabs */
+cv.addEventListener('pointerdown', e => {
+  if (!running) return;
+  if (!panel.hidden) { panel.hidden = true; $('gear').setAttribute('aria-expanded', 'false'); }
+  touch.on = true; touch.x = e.clientX / H; touch.y = e.clientY / H; touch.vx = touch.vy = 0; touch.t = performance.now(); touch.hold = 0;
+  try { cv.setPointerCapture(e.pointerId); } catch (_) {}
+});
+cv.addEventListener('pointermove', e => {
+  if (!touch.on) return;
+  const now = performance.now(), dt = Math.max(1, now - touch.t) / 1000, x = e.clientX / H, y = e.clientY / H;
+  touch.vx = (x - touch.x) / dt * 0.5 + touch.vx * 0.5; touch.vy = (y - touch.y) / dt * 0.5 + touch.vy * 0.5; touch.x = x; touch.y = y; touch.t = now;
+});
+const touchUp = () => { if (!touch.on) return; touch.on = false; if (touch.closed) { touch.closed = false; endGrab({ id: touch.id }); } };
+cv.addEventListener('pointerup', touchUp); cv.addEventListener('pointercancel', touchUp);
+addEventListener('keydown', e => {
+  if (!running) return;
+  const k = e.key.toLowerCase();
+  if (k === 'c') nextKind(); else if (k === 's') shotReq = true; else if (k === ' ') { e.preventDefault(); setCurtain(curtain === 'up' || curtain === 'raising'); }
+});
+addEventListener('resize', resize);
+
+function camErrText(e) {
+  const m = (e && (e.message || e.name)) ? (e.message || e.name) : String(e || 'unknown');
+  return 'カメラを起動できませんでした：' + m + '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+}
+async function startCam() {
+  const md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) throw new Error('getUserMedia is unavailable');
+  /* get the new stream first, so a failed flip keeps the old camera running */
+  const s2 = await md.getUserMedia({ video: { facingMode: { ideal: facing }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = s2; video.srcObject = stream;
+  try { await video.play(); } catch (e) {}
+  await new Promise(r => { if (video.videoWidth) r(); else { video.onloadedmetadata = () => r(); setTimeout(r, 3000); } });
+  mirror = facing === 'user'; lastVT = -1; lastUpVT = -1;
+  for (const h of hands) endGrab(h); hands.length = 0; nCap = 0;
+}
+$('flip').onclick = async () => {
+  const prev = facing; facing = facing === 'user' ? 'environment' : 'user';
+  try { await startCam(); toast(facing === 'user' ? '前のカメラ' : '後ろのカメラ'); }
+  catch (e) { facing = prev; toast('切り替えられませんでした'); console.warn(camErrText(e)); }
+};
+$('go').onclick = async () => {
+  const btn = $('go'); btn.disabled = true; $('err').textContent = 'カメラを起動しています…';
+  AE.init();
+  try { if (!PR) initGL(); resize(); buildCurtain(false); }
+  catch (e) { $('err').textContent = '描画の準備に失敗しました：' + (e && e.message ? e.message.split('\n')[0] : e); console.error(e); btn.disabled = false; return; }
+  try { await startCam(); }
+  catch (e) { $('err').textContent = camErrText(e); btn.disabled = false; btn.textContent = 'もう一度'; return; }
+  $('start').classList.add('hide'); $('ui').classList.add('on'); $('err').textContent = '';
+  running = true; T = 0; lastT = performance.now() / 1000;
+  setTimeout(() => setCurtain(true), 450);
+  if (!handLM && !EXT) initHands();
+};
+
+requestAnimationFrame(frame);
+/* test hook (local checks only) */
+window.__tama = {
+  state: () => {
+    let maxDx = 0; for (let s = 0; s < NS; s++) for (let i = 1; i < NB; i++) { const k = s * NB + i; maxDx = Math.max(maxDx, Math.abs(px[k] - px[s * NB])); }
+    return { curtain, NS, NB, D, hands: hands.map(h => ({ id: h.id, cx: h.cx, cy: h.cy, grip: h.grip, closed: h.closed })), grabs: grabs.length, maxDx, kinetic, T, kind: kindIdx, model: !!handLM, modelErr, EXT };
+  },
+  feedHands: list => { if (!EXT) { EXT = true; hands.length = 0; grabs.length = 0; } ingestHands(Array.isArray(list) ? list : [], T); return hands.length; },
+  insideCount: () => { let n = 0; for (const h of hands) for (let k = 0; k < px.length; k++) { if (seed[k] < 0) continue; for (const c of h.caps) {
+    const ax = c[0], ay = c[1], abx = c[2] - ax, aby = c[3] - ay, ll = abx * abx + aby * aby; let t = ll > 1e-12 ? ((px[k] - ax) * abx + (py[k] - ay) * aby) / ll : 0; t = clamp(t, 0, 1);
+    if (Math.hypot(px[k] - ax - abx * t, py[k] - ay - aby * t) < c[4] * 0.7) { n++; break; } } } return n; },
+  set: o => { if (o.kind != null) { kindIdx = o.kind; $('kind').textContent = '◇ ' + KINDS[kindIdx].name; } if (o.blur != null) blurAmt = o.blur; if (o.breeze != null) breeze = o.breeze; },
+  curtainNow: down => { for (let s = 0; s < NS; s++) { anchorY[s] = anchorGoal[s] = down ? -D : UP_Y; anchorDelay[s] = 0; for (let i = 0; i < NB; i++) { const k = s * NB + i; py[k] = oy[k] = anchorY[s] + i * D; px[k] = ox[k] = px[s * NB]; } } curtain = down ? 'down' : 'up'; },
+  TEST, T: () => T,
+};
+</script>
+</body>
+</html>
