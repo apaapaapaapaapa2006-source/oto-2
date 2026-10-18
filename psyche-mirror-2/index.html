@@ -1,0 +1,1455 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<script>/* REC-FIX (2026-10-12) — iPhone Safari で録画が途中で止まる・壊れる対策。どの作品でも同じ内容。
+   ・mp4 は映像と音声の両方のコーデックを宣言する（avc1 だけだと音声付きで止まることがある）
+   ・1 秒ごとにデータを受け取る（最後に一括で書き出さない）／ビットレートに上限
+   ・保存が終わる前に次の録画を始めない（前のファイルが消えるのを防ぐ）
+   ・録画中は AudioContext を止めない（音声トラックが止まると mp4 ごと止まる） */
+(()=>{const MR=window.MediaRecorder;if(!MR||MR.__recfix)return;let busy=0,active=0;
+class R extends MR{
+  constructor(s,o){if(busy)throw new Error('前の録画を保存しています');o=Object.assign({},o||{});
+    const au=s&&s.getAudioTracks&&s.getAudioTracks().length>0;
+    if(!o.mimeType||/^video\/mp4/.test(o.mimeType)){
+      const c=[au?'video/mp4;codecs="avc1.42E01E,mp4a.40.2"':'video/mp4;codecs="avc1.42E01E"','video/mp4'].find(m=>MR.isTypeSupported(m));
+      if(c)o.mimeType=c;else if(o.mimeType&&!MR.isTypeSupported(o.mimeType))delete o.mimeType;}
+    if(!o.videoBitsPerSecond&&!o.bitsPerSecond)o.videoBitsPerSecond=6e6;
+    super(s,o);this.addEventListener('stop',()=>{active=Math.max(0,active-1);setTimeout(()=>{busy=0;},0);});}
+  start(t){const r=super.start(t==null?1000:t);active++;return r;}
+  stop(){if(this.state!=='inactive'){busy=1;setTimeout(()=>{busy=0;},15000);}return super.stop();}}
+R.__recfix=1;window.MediaRecorder=R;
+const AC=window.AudioContext||window.webkitAudioContext;
+if(AC&&AC.prototype.suspend){const sus=AC.prototype.suspend;AC.prototype.suspend=function(){return active?Promise.resolve():sus.call(this);};}
+/* 録音用の出口には常に無音を流しておく（何も鳴っていないと音声トラックにデータが来ず、録画全体が止まる） */
+if(AC&&AC.prototype.createMediaStreamDestination){const cmd=AC.prototype.createMediaStreamDestination;AC.prototype.createMediaStreamDestination=function(){const d=cmd.apply(this,arguments);
+  try{const c=this.createConstantSource();c.offset.value=0;c.connect(d);c.start();}catch(e){}return d;};}})();</script>
+<script>/* RESUME-FIX (2026-10-17) — iPhone で写真や動画を保存しに行ったり、別のアプリへ行ったりして戻ると、
+   カメラが消える・映像が固まる・画面が壊れる対策。どの作品でも同じ内容。
+   ・ページが裏に回ると、iPhone はカメラを止め、動画を一時停止し、音を止め、ときに WebGL の描画を捨てる
+   ・戻ったら：止められたカメラを同じ条件で取り直して同じ MediaStream に差し込み、止まった動画を再生し、音を再開する
+   ・WebGL の描画が捨てられ、作品が自分で立て直せないときは「タップして再開」を出して読み込み直す */
+(()=>{if(window.__resumefix)return;window.__resumefix=1;
+const md=navigator.mediaDevices,streams=new Map(),vids=new Set(),ctxs=new Set(),lost=new WeakSet(),mutedAt=new Map();
+const watch=t=>{try{t.addEventListener('ended',()=>lost.add(t));t.addEventListener('mute',()=>mutedAt.set(t,performance.now()));
+  t.addEventListener('unmute',()=>mutedAt.delete(t));if(t.muted)mutedAt.set(t,performance.now());}catch(e){}};
+let gum=null;
+if(md&&md.getUserMedia){gum=md.getUserMedia.bind(md);
+  md.getUserMedia=async function(c){const s=await gum(c);try{streams.set(s,c);s.getTracks().forEach(watch);}catch(e){}return s;};}
+/* every <video> that is given a camera stream, also ones never put in the page */
+const MP=HTMLMediaElement.prototype,play=MP.play,so=Object.getOwnPropertyDescriptor(MP,'srcObject');
+MP.play=function(){try{if(this.srcObject)vids.add(this);}catch(e){}return play.apply(this,arguments);};
+if(so&&so.set)Object.defineProperty(MP,'srcObject',{configurable:true,enumerable:so.enumerable,
+  get(){return so.get.call(this);},set(v){if(v)vids.add(this);so.set.call(this,v);}});
+for(const k of['AudioContext','webkitAudioContext']){const C=window[k];if(!C||C.__resumefix)continue;
+  const W=function(...a){const c=new C(...a);ctxs.add(c);return c;};W.prototype=C.prototype;W.__resumefix=1;
+  try{Object.setPrototypeOf(W,C);}catch(e){}window[k]=W;}
+const shown=s=>{for(const v of vids){try{if(so.get.call(v)===s)return true;}catch(e){}}return false;};
+let busy=0;
+async function revive(){
+  if(busy||document.hidden)return;busy=1;
+  try{
+    for(const[s,c]of[...streams]){
+      const tr=s.getTracks();
+      if(!shown(s)){if(tr.every(t=>t.readyState==='ended'))streams.delete(s);continue;}
+      const now=performance.now();
+      const dead=tr.filter(t=>(t.readyState==='ended'&&lost.has(t))||(t.kind==='video'&&mutedAt.has(t)&&now-mutedAt.get(t)>1500));
+      if(!dead.length||!gum)continue;
+      let ns=null;try{ns=await gum(c);}catch(e){continue;}
+      const kinds=new Set(dead.map(t=>t.kind));
+      for(const t of dead){try{t.stop();}catch(e){}s.removeTrack(t);mutedAt.delete(t);}
+      for(const t of ns.getTracks()){if(kinds.has(t.kind)){s.addTrack(t);watch(t);}else t.stop();}
+      for(const v of vids){try{if(so.get.call(v)===s){so.set.call(v,null);so.set.call(v,s);}}catch(e){}}
+    }
+  }finally{busy=0;}
+  for(const v of vids){try{if(so.get.call(v)&&v.paused)play.call(v).catch(()=>{});}catch(e){}}
+  for(const c of ctxs){try{if(c.state!=='running'&&c.state!=='closed')c.resume().catch(()=>{});}catch(e){}}
+}
+const soon=()=>{if(document.hidden)return;const n=performance.now();for(const t of mutedAt.keys())mutedAt.set(t,n);
+  setTimeout(revive,250);setTimeout(revive,1900);};
+document.addEventListener('visibilitychange',soon);
+addEventListener('pageshow',soon);addEventListener('focus',soon);
+/* iPhone sometimes only lets sound and video restart from a tap */
+const tap=()=>{for(const c of ctxs){try{if(c.state!=='running'&&c.state!=='closed')c.resume().catch(()=>{});}catch(e){}}
+  for(const v of vids){try{if(so.get.call(v)&&v.paused)play.call(v).catch(()=>{});}catch(e){}}};
+addEventListener('pointerdown',tap,true);addEventListener('touchend',tap,true);
+/* WebGL: if the drawing is thrown away and the piece does not rebuild it, offer a clean restart */
+const ET=EventTarget.prototype,ael=ET.addEventListener,rebuilds=new WeakSet(),gls=new WeakMap();
+ET.addEventListener=function(t){if(t==='webglcontextrestored'&&this instanceof HTMLCanvasElement)rebuilds.add(this);return ael.apply(this,arguments);};
+let box=null;
+function offer(){
+  if(box)return;box=document.createElement('div');
+  box.style.cssText='position:fixed;inset:0;z-index:2147483647;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;'+
+    'background:rgba(0,0,0,.82);color:#fff;font:14px/1.8 system-ui,sans-serif;text-align:center;padding:24px';
+  box.innerHTML='<div>画面の表示が止まりました。<br>（別のアプリから戻ったとき、iPhone が描画を止めることがあります）</div>'+
+    '<button style="font:inherit;font-size:16px;padding:12px 28px;border-radius:999px;border:0;background:#fff;color:#000">タップして再開</button>';
+  box.querySelector('button').onclick=()=>location.reload();
+  (document.body||document.documentElement).appendChild(box);
+}
+const GC=HTMLCanvasElement.prototype,getCtx=GC.getContext;
+GC.getContext=function(type){
+  const g=getCtx.apply(this,arguments);
+  if(g&&/webgl/i.test(String(type))&&!gls.has(this)){gls.set(this,g);const cv=this;
+    ael.call(cv,'webglcontextlost',e=>{e.preventDefault();let vis=0;
+      const iv=setInterval(()=>{vis=document.hidden?0:vis+500;let still=false;try{still=g.isContextLost();}catch(_){}
+        if(!still){clearInterval(iv);return;}                     /* came back: the 'restored' handler below decides */
+        if(vis>=4000){clearInterval(iv);if(cv.isConnected)offer();}},500);},false);
+    ael.call(cv,'webglcontextrestored',()=>{const f=()=>{if(document.hidden){setTimeout(f,500);return;}
+      if(cv.isConnected&&!rebuilds.has(cv))offer();};f();},false);}
+  return g;
+};
+})();</script>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>PSYCHE MIRROR II ─ みつめると、はじける</title>
+<meta name="description" content="カメラをじっと見つめると、髪が液体のマーブル絵の具になって頭からはじけ出す。顔は白い紙のように抜け、後ろでは色の粉が爆発し、しぶきが線を引いて飛ぶ。頭をふるとしぶき、口をあけると爆発、目を長めにとじると配色がかわる。">
+<meta name="theme-color" content="#060509">
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  PSYCHE MIRROR II ─ みつめると、はじける          ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  出自      オーナーの PSYCHE MIRROR（アパート / APARTMENT）の新しい版。
+            「見つめると変わる」「口」「目をとじると配色」の仕組みは元のまま、
+            絵をオーナーが見せた 3 枚に寄せて作り直した：
+            ① MINIMA のアート（白く抜けた顔、髪がサイケな液体マーブル絵の具に
+              なって爆ぜ、目のあたりまで絵の具がかぶり、服へ垂れる）
+            ② 黒地に放射状に爆発するホーリーの色粉
+            ③ 黒地に飛び散るネオンのペンキ（細い線を引いて飛ぶしぶきと点、垂れ）
+
+  MOOD      静かなカメラ映像が、見つめた瞬間に爆ぜる。夢というより覚醒。
+
+  主役      髪が液体のマーブル絵の具になる。髪の中で絵の具が生まれ、渦を巻き
+            ながら頭のまわりへ流れ出て、伸びた筋が帯になる（墨流しと同じ原理：
+            色の境目が流れで引き伸ばされる）。帯の境目に細い墨の線と白い光沢。
+
+  層        ① 顔は白い紙のポスター（明・中・影の淡い 3 階調＋目鼻の墨線、
+              影には左右で違う色が映り込む）。服は暗い 3 階調。
+            ② 絵の具が額から目のあたりまでかぶり、何本か顔に垂れる（量は⚙）
+            ③ はじけた瞬間、頭の後ろで色粉が放射状に爆発する（人の後ろに描く）
+            ④ しぶき：線を引いて飛ぶ滴と大小の点。頭をふると、ふった向きへ飛ぶ
+            ⑤ 口をあけると、もう一度爆発。目を長めにとじると配色がかわる
+            ⑥ 髪の先から絵の具が垂れていく。画面をたたくとそこに絵の具がはねる
+
+  PALETTE   ネオン・マーブル（MINIMA）/ ホーリー / スプラッシュ / すみ流し（白黒）。
+            UI は 黒 #060509・紙 #f5fbf6・マゼンタ #ff2fb4・シアン #3ff0ff・
+            ライム #b8ff3a・バイオレット #7a35ff・オレンジ #ff8a1e。
+
+  TYPE      Rubik Wet Paint（垂れるペンキの題字）と Zen Kaku Gothic New（本文）。
+
+  TECH      WebGL2。絵の具は画面空間の流体もどき（カールノイズ＋頭からの外向き流れ
+            ＋頭の動き＋爆発の衝撃）で 2 本の位相と量を毎フレーム運ぶ。
+            髪・顔・肌・服は MediaPipe ImageSegmenter（selfie_multiclass）、
+            見つめる・口・目は FaceLandmarker（どちらも動的 import）。
+            粉としぶきは解析的に動くインスタンス描画（CPU は生まれた時だけ書く）。
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Rubik+Wet+Paint&family=Zen+Kaku+Gothic+New:wght@500;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ink:#060509; --paper:#f5fbf6; --mag:#ff2fb4; --cyan:#3ff0ff; --lime:#b8ff3a; --violet:#7a35ff; --orange:#ff8a1e;
+  --ui-bg:rgba(8,6,12,.62); --ui-line:rgba(245,251,246,.18);
+  --jp:"Zen Kaku Gothic New","Hiragino Sans","Yu Gothic",system-ui,sans-serif;
+  --disp:"Rubik Wet Paint","Impact","Arial Black",sans-serif;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;background:var(--ink);color:var(--paper);font-family:var(--jp);overflow:hidden;
+  -webkit-user-select:none;user-select:none}
+#gl{position:fixed;inset:0;width:100vw;height:100vh;height:100dvh;display:block;touch-action:manipulation}
+#cam{position:fixed;left:0;top:0;width:2px;height:2px;opacity:0;pointer-events:none}
+
+/* ---------- start ---------- */
+#start{position:fixed;inset:0;z-index:10;display:grid;place-items:center;overflow:hidden;background:var(--ink);
+  padding:24px;padding-top:calc(24px + env(safe-area-inset-top,0px));padding-bottom:calc(24px + env(safe-area-inset-bottom,0px));
+  transition:opacity .8s ease,visibility .8s}
+#start.hide{opacity:0;visibility:hidden}
+.burst{position:absolute;left:50%;top:44%;width:170vmax;height:170vmax;margin:-85vmax 0 0 -85vmax;opacity:.8;
+  background:repeating-conic-gradient(from 3deg,#ff2fb4 0 1.6deg,transparent 1.6deg 6deg,#3ff0ff 6deg 7.2deg,transparent 7.2deg 12.5deg,
+    #b8ff3a 12.5deg 13.3deg,transparent 13.3deg 18deg,#7a35ff 18deg 20deg,transparent 20deg 25deg,#ff8a1e 25deg 26deg,transparent 26deg 31deg);
+  -webkit-mask:radial-gradient(circle,transparent 0 7%,#000 9%,rgba(0,0,0,.55) 20%,transparent 40%);
+  mask:radial-gradient(circle,transparent 0 7%,#000 9%,rgba(0,0,0,.55) 20%,transparent 40%);
+  animation:spin 140s linear infinite}
+.dots{position:absolute;inset:0;opacity:.9;background:
+  radial-gradient(circle at 14% 18%,#ff2fb4 0 6px,transparent 7px),radial-gradient(circle at 82% 14%,#3ff0ff 0 4px,transparent 5px),
+  radial-gradient(circle at 90% 38%,#b8ff3a 0 9px,transparent 10px),radial-gradient(circle at 8% 62%,#ff8a1e 0 5px,transparent 6px),
+  radial-gradient(circle at 76% 84%,#7a35ff 0 7px,transparent 8px),radial-gradient(circle at 22% 88%,#3ff0ff 0 3px,transparent 4px),
+  radial-gradient(circle at 63% 9%,#ffe53a 0 3px,transparent 4px),radial-gradient(circle at 36% 7%,#ff2fb4 0 2px,transparent 3px),
+  radial-gradient(circle at 95% 70%,#ff2fb4 0 3px,transparent 4px),radial-gradient(circle at 4% 36%,#b8ff3a 0 2px,transparent 3px),
+  radial-gradient(circle at 52% 95%,#ff8a1e 0 4px,transparent 5px),radial-gradient(circle at 30% 76%,#ff2fb4 0 2px,transparent 3px)}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.burst{animation:none}}
+.card{position:relative;max-width:420px;width:100%;text-align:center;padding:26px 20px}
+.card::before{content:"";position:absolute;inset:-40px -16px;z-index:-1;
+  background:radial-gradient(ellipse at 50% 50%,rgba(6,5,9,.96) 0 56%,rgba(6,5,9,.78) 68%,rgba(6,5,9,0) 80%)}
+.brand{font-size:11px;letter-spacing:.24em;opacity:.6}
+h1{font-family:var(--disp);font-weight:400;font-size:clamp(46px,13.5vw,84px);line-height:.9;margin:16px 0 0;letter-spacing:.01em;
+  background:linear-gradient(100deg,#ff2fb4 0%,#ff8a1e 24%,#b8ff3a 46%,#3ff0ff 68%,#7a35ff 92%);
+  -webkit-background-clip:text;background-clip:text;color:transparent;filter:drop-shadow(0 3px 0 rgba(0,0,0,.6))}
+h1 i{font-style:normal;color:var(--paper);-webkit-text-fill-color:var(--paper)}
+.sub{font-size:18px;font-weight:700;margin:20px 0 16px;letter-spacing:.12em}
+.how{font-size:13.5px;line-height:2.05;opacity:.9;margin:0 auto 22px;text-align:left;display:inline-block}
+.how b{font-weight:700;color:var(--lime)}
+.how b.m{color:var(--mag)} .how b.c{color:var(--cyan)}
+button.go{font-family:var(--jp);font-weight:700;font-size:17px;letter-spacing:.08em;color:#0b0710;border:0;border-radius:999px;padding:15px 40px;cursor:pointer;
+  background:linear-gradient(100deg,#ff2fb4,#ff8a1e 40%,#b8ff3a 70%,#3ff0ff);box-shadow:0 0 0 2px rgba(255,255,255,.12),0 8px 30px rgba(255,47,180,.35)}
+button.go:active{transform:translateY(2px)}
+button.go:disabled{opacity:.55;cursor:default}
+button:focus-visible{outline:3px solid var(--cyan);outline-offset:3px}
+#err{min-height:1.4em;font-size:12.5px;color:#ffb3d9;margin-top:14px;line-height:1.7;white-space:pre-wrap}
+.note{font-size:11px;opacity:.5;margin-top:8px;line-height:1.7}
+
+/* ---------- hud ---------- */
+#status{position:fixed;left:50%;top:calc(14px + env(safe-area-inset-top,0px));transform:translateX(-50%);z-index:5;
+  padding:8px 16px;border-radius:999px;background:var(--ui-bg);border:1px solid var(--ui-line);font-size:13.5px;font-weight:700;letter-spacing:.05em;
+  -webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);transition:opacity .5s;white-space:nowrap;pointer-events:none;
+  max-width:calc(100vw - 24px);overflow:hidden;text-overflow:ellipsis}
+#status.off{opacity:0}
+#toast{position:fixed;left:50%;top:44%;transform:translate(-50%,-50%) scale(.92);z-index:6;font-family:var(--jp);font-weight:700;
+  font-size:clamp(22px,6vw,40px);color:#fff;text-shadow:0 0 18px rgba(255,47,180,.9),2px 2px 0 #7a35ff;opacity:0;transition:opacity .35s,transform .35s;
+  pointer-events:none;white-space:nowrap}
+#toast.on{opacity:1;transform:translate(-50%,-50%) scale(1)}
+#ui{position:fixed;left:0;right:0;bottom:0;z-index:5;display:none;flex-wrap:wrap;gap:8px;justify-content:center;align-items:center;
+  padding:10px 10px calc(env(safe-area-inset-bottom,0px) + 14px);background:linear-gradient(transparent,rgba(0,0,0,.55))}
+#ui.on{display:flex}
+.btn{appearance:none;font-family:var(--jp);font-weight:700;font-size:13px;letter-spacing:.04em;color:var(--paper);background:var(--ui-bg);
+  border:1px solid var(--ui-line);border-radius:999px;height:40px;min-width:40px;padding:0 14px;cursor:pointer;white-space:nowrap;
+  -webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px)}
+.btn .sw{display:inline-block;width:11px;height:11px;border-radius:50%;margin-right:6px;vertical-align:-1px;
+  background:conic-gradient(#ff2fb4,#ff8a1e,#b8ff3a,#3ff0ff,#7a35ff,#ff2fb4)}
+#rec.act{background:#e8323c;border-color:#e8323c;color:#fff}
+#shot{width:42px;padding:0;position:relative}
+#shot::after{content:"";position:absolute;left:50%;top:50%;width:18px;height:18px;margin:-9px 0 0 -9px;border-radius:50%;background:var(--paper)}
+#panel{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom,0px) + 72px);z-index:6;width:min(340px,calc(100vw - 24px));
+  padding:16px 16px 14px;background:rgba(8,6,12,.82);border:1px solid var(--ui-line);border-radius:14px;display:flex;flex-direction:column;gap:12px;
+  font-size:12.5px;color:rgba(245,251,246,.75);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px)}
+#panel[hidden]{display:none}
+#panel .row{display:flex;gap:6px}
+#panel .row button{flex:1;appearance:none;font-family:var(--jp);font-weight:700;font-size:12px;color:var(--paper);background:rgba(255,255,255,.05);
+  border:1px solid var(--ui-line);border-radius:999px;padding:9px 0;cursor:pointer;white-space:nowrap}
+#panel .row button.on{border-color:var(--lime);color:var(--lime)}
+#panel label{display:flex;justify-content:space-between;align-items:center;gap:10px}
+#panel input[type=range]{width:168px;accent-color:#ff2fb4}
+#panel .note{font-size:11px;line-height:1.75;opacity:.8}
+#panel .x{position:absolute;right:6px;top:4px;background:none;border:0;color:var(--paper);font:inherit;font-size:14px;padding:6px 8px;cursor:pointer}
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<video id="cam" playsinline muted autoplay></video>
+
+<div id="start">
+  <div class="burst"></div>
+  <div class="dots"></div>
+  <div class="card">
+    <div class="brand">アパート / APARTMENT</div>
+    <h1>Psyche<br>Mirror <i>II</i></h1>
+    <div class="sub">みつめると、はじける。</div>
+    <div class="how">
+      カメラを <b>2〜3秒</b> じっと見つめる<br>
+      髪が絵の具になって、<b class="m">はじける</b><br>
+      頭をふると<b class="c">しぶき</b>、口をあけると<b class="m">爆発</b><br>
+      目を長めにとじると、<b>色がかわる</b><br>
+      画面をたたくと、そこに絵の具がはねる
+    </div><br>
+    <button class="go" id="go" type="button">カメラをひらく</button>
+    <div id="err"></div>
+    <div class="note">映像はこの端末の中だけで処理されます。</div>
+  </div>
+</div>
+
+<div id="status" class="off"></div>
+<div id="toast"></div>
+<div id="ui">
+  <button class="btn" id="flip" type="button">⟲ カメラ</button>
+  <button class="btn" id="pal" type="button"><span class="sw"></span>色</button>
+  <button class="btn" id="rec" type="button">● REC</button>
+  <button class="btn" id="shot" type="button" aria-label="撮る"></button>
+  <button class="btn" id="gear" type="button" aria-label="調整" aria-expanded="false">⚙</button>
+</div>
+<div id="panel" hidden>
+  <button class="x" id="panelX" type="button" aria-label="閉じる">✕</button>
+  <label>絵の具の量<input id="sFlow" type="range" min="0.3" max="1.7" step="0.05" value="1"></label>
+  <label>顔にかかる<input id="sVeil" type="range" min="0" max="1" step="0.05" value="0.55"></label>
+  <label>渦の強さ<input id="sSwirl" type="range" min="0.2" max="2" step="0.05" value="1"></label>
+  <div class="row"><button type="button" id="bNow">今すぐはじける</button><button type="button" id="bReset">最初から</button></div>
+  <div class="row"><button type="button" id="bFace" class="on">顔：白い紙</button><button type="button" id="bSound" class="on">音：入</button><button type="button" id="bFs">全画面</button></div>
+  <div class="note">見つめると始まり、目をそらすともどる。頭をふるとしぶきが飛び、口をあけると爆発、目を長めにとじると配色がかわる。画面をたたくとそこに絵の具がはねる。</div>
+</div>
+
+<script type="module">
+/* =========================================================
+   PSYCHE MIRROR II — 見つめると、髪が液体の絵の具になってはじける
+   ========================================================= */
+const TAU = Math.PI * 2;
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+const lerp = (a, b, t) => a + (b - a) * t;
+const rand = (a, b) => a + Math.random() * (b - a);
+const smooth = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
+const easeIO = t => t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+const hex = h => [parseInt(h.slice(1, 3), 16) / 255, parseInt(h.slice(3, 5), 16) / 255, parseInt(h.slice(5, 7), 16) / 255];
+const $ = id => document.getElementById(id);
+
+/* ---------- palettes ---------- */
+const PALS = [
+  { name: 'ネオン・マーブル',
+    bands: ['#ff2fb4', '#3ff0ff', '#b8ff3a', '#7a35ff', '#ff8a1e', '#f6f3ff', '#2f6bff', '#170c2c'],
+    bg: '#060509', ink: '#12081f', hi: '#ffffff', glow: '#3a1060',
+    face: { l: '#f6fbf7', m: '#dcefe8', s: '#a6c2c8', i: '#1a1024' }, tint: ['#6ff5da', '#ff8ee6'],
+    body: ['#07080d', '#13262e', '#2c5a5a'],
+    powder: ['#ff2fb4', '#3ff0ff', '#b8ff3a', '#8a3dff', '#ff8a1e', '#ff5ac8'] },
+  { name: 'ホーリー',
+    bands: ['#ff2d87', '#1fb6ff', '#ff8c1a', '#6fdc4a', '#b03cff', '#ffd23a', '#101a3c'],
+    bg: '#04050a', ink: '#0c0a18', hi: '#fff8f0', glow: '#0b2a4a',
+    face: { l: '#fbf8f4', m: '#efe3e8', s: '#bba8c2', i: '#1b1020' }, tint: ['#7cc8ff', '#ffb27a'],
+    body: ['#06070c', '#1a1f33', '#394666'],
+    powder: ['#ff2d87', '#1fb6ff', '#ff8c1a', '#6fdc4a', '#b03cff', '#ffd23a'] },
+  { name: 'スプラッシュ',
+    bands: ['#ff2a55', '#ffe53a', '#a5ff2e', '#2ef2e6', '#e33cff', '#ff9d2e', '#0a0612'],
+    bg: '#000000', ink: '#0a0612', hi: '#ffffff', glow: '#2a0a2a',
+    face: { l: '#fbfbf6', m: '#ebf0e2', s: '#b6c0ad', i: '#14101a' }, tint: ['#c8ff8a', '#ff9ad0'],
+    body: ['#050507', '#1a1424', '#3a2e50'],
+    powder: ['#ff2a55', '#ffe53a', '#a5ff2e', '#2ef2e6', '#e33cff', '#ff9d2e'] },
+  { name: 'すみ流し', mono: true,
+    bands: ['#f2efe8', '#141218', '#f2efe8', '#8e8a94', '#141218', '#d6d2da'],
+    bg: '#eeebe4', ink: '#0d0c10', hi: '#ffffff', glow: '#ffffff',
+    face: { l: '#ffffff', m: '#f0eee9', s: '#c6c2bd', i: '#0d0c10' }, tint: ['#d8d8d8', '#bdbdbd'],
+    body: ['#0d0c10', '#29272d', '#55525a'],
+    powder: ['#141218', '#3a3740', '#141218', '#6f6b74'] },
+];
+for (const p of PALS) {
+  p.bandsF = new Float32Array(24); p.bands.forEach((h, i) => p.bandsF.set(hex(h), i * 3));
+  const avg = [0, 0, 0]; p.bands.forEach(h => { const c = hex(h); avg[0] += c[0]; avg[1] += c[1]; avg[2] += c[2]; });
+  p.avg = avg.map(v => v / p.bands.length);
+  p.powderF = p.powder.map(hex); p.bandsRGB = p.bands.map(hex);
+}
+
+/* ---------- MediaPipe ---------- */
+const MP_BASE = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14';
+const FACE_MODEL = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
+const SEG_MODEL = 'https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_multiclass_256x256/float32/latest/selfie_multiclass_256x256.tflite';
+const DELEGATE = /[?&]cpu=1/.test(location.search) ? 'CPU' : 'GPU';   // ?cpu=1 skips the GPU path on devices where it misbehaves
+const OVAL = [10, 338, 297, 332, 284, 251, 389, 356, 454, 323, 361, 288, 397, 365, 379, 378, 400, 377, 152, 148, 176, 149, 150, 136, 172, 58, 132, 93, 234, 127, 162, 21, 54, 103, 67, 109];
+
+/* ---------- DOM / GL ---------- */
+const cv = $('gl'), video = $('cam');
+const statusEl = $('status'), toastEl = $('toast');
+const gl = cv.getContext('webgl2', { antialias: false, alpha: false, premultipliedAlpha: false, preserveDrawingBuffer: false });
+if (!gl) { $('err').textContent = 'この端末のブラウザは WebGL2 に対応していないため表示できません。'; $('go').disabled = true; }
+
+let useFloat = false;
+if (gl) {
+  useFloat = !!(gl.getExtension('EXT_color_buffer_float') || gl.getExtension('EXT_color_buffer_half_float'));
+  if (useFloat) {
+    const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, 4, 4, 0, gl.RGBA, gl.HALF_FLOAT, null);
+    const f = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, f);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, t, 0);
+    useFloat = gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.deleteFramebuffer(f); gl.deleteTexture(t);
+  }
+}
+
+/* ---------- shaders ---------- */
+const ENC = useFloat ? 0 : 1;
+const COMMON = `
+precision highp float;
+#define ENC ${ENC}
+float h12(vec2 p){vec3 p3=fract(vec3(p.xyx)*.1031);p3+=dot(p3,p3.yzx+33.33);return fract((p3.x+p3.y)*p3.z);}
+vec2 h22(vec2 p){vec3 p3=fract(vec3(p.xyx)*vec3(.1031,.1030,.0973));p3+=dot(p3,p3.yzx+33.33);return fract((p3.xx+p3.yz)*p3.zy);}
+/* gradient noise with its derivative: (value, d/dx, d/dy) */
+vec3 gnd(vec2 p){
+  vec2 i=floor(p),f=fract(p);
+  vec2 u=f*f*(3.-2.*f),du=6.*f*(1.-f);
+  vec2 ga=h22(i)*2.-1.,gb=h22(i+vec2(1,0))*2.-1.,gc=h22(i+vec2(0,1))*2.-1.,gd=h22(i+vec2(1,1))*2.-1.;
+  float va=dot(ga,f),vb=dot(gb,f-vec2(1,0)),vc=dot(gc,f-vec2(0,1)),vd=dot(gd,f-vec2(1,1));
+  float k=va-vb-vc+vd;
+  return vec3(va+u.x*(vb-va)+u.y*(vc-va)+u.x*u.y*k,
+              ga+u.x*(gb-ga)+u.y*(gc-ga)+u.x*u.y*(ga-gb-gc+gd)+du*(vec2(vb-va,vc-va)+u.yx*k));
+}
+float gn(vec2 p){return gnd(p).x;}
+/* paint texel: x = band phase, y = lace phase, z = amount */
+vec4 dec(vec4 c){
+#if ENC
+  return vec4((c.x-.5)*16.,(c.y-.5)*16.,c.z,c.w);
+#else
+  return c;
+#endif
+}
+vec4 enc(vec4 c){
+#if ENC
+  return vec4(clamp(c.x/16.+.5,0.,1.),clamp(c.y/16.+.5,0.,1.),c.z,c.w);
+#else
+  return c;
+#endif
+}
+`;
+/* the paint that runs over the forehead and eyes, in face coordinates (-1 at the top of the forehead, +1 at the chin) */
+const VEIL = `
+uniform vec4 uFF;   // face centre (q) and its left->right axis
+uniform vec2 uFS;   // half width, half height (q)
+uniform float uVeil, uFaceOK;
+vec2 fco(vec2 q){vec2 d=q-uFF.xy, ex=uFF.zw, ey=vec2(-ex.y,ex.x); return vec2(dot(d,ex)/max(uFS.x,1e-3),dot(d,ey)/max(uFS.y,1e-3));}
+float veilShape(vec2 q){
+  if(uVeil<=0.001||uFaceOK<0.5) return 0.;
+  vec2 fc=fco(q); float fx=fc.x, fy=fc.y;
+  float edge=-1.+uVeil*(1.02+0.34*gn(vec2(fx*1.6,3.3)));
+  float cx=(fx+1.)*3.6, ci=floor(cx), cl=(fract(cx)-.5)/.27;
+  float on=step(.42,h12(vec2(ci,7.7)));
+  float len=(.22+.62*h12(vec2(ci,1.3)))*uVeil*on;
+  edge+=len*sqrt(max(0.,1.-cl*cl));
+  return 1.-smoothstep(edge-.035,edge+.035,fy);
+}
+`;
+const VS_FULL = `#version 300 es
+out vec2 vUv;
+void main(){vec2 p=vec2(float((gl_VertexID<<1)&2),float(gl_VertexID&2));vUv=p;gl_Position=vec4(p*2.-1.,0.,1.);}`;
+
+/* ---- paint transport: advect two phases and an amount, then add new paint from the hair ---- */
+const FS_SIM = `#version 300 es
+${COMMON}
+${VEIL}
+in vec2 vUv; out vec4 o;
+uniform sampler2D uPrev, uMask;
+uniform float uAsp, uT, uDt, uSrc, uOut, uSwirl, uFadeA, uFadeB, uR;
+uniform vec2 uC, uHv, uVA, uVB;
+uniform vec4 uB[4];
+vec2 curlAt(vec2 q){
+  float tt=uT*.2, i=floor(tt), f=smoothstep(0.,1.,fract(tt));
+  vec2 o1=h22(vec2(i,3.1))*40., o2=h22(vec2(i+1.,3.1))*40.;
+  vec3 a=mix(gnd(q*1.6+o1),gnd(q*1.6+o2),f);
+  vec3 b=mix(gnd(q*4.2+o1.yx),gnd(q*4.2+o2.yx),f);
+  vec3 c=mix(gnd(q*9.5-o1),gnd(q*9.5-o2),f);
+  vec2 g=a.yz+b.yz*.85+c.yz*.6;
+  return vec2(g.y,-g.x);
+}
+vec2 vel(vec2 q, float face){
+  vec2 d=q-uC; float r=length(d)+1e-4; vec2 n=d/r; float rr=r/uR;
+  vec2 cu=curlAt(q)*uSwirl*(1.+.35*min(rr,4.));
+  vec2 v=cu;
+  float ramp=smoothstep(.5,1.5,rr)*exp(-max(rr-1.5,0.)*.4);
+  v+=n*uOut*ramp;
+  v+=vec2(-n.y,n.x)*uOut*ramp*.3;
+  vec2 hv=uHv*min(1.,.8/max(length(uHv),1e-4));
+  v+=hv*.4*exp(-rr*rr*.3);
+  for(int k=0;k<4;k++){vec4 b=uB[k]; if(b.w<=0.) continue; vec2 e=q-b.xy; float l=length(e)+1e-4;
+    v+=e/l*b.w*exp(-b.z*2.2)*exp(-l*l*7.);}
+  /* on the face the paint creeps down slowly instead of being thrown out */
+  return mix(v,vec2(0.,.03)+cu*.3,face*uFaceOK);
+}
+void main(){
+  vec2 s=vec2(vUv.x,1.-vUv.y), q=vec2(s.x*uAsp,s.y);
+  vec2 vv=s*uVA+uVB;
+  vec4 m=(vv.x>0.&&vv.x<1.&&vv.y>0.&&vv.y<1.)?texture(uMask,vv):vec4(0.);
+  m=smoothstep(.3,.7,m);
+  vec2 v=vel(q,m.g);
+  vec2 qp=q-v*uDt, sp=vec2(qp.x/uAsp,qp.y);
+  vec4 c=dec(texture(uPrev,vec2(sp.x,1.-sp.y)));
+  if(sp.x<0.||sp.x>1.||sp.y<0.||sp.y>1.) c.z=0.;
+  float rr=length(q-uC)/uR;
+  c.z*=exp(-uDt*(uFadeA+uFadeB*smoothstep(1.6,4.5,rr)));
+  /* sources: the hair, the veil, and fresh splashes */
+  float vw=m.g>.01?m.g*veilShape(q):0.;
+  float src=max(m.r,vw)*smoothstep(0.,.2,uSrc);
+  for(int k=0;k<4;k++){vec4 b=uB[k]; if(b.w<=0.||b.z>.3) continue; float l=length(q-b.xy);
+    src=max(src,(1.-smoothstep(.02,.05,l))*(1.-b.z/.3));}
+  src=clamp(src,0.,1.);
+  if(src>.002){                       /* the patterns are only needed where new paint is made */
+    vec2 n=normalize(q-uC+1e-5);
+    float big=1.3*gn(q*.75+vec2(uT*.017,5.));
+    /* strands twist as they leave the head */
+    float tw=1.1*gn(q*2.4+vec2(uT*.03,1.))+.45*(rr-1.);
+    vec2 nw=vec2(n.x*cos(tw)-n.y*sin(tw),n.x*sin(tw)+n.y*cos(tw));
+    float Ph=2.6*gn(nw*3.2+vec2(uT*.04,-uT*.03))+1.2*gn(q*3.4+vec2(-uT*.05,uT*.04))+.55*gn(q*8.5-uT*.09);
+    vec2 fc=fco(q);
+    float Pv=vw>.001?2.4*gn(vec2(fc.x*2.6,fc.y*.35-uT*.05))+1.1*gn(vec2(fc.x*6.5,uT*.03+3.)):0.;
+    float Ps=big+mix(Ph,Pv,vw/(vw+m.r+1e-3));
+    float P2=1.7*gn(q*5.3+vec2(uT*.06,9.))+.6*gn(q*11.-uT*.1);
+    float w=max(clamp(src*uDt*2.5,0.,1.),src*(1.-smoothstep(0.,.35,c.z)));
+    c.x=mix(c.x,Ps,w); c.y=mix(c.y,P2,w);
+    c.z=max(c.z,src);
+  }
+  o=enc(c);
+}`;
+
+/* paint colour shared by the back and front passes */
+const PAINT = `
+uniform sampler2D uPaint;
+uniform vec2 uPTx; uniform float uPxSim, uK, uK2, uLW;
+uniform vec3 uPal[8]; uniform int uPN; uniform float uStep; uniform vec3 uInk, uHi, uAvg;
+vec4 paintCol(vec2 s){
+  vec2 t=vec2(s.x,1.-s.y);
+  vec4 c=dec(texture(uPaint,t));
+  if(c.z<.06) return vec4(0.);
+  vec4 xp=dec(texture(uPaint,t+vec2(uPTx.x,0.))), xm=dec(texture(uPaint,t-vec2(uPTx.x,0.)));
+  vec4 yp=dec(texture(uPaint,t+vec2(0.,uPTx.y))), ym=dec(texture(uPaint,t-vec2(0.,uPTx.y)));
+  vec4 gx=(xp-xm)/(2.*uPxSim), gy=(ym-yp)/(2.*uPxSim);
+  /* bands */
+  float f=c.x*uK, id=floor(f), fr=f-id;
+  vec2 gf=vec2(gx.x,gy.x)*uK; float gl=max(length(gf),1e-5);
+  float de=min(fr,1.-fr)/gl;
+  float edge=1.-smoothstep(uLW*.5,uLW*.5+1.,de);
+  float N=float(uPN);
+  int i=int(mod(id*uStep,N));
+  vec3 base=uPal[i];
+  vec2 dir=gf/gl;
+  float wpx=1./gl;                                   /* band width in px */
+  float face=dot(dir,vec2(-.6,-.8));                 /* which edge looks toward the light */
+  float dl=(face>0.?1.-fr:fr)*wpx;
+  float gloss=(1.-smoothstep(.5,1.5,abs(dl-uLW*2.2)))*smoothstep(.15,.6,abs(face))*smoothstep(7.,14.,wpx);
+  vec3 col=base*(.8+.2*smoothstep(0.,uLW*4.,de))*(.94+.12*sin(3.14159*fr));
+  col=mix(col,uHi,gloss*.75);
+  /* a thin thread of the next colour inside wide bands, like combed marbling */
+  float th=(1.-smoothstep(uLW*.6,uLW*.6+1.,abs(fr-.5)*wpx))*smoothstep(20.,34.,wpx)*step(.35,fract(id*.618));
+  col=mix(col,uPal[int(mod((id+1.)*uStep,N))],th);
+  float aa=smoothstep(.35,.9,gl);
+  col=mix(col,uAvg,aa); edge*=1.-aa;
+  col=mix(col,uInk,edge*.85);
+  /* white lace, in patches that travel with the paint */
+  float f2=c.y*uK2, fr2=fract(f2);
+  vec2 g2=vec2(gx.y,gy.y)*uK2; float gl2=max(length(g2),1e-5);
+  float d2=abs(fr2-.5)/gl2;
+  float lm=smoothstep(-.12,.35,gn(vec2(c.x,c.y)*.8+3.));
+  float lace=(1.-smoothstep(uLW*.35,uLW*.35+1.,d2))*lm*(1.-smoothstep(.3,.8,gl2))*smoothstep(.012,.035,gl2);
+  col=mix(col,uHi,lace*.9);
+  /* the edge of the paint: crisp, with a dark rim */
+  vec2 ga=vec2(gx.z,gy.z); float gla=max(length(ga),1e-5);
+  float da=(c.z-.5)/gla;
+  float cov=smoothstep(-.8,.8,da);
+  float rim=1.-smoothstep(uLW*.55,uLW*.55+1.2,abs(da-uLW*.6));
+  col=mix(col,uInk,rim*.9);
+  return vec4(col,max(cov,rim*.9));
+}
+`;
+
+/* ---- back: the room (camera -> black) with the paint behind the person ---- */
+const FS_BACK = `#version 300 es
+${COMMON}
+${PAINT}
+in vec2 vUv; out vec4 o;
+uniform sampler2D uVid;
+uniform vec2 uVA, uVB, uC; uniform float uAsp, uR, uGbg, uGp;
+uniform vec3 uBg, uGlow;
+void main(){
+  vec2 s=vec2(vUv.x,1.-vUv.y), q=vec2(s.x*uAsp,s.y);
+  vec3 cam=texture(uVid,s*uVA+uVB).rgb;
+  float r=length(q-uC)/uR;
+  vec3 bg=uBg+uGlow*exp(-r*r*.09)*.45;
+  vec3 col=mix(cam,mix(cam*.35,bg,smoothstep(.2,.9,uGbg)),smoothstep(0.,.35,uGbg));
+  vec4 p=paintCol(s);
+  col=mix(col,p.rgb,p.a*uGp);
+  o=vec4(col,1.);
+}`;
+
+/* ---- front: the person (pale face, dark clothes, paint hair, veil) ---- */
+const FS_FRONT = `#version 300 es
+${COMMON}
+${VEIL}
+${PAINT}
+in vec2 vUv; out vec4 o;
+uniform sampler2D uVid, uMask;
+uniform vec2 uVA, uVB, uVTx, uC; uniform float uAsp, uGs, uGp, uPhoto, uR;
+uniform vec3 uFL, uFM, uFSh, uFI, uTA, uTB, uDA, uDB, uDC;
+uniform vec4 uTh;   // face thresholds T0 T1 T2, clothes split
+float lum(vec3 c){return dot(c,vec3(.299,.587,.114));}
+void main(){
+  vec2 s=vec2(vUv.x,1.-vUv.y), q=vec2(s.x*uAsp,s.y);
+  vec2 vv=s*uVA+uVB;
+  vec4 m=(vv.x>0.&&vv.x<1.&&vv.y>0.&&vv.y<1.)?texture(uMask,vv):vec4(0.);
+  float person=smoothstep(.38,.62,m.r+m.g+m.b+m.a);
+  if(person<.004){o=vec4(0.);return;}
+  m=m*m*m; m/=max(m.r+m.g+m.b+m.a,1e-4);   /* sharpen which class a pixel belongs to */
+  vec3 cam=texture(uVid,vv).rgb;
+  if(uGs<.002){o=vec4(cam*person,person);return;}
+  vec2 t1=uVTx*1.2, t3=uVTx*3.6;
+  float l0=lum(cam);
+  float b1=.5*l0+.125*(lum(texture(uVid,vv+vec2(t1.x,0.)).rgb)+lum(texture(uVid,vv-vec2(t1.x,0.)).rgb)+lum(texture(uVid,vv+vec2(0.,t1.y)).rgb)+lum(texture(uVid,vv-vec2(0.,t1.y)).rgb));
+  float b2=0.;
+  for(int k=0;k<8;k++){float a=float(k)*.7854+.39; b2+=lum(texture(uVid,vv+vec2(cos(a),sin(a))*t3).rgb);}
+  b2*=.125;
+  float dog=b1-b2;
+  float line=smoothstep(.016,.05,-dog);
+  /* pale paper skin */
+  vec3 tint=mix(uTA,uTB,smoothstep(-.7,.7,dot(q-uFF.xy,uFF.zw)/max(uFS.x,1e-3)));
+  vec3 cl=uFL, cm=mix(uFM,tint,.2), cs=mix(uFSh,tint,.42);
+  vec3 pale=mix(cs,cm,smoothstep(uTh.y-.012,uTh.y+.012,b1));
+  pale=mix(pale,cl,smoothstep(uTh.z-.012,uTh.z+.012,b1));
+  float ink=max(1.-smoothstep(uTh.x-.01,uTh.x+.01,b1),line);
+  pale=mix(pale,uFI,ink);
+  /* dark clothes */
+  vec3 dark=mix(uDA,uDB,smoothstep(uTh.w-.03,uTh.w+.03,b1));
+  dark=mix(dark,uDC,smoothstep(uTh.w+.18,uTh.w+.26,b1));
+  dark=mix(dark,uDA*.6,line*.7);
+  /* hair: the paint, or dark ink where none has arrived yet */
+  float veil=m.g*veilShape(q);
+  vec4 p=(m.r>.01||veil>.01)?paintCol(s):vec4(0.);
+  vec3 hb=mix(uDA,uDB,smoothstep(.25,.6,b1));
+  vec3 hair=mix(hb,p.rgb,p.a*uGp);
+  float ws=m.g+m.b, wc=m.a, wh=m.r, sum=max(ws+wc+wh,1e-4);
+  vec3 skin=mix(pale,cam,uPhoto);
+  vec3 styl=(skin*ws+dark*wc+hair*wh)/sum;
+  float rr=length(q-uC)/uR;
+  float k=max(clamp(uGs*6.-rr*.9+.7*gn(q*7.),0.,1.),smoothstep(.85,1.,uGs));
+  vec3 col=mix(cam,styl,k);
+  col=mix(col,p.rgb,veil*p.a*uGp);
+  o=vec4(col*person,person);
+}`;
+
+/* ---- powder, droplets and drips: each one moves on a closed-form path from where it was born ---- */
+const VS_PART = `#version 300 es
+precision highp float;
+layout(location=0) in vec4 a0;   // birth x,y (q)  velocity x,y (q/s)  [drip: fall length in w]
+layout(location=1) in vec4 a1;   // birth time, life, size, seed
+layout(location=2) in vec4 a2;   // rgb, type 0 powder / 1 drop / 2 drip
+uniform float uT, uAsp, uPx; uniform int uLayer;
+out vec2 vL; out float vLen, vR0, vR1, vA, vSeed; out vec3 vC; flat out int vTy; flat out vec2 vU;
+vec2 dragged(float t,float k){return a0.zw*(1.-exp(-k*t))/k;}
+void main(){
+  int ty=int(a2.w+.5);
+  float age=uT-a1.x, life=a1.y, sz=a1.z, sd=a1.w;
+  bool want=(uLayer==0)==(ty==0);
+  if(!want||age<0.||age>life){gl_Position=vec4(2.,2.,2.,1.);return;}
+  vec2 H,T; float r0,r1,al;
+  if(ty==0){
+    float k=1.5+sd*1.3;
+    H=a0.xy+dragged(age,k);
+    T=a0.xy+dragged(max(age-.2-.3*sd,0.),k);
+    H+=vec2(sin(age*1.3+sd*30.),cos(age*1.1+sd*17.))*.007*age;
+    float g=1.+age*1.3;
+    r1=sz*g; r0=sz*g*.55;
+    al=smoothstep(0.,.06,age)*(1.-smoothstep(life*.4,life,age));
+  }else if(ty==1){
+    float k=5.5+sd*4.;
+    H=a0.xy+dragged(age,k);
+    float lam=sd<.42?1.:mix(.04,.7,fract(sd*13.7));
+    T=a0.xy+(H-a0.xy)*lam;
+    r1=sz; r0=max(sz*.3,uPx*.8);
+    al=1.-smoothstep(life-1.6,life,age);
+  }else{
+    float fall=a0.w*(1.-exp(-age*.5));
+    H=a0.xy+vec2(sin(age*.9+sd*20.)*.002,fall);
+    T=a0.xy;
+    r1=sz; r0=sz*.55;
+    al=smoothstep(0.,.25,age)*(1.-smoothstep(life-1.6,life,age));
+  }
+  vec2 d=H-T; float len=length(d); vec2 u=len>1e-6?d/len:vec2(1.,0.), n=vec2(-u.y,u.x);
+  float rm=max(r0,r1)+uPx*2.;
+  vec2 c=vec2(float(gl_VertexID&1),float(gl_VertexID>>1));
+  vec2 lp=vec2(mix(-rm,len+rm,c.x),mix(-rm,rm,c.y));
+  vec2 P=T+u*lp.x+n*lp.y;
+  vL=lp; vLen=len; vR0=r0; vR1=r1; vA=al; vC=a2.rgb; vTy=ty; vSeed=sd; vU=u;
+  gl_Position=vec4(P.x/uAsp*2.-1.,1.-P.y*2.,0.,1.);
+}`;
+const FS_PART = `#version 300 es
+precision highp float;
+in vec2 vL; in float vLen, vR0, vR1, vA, vSeed; in vec3 vC; flat in int vTy; flat in vec2 vU;
+out vec4 o; uniform float uPx;
+float h12(vec2 p){vec3 p3=fract(vec3(p.xyx)*.1031);p3+=dot(p3,p3.yzx+33.33);return fract((p3.x+p3.y)*p3.z);}
+void main(){
+  float t=vLen>1e-6?clamp(vL.x/vLen,0.,1.):1.;
+  float r=mix(vR0,vR1,t);
+  float d=length(vec2(vL.x-t*vLen,vL.y))-r;
+  if(vTy==0){
+    float sh=1.-smoothstep(-r*.85,r*.2,d);
+    float g=h12(floor(gl_FragCoord.xy)+vSeed*913.);
+    float dens=sh*vA;
+    float a=clamp(dens*(.22+1.25*step(.5,g)*sh),0.,1.)*.8;
+    vec3 c=vC*(.82+.36*g);
+    o=vec4(c*a,a);
+  }else{
+    float aa=uPx*.9;
+    d=min(length(vec2(vL.x-t*vLen,vL.y))-vR0*mix(.35,1.,t),length(vec2(vL.x-vLen,vL.y))-vR1);
+    float a=(1.-smoothstep(-aa,aa,d))*vA;
+    vec2 hp=vec2(vL.x-vLen,vL.y)/max(vR1,1e-6);
+    vec2 hs=vU*hp.x+vec2(-vU.y,vU.x)*hp.y;
+    float hl=(1.-smoothstep(.0,.42,length(hs-vec2(-.3,-.36))))*step(.5,t);
+    vec3 c=vC*(.9+.1*t)+hl*.5;
+    o=vec4(c*a,a);
+  }
+}`;
+
+/* ---- overlay: the stare ring of droplets, vignette, flash ---- */
+const FS_FX = `#version 300 es
+precision highp float;
+in vec2 vUv; out vec4 o;
+uniform vec2 uRC; uniform float uAsp, uRR, uRP, uRA, uFlash, uVig, uPx;
+uniform vec3 uPal[8]; uniform int uPN;
+void main(){
+  vec2 s=vec2(vUv.x,1.-vUv.y), q=vec2(s.x*uAsp,s.y);
+  vec4 acc=vec4(0.);
+  if(uRA>0.){
+    vec2 d=q-uRC; float a=atan(d.x,-d.y); if(a<0.) a+=6.28318;
+    float N=28., k=floor(a/6.28318*N), ac=(k+.5)/N*6.28318;
+    vec2 cp=uRC+vec2(sin(ac),-cos(ac))*uRR;
+    float on=step((k+.5)/N,uRP);
+    float rad=uRR*.05*(.55+.45*on);
+    float dd=length(q-cp)-rad;
+    float a1=1.-smoothstep(-uPx*1.2,uPx*1.2,dd);
+    vec3 cc=on>.5?uPal[int(mod(k,float(uPN)))]:vec3(1.);
+    float al=a1*uRA*(on>.5?1.:.4);
+    acc=vec4(cc*al,al);
+  }
+  float vg=uVig*smoothstep(.55,1.3,length((s-.5)*vec2(uAsp,1.)*1.15));
+  acc=acc+vec4(0.,0.,0.,vg)*(1.-acc.a);
+  acc=vec4(1.)*uFlash+acc*(1.-uFlash);
+  o=acc;
+}`;
+
+function mkProg(vsSrc, fsSrc) {
+  const sh = (t, s) => {
+    const o = gl.createShader(t); gl.shaderSource(o, s); gl.compileShader(o);
+    if (!gl.getShaderParameter(o, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(o));
+    return o;
+  };
+  const p = gl.createProgram();
+  gl.attachShader(p, sh(gl.VERTEX_SHADER, vsSrc)); gl.attachShader(p, sh(gl.FRAGMENT_SHADER, fsSrc)); gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+  const u = {}, n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+  for (let i = 0; i < n; i++) { const info = gl.getActiveUniform(p, i); u[info.name.replace(/\[0\]$/, '')] = gl.getUniformLocation(p, info.name); }
+  return { p, u };
+}
+const f1 = (P, n, v) => { const l = P.u[n]; if (l) gl.uniform1f(l, v); };
+const f2 = (P, n, a, b) => { const l = P.u[n]; if (l) gl.uniform2f(l, a, b); };
+const f3 = (P, n, c) => { const l = P.u[n]; if (l) gl.uniform3f(l, c[0], c[1], c[2]); };
+const f4 = (P, n, a, b, c, d) => { const l = P.u[n]; if (l) gl.uniform4f(l, a, b, c, d); };
+const f3v = (P, n, a) => { const l = P.u[n]; if (l) gl.uniform3fv(l, a); };
+const f4v = (P, n, a) => { const l = P.u[n]; if (l) gl.uniform4fv(l, a); };
+const i1 = (P, n, v) => { const l = P.u[n]; if (l) gl.uniform1i(l, v); };
+
+let PR = null, emptyVAO = null, partVAO = null, partBuf = null;
+let texVid = null, texMask = null, paintA = null, paintB = null;
+function texSetup(t, filter) {
+  gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, filter); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, filter);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+}
+function mkTarget(w, h) {
+  const t = gl.createTexture(); texSetup(t, gl.LINEAR);
+  if (useFloat) gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, w, h, 0, gl.RGBA, gl.HALF_FLOAT, null);
+  else gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+  const f = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, f);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, t, 0);
+  gl.viewport(0, 0, w, h); gl.clearColor(ENC ? .5 : 0, ENC ? .5 : 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  return { t, f, w, h };
+}
+function freeTarget(T) { if (!T) return; gl.deleteTexture(T.t); gl.deleteFramebuffer(T.f); }
+
+/* ---------- particles (ring buffer) ---------- */
+const PMAX = 9000, PST = 12;
+const pData = new Float32Array(PMAX * PST);
+let pHead = 0, pLo = PMAX, pHi = -1;
+function spawn(x, y, vx, vy, t0, life, size, seed, c, type) {
+  const i = pHead; pHead = (pHead + 1) % PMAX; const o = i * PST;
+  pData[o] = x; pData[o + 1] = y; pData[o + 2] = vx; pData[o + 3] = vy;
+  pData[o + 4] = t0; pData[o + 5] = life; pData[o + 6] = size; pData[o + 7] = seed;
+  pData[o + 8] = c[0]; pData[o + 9] = c[1]; pData[o + 10] = c[2]; pData[o + 11] = type;
+  if (i < pLo) pLo = i; if (i > pHi) pHi = i;
+}
+function initGL() {
+  PR = {
+    sim: mkProg(VS_FULL, FS_SIM), back: mkProg(VS_FULL, FS_BACK), front: mkProg(VS_FULL, FS_FRONT),
+    part: mkProg(VS_PART, FS_PART), fx: mkProg(VS_FULL, FS_FX),
+  };
+  emptyVAO = gl.createVertexArray();
+  partVAO = gl.createVertexArray(); gl.bindVertexArray(partVAO);
+  partBuf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, partBuf);
+  gl.bufferData(gl.ARRAY_BUFFER, pData.byteLength, gl.DYNAMIC_DRAW);
+  for (let k = 0; k < 3; k++) {
+    gl.enableVertexAttribArray(k); gl.vertexAttribPointer(k, 4, gl.FLOAT, false, PST * 4, k * 16); gl.vertexAttribDivisor(k, 1);
+  }
+  gl.bindVertexArray(null);
+  texVid = gl.createTexture(); texSetup(texVid, gl.LINEAR);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([20, 16, 24, 255]));
+  texMask = gl.createTexture(); texSetup(texMask, gl.LINEAR);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4));
+}
+
+/* ---------- state ---------- */
+let W = 0, H = 0, DPR = 1, SMALL = false, simW = 0, simH = 0;
+let vw = 0, vh = 0, vs = 1, vox = 0, voy = 0;
+let running = false, demo = false, faceLoading = false, segLoading = false;
+let facing = 'user', mirror = true, stream = null;
+let faceLM = null, segmenter = null, lastVT = -1, lastSeen = -1e9, hasFace = false, mpTs = 0;
+let palIdx = 0, photoFace = false, soundOn = true;
+let flowAmt = 1, veilAmt = 0.55, swirlAmt = 1;
+let T0 = performance.now() / 1000, T = 0, lastT = T0, tipUntil = 0, holdOff = 0, shotReq = false;
+const HOLD = 2.5;
+const S = { miss: 0, forced: false, mode: 'idle', charge: 0, G: 0, away: 0, flash: 0, blinkT: 0, blinkFired: false, mouth: false, lastBoom: -9, veilT: 0, preview: 0, splashVis: 0 };
+const det = { look: false, lookLoose: false, gazeOK: true, jaw: 0, eyesClosed: false };
+const SM = new Float32Array(478 * 2); let smInit = false;
+const FG = { C: [0, 0], F: 100, Hf: 130, roll: 0, ex: [1, 0], top: [0, 0], chin: [0, 0], mouth: [0, 0], fc: [0, 0] };
+const HV = [0, 0], prevC = [0, 0]; let hvInit = false, motion = 0;
+const bursts = [];   // {x,y,t,s}
+const over = { jaw: null, eyes: null, look: null, hv: null };   // test overrides
+const TEST = { dt: 0, frames: 0, freeze: false };                      // test: fixed time step
+
+/* ---------- layout / video mapping ---------- */
+function resize() {
+  W = innerWidth; H = innerHeight; SMALL = Math.min(W, H) < 560;
+  DPR = Math.min(window.devicePixelRatio || 1, 1.5);
+  if (W * H * DPR * DPR > 2.2e6) DPR = Math.sqrt(2.2e6 / (W * H));
+  cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR);
+  if (!gl || !PR) return;
+  const SS = SMALL ? 270 : 340, sc = SS / Math.min(W, H);
+  const nw = Math.max(16, Math.round(W * sc)), nh = Math.max(16, Math.round(H * sc));
+  if (nw !== simW || nh !== simH) {
+    freeTarget(paintA); freeTarget(paintB);
+    simW = nw; simH = nh; paintA = mkTarget(simW, simH); paintB = mkTarget(simW, simH);
+  }
+}
+function updateVideoMap() {
+  vw = video.videoWidth || 0; vh = video.videoHeight || 0;
+  if (!vw) return;
+  vs = Math.max(W / vw, H / vh); vox = (W - vw * vs) / 2; voy = (H - vh * vs) / 2;
+}
+/* video uv -> q (screen units of the height) */
+function v2q(u, v) { const px = u * vw * vs + vox; return [(mirror ? W - px : px) / H, (v * vh * vs + voy) / H]; }
+
+/* ---------- models ---------- */
+let visionMod = null, filesetP = null;
+async function vision() {
+  if (!visionMod) {
+    try { visionMod = await import(`${MP_BASE}/vision_bundle.mjs`); }
+    catch (e) { visionMod = await import(MP_BASE); }
+  }
+  if (!filesetP) filesetP = visionMod.FilesetResolver.forVisionTasks(`${MP_BASE}/wasm`);
+  return [visionMod, await filesetP];
+}
+async function initFace() {
+  faceLoading = true;
+  try {
+    const [V, fs] = await vision();
+    const opts = { baseOptions: { modelAssetPath: FACE_MODEL, delegate: DELEGATE }, runningMode: 'VIDEO', numFaces: 1,
+      outputFaceBlendshapes: true, outputFacialTransformationMatrixes: true };
+    try { faceLM = await V.FaceLandmarker.createFromOptions(fs, opts); }
+    catch (e) { opts.baseOptions.delegate = 'CPU'; faceLM = await V.FaceLandmarker.createFromOptions(fs, opts); }
+  } catch (e) { console.warn('face model failed', e); demo = true; toast('デモモード'); }
+  faceLoading = false;
+}
+async function initSeg() {
+  segLoading = true;
+  try {
+    const [V, fs] = await vision();
+    const opts = { baseOptions: { modelAssetPath: SEG_MODEL, delegate: DELEGATE }, runningMode: 'VIDEO', outputCategoryMask: false, outputConfidenceMasks: true };
+    try { segmenter = await V.ImageSegmenter.createFromOptions(fs, opts); }
+    catch (e) { opts.baseOptions.delegate = 'CPU'; segmenter = await V.ImageSegmenter.createFromOptions(fs, opts); }
+  } catch (e) { console.warn('segmenter failed — using the face outline instead', e); }
+  segLoading = false;
+}
+function nextTs(nowMs) { mpTs = Math.max(nowMs, mpTs + 1); return mpTs; }
+
+/* ---------- face ---------- */
+function fillFG() {
+  const gx = i => SM[2 * i], gy = i => SM[2 * i + 1];
+  let cx = 0, cy = 0; for (const k of OVAL) { cx += gx(k); cy += gy(k); }
+  FG.C[0] = cx / OVAL.length; FG.C[1] = cy / OVAL.length;
+  FG.F = Math.max(20, Math.hypot(gx(454) - gx(234), gy(454) - gy(234)));
+  FG.Hf = Math.max(26, Math.hypot(gx(152) - gx(10), gy(152) - gy(10)));
+  let dx = gx(454) - gx(234), dy = gy(454) - gy(234); if (dx < 0) { dx = -dx; dy = -dy; }
+  const l = Math.hypot(dx, dy) || 1; FG.ex[0] = dx / l; FG.ex[1] = dy / l; FG.roll = Math.atan2(dy, dx);
+  FG.top[0] = gx(10); FG.top[1] = gy(10); FG.chin[0] = gx(152); FG.chin[1] = gy(152);
+  FG.fc[0] = (FG.top[0] + FG.chin[0]) / 2; FG.fc[1] = (FG.top[1] + FG.chin[1]) / 2;
+  FG.mouth[0] = (gx(13) + gx(14)) / 2; FG.mouth[1] = (gy(13) + gy(14)) / 2;
+}
+function applyLandmarks(lm) {
+  const n = Math.min(lm.length, 478), a = smInit ? 0.6 : 1;
+  for (let i = 0; i < n; i++) {
+    const p = lm[i]; if (!p || !Number.isFinite(p.x) || !Number.isFinite(p.y)) continue;
+    const px = p.x * vw * vs + vox, sx = mirror ? W - px : px, sy = p.y * vh * vs + voy;
+    SM[2 * i] += (sx - SM[2 * i]) * a; SM[2 * i + 1] += (sy - SM[2 * i + 1]) * a;
+  }
+  smInit = true; fillFG();
+}
+function demoFace() {
+  const cx = W / 2, cy = H * 0.46, F = Math.min(W, H) * 0.26, Hf = F * 1.3;
+  FG.C[0] = cx; FG.C[1] = cy; FG.F = F; FG.Hf = Hf; FG.roll = 0; FG.ex[0] = 1; FG.ex[1] = 0;
+  FG.top[0] = cx; FG.top[1] = cy - Hf * 0.5; FG.chin[0] = cx; FG.chin[1] = cy + Hf * 0.5; FG.fc[0] = cx; FG.fc[1] = cy;
+  FG.mouth[0] = cx; FG.mouth[1] = cy + Hf * 0.3;
+}
+let lastLM = null;
+function detectFace(nowMs) {
+  if (demo) { demoFace(); hasFace = true; lastSeen = nowMs; det.look = det.lookLoose = true; det.jaw = over.jaw ?? 0; det.eyesClosed = false; return; }
+  if (!faceLM || video.readyState < 2 || !vw) return;
+  if (video.currentTime === lastVT) return;
+  lastVT = video.currentTime;
+  let r; try { r = faceLM.detectForVideo(video, nextTs(nowMs)); } catch (e) { return; }
+  if (!r || !r.faceLandmarks || !r.faceLandmarks.length) { lastLM = null; return; }
+  const lm = r.faceLandmarks[0];
+  const ok = i => lm[i] && Number.isFinite(lm[i].x) && Number.isFinite(lm[i].y);
+  if (!Array.isArray(lm) || lm.length < 468 || ![4, 10, 13, 14, 33, 133, 152, 234, 263, 362, 454].every(ok)) { lastLM = null; return; }
+  lastLM = lm;
+  applyLandmarks(lm); hasFace = true; lastSeen = nowMs;
+  const mid = (lm[234].x + lm[454].x) / 2, span = Math.abs(lm[454].x - lm[234].x) || 1e-3;
+  const yaw = (lm[4].x - mid) / (span / 2);
+  let pitch = 0;
+  const M = r.facialTransformationMatrixes && r.facialTransformationMatrixes[0];
+  if (M && M.data && M.data.length >= 11) { const m = M.data; pitch = Math.atan2(-m[9], Math.hypot(m[8], m[10])); }
+  const bs = {};
+  const cats = r.faceBlendshapes && r.faceBlendshapes[0] && r.faceBlendshapes[0].categories;
+  if (Array.isArray(cats)) for (const c of cats) if (c && c.categoryName) bs[c.categoryName] = c.score;
+  det.jaw = over.jaw ?? (bs.jawOpen || 0);
+  det.eyesClosed = over.eyes ?? ((bs.eyeBlinkLeft || 0) > 0.5 && (bs.eyeBlinkRight || 0) > 0.5);
+  if (!det.eyesClosed && lm.length > 473 && ok(468) && ok(473)) {
+    const rr = (lm[468].x - lm[33].x) / ((lm[133].x - lm[33].x) || 1e-6);
+    const rl = (lm[473].x - lm[362].x) / ((lm[263].x - lm[362].x) || 1e-6);
+    det.gazeOK = rr > 0.22 && rr < 0.78 && rl > 0.22 && rl < 0.78; det.rr = rr; det.rl = rl;
+  }
+  det.yaw = yaw; det.pitch = pitch;
+  det.look = over.look ?? (Math.abs(yaw) < 0.26 && Math.abs(pitch) < 0.35 && det.gazeOK);
+  det.lookLoose = over.look ?? (Math.abs(yaw) < 0.6 && Math.abs(pitch) < 0.6);
+}
+
+/* ---------- masks: hair / face skin / body skin / clothes, in video space ---------- */
+const segC = document.createElement('canvas'), segX = segC.getContext('2d', { willReadFrequently: true });
+const geoC = document.createElement('canvas'), geoX = geoC.getContext('2d', { willReadFrequently: true });
+let segW = 0, segH = 0, maskF = new Float32Array(4), maskU8 = new Uint8Array(4), lastSegMs = -1e9, segBusy = false, segOK = false, lastSegFrame = -1;
+let hairIdx = new Int32Array(0), hairN = 0;
+const TH = [0.18, 0.36, 0.6, 0.3];  // face T0 T1 T2, clothes split (smoothed)
+const HIST_F = new Uint32Array(256), HIST_C = new Uint32Array(256);
+function sizeSeg() {
+  const sw = vw >= vh ? 256 : Math.round(256 * vw / vh), sh = vw >= vh ? Math.round(256 * vh / vw) : 256;
+  if (sw !== segW || sh !== segH) {
+    segW = segC.width = geoC.width = sw; segH = segC.height = geoC.height = sh;
+    maskF = new Float32Array(sw * sh * 4); maskU8 = new Uint8Array(sw * sh * 4); hairIdx = new Int32Array(sw * sh); hairN = 0;
+  }
+}
+const pct = (hist, cnt, p) => { const tg = cnt * p; let acc = 0; for (let v = 0; v < 256; v++) { acc += hist[v]; if (acc >= tg) return v / 255; } return 1; };
+function ingest(A1, A2, A3, A4, A5) {   // per-pixel confidences: hair, body skin, face skin, clothes, others
+  const n = segW * segH, img = segX.getImageData(0, 0, segW, segH).data;
+  HIST_F.fill(0); HIST_C.fill(0); let nf = 0, nc = 0; hairN = 0;
+  const a = 0.6;
+  for (let i = 0; i < n; i++) {
+    const o = i * 4, tr = A1[i], tg = A3[i], tb = A2[i], ta = A4[i] + (A5 ? A5[i] : 0);
+    maskF[o] += (tr - maskF[o]) * a; maskF[o + 1] += (tg - maskF[o + 1]) * a; maskF[o + 2] += (tb - maskF[o + 2]) * a; maskF[o + 3] += (ta - maskF[o + 3]) * a;
+    maskU8[o] = clamp(maskF[o], 0, 1) * 255; maskU8[o + 1] = clamp(maskF[o + 1], 0, 1) * 255; maskU8[o + 2] = clamp(maskF[o + 2], 0, 1) * 255; maskU8[o + 3] = clamp(maskF[o + 3], 0, 1) * 255;
+    if (maskF[o] > 0.6 && (i & 1) === 0) hairIdx[hairN++] = i;
+    if (tg > 0.6 || ta > 0.6) {
+      const L = (img[o] * 77 + img[o + 1] * 150 + img[o + 2] * 29) >> 8;
+      if (tg > 0.6) { HIST_F[L]++; nf++; } else { HIST_C[L]++; nc++; }
+    }
+  }
+  if (nf > 60) { TH[0] += (pct(HIST_F, nf, 0.05) - TH[0]) * 0.25; TH[1] += (pct(HIST_F, nf, 0.13) - TH[1]) * 0.25; TH[2] += (Math.max(pct(HIST_F, nf, 0.38), TH[1] + 0.03) - TH[2]) * 0.25; }
+  if (nc > 60) TH[3] += (pct(HIST_C, nc, 0.4) - TH[3]) * 0.25;
+  gl.bindTexture(gl.TEXTURE_2D, texMask);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, segW, segH, 0, gl.RGBA, gl.UNSIGNED_BYTE, maskU8);
+}
+/* when the segmenter is missing: hair = a halo around the face outline, clothes = below the chin */
+let G1 = new Float32Array(0), G2 = G1, G3 = G1, G4 = G1;
+function geoMask() {
+  const n = segW * segH;
+  if (G1.length !== n) { G1 = new Float32Array(n); G2 = new Float32Array(n); G3 = new Float32Array(n); G4 = new Float32Array(n); }
+  geoX.clearRect(0, 0, segW, segH);
+  if (hasFace) {
+    const lm = lastLM;
+    const P = demo || !lm ? null : i => [lm[i].x * segW, lm[i].y * segH];
+    let cx, cy, fw, fh, ang;
+    if (P) {
+      const t = P(10), c = P(152), l = P(234), r = P(454);
+      cx = (t[0] + c[0]) / 2; cy = (t[1] + c[1]) / 2; fw = Math.hypot(r[0] - l[0], r[1] - l[1]); fh = Math.hypot(c[0] - t[0], c[1] - t[1]);
+      ang = Math.atan2(r[1] - l[1], r[0] - l[0]); if (Math.abs(ang) > Math.PI / 2) ang += Math.PI;
+    } else { cx = segW / 2; cy = segH * 0.46; fw = segH * 0.26; fh = fw * 1.3; ang = 0; }
+    geoX.save(); geoX.translate(cx, cy); geoX.rotate(ang);
+    geoX.fillStyle = '#00f'; geoX.beginPath(); geoX.moveTo(-fw * 0.3, fh * 0.4); geoX.lineTo(fw * 0.3, fh * 0.4);
+    geoX.lineTo(fw * 1.6, fh * 1.25); geoX.lineTo(fw * 2.2, fh * 4); geoX.lineTo(-fw * 2.2, fh * 4); geoX.lineTo(-fw * 1.6, fh * 1.25); geoX.closePath(); geoX.fill();
+    geoX.fillStyle = '#f00'; geoX.beginPath(); geoX.ellipse(0, -fh * 0.1, fw * 0.86, fh * 0.74, 0, 0, TAU); geoX.fill();
+    geoX.restore();
+    geoX.fillStyle = '#0f0'; geoX.beginPath();
+    if (P) { OVAL.forEach((k, j) => { const p = P(k); j ? geoX.lineTo(p[0], p[1]) : geoX.moveTo(p[0], p[1]); }); }
+    else geoX.ellipse(cx, cy, fw * 0.5, fh * 0.5, 0, 0, TAU);
+    geoX.closePath(); geoX.fill();
+  }
+  const g = geoX.getImageData(0, 0, segW, segH).data;
+  for (let i = 0; i < n; i++) { const o = i * 4, f = g[o + 1] > 127, h = !f && g[o] > 127, c = !f && !h && g[o + 2] > 127;
+    G1[i] = h ? 1 : 0; G3[i] = f ? 1 : 0; G4[i] = c ? 1 : 0; G2[i] = 0; }
+  ingest(G1, G2, G3, G4, null);
+}
+function runMasks(nowMs) {
+  if (!vw || video.readyState < 2) return;
+  if (nowMs - lastSegMs < (SMALL ? 85 : 65) || segBusy) return;
+  lastSegMs = nowMs; sizeSeg();
+  segX.drawImage(video, 0, 0, segW, segH);
+  if (segmenter) {
+    segBusy = true;
+    try {
+      segmenter.segmentForVideo(segC, nextTs(nowMs), res => {
+        const ms = res && res.confidenceMasks; if (!ms || ms.length < 5) return;
+        const A = []; for (let k = 1; k < Math.min(6, ms.length); k++) { const d = ms[k].getAsFloat32Array(); if (!d || d.length < segW * segH) return; A.push(d); }
+        segOK = true; ingest(A[0], A[1], A[2], A[3], A[4] || null);
+      });
+    } catch (e) { console.warn(e); }
+    segBusy = false;
+  } else if (hasFace || demo) geoMask();
+}
+function hairPoint() {
+  if (hairN > 12) {
+    const i = hairIdx[(Math.random() * hairN) | 0];
+    return v2q(((i % segW) + 0.5) / segW, (((i / segW) | 0) + 0.5) / segH);
+  }
+  const a = rand(0, TAU), R = FG.Hf / H;
+  return [FG.C[0] / H + Math.cos(a) * R * 0.62, FG.C[1] / H + Math.sin(a) * R * 0.66 - R * 0.08];
+}
+
+/* ---------- bursts ---------- */
+function pal() { return PALS[palIdx]; }
+function pushBurst(x, y, s) { bursts.unshift({ x, y, t: T, s }); if (bursts.length > 4) bursts.length = 4; }
+const Q = () => SMALL ? 0.7 : 1;
+/* holi powder behind the head + paint splatter in front */
+function bigBurst(cx, cy, scale = 1) {
+  const p = pal(), R = FG.Hf / H, rot = rand(0, TAU), nSec = p.powder.length;
+  const nP = Math.round(1150 * scale * Q()), nD = Math.round(380 * scale * Q());
+  for (let i = 0; i < nP; i++) {
+    const a = rand(0, TAU), sec = Math.floor(((a + rot) % TAU) / TAU * nSec * 2.5) % nSec;
+    const c = p.powderF[Math.random() < 0.68 ? sec : (Math.random() * nSec) | 0];
+    const sp = (0.25 + Math.pow(Math.random(), 0.7) * 1.25) * scale, r0 = R * rand(0.05, 0.5);
+    spawn(cx + Math.cos(a) * r0, cy + Math.sin(a) * r0, Math.cos(a) * sp, Math.sin(a) * sp, T + rand(0, 0.12), rand(1.6, 3.4),
+      rand(0.006, 0.02) * (0.6 + 0.6 * scale), Math.random(), c, 0);
+  }
+  for (let i = 0; i < nD; i++) {
+    const a = rand(0, TAU), big = Math.random() < 0.12;
+    const sp = (0.35 + Math.pow(Math.random(), 1.6) * 2.6) * scale, r0 = R * rand(0.3, 0.7);
+    const c = p.bandsRGB[(Math.random() * Math.min(6, p.bands.length)) | 0];
+    spawn(cx + Math.cos(a) * r0, cy + Math.sin(a) * r0, Math.cos(a) * sp, Math.sin(a) * sp, T + rand(0, 0.08), rand(6, 11),
+      big ? rand(0.007, 0.016) : rand(0.0018, 0.005), Math.random(), c, 1);
+  }
+  pushBurst(cx, cy, 1.5 * scale);
+}
+function splash(x, y) {
+  const p = pal();
+  for (let i = 0; i < 70 * Q(); i++) {
+    const a = rand(0, TAU), sp = 0.15 + Math.pow(Math.random(), 1.5) * 1.3;
+    spawn(x, y, Math.cos(a) * sp, Math.sin(a) * sp, T, rand(5, 9), Math.random() < 0.15 ? rand(0.006, 0.012) : rand(0.0016, 0.004), Math.random(),
+      p.bandsRGB[(Math.random() * Math.min(6, p.bands.length)) | 0], 1);
+  }
+  for (let i = 0; i < 110 * Q(); i++) {
+    const a = rand(0, TAU), sp = 0.08 + Math.pow(Math.random(), 0.8) * 0.5;
+    spawn(x, y, Math.cos(a) * sp, Math.sin(a) * sp, T, rand(1.2, 2.4), rand(0.004, 0.011), Math.random(), p.powderF[(Math.random() * p.powder.length) | 0], 0);
+  }
+  pushBurst(x, y, 0.9); S.splashVis = 1;
+  AE.splat();
+}
+function fling(dt) {   // shaking the head throws droplets the way it moves
+  const R = FG.Hf / H, sp = Math.hypot(HV[0], HV[1]) / R;
+  if (sp < 1.4) return;
+  const n = Math.min(14, sp * dt * 22 * Q());
+  let k = Math.floor(n) + (Math.random() < n % 1 ? 1 : 0);
+  const p = pal();
+  while (k-- > 0) {
+    const [x, y] = hairPoint(), dx = x - FG.C[0] / H, dy = y - FG.C[1] / H, l = Math.hypot(dx, dy) || 1;
+    const m = rand(0.8, 1.6);
+    spawn(x, y, HV[0] * m + dx / l * 0.25 + rand(-0.1, 0.1), HV[1] * m + dy / l * 0.25 + rand(-0.1, 0.1), T, rand(5, 9),
+      Math.random() < 0.18 ? rand(0.005, 0.011) : rand(0.0016, 0.0045), Math.random(), p.bandsRGB[(Math.random() * Math.min(6, p.bands.length)) | 0], 1);
+  }
+  if (Math.random() < dt * 6) AE.drip(1.4);
+}
+let dripAcc = 0;
+function drips(dt) {
+  dripAcc += dt * 1.3 * flowAmt;
+  const p = pal();
+  while (dripAcc > 1) {
+    dripAcc -= 1;
+    const [x, y] = hairPoint(); if (y < FG.C[1] / H - FG.Hf / H * 0.2) continue;
+    spawn(x, y, 0, 0, T, rand(7, 11), rand(0.0035, 0.008), Math.random(), p.bandsRGB[(Math.random() * Math.min(6, p.bands.length)) | 0], 2);
+    pData[((pHead + PMAX - 1) % PMAX) * PST + 3] = rand(0.06, 0.32);   // how far this drip runs
+    if (Math.random() < 0.4) AE.drip(0.7);
+  }
+}
+
+/* ---------- audio ---------- */
+const SCALE = [0, 2, 3, 7, 9, 10, 12, 14, 15, 19, 21, 22];
+const AE = {
+  ac: null, ready: false, idx: 4, nextT: 0, recDest: null,
+  init() {
+    if (this.ac) { this.ac.resume && this.ac.resume(); return; }
+    try {
+      const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+      const ac = this.ac = new AC();
+      this.master = ac.createGain(); this.master.gain.value = 0;
+      const comp = ac.createDynamicsCompressor(); comp.threshold.value = -16; comp.ratio.value = 3.5;
+      this.master.connect(comp); comp.connect(ac.destination);
+      try { this.recDest = ac.createMediaStreamDestination(); comp.connect(this.recDest); } catch (e) { this.recDest = null; }
+      this.bus = ac.createGain(); this.bus.connect(this.master);
+      const conv = ac.createConvolver(); conv.buffer = this.impulse(3.4);
+      const wet = ac.createGain(); wet.gain.value = 0.5; this.bus.connect(conv); conv.connect(wet); wet.connect(this.master);
+      this.dF = ac.createBiquadFilter(); this.dF.type = 'lowpass'; this.dF.frequency.value = 200; this.dF.Q.value = 5;
+      this.dG = ac.createGain(); this.dG.gain.value = 0; this.dF.connect(this.dG); this.dG.connect(this.bus);
+      [65.41, 98, 130.81, 196].forEach((f, i) => [-7, 7].forEach(c => {
+        const o = ac.createOscillator(); o.type = 'sawtooth'; o.frequency.value = f; o.detune.value = c + rand(-3, 3);
+        const g = ac.createGain(); g.gain.value = i === 0 ? 0.08 : 0.04; o.connect(g); g.connect(this.dF); o.start();
+      }));
+      const lfo = ac.createOscillator(); lfo.frequency.value = 0.11; const lg = ac.createGain(); lg.gain.value = 260;
+      lfo.connect(lg); lg.connect(this.dF.frequency); lfo.start();
+      this.noise = ac.createBuffer(1, ac.sampleRate * 2 | 0, ac.sampleRate);
+      const d = this.noise.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+      this.ready = true;
+    } catch (e) { console.warn('audio', e); }
+  },
+  impulse(sec) {
+    const ac = this.ac, len = (ac.sampleRate * sec) | 0, b = ac.createBuffer(2, len, ac.sampleRate);
+    for (let ch = 0; ch < 2; ch++) { const d = b.getChannelData(ch); for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2.4); }
+    return b;
+  },
+  level(G) {
+    if (!this.ready) return; const t = this.ac.currentTime;
+    this.master.gain.setTargetAtTime(soundOn ? 0.85 : 0, t, 0.15);
+    this.dG.gain.setTargetAtTime(G * 0.45, t, 0.4);
+    this.dF.frequency.setTargetAtTime(160 + G * 1500 + motion * 500, t, 0.5);
+  },
+  nz(t, dur, type, f0, f1, q, vol) {
+    const ac = this.ac, src = ac.createBufferSource(); src.buffer = this.noise;
+    const bp = ac.createBiquadFilter(); bp.type = type; bp.Q.value = q;
+    bp.frequency.setValueAtTime(f0, t); bp.frequency.exponentialRampToValueAtTime(f1, t + dur);
+    const g = ac.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + Math.min(0.02, dur * 0.2)); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    src.connect(bp); bp.connect(g); g.connect(this.bus); src.start(t, Math.random()); src.stop(t + dur + 0.05);
+  },
+  pluck(semi, vel = 0.18) {
+    if (!this.ready || !soundOn) return;
+    const ac = this.ac, t = ac.currentTime, f = 261.63 * Math.pow(2, semi / 12);
+    const o = ac.createOscillator(); o.type = 'triangle'; o.frequency.setValueAtTime(f * 1.02, t); o.frequency.exponentialRampToValueAtTime(f, t + 0.06);
+    const o2 = ac.createOscillator(); o2.type = 'sine'; o2.frequency.value = f * 3.01; const g2 = ac.createGain(); g2.gain.value = 0.25;
+    const g = ac.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vel, t + 0.005); g.gain.exponentialRampToValueAtTime(0.0001, t + 1.8);
+    o.connect(g); o2.connect(g2); g2.connect(g);
+    if (ac.createStereoPanner) { const p = ac.createStereoPanner(); p.pan.value = rand(-0.7, 0.7); g.connect(p); p.connect(this.bus); } else g.connect(this.bus);
+    o.start(t); o2.start(t); o.stop(t + 1.9); o2.stop(t + 1.9);
+  },
+  boom(big = 1) {
+    if (!this.ready || !soundOn) return;
+    const ac = this.ac, t = ac.currentTime;
+    const o = ac.createOscillator(); o.type = 'sine'; o.frequency.setValueAtTime(120, t); o.frequency.exponentialRampToValueAtTime(34, t + 0.7);
+    const g = ac.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.55 * big, t + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.9);
+    o.connect(g); g.connect(this.master); o.start(t); o.stop(t + 1);
+    this.nz(t, 1.4, 'lowpass', 5200, 300, 0.7, 0.4 * big);
+    this.nz(t + 0.02, 0.9, 'bandpass', 2400, 600, 1.2, 0.22 * big);
+  },
+  whoosh() {
+    if (!this.ready || !soundOn) return;
+    const t = this.ac.currentTime; this.nz(t, 1.6, 'bandpass', 160, 3600, 2.2, 0.25);
+  },
+  splat() {
+    if (!this.ready || !soundOn) return;
+    const t = this.ac.currentTime;
+    this.nz(t, 0.35, 'bandpass', rand(1400, 2600), 500, 1.5, 0.35);
+    for (let i = 0; i < 4; i++) this.drip(0.5, t + rand(0.03, 0.4));
+  },
+  drip(v = 1, when = 0) {
+    if (!this.ready || !soundOn) return;
+    const ac = this.ac, t = Math.max(ac.currentTime, when), f = rand(700, 1700);
+    const o = ac.createOscillator(); o.type = 'sine'; o.frequency.setValueAtTime(f, t); o.frequency.exponentialRampToValueAtTime(f * 2.1, t + 0.06);
+    const g = ac.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.06 * v, t + 0.004); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.14);
+    o.connect(g); g.connect(this.bus); o.start(t); o.stop(t + 0.16);
+  },
+  tick(active) {
+    if (!this.ready || !soundOn || !active) return;
+    const now = this.ac.currentTime;
+    if (now >= this.nextT) {
+      const steps = [-2, -1, -1, 1, 1, 2, 3];
+      this.idx = clamp(this.idx + steps[(Math.random() * steps.length) | 0], 0, SCALE.length - 1);
+      this.pluck(SCALE[this.idx], rand(0.08, 0.16));
+      this.nextT = now + rand(0.22, 0.8) / (1 + motion * 2);
+    }
+  },
+};
+
+/* ---------- state machine ---------- */
+function activate() {
+  S.mode = 'active'; S.flash = 0.75; S.away = 0; S.charge = HOLD; S.veilT = 0;
+  bigBurst(FG.C[0] / H, FG.C[1] / H, 1);
+  AE.whoosh(); AE.boom(1); tipUntil = performance.now() + 6500; syncNow();
+}
+function deactivate() { S.mode = 'idle'; S.charge = 0; S.away = 0; S.forced = false; syncNow(); }
+function updateState(dt, nowMs) {
+  const lost = (nowMs - lastSeen) / 1000, present = hasFace && lost < 0.6;
+  if (S.mode === 'idle') {
+    if (nowMs < holdOff) S.charge = 0;
+    else if (present && det.look) { S.miss = 0; S.charge += dt; if (S.charge >= HOLD) activate(); }
+    else { S.miss += dt; if (S.miss > 0.35) S.charge = Math.max(0, S.charge - dt * 1.6); }   // a blink or a flicker of the tracker is forgiven
+  } else {
+    S.away = present && det.lookLoose ? 0 : S.away + dt;
+    if (!S.forced && (S.away > 1.4 || lost > 2)) deactivate();
+  }
+  S.G = S.mode === 'active' ? Math.min(1, S.G + dt / 2.2) : Math.max(0, S.G - dt / 1.8);
+  S.preview = S.mode === 'idle' ? clamp(S.charge / HOLD, 0, 1) : 0;
+  S.veilT = S.mode === 'active' ? Math.min(1, S.veilT + dt / 4) : Math.max(0, S.veilT - dt / 1.2);
+  /* mouth: an explosion, and more while it stays open */
+  if (S.mode === 'active' && S.G > 0.55) {
+    if (det.jaw > 0.36 && (!S.mouth || T - S.lastBoom > 1.1) && T - S.lastBoom > 0.7) {
+      const first = !S.mouth; S.mouth = true; S.lastBoom = T;
+      bigBurst(FG.C[0] / H, FG.C[1] / H, first ? 0.9 : 0.55); S.flash = Math.max(S.flash, first ? 0.35 : 0.15); AE.boom(first ? 0.9 : 0.5);
+    }
+    if (det.jaw < 0.16) S.mouth = false;
+  } else if (det.jaw < 0.16) S.mouth = false;
+  if (present && det.eyesClosed) { S.blinkT += dt; if (S.blinkT > 0.7 && !S.blinkFired) { S.blinkFired = true; nextPalette(); } }
+  else { S.blinkT = 0; S.blinkFired = false; }
+  S.flash = Math.max(0, S.flash - dt * 2.2);
+  S.splashVis = Math.max(0, S.splashVis - dt * 0.35);
+  if (hasFace) {
+    const cx = FG.C[0] / H, cy = FG.C[1] / H;
+    if (!hvInit) { prevC[0] = cx; prevC[1] = cy; hvInit = true; }
+    const k = 1 - Math.exp(-dt * 9);
+    HV[0] += ((cx - prevC[0]) / Math.max(dt, 1e-3) - HV[0]) * k; HV[1] += ((cy - prevC[1]) / Math.max(dt, 1e-3) - HV[1]) * k;
+    HV[0] = clamp(HV[0], -3, 3); HV[1] = clamp(HV[1], -3, 3);
+    if (over.hv) { HV[0] = over.hv[0]; HV[1] = over.hv[1]; }
+    prevC[0] = cx; prevC[1] = cy;
+    motion = lerp(motion, Math.min(3, Math.hypot(HV[0], HV[1]) / (FG.Hf / H)), 0.08);
+  }
+  AE.level(S.G); AE.tick(S.mode === 'active' && S.G > 0.35);
+  updateStatus(present, nowMs);
+}
+let lastStatus = null;
+function updateStatus(present, nowMs) {
+  let s = '';
+  if (faceLoading) s = '顔の検出を準備中…';
+  else if (demo) s = S.mode === 'active' ? 'デモモード：⚙ の「もどす」で終わる' : 'デモモード：⚙ の「今すぐはじける」';
+  else if (!present) s = S.mode === 'active' ? '' : 'カメラに顔をうつしてください';
+  else if (S.mode === 'idle') s = S.charge > 0.05 ? 'そのまま…' : 'カメラをじっと見つめて';
+  else if (tipUntil > nowMs) s = '頭をふる・口をあける・目を長くとじる';
+  if (s !== lastStatus) { lastStatus = s; if (s) statusEl.textContent = s; statusEl.classList.toggle('off', !s); }
+}
+
+/* ---------- render ---------- */
+let simFlip = false; const BUF16 = new Float32Array(16);
+function setPaintUniforms(P, p) {
+  f2(P, 'uPTx', 1 / simW, 1 / simH); f1(P, 'uPxSim', (W * DPR) / simW);
+  f1(P, 'uK', 3.0); f1(P, 'uK2', 1.2); f1(P, 'uLW', 1.1 * Math.max(1, DPR));
+  f3v(P, 'uPal', p.bandsF); i1(P, 'uPN', p.bands.length); f1(P, 'uStep', p.bands.length === 6 ? 5 : 3);
+  f3(P, 'uInk', hex(p.ink)); f3(P, 'uHi', hex(p.hi)); f3(P, 'uAvg', p.avg);
+}
+function setVeilUniforms(P) {
+  const R = 1 / H;
+  f4(P, 'uFF', FG.fc[0] * R, FG.fc[1] * R, FG.ex[0], FG.ex[1]);
+  f2(P, 'uFS', FG.F * 0.5 * R, FG.Hf * 0.5 * R);
+  f1(P, 'uVeil', veilAmt * easeIO(S.veilT)); f1(P, 'uFaceOK', hasFace ? 1 : 0);
+}
+function videoMapUniforms(P) {
+  if (!vw) { f2(P, 'uVA', 0, 0); f2(P, 'uVB', -1, -1); return; }
+  const ax = W / (vs * vw), ay = H / (vs * vh);
+  if (mirror) { f2(P, 'uVA', -ax, ay); f2(P, 'uVB', (W - vox) / (vs * vw), -voy / (vs * vh)); }
+  else { f2(P, 'uVA', ax, ay); f2(P, 'uVB', -vox / (vs * vw), -voy / (vs * vh)); }
+}
+function simStep(dt) {
+  const P = PR.sim, src = simFlip ? paintB : paintA, dst = simFlip ? paintA : paintB; simFlip = !simFlip;
+  gl.bindFramebuffer(gl.FRAMEBUFFER, dst.f); gl.viewport(0, 0, simW, simH); gl.disable(gl.BLEND);
+  gl.useProgram(P.p); gl.bindVertexArray(emptyVAO);
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, src.t); i1(P, 'uPrev', 0);
+  gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, texMask); i1(P, 'uMask', 1);
+  const G = easeIO(S.G), act = S.mode === 'active';
+  f1(P, 'uAsp', W / H); f1(P, 'uT', T); f1(P, 'uDt', dt);
+  f1(P, 'uSrc', Math.max(G, S.preview * 0.35));
+  f1(P, 'uOut', (act ? 0.05 + 0.07 * G : 0.025) * flowAmt); f1(P, 'uSwirl', 0.05 * swirlAmt * (0.6 + 0.4 * G));
+  f1(P, 'uFadeA', act ? 0.12 / flowAmt : 0.9); f1(P, 'uFadeB', 0.9 / flowAmt);
+  f1(P, 'uR', Math.max(0.05, FG.Hf / H * 0.62));
+  f2(P, 'uC', FG.C[0] / H, FG.C[1] / H); f2(P, 'uHv', HV[0], HV[1]);
+  videoMapUniforms(P); setVeilUniforms(P);
+  const B = BUF16; B.fill(0);
+  bursts.forEach((b, k) => { B[k * 4] = b.x; B[k * 4 + 1] = b.y; B[k * 4 + 2] = T - b.t; B[k * 4 + 3] = T - b.t < 3 ? b.s : 0; });
+  f4v(P, 'uB', B);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  return dst;
+}
+function draw(paint) {
+  const p = pal(), G = easeIO(S.G);
+  const Gp = clamp(Math.max(G * 1.6, smooth(0.3, 0.8, S.preview), S.splashVis), 0, 1);
+  gl.viewport(0, 0, cv.width, cv.height); gl.bindVertexArray(emptyVAO);
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, paint.t);
+  gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, texMask);
+  gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, texVid);
+  /* back */
+  let P = PR.back; gl.useProgram(P.p); gl.disable(gl.BLEND);
+  i1(P, 'uPaint', 0); i1(P, 'uVid', 2); setPaintUniforms(P, p); videoMapUniforms(P);
+  f1(P, 'uAsp', W / H); f2(P, 'uC', FG.C[0] / H, FG.C[1] / H); f1(P, 'uR', Math.max(0.05, FG.Hf / H * 0.62));
+  f1(P, 'uGbg', vw ? G : 1); f1(P, 'uGp', Gp); f3(P, 'uBg', hex(p.bg)); f3(P, 'uGlow', hex(p.glow));
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+  /* powder (behind the person) */
+  gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+  drawParts(0);
+  /* person */
+  if (vw) {
+    P = PR.front; gl.useProgram(P.p); gl.bindVertexArray(emptyVAO);
+    i1(P, 'uPaint', 0); i1(P, 'uMask', 1); i1(P, 'uVid', 2); setPaintUniforms(P, p); videoMapUniforms(P); setVeilUniforms(P);
+    f2(P, 'uVTx', 1 / vw, 1 / vh); f1(P, 'uAsp', W / H); f2(P, 'uC', FG.C[0] / H, FG.C[1] / H); f1(P, 'uR', Math.max(0.05, FG.Hf / H * 0.62)); f1(P, 'uGs', G); f1(P, 'uGp', Gp); f1(P, 'uPhoto', photoFace ? 1 : 0);
+    const F = p.face; f3(P, 'uFL', hex(F.l)); f3(P, 'uFM', hex(F.m)); f3(P, 'uFSh', hex(F.s)); f3(P, 'uFI', hex(F.i));
+    f3(P, 'uTA', hex(p.tint[0])); f3(P, 'uTB', hex(p.tint[1]));
+    f3(P, 'uDA', hex(p.body[0])); f3(P, 'uDB', hex(p.body[1])); f3(P, 'uDC', hex(p.body[2]));
+    f4(P, 'uTh', TH[0], TH[1], TH[2], TH[3]);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+  }
+  /* droplets and drips (in front) */
+  drawParts(1);
+  /* overlay */
+  P = PR.fx; gl.useProgram(P.p); gl.bindVertexArray(emptyVAO);
+  const ringA = S.mode === 'idle' && hasFace && S.charge > 0.03 && G < 0.05 ? 1 : 0;
+  f2(P, 'uRC', FG.C[0] / H, FG.C[1] / H); f1(P, 'uAsp', W / H); f1(P, 'uRR', FG.Hf / H * 0.72);
+  f1(P, 'uRP', clamp(S.charge / HOLD, 0, 1)); f1(P, 'uRA', ringA); f1(P, 'uFlash', S.flash * 0.6);
+  f1(P, 'uVig', p.mono ? 0 : G * 0.55); f1(P, 'uPx', 1 / (H * DPR)); f3v(P, 'uPal', p.bandsF); i1(P, 'uPN', p.bands.length);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+  gl.disable(gl.BLEND);
+}
+function drawParts(layer) {
+  const P = PR.part; gl.useProgram(P.p); gl.bindVertexArray(partVAO);
+  if (pHi >= pLo) {
+    gl.bindBuffer(gl.ARRAY_BUFFER, partBuf);
+    gl.bufferSubData(gl.ARRAY_BUFFER, pLo * PST * 4, pData, pLo * PST, (pHi - pLo + 1) * PST);
+    pLo = PMAX; pHi = -1;
+  }
+  f1(P, 'uT', T); f1(P, 'uAsp', W / H); f1(P, 'uPx', 1 / (H * DPR)); i1(P, 'uLayer', layer);
+  gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, PMAX);
+  gl.bindVertexArray(null);
+}
+
+/* ---------- loop ---------- */
+let vidFrames = 0, lastUpVT = -1;
+function frame(nowMs) {
+  requestAnimationFrame(frame);
+  const now = nowMs / 1000; let dt = now - lastT; lastT = now; dt = clamp(dt, 0, 0.05);
+  if (!running || !PR) return;
+  if (TEST.freeze) dt = 0; else if (TEST.dt) { dt = TEST.dt; T += dt; } else T = now - T0;
+  TEST.frames++;
+  updateVideoMap();
+  if (vw && video.readyState >= 2 && video.currentTime !== lastUpVT) {
+    lastUpVT = video.currentTime;
+    gl.bindTexture(gl.TEXTURE_2D, texVid);
+    try { gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video); vidFrames++; } catch (e) {}
+  }
+  detectFace(nowMs);
+  runMasks(nowMs);
+  updateState(dt, nowMs);
+  if (S.mode === 'active' && S.G > 0.3) { fling(dt); if (S.G > 0.7) drips(dt); }
+  const paint = simStep(dt);
+  draw(paint);
+  if (shotReq) { shotReq = false; saveShot(); }
+  adapt(now);
+}
+/* if the device cannot keep up, draw the screen at a lower resolution (the paint keeps its own size) */
+let adN = 0, adAcc = 0, adPrev = 0, adSince = 0;
+function adapt(now) {
+  if (TEST.dt || !faceLM) { adPrev = now; return; }
+  if (!adSince) adSince = now;
+  const ft = now - adPrev; adPrev = now;
+  if (now - adSince < 5 || ft > 0.25) return;
+  adAcc += ft; adN++;
+  if (adN >= 90) {
+    const avg = adAcc / adN; adAcc = 0; adN = 0;
+    if (avg > 0.04 && DPR > 0.8) { DPR = Math.max(0.8, DPR * 0.85); cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR); }
+  }
+}
+
+/* ---------- UI ---------- */
+let toastTimer = 0;
+function toast(s) { toastEl.textContent = s; toastEl.classList.add('on'); clearTimeout(toastTimer); toastTimer = setTimeout(() => toastEl.classList.remove('on'), 1300); }
+function nextPalette() { palIdx = (palIdx + 1) % PALS.length; toast(pal().name); if (running && hasFace) splash(FG.C[0] / H, FG.C[1] / H - FG.Hf / H * 0.75); }
+function resetAll() {
+  S.mode = 'idle'; S.charge = 0; S.G = 0; S.away = 0; S.flash = 0; S.veilT = 0; S.mouth = false; S.splashVis = 0;
+  bursts.length = 0; pData.fill(0); pLo = 0; pHi = PMAX - 1;
+  if (paintA) { for (const t of [paintA, paintB]) { gl.bindFramebuffer(gl.FRAMEBUFFER, t.f); gl.clearColor(ENC ? .5 : 0, ENC ? .5 : 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT); } gl.bindFramebuffer(gl.FRAMEBUFFER, null); }
+  holdOff = performance.now() + 900; tipUntil = 0;
+  toast('最初から');
+}
+function forceToggle() { if (S.mode === 'active') { deactivate(); holdOff = performance.now() + 1500; } else { if (!hasFace) demoFace(); activate(); S.forced = true; } syncNow(); }
+function syncNow() { $('bNow').textContent = S.mode === 'active' ? 'もどす' : '今すぐはじける'; }
+function saveShot() {
+  try {
+    cv.toBlob(b => {
+      if (!b) return; const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = 'psyche-mirror-2_' + Date.now() + '.png';
+      document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 4000);
+    }, 'image/png');
+    toast('保存しました');
+  } catch (e) { toast('保存できませんでした'); }
+}
+let mr = null, chunks = [];
+$('rec').onclick = () => {
+  const b = $('rec');
+  if (mr && mr.state === 'recording') { mr.stop(); return; }
+  AE.init();
+  const tracks = [...cv.captureStream(30).getVideoTracks()];
+  if (AE.recDest) tracks.push(...AE.recDest.stream.getAudioTracks());
+  const ms = new MediaStream(tracks);
+  const types = ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm'];
+  const mt = types.find(t => window.MediaRecorder && MediaRecorder.isTypeSupported(t)) || '';
+  try { mr = new MediaRecorder(ms, mt ? { mimeType: mt, videoBitsPerSecond: 6e6 } : {}); }
+  catch (err) { toast('録画を開始できませんでした'); return; }
+  chunks = []; mr.ondataavailable = ev => { if (ev.data && ev.data.size) chunks.push(ev.data); };
+  mr.onstop = () => {
+    b.classList.remove('act'); b.textContent = '● REC';
+    const blob = new Blob(chunks, { type: mr.mimeType || 'video/mp4' }); const ext = (mr.mimeType || '').includes('mp4') ? 'mp4' : 'webm';
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'psyche-mirror-2_' + Date.now() + '.' + ext;
+    document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 4000);
+  };
+  mr.start(1000); b.classList.add('act'); b.textContent = '■ STOP';
+};
+$('shot').onclick = () => { shotReq = true; };
+$('pal').onclick = () => nextPalette();
+const panel = $('panel');
+$('gear').onclick = () => { panel.hidden = !panel.hidden; $('gear').setAttribute('aria-expanded', String(!panel.hidden)); };
+$('panelX').onclick = () => { panel.hidden = true; $('gear').setAttribute('aria-expanded', 'false'); };
+$('sFlow').oninput = e => { flowAmt = +e.target.value; };
+$('sVeil').oninput = e => { veilAmt = +e.target.value; };
+$('sSwirl').oninput = e => { swirlAmt = +e.target.value; };
+$('bNow').onclick = () => forceToggle();
+$('bReset').onclick = () => { resetAll(); syncNow(); };
+const tog = (id, on, a, b) => { const el = $(id); el.classList.toggle('on', on); el.textContent = on ? a : b; };
+$('bFace').onclick = () => { photoFace = !photoFace; tog('bFace', !photoFace, '顔：白い紙', '顔：そのまま'); };
+$('bSound').onclick = () => { soundOn = !soundOn; tog('bSound', soundOn, '音：入', '音：切'); if (soundOn) AE.init(); AE.level(S.G); };
+const fsBtn = $('bFs');
+if (!document.documentElement.requestFullscreen) fsBtn.style.display = 'none';
+else fsBtn.onclick = () => document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen().catch(() => {});
+cv.addEventListener('pointerdown', e => {
+  if (!running) return;
+  if (!panel.hidden) { panel.hidden = true; $('gear').setAttribute('aria-expanded', 'false'); }
+  splash(e.clientX / H, e.clientY / H);
+});
+addEventListener('keydown', e => {
+  if (!running) return;
+  const k = e.key.toLowerCase();
+  if (k === ' ') { e.preventDefault(); forceToggle(); }
+  else if (k === 'c') nextPalette();
+  else if (k === 's') shotReq = true;
+  else if (k === 'r') { resetAll(); syncNow(); }
+  else if (k === 'b' && S.mode === 'active') { S.lastBoom = T; bigBurst(FG.C[0] / H, FG.C[1] / H, 0.9); AE.boom(0.9); }
+});
+addEventListener('resize', resize);
+
+function camErrText(e) {
+  const m = (e && (e.message || e.name)) ? (e.message || e.name) : String(e || 'unknown');
+  return 'カメラを起動できませんでした：' + m + '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+}
+async function startCam() {
+  const md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) throw new Error('getUserMedia is unavailable');
+  /* get the new stream first, so a failed flip keeps the old camera running */
+  const s2 = await md.getUserMedia({ video: { facingMode: { ideal: facing }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = s2; video.srcObject = stream;
+  try { await video.play(); } catch (e) {}
+  await new Promise(r => { if (video.videoWidth) r(); else { video.onloadedmetadata = () => r(); setTimeout(r, 3000); } });
+  mirror = facing === 'user';
+  smInit = false; lastVT = -1; lastUpVT = -1; hasFace = false; hvInit = false; lastLM = null;
+  maskF.fill(0); maskU8.fill(0); hairN = 0;
+}
+$('flip').onclick = async () => {
+  const prev = facing; facing = facing === 'user' ? 'environment' : 'user';
+  try { await startCam(); toast(facing === 'user' ? '前のカメラ' : '後ろのカメラ'); }
+  catch (e) { facing = prev; toast('切り替えられませんでした'); console.warn(camErrText(e)); }
+};
+$('go').onclick = async () => {
+  const btn = $('go'); btn.disabled = true; $('err').textContent = 'カメラを起動しています…';
+  AE.init();
+  try { if (!PR) initGL(); resize(); }
+  catch (e) { $('err').textContent = '描画の準備に失敗しました：' + (e && e.message ? e.message.split('\n')[0] : e); console.error(e); btn.disabled = false; return; }
+  try { await startCam(); }
+  catch (e) { $('err').textContent = camErrText(e); btn.disabled = false; btn.textContent = 'もう一度'; return; }
+  $('start').classList.add('hide'); $('ui').classList.add('on'); $('err').textContent = '';
+  running = true; T0 = performance.now() / 1000; T = 0;
+  if (!faceLM && !demo) initFace().then(() => { if (!segmenter) initSeg(); });
+};
+
+requestAnimationFrame(frame);
+/* test hook (local checks only) */
+window.__pm2 = {
+  state: () => ({ mode: S.mode, G: S.G, charge: S.charge, hasFace, demo, segOK, faceOK: !!faceLM, seg: !!segmenter, hairN, TH: [...TH], det: { ...det }, pal: palIdx, vid: vidFrames, sim: [simW, simH], float: useFloat, FG: { C: [...FG.C], F: FG.F, Hf: FG.Hf } }),
+  over, TEST, force: on => { if ((S.mode === 'active') !== on) forceToggle(); }, splash: (x, y) => splash(x / H, y / H),
+  set: o => { if (o.flow != null) flowAmt = o.flow; if (o.veil != null) veilAmt = o.veil; if (o.swirl != null) swirlAmt = o.swirl; if (o.pal != null) palIdx = o.pal; if (o.photo != null) photoFace = o.photo; },
+  T: () => T,
+};
+</script>
+</body>
+</html>
