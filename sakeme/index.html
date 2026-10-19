@@ -1,0 +1,1020 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<script>/* REC-FIX (2026-10-12) — iPhone Safari で録画が途中で止まる・壊れる対策。どの作品でも同じ内容。
+   ・mp4 は映像と音声の両方のコーデックを宣言する（avc1 だけだと音声付きで止まることがある）
+   ・1 秒ごとにデータを受け取る（最後に一括で書き出さない）／ビットレートに上限
+   ・保存が終わる前に次の録画を始めない（前のファイルが消えるのを防ぐ）
+   ・録画中は AudioContext を止めない（音声トラックが止まると mp4 ごと止まる） */
+(()=>{const MR=window.MediaRecorder;if(!MR||MR.__recfix)return;let busy=0,active=0;
+class R extends MR{
+  constructor(s,o){if(busy)throw new Error('前の録画を保存しています');o=Object.assign({},o||{});
+    const au=s&&s.getAudioTracks&&s.getAudioTracks().length>0;
+    if(!o.mimeType||/^video\/mp4/.test(o.mimeType)){
+      const c=[au?'video/mp4;codecs="avc1.42E01E,mp4a.40.2"':'video/mp4;codecs="avc1.42E01E"','video/mp4'].find(m=>MR.isTypeSupported(m));
+      if(c)o.mimeType=c;else if(o.mimeType&&!MR.isTypeSupported(o.mimeType))delete o.mimeType;}
+    if(!o.videoBitsPerSecond&&!o.bitsPerSecond)o.videoBitsPerSecond=6e6;
+    super(s,o);this.addEventListener('stop',()=>{active=Math.max(0,active-1);setTimeout(()=>{busy=0;},0);});}
+  start(t){const r=super.start(t==null?1000:t);active++;return r;}
+  stop(){if(this.state!=='inactive'){busy=1;setTimeout(()=>{busy=0;},15000);}return super.stop();}}
+R.__recfix=1;window.MediaRecorder=R;
+const AC=window.AudioContext||window.webkitAudioContext;
+if(AC&&AC.prototype.suspend){const sus=AC.prototype.suspend;AC.prototype.suspend=function(){return active?Promise.resolve():sus.call(this);};}
+/* 録音用の出口には常に無音を流しておく（何も鳴っていないと音声トラックにデータが来ず、録画全体が止まる） */
+if(AC&&AC.prototype.createMediaStreamDestination){const cmd=AC.prototype.createMediaStreamDestination;AC.prototype.createMediaStreamDestination=function(){const d=cmd.apply(this,arguments);
+  try{const c=this.createConstantSource();c.offset.value=0;c.connect(d);c.start();}catch(e){}return d;};}})();</script>
+<script>/* RESUME-FIX (2026-10-17) — iPhone で写真や動画を保存しに行ったり、別のアプリへ行ったりして戻ると、
+   カメラが消える・映像が固まる・画面が壊れる対策。どの作品でも同じ内容。
+   ・ページが裏に回ると、iPhone はカメラを止め、動画を一時停止し、音を止め、ときに WebGL の描画を捨てる
+   ・戻ったら：止められたカメラを同じ条件で取り直して同じ MediaStream に差し込み、止まった動画を再生し、音を再開する
+   ・WebGL の描画が捨てられ、作品が自分で立て直せないときは「タップして再開」を出して読み込み直す */
+(()=>{if(window.__resumefix)return;window.__resumefix=1;
+const md=navigator.mediaDevices,streams=new Map(),vids=new Set(),ctxs=new Set(),lost=new WeakSet(),mutedAt=new Map();
+const watch=t=>{try{t.addEventListener('ended',()=>lost.add(t));t.addEventListener('mute',()=>mutedAt.set(t,performance.now()));
+  t.addEventListener('unmute',()=>mutedAt.delete(t));if(t.muted)mutedAt.set(t,performance.now());}catch(e){}};
+let gum=null;
+if(md&&md.getUserMedia){gum=md.getUserMedia.bind(md);
+  md.getUserMedia=async function(c){const s=await gum(c);try{streams.set(s,c);s.getTracks().forEach(watch);}catch(e){}return s;};}
+/* every <video> that is given a camera stream, also ones never put in the page */
+const MP=HTMLMediaElement.prototype,play=MP.play,so=Object.getOwnPropertyDescriptor(MP,'srcObject');
+MP.play=function(){try{if(this.srcObject)vids.add(this);}catch(e){}return play.apply(this,arguments);};
+if(so&&so.set)Object.defineProperty(MP,'srcObject',{configurable:true,enumerable:so.enumerable,
+  get(){return so.get.call(this);},set(v){if(v)vids.add(this);so.set.call(this,v);}});
+for(const k of['AudioContext','webkitAudioContext']){const C=window[k];if(!C||C.__resumefix)continue;
+  const W=function(...a){const c=new C(...a);ctxs.add(c);return c;};W.prototype=C.prototype;W.__resumefix=1;
+  try{Object.setPrototypeOf(W,C);}catch(e){}window[k]=W;}
+const shown=s=>{for(const v of vids){try{if(so.get.call(v)===s)return true;}catch(e){}}return false;};
+let busy=0;
+async function revive(){
+  if(busy||document.hidden)return;busy=1;
+  try{
+    for(const[s,c]of[...streams]){
+      const tr=s.getTracks();
+      if(!shown(s)){if(tr.every(t=>t.readyState==='ended'))streams.delete(s);continue;}
+      const now=performance.now();
+      const dead=tr.filter(t=>(t.readyState==='ended'&&lost.has(t))||(t.kind==='video'&&mutedAt.has(t)&&now-mutedAt.get(t)>1500));
+      if(!dead.length||!gum)continue;
+      let ns=null;try{ns=await gum(c);}catch(e){continue;}
+      const kinds=new Set(dead.map(t=>t.kind));
+      for(const t of dead){try{t.stop();}catch(e){}s.removeTrack(t);mutedAt.delete(t);}
+      for(const t of ns.getTracks()){if(kinds.has(t.kind)){s.addTrack(t);watch(t);}else t.stop();}
+      for(const v of vids){try{if(so.get.call(v)===s){so.set.call(v,null);so.set.call(v,s);}}catch(e){}}
+    }
+  }finally{busy=0;}
+  for(const v of vids){try{if(so.get.call(v)&&v.paused)play.call(v).catch(()=>{});}catch(e){}}
+  for(const c of ctxs){try{if(c.state!=='running'&&c.state!=='closed')c.resume().catch(()=>{});}catch(e){}}
+}
+const soon=()=>{if(document.hidden)return;const n=performance.now();for(const t of mutedAt.keys())mutedAt.set(t,n);
+  setTimeout(revive,250);setTimeout(revive,1900);};
+document.addEventListener('visibilitychange',soon);
+addEventListener('pageshow',soon);addEventListener('focus',soon);
+/* iPhone sometimes only lets sound and video restart from a tap */
+const tap=()=>{for(const c of ctxs){try{if(c.state!=='running'&&c.state!=='closed')c.resume().catch(()=>{});}catch(e){}}
+  for(const v of vids){try{if(so.get.call(v)&&v.paused)play.call(v).catch(()=>{});}catch(e){}}};
+addEventListener('pointerdown',tap,true);addEventListener('touchend',tap,true);
+/* WebGL: if the drawing is thrown away and the piece does not rebuild it, offer a clean restart */
+const ET=EventTarget.prototype,ael=ET.addEventListener,rebuilds=new WeakSet(),gls=new WeakMap();
+ET.addEventListener=function(t){if(t==='webglcontextrestored'&&this instanceof HTMLCanvasElement)rebuilds.add(this);return ael.apply(this,arguments);};
+let box=null;
+function offer(){
+  if(box)return;box=document.createElement('div');
+  box.style.cssText='position:fixed;inset:0;z-index:2147483647;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;'+
+    'background:rgba(0,0,0,.82);color:#fff;font:14px/1.8 system-ui,sans-serif;text-align:center;padding:24px';
+  box.innerHTML='<div>画面の表示が止まりました。<br>（別のアプリから戻ったとき、iPhone が描画を止めることがあります）</div>'+
+    '<button style="font:inherit;font-size:16px;padding:12px 28px;border-radius:999px;border:0;background:#fff;color:#000">タップして再開</button>';
+  box.querySelector('button').onclick=()=>location.reload();
+  (document.body||document.documentElement).appendChild(box);
+}
+const GC=HTMLCanvasElement.prototype,getCtx=GC.getContext;
+GC.getContext=function(type){
+  const g=getCtx.apply(this,arguments);
+  if(g&&/webgl/i.test(String(type))&&!gls.has(this)){gls.set(this,g);const cv=this;
+    ael.call(cv,'webglcontextlost',e=>{e.preventDefault();let vis=0;
+      const iv=setInterval(()=>{vis=document.hidden?0:vis+500;let still=false;try{still=g.isContextLost();}catch(_){}
+        if(!still){clearInterval(iv);return;}                     /* came back: the 'restored' handler below decides */
+        if(vis>=4000){clearInterval(iv);if(cv.isConnected)offer();}},500);},false);
+    ael.call(cv,'webglcontextrestored',()=>{const f=()=>{if(document.hidden){setTimeout(f,500);return;}
+      if(cv.isConnected&&!rebuilds.has(cv))offer();};f();},false);}
+  return g;
+};
+})();</script>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>SAKEME ─ 裂け目のキャンバス</title>
+<meta name="description" content="画面が一枚の真っ赤なキャンバスになる。うしろからあなたの体と手が布を押し、手をすばやく払うとナイフのように切れ目が入る。めくれた縁の奥の暗がりから、あなたがのぞく。">
+<meta name="theme-color" content="#9c1219">
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  SAKEME ─ 裂け目のキャンバス                    ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  元ネタ    ルーチョ・フォンタナ「空間概念 ── 期待」（1958–68）。一色に塗った
+            キャンバスに、ナイフで斜めの切れ目を数本。切れ目の縁は内側へめくれ、
+            奥は黒い。あわせて、白い壁から人の形が押し出されてくるアニッシュ・
+            カプーアの壁の作品と、エンリコ・カステラーニの張りつめた画面。
+
+  最終の一枚  真っ赤なキャンバスに、押し当てた手の形が浮き、斜めの裂け目が三本。
+            めくれた縁が光を受け、その奥の暗がりから、あなたの目がのぞく。
+
+  主役      画面は一枚のキャンバス。あなたはその裏側にいる。体と手が布を押すと、
+            その形が赤い布に浮き彫りになる。手をすばやく払うと、そこが切れる。
+
+  層        ① キャンバス：一色の絵の具、麻の織り目、刷毛の跡、木枠のふち、左上からの一灯
+            ② 布の押し：体はやわらかく、手は指の形まで。ばねのように少し揺れて戻る
+            ③ 裂け目：払った軌跡がナイフの線になり、アーモンド形に開いて縁がめくれる。
+              光の側の縁は明るく、反対の縁は影。切り口に麻の生地がのぞく
+            ④ 奥：切れ目の中だけ、暗がりにいるあなたが見える
+            ⑤ 張り替え：新しい布が上から巻き下ろされ、タッカーの音が続く
+            ⑥ 音：布を裂く音、張りがゆるむ低い音、ギャラリーの静けさ
+
+  PALETTE   キャンバスは四つ ── 赤 #a8121b・白 #e7e3da・黒 #161514・群青 #1e3479。
+            どれも一色。奥は黒。それ以外の色は使わない。
+
+  TYPE      Instrument Serif（イタリック、作品札）と Zen Kaku Gothic New（本文）。
+
+  MOTION    布はゆっくり押され、ゆっくり戻る。切れ目だけが速い。
+
+  TECH      WebGL2。布の高さは低解像度のばねの格子（RGBA16F）。体は MediaPipe
+            ImageSegmenter（selfie）の切り抜きをぼかした山、手は HandLandmarker の
+            21 点の骨をカプセルにした山。切れ目は三角形の帯を別のバッファへ描き、
+            最後の合成で縁のめくれと影を計算する。
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Zen+Kaku+Gothic+New:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --wall:#e9e6e0; --ink:#1a1716; --red:#a8121b;
+  --serif:"Instrument Serif","Didot","Georgia",serif;
+  --jp:"Zen Kaku Gothic New","Hiragino Sans","Yu Gothic",sans-serif;
+  --ui-ink:#f4efe9; --ui-bg:rgba(20,8,8,.32); --ui-line:rgba(244,239,233,.28);
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+[hidden]{display:none!important}
+html,body{margin:0;height:100%;background:#7e0d13;color:var(--ink);font-family:var(--jp);overflow:hidden;-webkit-user-select:none;user-select:none}
+#gl{position:fixed;inset:0;width:100vw;height:100vh;height:100dvh;display:block;touch-action:none}
+#cam{position:fixed;left:0;top:0;width:2px;height:2px;opacity:0;pointer-events:none}
+
+#start{position:fixed;inset:0;z-index:10;display:grid;place-items:center;overflow:auto;padding:28px 22px;
+  padding-top:calc(28px + env(safe-area-inset-top,0px));padding-bottom:calc(28px + env(safe-area-inset-bottom,0px));
+  background:radial-gradient(ellipse at 50% 30%,#f3f1ec 0%,#e6e2db 60%,#d9d4cc 100%);transition:opacity 1s ease,visibility 1s}
+#start.hide{opacity:0;visibility:hidden}
+.wrap{max-width:380px;width:100%;text-align:left}
+.work{display:block;width:min(230px,58vw);margin:0 auto 30px;filter:drop-shadow(0 18px 22px rgba(60,30,20,.28)) drop-shadow(0 2px 3px rgba(60,30,20,.25))}
+h1{font-family:var(--serif);font-weight:400;font-size:clamp(44px,12vw,64px);line-height:1;margin:0;letter-spacing:.01em}
+h1 i{font-style:italic}
+.sub{font-size:13px;letter-spacing:.32em;margin:10px 0 22px;color:#5a514c}
+.how{font-size:13.5px;line-height:2.05;margin:0 0 24px;color:#2b2523}
+.how b{font-weight:500}
+button.go{font-family:var(--jp);font-size:14px;letter-spacing:.24em;padding:14px 28px 14px 32px;cursor:pointer;color:#fff;border:0;border-radius:0;
+  background:var(--red);box-shadow:0 10px 24px rgba(120,14,20,.28)}
+button.go:disabled{opacity:.5;cursor:default}
+button:focus-visible{outline:1px solid currentColor;outline-offset:3px}
+#err{min-height:1.4em;font-size:12.5px;color:#9c1219;margin-top:14px;line-height:1.75;white-space:pre-wrap}
+.note{font-size:11px;color:#7a716b;margin-top:6px;line-height:1.7}
+
+#status{position:fixed;left:50%;top:calc(16px + env(safe-area-inset-top,0px));transform:translateX(-50%);z-index:5;
+  font-size:13px;letter-spacing:.2em;white-space:nowrap;pointer-events:none;color:var(--ui-ink);transition:opacity .7s;
+  max-width:calc(100vw - 24px);overflow:hidden;text-overflow:ellipsis;text-shadow:0 1px 10px rgba(0,0,0,.25)}
+#status.off{opacity:0}
+#label{position:fixed;left:calc(18px + env(safe-area-inset-left,0px));bottom:calc(env(safe-area-inset-bottom,0px) + 70px);z-index:4;pointer-events:none;
+  font-family:var(--serif);font-style:italic;font-size:17px;letter-spacing:.02em;color:var(--ui-ink);opacity:.82;display:none}
+#label.on{display:block}
+#label small{display:block;font-family:var(--jp);font-style:normal;font-size:10.5px;letter-spacing:.24em;opacity:.75;margin-top:2px}
+#toast{position:fixed;left:50%;top:42%;transform:translate(-50%,-50%);z-index:6;font-family:var(--serif);font-style:italic;font-size:clamp(30px,8vw,48px);
+  color:var(--ui-ink);opacity:0;transition:opacity .45s;pointer-events:none;white-space:nowrap;text-shadow:0 2px 20px rgba(0,0,0,.2)}
+#toast.on{opacity:.92}
+#ui{position:fixed;left:0;right:0;bottom:0;z-index:5;display:none;gap:8px;justify-content:center;align-items:center;flex-wrap:wrap;
+  padding:10px 10px calc(env(safe-area-inset-bottom,0px) + 14px)}
+#ui.on{display:flex}
+.btn{appearance:none;font-family:var(--jp);font-size:12.5px;letter-spacing:.12em;color:var(--ui-ink);background:var(--ui-bg);
+  border:1px solid var(--ui-line);border-radius:0;height:40px;min-width:40px;padding:0 13px;cursor:pointer;white-space:nowrap;
+  -webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
+#rec.act{background:#141312;border-color:#141312;color:#fff}
+#shot{width:42px;padding:0;position:relative}
+#shot::after{content:"";position:absolute;left:50%;top:50%;width:16px;height:12px;margin:-6px 0 0 -8px;border:1.5px solid currentColor}
+#panel{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom,0px) + 70px);z-index:7;width:min(340px,calc(100vw - 24px));
+  padding:16px 16px 14px;background:rgba(236,232,225,.94);color:#2b2523;border:1px solid rgba(0,0,0,.08);display:flex;flex-direction:column;gap:12px;
+  font-size:12.5px;-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px)}
+#panel .row{display:flex;gap:6px}
+#panel .row button{flex:1;appearance:none;font-family:var(--jp);font-size:12px;color:#2b2523;background:transparent;border:1px solid rgba(0,0,0,.18);padding:8px 0;cursor:pointer}
+#panel .row button.on{background:#2b2523;color:#f4efe9}
+#panel label{display:flex;justify-content:space-between;align-items:center;gap:10px}
+#panel input[type=range]{width:160px;accent-color:#a8121b}
+#panel .note{font-size:11px;line-height:1.75;color:#6b625c;margin:0}
+#panel .x{position:absolute;right:6px;top:4px;background:none;border:0;color:#2b2523;font:inherit;font-size:14px;padding:6px 8px;cursor:pointer}
+@media (max-width:480px){
+  #ui{gap:6px}
+  .btn{padding:0 10px}
+  .btn .t{display:none}
+}
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<video id="cam" playsinline muted autoplay></video>
+
+<div id="start">
+  <div class="wrap">
+    <svg class="work" viewBox="0 0 200 250" aria-hidden="true">
+      <defs>
+        <linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#c0222a"/><stop offset="1" stop-color="#8a0e15"/></linearGradient>
+        <linearGradient id="lip" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#3a0507"/><stop offset=".55" stop-color="#5a080c"/><stop offset="1" stop-color="#e2565a"/></linearGradient>
+      </defs>
+      <rect width="200" height="250" fill="url(#lg)"/>
+      <path d="M92 52 Q118 128 104 200 Q100 130 92 52Z" fill="url(#lip)"/>
+      <path d="M94 62 Q112 128 103 186 Q101 128 94 62Z" fill="#0b0606"/>
+      <path d="M58 92 Q70 132 66 168 Q63 132 58 92Z" fill="url(#lip)"/>
+      <path d="M59 100 Q67 132 65.5 160 Q63.6 132 59 100Z" fill="#0b0606"/>
+    </svg>
+    <h1>Sakeme<i>.</i></h1>
+    <div class="sub">裂け目のキャンバス</div>
+    <div class="how">
+      画面は一枚の赤いキャンバス。<br>あなたは、その裏側にいる。<br>
+      手を近づけると、布が手の形に押される。<br>
+      <b>手をすばやく払うと、そこが切れる。</b><br>
+      切れ目の奥から、あなたがのぞく。
+    </div>
+    <button class="go" id="go" type="button">キャンバスの裏へ</button>
+    <div id="err"></div>
+    <div class="note">映像はこの端末の中だけで処理されます。</div>
+  </div>
+</div>
+
+<div id="status" class="off"></div>
+<div id="label"><span id="labelIt">Rosso</span><small id="labelJp">赤いキャンバス</small></div>
+<div id="toast"></div>
+<div id="ui">
+  <button class="btn" id="flip" type="button" aria-label="カメラを切り替える">⟲<span class="t"> カメラ</span></button>
+  <button class="btn" id="pal" type="button">■ 赤</button>
+  <button class="btn" id="fresh" type="button">張り替え</button>
+  <button class="btn" id="rec" type="button" aria-label="録画">●<span class="t"> REC</span></button>
+  <button class="btn" id="shot" type="button" aria-label="いまの画面を保存"></button>
+  <button class="btn" id="gear" type="button" aria-label="調整" aria-expanded="false">⚙</button>
+</div>
+<div id="panel" hidden>
+  <button class="x" id="panelX" type="button" aria-label="閉じる">✕</button>
+  <label>切れやすさ<input id="sCut" type="range" min="0" max="1" step="0.05" value="0.5"></label>
+  <label>体で押す<input id="sBody" type="range" min="0" max="1.5" step="0.05" value="1"></label>
+  <label>手で押す<input id="sHand" type="range" min="0" max="1.5" step="0.05" value="1"></label>
+  <label>光の向き<input id="sLight" type="range" min="-1" max="1" step="0.05" value="0"></label>
+  <div class="row"><button type="button" id="bSound" class="on">音：入</button><button type="button" id="bFs">全画面</button></div>
+  <p class="note">手がうまく映らないときは、画面を指やマウスですばやくなぞっても切れます。ゆっくりなぞると布を押します。</p>
+</div>
+
+<script type="module">
+/* =========================================================
+   SAKEME — 裂け目のキャンバス
+   ========================================================= */
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+const $ = id => document.getElementById(id);
+const hex = h => [parseInt(h.slice(1, 3), 16) / 255, parseInt(h.slice(3, 5), 16) / 255, parseInt(h.slice(5, 7), 16) / 255];
+
+/* ---------- the four canvases ---------- */
+const PALS = [
+  { name: '赤', it: 'Rosso', jp: '赤いキャンバス', col: '#a8121b', sheen: 0.04, ui: 'light', bg: '#7e0d13' },
+  { name: '白', it: 'Bianco', jp: '白いキャンバス', col: '#e7e3da', sheen: 0.03, ui: 'dark', bg: '#cfcac1' },
+  { name: '黒', it: 'Nero', jp: '黒いキャンバス', col: '#161514', sheen: 0.22, ui: 'light', bg: '#0c0b0b' },
+  { name: '青', it: 'Blu', jp: '青いキャンバス', col: '#1e3479', sheen: 0.05, ui: 'light', bg: '#13214c' },
+];
+for (const p of PALS) p.colF = hex(p.col);
+const IT_N = ['', 'un taglio', 'due tagli', 'tre tagli', 'quattro tagli', 'cinque tagli', 'sei tagli', 'sette tagli', 'otto tagli', 'nove tagli', 'dieci tagli', 'undici tagli', 'dodici tagli'];
+
+/* ---------- MediaPipe ---------- */
+const MP_BASE = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14';
+const SEG_MODEL = 'https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite';
+const HAND_MODEL = 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task';
+const DELEGATE = /[?&]cpu=1/.test(location.search) ? 'CPU' : 'GPU';
+
+/* ---------- GL ---------- */
+const cv = $('gl'), video = $('cam'), statusEl = $('status'), toastEl = $('toast');
+const gl = cv.getContext('webgl2', { antialias: false, alpha: false, premultipliedAlpha: false, preserveDrawingBuffer: false });
+if (!gl) { $('err').textContent = 'この端末のブラウザは WebGL2 に対応していないため表示できません。'; $('go').disabled = true; }
+let useFloat = false;
+if (gl) {
+  useFloat = !!gl.getExtension('EXT_color_buffer_float');
+  if (useFloat) {
+    const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, 4, 4, 0, gl.RGBA, gl.HALF_FLOAT, null);
+    const f = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, f); gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, t, 0);
+    useFloat = gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.deleteFramebuffer(f); gl.deleteTexture(t);
+  }
+}
+
+const NOISE = `
+float h12(vec2 p){vec3 p3=fract(vec3(p.xyx)*.1031);p3+=dot(p3,p3.yzx+33.33);return fract((p3.x+p3.y)*p3.z);}
+float vn(vec2 p){vec2 i=floor(p),f=fract(p);vec2 u=f*f*(3.-2.*f);
+  return mix(mix(h12(i),h12(i+vec2(1,0)),u.x),mix(h12(i+vec2(0,1)),h12(i+vec2(1,1)),u.x),u.y);}
+float fbm(vec2 p){float a=.5,s=0.;for(int i=0;i<4;i++){s+=a*vn(p);p=p*2.03+17.1;a*=.5;}return s;}
+`;
+const VS_FULL = `#version 300 es
+out vec2 vUv;
+void main(){vec2 p=vec2(float((gl_VertexID<<1)&2),float(gl_VertexID&2));vUv=p;gl_Position=vec4(p*2.-1.,0.,1.);}`;
+
+/* ---- the cloth: a grid of little springs pulled toward what presses it from behind ---- */
+const FS_SIM = `#version 300 es
+precision highp float;
+in vec2 vUv; out vec4 o;
+uniform sampler2D uPrev, uMask;
+uniform vec2 uVA, uVB, uWH, uTx;          /* uWH: screen size in short-side units */
+uniform float uMaskOK, uBody, uHand, uDt, uLive;
+uniform vec2 uH[42]; uniform vec2 uHS[2];   /* hand points (short-side units), per hand: (scale, on) */
+uniform vec4 uPtr;                   /* a finger on the glass: x, y, radius, amount */
+const int BA[21]=int[21](0,1,2,3,0,5,6,7,5,9,10,11,9,13,14,15,13,0,17,18,19);
+const int BB[21]=int[21](1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,17,18,19,20);
+float sgd(vec2 p,vec2 a,vec2 b){ vec2 ab=b-a; float t=clamp(dot(p-a,ab)/max(dot(ab,ab),1e-8),0.,1.); return length(p-a-ab*t); }
+/* a coarse mip level, read with a few taps so the mound has no facets */
+float mk(vec2 u,float lod){
+  vec2 tx=exp2(lod)/vec2(textureSize(uMask,0));
+  return (textureLod(uMask,u,lod).r*2.+textureLod(uMask,u+tx*vec2(.7,.7),lod).r+textureLod(uMask,u+tx*vec2(-.7,.7),lod).r
+         +textureLod(uMask,u+tx*vec2(.7,-.7),lod).r+textureLod(uMask,u+tx*vec2(-.7,-.7),lod).r)/6.;
+}
+void main(){
+  vec2 s=vec2(vUv.x,1.-vUv.y), q=s*uWH;
+  /* the body leans on the cloth: a soft mound in its shape */
+  float body=0.;
+  if(uMaskOK>.5){
+    vec2 mu=s*uVA+uVB;
+    body=mk(mu,2.)*.2+mk(mu,3.)*.25+mk(mu,4.)*.3+mk(mu,5.)*.25;
+    body=pow(clamp(body,0.,1.),1.3);
+  }
+  float tgt=uBody*.03*body*clamp(uWH.y/uWH.x,1.,1.7);   /* on a tall screen the body is wider, so it presses deeper to show */
+  /* each hand presses harder, finger by finger */
+  for(int k=0;k<2;k++){
+    if(uHS[k].y<.5) continue;
+    float sc=uHS[k].x, hh=0.;
+    for(int i=0;i<21;i++){
+      vec2 a=uH[k*21+BA[i]], b=uH[k*21+BB[i]];
+      bool palm=(i==0||i==4||i==8||i==12||i==16||i==17);
+      float r=sc*(palm?.19:.13);
+      float d=sgd(q,a,b);
+      hh=max(hh,max(exp(-d*d/(r*r)),.5*exp(-d*d/(r*r*6.)))*(palm?.85:.95));
+    }
+    vec2 w0=uH[k*21], pc=(w0+uH[k*21+5]+uH[k*21+9]+uH[k*21+13]+uH[k*21+17])*.2;
+    float dp=length(q-pc); hh=max(hh,exp(-dp*dp/(sc*sc*.2))*.88);
+    vec2 fa=w0+(w0-uH[k*21+9])*1.8;                                  /* the forearm behind the wrist */
+    float df=sgd(q,w0,fa); hh=max(hh,exp(-df*df/(sc*sc*.06))*.7*smoothstep(sc*2.2,0.,length(q-w0)));
+    for(int j=1;j<=5;j++){ float dt=length(q-uH[k*21+j*4]); hh=max(hh,exp(-dt*dt/(sc*sc*.008))); }   /* the fingertips press first */
+    tgt=max(tgt,uHand*.034*hh*clamp(sc/.2,.6,1.2));
+  }
+  if(uPtr.w>0.){ float d=length(q-uPtr.xy); tgt=max(tgt,uPtr.w*.022*exp(-d*d/(uPtr.z*uPtr.z))); }
+  tgt*=uLive;
+  vec4 p=texture(uPrev,vUv); float h=p.r, v=p.g;
+  float lap=texture(uPrev,vUv+vec2(uTx.x,0.)).r+texture(uPrev,vUv-vec2(uTx.x,0.)).r+texture(uPrev,vUv+vec2(0.,uTx.y)).r+texture(uPrev,vUv-vec2(0.,uTx.y)).r-4.*h;
+  float acc=(tgt-h)*110.+lap*200.-v*16.;
+  v+=acc*uDt; h+=v*uDt;
+  o=vec4(h,clamp(v,-1.,1.),0.,1.);
+}`;
+
+/* ---- the cuts, drawn as ribbons into their own buffer: lateral offset, opening, half width, direction ---- */
+const VS_SLIT = `#version 300 es
+in vec2 aPos; in vec4 aD;            /* aD: lateral px, opening px, half width px, direction angle */
+uniform vec2 uRes;
+out vec4 vD;
+void main(){ vD=aD; gl_Position=vec4(aPos.x/uRes.x*2.-1.,1.-aPos.y/uRes.y*2.,0.,1.); }`;
+const FS_SLIT = `#version 300 es
+precision highp float;
+in vec4 vD; out vec4 o;
+const float SMAX=160.;
+void main(){
+  float hw=max(vD.z,1.);
+  float ang=vD.w;
+  o=vec4(clamp(vD.x/hw*.5+.5,0.,1.),clamp(vD.y/hw,0.,1.),clamp(hw/SMAX,0.,1.),fract(ang/6.2831853+1.));
+  gl_FragDepth=clamp((abs(vD.x)-vD.y)/hw*.5+.5,0.,1.);
+}`;
+
+/* ---- the canvas in the gallery light ---- */
+const FS_COMP = `#version 300 es
+precision highp float;
+in vec2 vUv; out vec4 o;
+${NOISE}
+uniform sampler2D uSim, uSlit, uVid, uMask;
+uniform float uMaskOK;
+uniform vec2 uRes, uSimTx, uSimStep, uVA, uVB, uWH;
+uniform vec4 uMat, uMatOld;          /* canvas colour (rgb) */
+uniform float uSheen, uSheenOld, uRoll, uT, uLight, uSeed, uDpr, uLive;
+const float SMAX=160.;
+float weave(vec2 px,float per,out vec2 g){
+  /* a plain linen weave: threads over and under, a little uneven */
+  vec2 j=vec2(vn(px*.035+3.1),vn(px*.035+8.7))*2.2;
+  float k=6.2831853/per;
+  float sx=sin((px.x+j.x)*k), sy=sin((px.y+j.y)*k);
+  float cx=cos((px.x+j.x)*k), cy=cos((px.y+j.y)*k);
+  float slub=.75+.5*vn(vec2(px.x*.02,px.y*.4)+uSeed)*vn(vec2(px.x*.4,px.y*.02)+uSeed*2.);
+  g=vec2(k*cx*sy,k*sx*cy)*slub;
+  return sx*sy*slub;
+}
+vec3 shadeCloth(vec3 alb,float sheen,vec3 n,vec3 L,float spot){
+  float dif=max(dot(n,L),0.);
+  vec3 hv=normalize(L+vec3(0.,0.,1.));
+  float nh=max(dot(n,hv),0.);
+  vec3 c;
+  c=alb*(.3+.92*dif)+vec3(1.)*pow(nh,34.)*sheen;
+  return c*spot;
+}
+void main(){
+  vec2 uv=vUv, s=vec2(uv.x,1.-uv.y), px=s*uRes;      /* px: device pixels, y down */
+  float S=min(uRes.x,uRes.y);
+  float la=-2.35+uLight*1.2;                         /* the one light, raking from the upper left */
+  vec3 L=normalize(vec3(cos(la)*.78,sin(la)*.78,.62));
+  vec2 L2=normalize(-L.xy);                          /* the way the light travels across the picture */
+  /* the cloth's height and slope */
+  float hR=texture(uSim,uv+vec2(uSimTx.x,0.)).r, hL=texture(uSim,uv-vec2(uSimTx.x,0.)).r;
+  float hU=texture(uSim,uv+vec2(0.,uSimTx.y)).r, hD=texture(uSim,uv-vec2(0.,uSimTx.y)).r;
+  vec2 g=vec2((hR-hL)/uSimStep.x,-(hU-hD)/uSimStep.y)*1.15;      /* slope, short-side units, y down */
+  /* the stretcher bars under the edges */
+  vec2 e=min(s*uWH,uWH-s*uWH); float be=min(e.x,e.y);
+  float bar=smoothstep(.052,.036,be);
+  vec2 bg=vec2(0.);
+  float bw=.0045;
+  if(e.x<e.y) bg.x=(s.x<.5?-1.:1.)*exp(-pow((e.x-.044)/bw,2.))*.8; else bg.y=(s.y<.5?-1.:1.)*exp(-pow((e.y-.044)/bw,2.))*.8;
+  vec2 barG=bg*.06;
+  /* the weave, seen in raking light */
+  vec2 wg; float per=max(3.2*uDpr,S/250.);
+  float wv=weave(px,per,wg);
+  /* the cut, if this pixel is near one */
+  vec4 sl=texelFetch(uSlit,ivec2(gl_FragCoord.xy),0);
+  bool roll=uRoll>=0.;
+  float yb=uRoll*1.06;
+  bool fresh=roll && s.y<yb;                          /* the new cloth that is being rolled down */
+  vec4 mat=fresh?uMat:(roll?uMatOld:uMat);
+  float sheen=fresh?uSheen:(roll?uSheenOld:uSheen);
+  g+=barG;
+  float hole=0., lipAO=1., rawEdge=0., shadow=0., lipRim=0.;
+  vec3 behind=vec3(0.);
+  if(sl.b>0. && !fresh){
+    float hw=sl.b*SMAX;
+    float x=(sl.r*2.-1.)*hw, a=sl.g*hw;
+    float ang=sl.a*6.2831853; vec2 nr=vec2(cos(ang),sin(ang));
+    float so=abs(x)-a;
+    float lipW=a*1.1+1.5*uDpr;
+    /* the lips curl back into the dark */
+    if(so>0. && so<lipW){
+      float u=so/lipW, D=a*.85;
+      float slope=2.*D*(1.-u)/lipW;
+      g+=nr*sign(x)*slope*.9;
+      float face=dot(-nr*sign(x),L2);               /* >0: this lip turns toward the light */
+      lipAO=mix(face>0.?.85:.42,1.,smoothstep(0.,1.,u));
+      lipRim=max(face,0.)*exp(-so/(lipW*.3))*.35;
+      rawEdge=(1.-smoothstep(0.,1.3*uDpr,so))*smoothstep(.5,2.5,a);
+    }
+    hole=1.-smoothstep(-.7,.7,so);
+    if(hole>0.){
+      vec2 vu=s*uVA+uVB;
+      vec3 v=texture(uVid,vu).rgb*uLive;
+      float l=dot(v,vec3(.299,.587,.114));
+      v=mix(vec3(l),v,.9); v=pow(v,vec3(1.1));
+      /* behind the canvas it is dark: only the sitter catches the light that comes through */
+      float fig=uMaskOK>.5?smoothstep(.25,.75,textureLod(uMask,vu,.5).r):1.;
+      v*=mix(.05,1.1,fig);
+      /* deep in the slit it is dark; the lip nearer the light shades the inside */
+      float sd=dot(nr,L2), sg=sd>=0.?1.:-1.;
+      float dist=x*sg+a;
+      float sw=abs(sd)*(a*.95+3.*uDpr)+1.;
+      shadow=1.-smoothstep(0.,sw,dist);
+      float ao=smoothstep(0.,min(a,9.*uDpr),a-abs(x));
+      behind=v*mix(.12,1.,ao)*(1.-.82*shadow);
+    }
+  }
+  /* light the cloth */
+  vec3 n=normalize(vec3(-g.x-wg.x*.05,-g.y-wg.y*.05,1.));
+  vec2 sp=s*uWH-vec2(-.15,-.2);
+  float spot=mix(1.16,.7,smoothstep(.2,1.9,length(sp)/max(uWH.x,uWH.y)*1.25));
+  spot*=1.-.18*bar*smoothstep(.036,.0,be);
+  float brush=(fbm(vec2(s.x+s.y*.35,s.y-s.x*.2)*uWH*vec2(2.,5.)+uSeed)-.5)*.06+(vn(px/vec2(40.,16.)+uSeed)-.5)*.012;
+  vec3 alb=mat.rgb*(1.+brush+wv*.035);
+  vec3 col=shadeCloth(alb,sheen,n,L,spot)*lipAO;
+  col+=mix(alb,vec3(1.),.35)*lipRim*spot;
+  vec3 raw=vec3(.86,.8,.68)*(.45+.6*max(dot(n,L),0.))*spot;
+  col=mix(col,raw,rawEdge*.55);
+  col=mix(col,behind,hole);
+  /* the new cloth rolling down over the old */
+  if(roll){
+    float dy=s.y-yb;
+    if(dy>0.) col*=1.-.42*exp(-dy/.018);
+    else col+=mat.rgb*.35*exp(-(-dy)/.006)+vec3(.05)*exp(-(-dy)/.003);
+  }
+  /* photograph finish: a little grain */
+  col+=(h12(px+fract(uT*7.)*100.)-.5)*.018;
+  o=vec4(col,1.);
+}`;
+
+function mkProg(vsSrc, fsSrc) {
+  const sh = (t, s) => { const o = gl.createShader(t); gl.shaderSource(o, s); gl.compileShader(o);
+    if (!gl.getShaderParameter(o, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(o)); return o; };
+  const p = gl.createProgram(); gl.attachShader(p, sh(gl.VERTEX_SHADER, vsSrc)); gl.attachShader(p, sh(gl.FRAGMENT_SHADER, fsSrc));
+  gl.bindAttribLocation(p, 0, 'aPos'); gl.bindAttribLocation(p, 1, 'aD'); gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+  const u = {}, n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+  for (let i = 0; i < n; i++) { const info = gl.getActiveUniform(p, i); u[info.name.replace(/\[0\]$/, '')] = gl.getUniformLocation(p, info.name); }
+  return { p, u };
+}
+const f1 = (P, n, v) => { const l = P.u[n]; if (l) gl.uniform1f(l, v); };
+const f2 = (P, n, a, b) => { const l = P.u[n]; if (l) gl.uniform2f(l, a, b); };
+const f4 = (P, n, a) => { const l = P.u[n]; if (l) gl.uniform4f(l, a[0], a[1], a[2], a[3]); };
+const i1 = (P, n, v) => { const l = P.u[n]; if (l) gl.uniform1i(l, v); };
+
+let PR = null, VAO = null, slitVAO = null, slitBuf = null, texVid = null, texMask = null;
+let simA = null, simB = null, simW = 0, simH = 0, simFlip = false, slitT = null;
+function mkTex(w, h, fmt) {
+  const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t);
+  const lin = fmt !== 'slit';
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, lin ? gl.LINEAR : gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, lin ? gl.LINEAR : gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  if (fmt === 'sim' && useFloat) gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, w, h, 0, gl.RGBA, gl.HALF_FLOAT, null);
+  else gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+  const f = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, f); gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, t, 0);
+  let rb = null;
+  if (fmt === 'slit') { rb = gl.createRenderbuffer(); gl.bindRenderbuffer(gl.RENDERBUFFER, rb); gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT16, w, h); gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, rb); }
+  gl.viewport(0, 0, w, h); gl.clearColor(fmt === 'slit' ? 0.5 : 0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT); gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  return { t, f, rb, w, h };
+}
+const freeT = T => { if (T) { gl.deleteTexture(T.t); gl.deleteFramebuffer(T.f); if (T.rb) gl.deleteRenderbuffer(T.rb); } };
+function initGL() {
+  PR = { sim: mkProg(VS_FULL, FS_SIM), slit: mkProg(VS_SLIT, FS_SLIT), comp: mkProg(VS_FULL, FS_COMP) };
+  VAO = gl.createVertexArray();
+  slitVAO = gl.createVertexArray(); gl.bindVertexArray(slitVAO);
+  slitBuf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, slitBuf);
+  gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 24, 0);
+  gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 4, gl.FLOAT, false, 24, 8);
+  gl.bindVertexArray(null);
+  texVid = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, texVid);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([8, 8, 8, 255]));
+  texMask = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, texMask);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, 1, 1, 0, gl.RED, gl.UNSIGNED_BYTE, new Uint8Array([0])); gl.generateMipmap(gl.TEXTURE_2D);
+}
+
+/* ---------- state ---------- */
+let W = 0, H = 0, DPR = 1, S = 1;
+let vw = 0, vh = 0, VA_ = [1, 1], VB_ = [0, 0];
+let running = false, facing = 'user', mirror = true, stream = null;
+let palIdx = 0, palOld = 0, cutEase = 0.5, bodyAmt = 1, handAmt = 1, lightAmt = 0, soundOn = true;
+let T = 0, lastT = performance.now() / 1000, shotReq = false, seed = Math.random() * 10;
+let roll = -1, rollFrom = 0;
+const TEST = { dt: 0, freeze: false, frames: 0, hands: null, budget: null };
+
+/* ---------- layout ---------- */
+function resize() {
+  W = innerWidth; H = innerHeight; S = Math.min(W, H);
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  if (W * H * DPR * DPR > 2.6e6) DPR = Math.sqrt(2.6e6 / (W * H));
+  cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR);
+  if (!PR) return;
+  const sc = 300 / S, nw = Math.round(W * sc), nh = Math.round(H * sc);
+  if (nw !== simW || nh !== simH) { freeT(simA); freeT(simB); simW = nw; simH = nh; simA = mkTex(nw, nh, 'sim'); simB = mkTex(nw, nh, 'sim'); }
+  if (!slitT || slitT.w !== cv.width || slitT.h !== cv.height) { freeT(slitT); slitT = mkTex(cv.width, cv.height, 'slit'); }
+  updateVideoMap();
+}
+/* screen uv (top-left origin) → video uv is s*VA_ + VB_ (the camera covers the screen, mirrored for the front camera) */
+function updateVideoMap() {
+  vw = video.videoWidth || 0; vh = video.videoHeight || 0; if (!vw || !W) return;
+  const va = vw / vh, sa = W / H; let fx = 1, fy = 1;
+  if (va > sa) fx = sa / va; else fy = va / sa;
+  VA_ = [mirror ? -fx : fx, fy]; VB_ = [mirror ? 0.5 + fx / 2 : 0.5 - fx / 2, 0.5 - fy / 2];
+}
+const v2s = (x, y) => [(x - VB_[0]) / VA_[0] * W, (y - VB_[1]) / VA_[1] * H];   // video uv → screen css px
+
+/* ---------- the sitter and the hands ---------- */
+let segmenter = null, handLm = null, mpErr = false, mpTs = 0, lastSegMs = -1e9, lastHandMs = -1e9, maskOK = false;
+const segC = document.createElement('canvas'), segX = segC.getContext('2d');
+let maskF = new Float32Array(0), maskU8 = new Uint8Array(0), segW = 0, segH = 0;
+async function initMP() {
+  try {
+    let V; try { V = await import(`${MP_BASE}/vision_bundle.mjs`); } catch (e) { V = await import(MP_BASE); }
+    const fs = await V.FilesetResolver.forVisionTasks(`${MP_BASE}/wasm`);
+    const segOpts = d => ({ baseOptions: { modelAssetPath: SEG_MODEL, delegate: d }, runningMode: 'VIDEO', outputCategoryMask: false, outputConfidenceMasks: true });
+    const handOpts = d => ({ baseOptions: { modelAssetPath: HAND_MODEL, delegate: d }, runningMode: 'VIDEO', numHands: 2,
+      minHandDetectionConfidence: 0.5, minHandPresenceConfidence: 0.5, minTrackingConfidence: 0.5 });
+    try { handLm = await V.HandLandmarker.createFromOptions(fs, handOpts(DELEGATE)); }
+    catch (e) { handLm = await V.HandLandmarker.createFromOptions(fs, handOpts('CPU')); }
+    try { segmenter = await V.ImageSegmenter.createFromOptions(fs, segOpts(DELEGATE)); }
+    catch (e) { try { segmenter = await V.ImageSegmenter.createFromOptions(fs, segOpts('CPU')); } catch (e2) { console.warn('segmenter', e2); } }
+  } catch (e) { console.warn('MediaPipe failed: the cloth can still be pressed and cut on the screen', e); mpErr = true; showStatus('手の読み取りを使えません。画面をすばやくなぞると切れます', 6000); }
+}
+function nextTs(nowMs) { mpTs = Math.max(nowMs, mpTs + 1); return mpTs; }
+function runSeg(nowMs) {
+  if (!segmenter || !vw || video.readyState < 2 || nowMs - lastSegMs < 70) return;
+  lastSegMs = nowMs;
+  const sw = vw >= vh ? 256 : Math.round(256 * vw / vh), sh = vw >= vh ? Math.round(256 * vh / vw) : 256;
+  if (sw !== segW || sh !== segH) { segW = segC.width = sw; segH = segC.height = sh; maskF = new Float32Array(sw * sh); maskU8 = new Uint8Array(sw * sh); }
+  segX.drawImage(video, 0, 0, segW, segH);
+  try {
+    segmenter.segmentForVideo(segC, nextTs(nowMs), res => {
+      const ms = res && res.confidenceMasks; if (!ms || !ms.length) return;
+      const d = ms[ms.length - 1].getAsFloat32Array(); if (!d || d.length < segW * segH) return;
+      for (let i = 0; i < maskF.length; i++) { const v = d[i]; maskF[i] += ((v >= 0 && v <= 1 ? v : 0) - maskF[i]) * 0.5; maskU8[i] = maskF[i] * 255; }
+      gl.bindTexture(gl.TEXTURE_2D, texMask); gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, segW, segH, 0, gl.RED, gl.UNSIGNED_BYTE, maskU8); gl.generateMipmap(gl.TEXTURE_2D);
+      maskOK = true;
+    });
+  } catch (e) { console.warn(e); }
+}
+/* two hand slots, each with its own knife */
+const HANDS = [0, 1].map(() => ({ on: false, seen: 0, pts: new Float32Array(42), sc: 0.2, tip: [0, 0], vel: [0, 0], speed: 0, lastMs: 0, cut: null, lostMs: 0 }));
+const finite = v => typeof v === 'number' && isFinite(v);
+function takeHands(list, nowMs) {
+  /* list: arrays of 21 {x,y} in video uv. Match them to the slots by the wrist. */
+  const got = [];
+  for (const lm of list || []) {
+    if (!lm || lm.length < 21) continue;
+    let ok = true; for (let i = 0; i < 21; i++) if (!lm[i] || !finite(lm[i].x) || !finite(lm[i].y)) { ok = false; break; }
+    if (ok) got.push(lm);
+  }
+  const used = [false, false];
+  for (const lm of got.slice(0, 2)) {
+    const [wx, wy] = v2s(lm[0].x, lm[0].y);
+    let best = -1, bd = 0.3 * S;
+    for (let k = 0; k < 2; k++) { const h = HANDS[k]; if (used[k] || !h.on) continue; const d = Math.hypot(h.pts[0] * S - wx, h.pts[1] * S - wy); if (d < bd) { bd = d; best = k; } }
+    if (best < 0) for (let k = 0; k < 2; k++) if (!used[k] && !HANDS[k].on) { best = k; break; }
+    if (best < 0) for (let k = 0; k < 2; k++) if (!used[k]) { best = k; loseHand(HANDS[k], nowMs); break; }
+    if (best < 0) continue;
+    used[best] = true; updateHand(HANDS[best], lm, nowMs);
+  }
+  for (let k = 0; k < 2; k++) if (!used[k] && HANDS[k].on) loseHand(HANDS[k], nowMs);
+}
+function updateHand(h, lm, nowMs) {
+  for (let i = 0; i < 21; i++) { const [x, y] = v2s(lm[i].x, lm[i].y); h.pts[i * 2] = x / S; h.pts[i * 2 + 1] = y / S; }
+  h.sc = clamp(Math.hypot(h.pts[18] - h.pts[0], h.pts[19] - h.pts[1]), 0.04, 0.6);
+  const tx = h.pts[16] * S, ty = h.pts[17] * S;   // the index fingertip is the knife
+  if (h.on) {
+    const dt = clamp((nowMs - h.lastMs) / 1000, 0.008, 0.2);
+    const vx = (tx - h.tip[0]) / dt / S, vy = (ty - h.tip[1]) / dt / S;
+    h.vel[0] += (vx - h.vel[0]) * 0.6; h.vel[1] += (vy - h.vel[1]) * 0.6;
+    h.speed = Math.hypot(h.vel[0], h.vel[1]);
+    h.seen += dt;
+  } else { h.seen = 0; h.vel[0] = h.vel[1] = 0; h.speed = 0; }
+  const prev = [h.tip[0], h.tip[1]];
+  h.tip[0] = tx; h.tip[1] = ty; h.on = true; h.lastMs = nowMs;
+  knife(h, prev, nowMs / 1000);
+}
+function loseHand(h, nowMs) { if (h.cut) endCut(h); h.on = false; h.seen = 0; h.speed = 0; }
+let lastHandVT = -1, lastTestHands = null;
+function runHands(nowMs) {
+  /* only a new camera frame is a new observation (a repeated frame would read as a hand that stopped) */
+  if (TEST.hands) { if (TEST.hands !== lastTestHands) { lastTestHands = TEST.hands; takeHands(TEST.hands, nowMs); } return; }
+  if (!handLm || !vw || video.readyState < 2 || nowMs - lastHandMs < 25 || video.currentTime === lastHandVT) return;
+  lastHandMs = nowMs; lastHandVT = video.currentTime;
+  try { const r = handLm.detectForVideo(video, nextTs(nowMs)); takeHands(r && r.landmarks, nowMs); } catch (e) { console.warn(e); }
+}
+
+/* ---------- the cuts ---------- */
+const MAXCUTS = 24;
+let cuts = [];
+const vCut = () => 2.3 - cutEase * 1.8;          // short sides per second
+function knife(h, prev, now) {
+  const v = vCut();
+  if (roll >= 0) { if (h.cut) endCut(h); return; }
+  if (!h.cut) {
+    if (h.seen > 0.25 && h.speed > v) { h.cut = startCut(prev[0], prev[1], h.tip[0], h.tip[1], now); h.slow = 0; }
+  } else {
+    h.slow = h.speed < v * 0.4 ? (h.slow || 0) + 1 : 0;
+    if (h.slow >= 2 || now - h.cut.t0 > 0.9) endCut(h);
+    else { addPt(h.cut, h.tip[0], h.tip[1], now); AE.ripLevel(h.speed / v); }
+  }
+}
+function startCut(x0, y0, x1, y1, now) {
+  const c = { raw: [[x0, y0, now - 0.03], [x1, y1, now]], t0: now - 0.03, live: true, closeT: -1, fit: null };
+  cuts.push(c);
+  if (cuts.filter(k => k.closeT < 0).length > MAXCUTS) { const old = cuts.find(k => k.closeT < 0 && !k.live); if (old) old.closeT = T; }
+  fitCut(c); AE.ripStart();
+  return c;
+}
+function addPt(c, x, y, now) { c.raw.push([x, y, now]); fitCut(c); }
+function endCut(h) {
+  const c = h.cut; h.cut = null; if (!c) return;
+  c.live = false; AE.ripEnd();
+  if (!c.fit || c.fit.len < 0.07 * S) { cuts.splice(cuts.indexOf(c), 1); return; }
+  AE.thump(c.fit.len / S); label();
+}
+/* a knife line is clean: fit the hand's path to one smooth curve (start, end, and the point that bows furthest) */
+function fitCut(c) {
+  const r = c.raw, A = r[0], B = r[r.length - 1];
+  const dx = B[0] - A[0], dy = B[1] - A[1], L = Math.hypot(dx, dy) || 1;
+  let far = 0, M = [(A[0] + B[0]) / 2, (A[1] + B[1]) / 2];
+  for (const p of r) { const d = ((p[0] - A[0]) * dy - (p[1] - A[1]) * dx) / L; if (Math.abs(d) > Math.abs(far)) { far = d; } }
+  far = clamp(far, -0.08 * L, 0.08 * L);
+  M = [M[0] + dy / L * far, M[1] - dx / L * far];
+  c.fit = { A: [A[0], A[1]], B: [B[0], B[1]], C: [2 * M[0] - (A[0] + B[0]) / 2, 2 * M[1] - (A[1] + B[1]) / 2], len: L, tA: A[2], tB: B[2] };
+}
+/* the cloth springs open behind the blade, overshoots a little, and settles */
+const opening = age => age <= 0 ? 0 : clamp(1 - Math.exp(-age * 7) * Math.cos(age * 11), 0, 1.25);
+let vbuf = new Float32Array(6 * 6 * 48 * MAXCUTS * 2);
+function buildSlits() {
+  let n = 0;
+  const need = cuts.length * 47 * 6 * 6; if (vbuf.length < need) vbuf = new Float32Array(need * 2);
+  const put = (x, y, lat, op, hw, ang) => { vbuf[n++] = x * DPR; vbuf[n++] = y * DPR; vbuf[n++] = lat * DPR; vbuf[n++] = op * DPR; vbuf[n++] = hw * DPR; vbuf[n++] = ang; };
+  const K = 48, P = new Float32Array(K * 2), A = new Float32Array(K), HW = new Float32Array(K), NX = new Float32Array(K), NY = new Float32Array(K), AN = new Float32Array(K);
+  for (const c of cuts) {
+    const f = c.fit; if (!f) continue;
+    const Wmax = clamp(f.len * 0.03, 2, 0.022 * S);
+    const close = c.closeT >= 0 ? 1 - clamp((T - c.closeT) / 0.4, 0, 1) : 1;
+    const dur = Math.max(1e-3, f.tB - f.tA), now = c.live ? f.tB : Infinity;
+    for (let i = 0; i < K; i++) {
+      const t = i / (K - 1), u = 1 - t;
+      P[i * 2] = u * u * f.A[0] + 2 * u * t * f.C[0] + t * t * f.B[0];
+      P[i * 2 + 1] = u * u * f.A[1] + 2 * u * t * f.C[1] + t * t * f.B[1];
+      const prof = Math.pow(Math.sin(Math.PI * t), 0.72);
+      const born = f.tA + t * dur;
+      const age = c.live ? Math.max(0, Tnow - born) : Tnow - born;
+      A[i] = Wmax * prof * opening(age) * close * (c.live ? clamp((now - born) / 0.06 + 0.2, 0, 1) : 1);
+    }
+    for (let i = 0; i < K; i++) {
+      const i0 = Math.max(0, i - 1), i1 = Math.min(K - 1, i + 1);
+      let tx = P[i1 * 2] - P[i0 * 2], ty = P[i1 * 2 + 1] - P[i0 * 2 + 1]; const tl = Math.hypot(tx, ty) || 1; tx /= tl; ty /= tl;
+      NX[i] = -ty; NY[i] = tx;
+      AN[i] = Math.atan2(NY[i], NX[i]);
+      if (i > 0) { while (AN[i] - AN[i - 1] > Math.PI) AN[i] -= 2 * Math.PI; while (AN[i] - AN[i - 1] < -Math.PI) AN[i] += 2 * Math.PI; }   // keep the angle continuous along the ribbon
+      HW[i] = Math.min(A[i] * 2.3 + 6, 150 / DPR);
+    }
+    for (let i = 0; i < K - 1; i++) {
+      const j = i + 1;
+      const angI = AN[i], angJ = AN[j];
+      const ax = P[i * 2] + NX[i] * HW[i], ay = P[i * 2 + 1] + NY[i] * HW[i], bx = P[i * 2] - NX[i] * HW[i], by = P[i * 2 + 1] - NY[i] * HW[i];
+      const cx = P[j * 2] + NX[j] * HW[j], cy = P[j * 2 + 1] + NY[j] * HW[j], dx = P[j * 2] - NX[j] * HW[j], dy = P[j * 2 + 1] - NY[j] * HW[j];
+      put(ax, ay, HW[i], A[i], HW[i], angI); put(bx, by, -HW[i], A[i], HW[i], angI); put(cx, cy, HW[j], A[j], HW[j], angJ);
+      put(bx, by, -HW[i], A[i], HW[i], angI); put(dx, dy, -HW[j], A[j], HW[j], angJ); put(cx, cy, HW[j], A[j], HW[j], angJ);
+    }
+  }
+  cuts = cuts.filter(c => !(c.closeT >= 0 && T - c.closeT > 0.45));
+  return n / 6;
+}
+let Tnow = 0;
+function label() {
+  const p = PALS[palIdx], n = cuts.filter(c => !c.live && c.closeT < 0).length;
+  $('labelIt').textContent = p.it + (n ? ', ' + (IT_N[n] || n + ' tagli') : '');
+  $('labelJp').textContent = p.jp + (n ? '　切れ目 ' + n : '');
+}
+
+/* ---------- a finger or the mouse on the glass ---------- */
+const PTR = { down: false, id: -1, x: 0, y: 0, vx: 0, vy: 0, speed: 0, lastMs: 0, amt: 0, cut: null, tip: [0, 0], seen: 1, on: false };
+cv.addEventListener('pointerdown', e => {
+  if (!panel.hidden) { panel.hidden = true; $('gear').setAttribute('aria-expanded', 'false'); }
+  if (!running) return;
+  PTR.down = true; PTR.id = e.pointerId; PTR.x = e.clientX; PTR.y = e.clientY; PTR.tip = [e.clientX, e.clientY]; PTR.lastMs = performance.now(); PTR.speed = 0; PTR.vx = PTR.vy = 0;
+  try { cv.setPointerCapture(e.pointerId); } catch (err) {}
+});
+cv.addEventListener('pointermove', e => {
+  if (!PTR.down || e.pointerId !== PTR.id) return;
+  const nowMs = performance.now(), dt = clamp((nowMs - PTR.lastMs) / 1000, 0.004, 0.2);
+  const prev = [PTR.tip[0], PTR.tip[1]];
+  const vx = (e.clientX - prev[0]) / dt / S, vy = (e.clientY - prev[1]) / dt / S;
+  PTR.vx += (vx - PTR.vx) * 0.5; PTR.vy += (vy - PTR.vy) * 0.5; PTR.speed = Math.hypot(PTR.vx, PTR.vy);
+  PTR.tip = [e.clientX, e.clientY]; PTR.x = e.clientX; PTR.y = e.clientY; PTR.lastMs = nowMs;
+  knife(PTR, prev, nowMs / 1000);
+});
+const ptrUp = e => { if (e.pointerId !== PTR.id) return; PTR.down = false; if (PTR.cut) endCut(PTR); };
+cv.addEventListener('pointerup', ptrUp); cv.addEventListener('pointercancel', ptrUp);
+
+/* ---------- sounds of the studio ---------- */
+const AE = {
+  ac: null, ready: false, recDest: null, rip: null,
+  init() {
+    if (this.ac) { this.ac.resume && this.ac.resume(); return; }
+    try {
+      const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+      const ac = this.ac = new AC();
+      this.master = ac.createGain(); this.master.gain.value = 0.85;
+      const comp = ac.createDynamicsCompressor(); comp.threshold.value = -14; comp.ratio.value = 3;
+      this.master.connect(comp); comp.connect(ac.destination);
+      try { this.recDest = ac.createMediaStreamDestination(); comp.connect(this.recDest); } catch (e) { this.recDest = null; }
+      const len = ac.sampleRate * 1.8 | 0, ir = ac.createBuffer(2, len, ac.sampleRate);
+      for (let c = 0; c < 2; c++) { const d = ir.getChannelData(c); for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 3); }
+      const conv = ac.createConvolver(); conv.buffer = ir; const wet = ac.createGain(); wet.gain.value = 0.22;
+      this.bus = ac.createGain(); this.bus.connect(this.master); this.bus.connect(conv); conv.connect(wet); wet.connect(this.master);
+      this.noise = ac.createBuffer(1, ac.sampleRate * 2 | 0, ac.sampleRate);
+      const nd = this.noise.getChannelData(0); for (let i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
+      /* a quiet gallery */
+      const rs = ac.createBufferSource(); rs.buffer = this.noise; rs.loop = true;
+      const lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 220;
+      const rg = ac.createGain(); rg.gain.value = 0.03; rs.connect(lp); lp.connect(rg); rg.connect(this.master); rs.start();
+      /* the knife through canvas: a held band of noise, opened by speed */
+      const ns = ac.createBufferSource(); ns.buffer = this.noise; ns.loop = true;
+      const bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 2600; bp.Q.value = 0.9;
+      const hp = ac.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 900;
+      const g = ac.createGain(); g.gain.value = 0; ns.connect(bp); bp.connect(hp); hp.connect(g); g.connect(this.bus); ns.start();
+      this.rip = { g, bp };
+      this.ready = true;
+    } catch (e) { console.warn('audio', e); }
+  },
+  ok() { return this.ready && soundOn; },
+  level() { if (this.ready) this.master.gain.setTargetAtTime(soundOn ? 0.85 : 0, this.ac.currentTime, 0.1); },
+  click(t, f, q, vol, dur) {
+    const ac = this.ac, src = ac.createBufferSource(); src.buffer = this.noise;
+    const bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = f; bp.Q.value = q;
+    const g = ac.createGain(); g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    src.connect(bp); bp.connect(g); g.connect(this.bus); src.start(t, Math.random()); src.stop(t + dur + 0.02);
+  },
+  tone(t, f0, f1, vol, dur) {
+    const ac = this.ac, o = ac.createOscillator(); o.type = 'sine';
+    o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(f1, t + dur);
+    const g = ac.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + 0.006); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g); g.connect(this.bus); o.start(t); o.stop(t + dur + 0.02);
+  },
+  ripStart() { if (!this.ok()) return; const t = this.ac.currentTime; this.rip.g.gain.cancelScheduledValues(t); this.rip.g.gain.setTargetAtTime(0.22, t, 0.008); this.click(t, 3400, 2, 0.25, 0.04); },
+  ripLevel(k) { if (!this.ok()) return; const t = this.ac.currentTime; this.rip.g.gain.setTargetAtTime(clamp(0.12 + 0.12 * k, 0, 0.32), t, 0.02); this.rip.bp.frequency.setTargetAtTime(1800 + 900 * clamp(k, 0, 2), t, 0.03);
+    if (Math.random() < 0.5) this.click(t + Math.random() * 0.02, 1500 + Math.random() * 3000, 6, 0.08, 0.02); },
+  ripEnd() { if (!this.ready) return; const t = this.ac.currentTime; this.rip.g.gain.cancelScheduledValues(t); this.rip.g.gain.setTargetAtTime(0, t, 0.025); },
+  thump(len) { if (!this.ok()) return; const t = this.ac.currentTime; this.tone(t, 88, 46, 0.32 * clamp(len * 2, 0.4, 1.2), 0.32); this.click(t, 500, 1.2, 0.08, 0.12); },
+  staple(t) { if (!this.ok()) return; this.click(t, 3800, 3, 0.35, 0.03); this.tone(t, 160, 90, 0.18, 0.07); },
+  roll() { if (!this.ok()) return; const t = this.ac.currentTime; for (let i = 0; i < 7; i++) this.staple(t + 0.22 + i * 0.16 + Math.random() * 0.03);
+    const src = this.ac.createBufferSource(); src.buffer = this.noise; const lp = this.ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 700;
+    const g = this.ac.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.12, t + 0.15); g.gain.exponentialRampToValueAtTime(0.0001, t + 1.3);
+    src.connect(lp); lp.connect(g); g.connect(this.bus); src.start(t); src.stop(t + 1.35); },
+};
+
+/* ---------- render ---------- */
+function stepSim(dt) {
+  const P = PR.sim;
+  const hp = new Float32Array(84), hs = new Float32Array(4);
+  for (let k = 0; k < 2; k++) { const h = HANDS[k]; if (!h.on) continue; hp.set(h.pts, k * 42); hs[k * 2] = h.sc; hs[k * 2 + 1] = 1; }
+  PTR.amt += ((PTR.down ? 1 : 0) - PTR.amt) * Math.min(1, dt * 10);
+  const sub = 2;
+  for (let i = 0; i < sub; i++) {
+    const src = simFlip ? simB : simA, dst = simFlip ? simA : simB; simFlip = !simFlip;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, dst.f); gl.viewport(0, 0, simW, simH);
+    gl.useProgram(P.p); gl.bindVertexArray(VAO);
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, src.t); i1(P, 'uPrev', 0);
+    gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, texMask); i1(P, 'uMask', 1);
+    f2(P, 'uVA', VA_[0], VA_[1]); f2(P, 'uVB', VB_[0], VB_[1]); f2(P, 'uWH', W / S, H / S); f2(P, 'uTx', 1 / simW, 1 / simH);
+    f1(P, 'uMaskOK', maskOK ? 1 : 0); f1(P, 'uBody', bodyAmt); f1(P, 'uHand', handAmt); f1(P, 'uDt', Math.min(dt, 1 / 30) / sub); f1(P, 'uLive', vw ? 1 : 0);
+    if (P.u.uH) gl.uniform2fv(P.u.uH, hp); if (P.u.uHS) gl.uniform2fv(P.u.uHS, hs);
+    f4(P, 'uPtr', [PTR.x / S, PTR.y / S, 0.035, PTR.amt]);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+  }
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+}
+function drawSlits() {
+  const nv = buildSlits();
+  gl.bindFramebuffer(gl.FRAMEBUFFER, slitT.f); gl.viewport(0, 0, slitT.w, slitT.h);
+  gl.clearColor(0.5, 0, 0, 0); gl.clearDepth(1); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+  if (nv > 0) {
+    const P = PR.slit; gl.useProgram(P.p); f2(P, 'uRes', slitT.w, slitT.h);
+    gl.bindVertexArray(slitVAO); gl.bindBuffer(gl.ARRAY_BUFFER, slitBuf); gl.bufferData(gl.ARRAY_BUFFER, vbuf.subarray(0, nv * 6), gl.DYNAMIC_DRAW);
+    gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.LESS);
+    gl.drawArrays(gl.TRIANGLES, 0, nv);
+    gl.disable(gl.DEPTH_TEST); gl.bindVertexArray(null);
+  }
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+}
+function composite() {
+  const P = PR.comp, p = PALS[palIdx], po = PALS[palOld];
+  gl.viewport(0, 0, cv.width, cv.height); gl.useProgram(P.p); gl.bindVertexArray(VAO);
+  const sim = simFlip ? simA : simB;
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, sim.t); i1(P, 'uSim', 0);
+  gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, slitT.t); i1(P, 'uSlit', 1);
+  gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, texVid); i1(P, 'uVid', 2);
+  gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, texMask); i1(P, 'uMask', 3); f1(P, 'uMaskOK', maskOK ? 1 : 0);
+  f2(P, 'uRes', cv.width, cv.height); f2(P, 'uSimTx', 1 / simW, 1 / simH); f2(P, 'uSimStep', 2 / simW * W / S, 2 / simH * H / S);
+  f2(P, 'uVA', VA_[0], VA_[1]); f2(P, 'uVB', VB_[0], VB_[1]); f2(P, 'uWH', W / S, H / S);
+  f4(P, 'uMat', [...p.colF, 0]); f4(P, 'uMatOld', [...po.colF, 0]);
+  f1(P, 'uSheen', p.sheen); f1(P, 'uSheenOld', po.sheen); f1(P, 'uRoll', roll); f1(P, 'uT', T); f1(P, 'uLight', lightAmt);
+  f1(P, 'uSeed', seed); f1(P, 'uDpr', DPR); f1(P, 'uLive', vw ? 1 : 0);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+}
+
+/* ---------- loop ---------- */
+let lastUpVT = -1;
+function frame(nowMs) {
+  requestAnimationFrame(frame);
+  const now = nowMs / 1000; let dt = now - lastT; lastT = now; dt = clamp(dt, 0, 0.1);
+  if (!running || !PR) return;
+  if (TEST.freeze) dt = 0; else if (TEST.dt) dt = TEST.dt;
+  if (TEST.budget != null) { if (TEST.budget <= 0) return; TEST.budget--; }   // test: advance exactly N frames
+  T += dt; Tnow = TEST.dt ? T : now; TEST.frames++;
+  updateVideoMap();
+  if (vw && video.readyState >= 2 && video.currentTime !== lastUpVT) {
+    lastUpVT = video.currentTime;
+    gl.bindTexture(gl.TEXTURE_2D, texVid);
+    try { gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video); } catch (e) {}
+  }
+  runSeg(nowMs); runHands(TEST.dt ? T * 1000 : nowMs);
+  if (roll >= 0) { roll += dt / 1.25; if (roll >= 1) { roll = -1; palOld = palIdx; cuts = []; label(); } }
+  if (dt > 0) stepSim(dt);
+  drawSlits(); composite();
+  if (shotReq) { shotReq = false; saveShot(); }
+}
+
+/* ---------- UI ---------- */
+let toastTimer = 0, statusTimer = 0;
+function toast(s) { toastEl.textContent = s; toastEl.classList.add('on'); clearTimeout(toastTimer); toastTimer = setTimeout(() => toastEl.classList.remove('on'), 1200); }
+function showStatus(s, ms) { clearTimeout(statusTimer); if (s) statusEl.textContent = s; statusEl.classList.toggle('off', !s); if (s && ms) statusTimer = setTimeout(() => statusEl.classList.add('off'), ms); }
+function applyUi() {
+  const p = PALS[palIdx], r = document.documentElement.style;
+  if (p.ui === 'dark') { r.setProperty('--ui-ink', '#231e1c'); r.setProperty('--ui-bg', 'rgba(255,255,255,.35)'); r.setProperty('--ui-line', 'rgba(35,30,28,.25)'); }
+  else { r.setProperty('--ui-ink', '#f4efe9'); r.setProperty('--ui-bg', 'rgba(20,8,8,.32)'); r.setProperty('--ui-line', 'rgba(244,239,233,.28)'); }
+  document.body.style.background = p.bg;
+  $('pal').textContent = '■ ' + p.name;
+  label();
+}
+/* a fresh canvas is rolled down over the old one */
+function restretch(next) {
+  if (roll >= 0) return;
+  for (const h of [...HANDS, PTR]) if (h.cut) endCut(h);
+  palOld = palIdx; if (next != null) palIdx = next;
+  roll = 0; seed = Math.random() * 10; AE.roll(); applyUi();
+  toast(PALS[palIdx].it);
+}
+$('pal').onclick = () => restretch((palIdx + 1) % PALS.length);
+$('fresh').onclick = () => restretch(null);
+const panel = $('panel');
+$('gear').onclick = () => { panel.hidden = !panel.hidden; $('gear').setAttribute('aria-expanded', String(!panel.hidden)); };
+$('panelX').onclick = () => { panel.hidden = true; $('gear').setAttribute('aria-expanded', 'false'); };
+$('sCut').oninput = e => { cutEase = +e.target.value; };
+$('sBody').oninput = e => { bodyAmt = +e.target.value; };
+$('sHand').oninput = e => { handAmt = +e.target.value; };
+$('sLight').oninput = e => { lightAmt = +e.target.value; };
+const tog = (id, on, a, b) => { const el = $(id); el.classList.toggle('on', on); el.textContent = on ? a : b; };
+$('bSound').onclick = () => { soundOn = !soundOn; tog('bSound', soundOn, '音：入', '音：切'); if (soundOn) AE.init(); AE.level(); };
+const fsBtn = $('bFs');
+if (!document.documentElement.requestFullscreen) fsBtn.style.display = 'none';
+else fsBtn.onclick = () => document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen().catch(() => {});
+$('shot').onclick = () => { shotReq = true; };
+function saveShot() {
+  try {
+    cv.toBlob(b => { if (!b) return; const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = 'sakeme_' + Date.now() + '.png';
+      document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 4000); }, 'image/png');
+    toast('saved');
+  } catch (e) { toast('保存できませんでした'); }
+}
+let mr = null, chunks = [];
+$('rec').onclick = () => {
+  const b = $('rec');
+  if (mr && mr.state === 'recording') { mr.stop(); return; }
+  AE.init();
+  const tracks = [...cv.captureStream(30).getVideoTracks()];
+  if (AE.recDest) tracks.push(...AE.recDest.stream.getAudioTracks());
+  const ms = new MediaStream(tracks);
+  const types = ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm'];
+  const mt = types.find(t => window.MediaRecorder && MediaRecorder.isTypeSupported(t)) || '';
+  try { mr = new MediaRecorder(ms, mt ? { mimeType: mt, videoBitsPerSecond: 6e6 } : {}); }
+  catch (err) { toast('録画を開始できませんでした'); return; }
+  chunks = []; mr.ondataavailable = ev => { if (ev.data && ev.data.size) chunks.push(ev.data); };
+  mr.onstop = () => {
+    b.classList.remove('act'); b.innerHTML = '●<span class="t"> REC</span>';
+    const blob = new Blob(chunks, { type: mr.mimeType || 'video/mp4' }); const ext = (mr.mimeType || '').includes('mp4') ? 'mp4' : 'webm';
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'sakeme_' + Date.now() + '.' + ext;
+    document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 4000);
+  };
+  mr.start(1000); b.classList.add('act'); b.innerHTML = '■<span class="t"> STOP</span>';
+};
+addEventListener('keydown', e => {
+  if (!running) return; const k = e.key.toLowerCase();
+  if (k === 'c') restretch((palIdx + 1) % PALS.length); else if (k === 'r') restretch(null); else if (k === 's') shotReq = true;
+});
+addEventListener('resize', resize);
+
+function camErrText(e) {
+  const m = (e && (e.message || e.name)) ? (e.message || e.name) : String(e || 'unknown');
+  return 'カメラを起動できませんでした：' + m + '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+}
+async function startCam() {
+  const md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) throw new Error('getUserMedia is unavailable');
+  /* get the new stream first, so a failed flip keeps the old camera running */
+  const s2 = await md.getUserMedia({ video: { facingMode: { ideal: facing }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = s2; video.srcObject = stream;
+  try { await video.play(); } catch (e) {}
+  await new Promise(r => { if (video.videoWidth) r(); else { video.onloadedmetadata = () => r(); setTimeout(r, 3000); } });
+  mirror = facing === 'user'; lastUpVT = -1; maskOK = false; if (maskF.length) maskF.fill(0);
+  for (const h of HANDS) loseHand(h, performance.now());
+  updateVideoMap();
+}
+$('flip').onclick = async () => {
+  const prev = facing; facing = facing === 'user' ? 'environment' : 'user';
+  try { await startCam(); toast(facing === 'user' ? '前のカメラ' : '後ろのカメラ'); }
+  catch (e) { facing = prev; toast('切り替えられませんでした'); console.warn(camErrText(e)); }
+};
+$('go').onclick = async () => {
+  const btn = $('go'); btn.disabled = true; $('err').textContent = 'カメラを起動しています…';
+  AE.init();
+  try { if (!PR) initGL(); resize(); }
+  catch (e) { $('err').textContent = '描画の準備に失敗しました：' + (e && e.message ? e.message.split('\n')[0] : e); console.error(e); btn.disabled = false; return; }
+  try { await startCam(); }
+  catch (e) { $('err').textContent = camErrText(e); btn.disabled = false; btn.textContent = 'もう一度'; return; }
+  $('start').classList.add('hide'); $('ui').classList.add('on'); $('label').classList.add('on'); $('err').textContent = '';
+  running = true; T = 0; lastT = performance.now() / 1000; applyUi();
+  showStatus('手を近づけると布が押される。すばやく払うと、切れる', 6500);
+  if (!handLm && !mpErr) initMP();
+};
+
+requestAnimationFrame(frame);
+/* test hook (local checks only) */
+window.__sakeme = {
+  state: () => ({ running, maskOK, hands: !!handLm, seg: !!segmenter, mpErr, float: useFloat, T, cuts: cuts.map(c => ({ live: c.live, len: c.fit && c.fit.len })), roll, pal: palIdx,
+    handOn: HANDS.map(h => h.on), speed: HANDS.map(h => +h.speed.toFixed(2)) }),
+  /* a cut from (ax,ay) to (bx,by) through (mx,my), in screen fractions, made over dur seconds of test time */
+  slash: (ax, ay, bx, by, mx, my, dur = 0.25) => {
+    const t0 = Tnow - dur, A = [ax * W, ay * H, t0], B = [bx * W, by * H, Tnow], M = [(mx != null ? mx : (ax + bx) / 2) * W, (my != null ? my : (ay + by) / 2) * H, t0 + dur / 2];
+    const c = { raw: [A, M, B], t0, live: false, closeT: -1, fit: null }; fitCut(c); cuts.push(c); label(); AE.thump(c.fit.len / S); return c.fit.len / S;
+  },
+  restretch: i => restretch(i), set: o => { if (o.light != null) lightAmt = o.light; if (o.body != null) bodyAmt = o.body; if (o.seed != null) seed = o.seed; if (o.pal != null) { palIdx = palOld = o.pal; applyUi(); } },
+  TEST, T: () => T,
+};
+</script>
+</body>
+</html>
