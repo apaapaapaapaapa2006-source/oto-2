@@ -1,0 +1,1234 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<script>/* REC-FIX (2026-10-12) — iPhone Safari で録画が途中で止まる・壊れる対策。どの作品でも同じ内容。
+   ・mp4 は映像と音声の両方のコーデックを宣言する（avc1 だけだと音声付きで止まることがある）
+   ・1 秒ごとにデータを受け取る（最後に一括で書き出さない）／ビットレートに上限
+   ・保存が終わる前に次の録画を始めない（前のファイルが消えるのを防ぐ）
+   ・録画中は AudioContext を止めない（音声トラックが止まると mp4 ごと止まる） */
+(()=>{const MR=window.MediaRecorder;if(!MR||MR.__recfix)return;let busy=0,active=0;
+class R extends MR{
+  constructor(s,o){if(busy)throw new Error('前の録画を保存しています');o=Object.assign({},o||{});
+    const au=s&&s.getAudioTracks&&s.getAudioTracks().length>0;
+    if(!o.mimeType||/^video\/mp4/.test(o.mimeType)){
+      const c=[au?'video/mp4;codecs="avc1.42E01E,mp4a.40.2"':'video/mp4;codecs="avc1.42E01E"','video/mp4'].find(m=>MR.isTypeSupported(m));
+      if(c)o.mimeType=c;else if(o.mimeType&&!MR.isTypeSupported(o.mimeType))delete o.mimeType;}
+    if(!o.videoBitsPerSecond&&!o.bitsPerSecond)o.videoBitsPerSecond=6e6;
+    super(s,o);this.addEventListener('stop',()=>{active=Math.max(0,active-1);setTimeout(()=>{busy=0;},0);});}
+  start(t){const r=super.start(t==null?1000:t);active++;return r;}
+  stop(){if(this.state!=='inactive'){busy=1;setTimeout(()=>{busy=0;},15000);}return super.stop();}}
+R.__recfix=1;window.MediaRecorder=R;
+const AC=window.AudioContext||window.webkitAudioContext;
+if(AC&&AC.prototype.suspend){const sus=AC.prototype.suspend;AC.prototype.suspend=function(){return active?Promise.resolve():sus.call(this);};}
+/* 録音用の出口には常に無音を流しておく（何も鳴っていないと音声トラックにデータが来ず、録画全体が止まる） */
+if(AC&&AC.prototype.createMediaStreamDestination){const cmd=AC.prototype.createMediaStreamDestination;AC.prototype.createMediaStreamDestination=function(){const d=cmd.apply(this,arguments);
+  try{const c=this.createConstantSource();c.offset.value=0;c.connect(d);c.start();}catch(e){}return d;};}})();</script>
+<script>/* RESUME-FIX (2026-10-17) — iPhone で写真や動画を保存しに行ったり、別のアプリへ行ったりして戻ると、
+   カメラが消える・映像が固まる・画面が壊れる対策。どの作品でも同じ内容。
+   ・ページが裏に回ると、iPhone はカメラを止め、動画を一時停止し、音を止め、ときに WebGL の描画を捨てる
+   ・戻ったら：止められたカメラを同じ条件で取り直して同じ MediaStream に差し込み、止まった動画を再生し、音を再開する
+   ・WebGL の描画が捨てられ、作品が自分で立て直せないときは「タップして再開」を出して読み込み直す */
+(()=>{if(window.__resumefix)return;window.__resumefix=1;
+const md=navigator.mediaDevices,streams=new Map(),vids=new Set(),ctxs=new Set(),lost=new WeakSet(),mutedAt=new Map();
+const watch=t=>{try{t.addEventListener('ended',()=>lost.add(t));t.addEventListener('mute',()=>mutedAt.set(t,performance.now()));
+  t.addEventListener('unmute',()=>mutedAt.delete(t));if(t.muted)mutedAt.set(t,performance.now());}catch(e){}};
+let gum=null;
+if(md&&md.getUserMedia){gum=md.getUserMedia.bind(md);
+  md.getUserMedia=async function(c){const s=await gum(c);try{streams.set(s,c);s.getTracks().forEach(watch);}catch(e){}return s;};}
+/* every <video> that is given a camera stream, also ones never put in the page */
+const MP=HTMLMediaElement.prototype,play=MP.play,so=Object.getOwnPropertyDescriptor(MP,'srcObject');
+MP.play=function(){try{if(this.srcObject)vids.add(this);}catch(e){}return play.apply(this,arguments);};
+if(so&&so.set)Object.defineProperty(MP,'srcObject',{configurable:true,enumerable:so.enumerable,
+  get(){return so.get.call(this);},set(v){if(v)vids.add(this);so.set.call(this,v);}});
+for(const k of['AudioContext','webkitAudioContext']){const C=window[k];if(!C||C.__resumefix)continue;
+  const W=function(...a){const c=new C(...a);ctxs.add(c);return c;};W.prototype=C.prototype;W.__resumefix=1;
+  try{Object.setPrototypeOf(W,C);}catch(e){}window[k]=W;}
+const shown=s=>{for(const v of vids){try{if(so.get.call(v)===s)return true;}catch(e){}}return false;};
+let busy=0;
+async function revive(){
+  if(busy||document.hidden)return;busy=1;
+  try{
+    for(const[s,c]of[...streams]){
+      const tr=s.getTracks();
+      if(!shown(s)){if(tr.every(t=>t.readyState==='ended'))streams.delete(s);continue;}
+      const now=performance.now();
+      const dead=tr.filter(t=>(t.readyState==='ended'&&lost.has(t))||(t.kind==='video'&&mutedAt.has(t)&&now-mutedAt.get(t)>1500));
+      if(!dead.length||!gum)continue;
+      let ns=null;try{ns=await gum(c);}catch(e){continue;}
+      const kinds=new Set(dead.map(t=>t.kind));
+      for(const t of dead){try{t.stop();}catch(e){}s.removeTrack(t);mutedAt.delete(t);}
+      for(const t of ns.getTracks()){if(kinds.has(t.kind)){s.addTrack(t);watch(t);}else t.stop();}
+      for(const v of vids){try{if(so.get.call(v)===s){so.set.call(v,null);so.set.call(v,s);}}catch(e){}}
+    }
+  }finally{busy=0;}
+  for(const v of vids){try{if(so.get.call(v)&&v.paused)play.call(v).catch(()=>{});}catch(e){}}
+  for(const c of ctxs){try{if(c.state!=='running'&&c.state!=='closed')c.resume().catch(()=>{});}catch(e){}}
+}
+const soon=()=>{if(document.hidden)return;const n=performance.now();for(const t of mutedAt.keys())mutedAt.set(t,n);
+  setTimeout(revive,250);setTimeout(revive,1900);};
+document.addEventListener('visibilitychange',soon);
+addEventListener('pageshow',soon);addEventListener('focus',soon);
+/* iPhone sometimes only lets sound and video restart from a tap */
+const tap=()=>{for(const c of ctxs){try{if(c.state!=='running'&&c.state!=='closed')c.resume().catch(()=>{});}catch(e){}}
+  for(const v of vids){try{if(so.get.call(v)&&v.paused)play.call(v).catch(()=>{});}catch(e){}}};
+addEventListener('pointerdown',tap,true);addEventListener('touchend',tap,true);
+/* WebGL: if the drawing is thrown away and the piece does not rebuild it, offer a clean restart */
+const ET=EventTarget.prototype,ael=ET.addEventListener,rebuilds=new WeakSet(),gls=new WeakMap();
+ET.addEventListener=function(t){if(t==='webglcontextrestored'&&this instanceof HTMLCanvasElement)rebuilds.add(this);return ael.apply(this,arguments);};
+let box=null;
+function offer(){
+  if(box)return;box=document.createElement('div');
+  box.style.cssText='position:fixed;inset:0;z-index:2147483647;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;'+
+    'background:rgba(0,0,0,.82);color:#fff;font:14px/1.8 system-ui,sans-serif;text-align:center;padding:24px';
+  box.innerHTML='<div>画面の表示が止まりました。<br>（別のアプリから戻ったとき、iPhone が描画を止めることがあります）</div>'+
+    '<button style="font:inherit;font-size:16px;padding:12px 28px;border-radius:999px;border:0;background:#fff;color:#000">タップして再開</button>';
+  box.querySelector('button').onclick=()=>location.reload();
+  (document.body||document.documentElement).appendChild(box);
+}
+const GC=HTMLCanvasElement.prototype,getCtx=GC.getContext;
+GC.getContext=function(type){
+  const g=getCtx.apply(this,arguments);
+  if(g&&/webgl/i.test(String(type))&&!gls.has(this)){gls.set(this,g);const cv=this;
+    ael.call(cv,'webglcontextlost',e=>{e.preventDefault();let vis=0;
+      const iv=setInterval(()=>{vis=document.hidden?0:vis+500;let still=false;try{still=g.isContextLost();}catch(_){}
+        if(!still){clearInterval(iv);return;}                     /* came back: the 'restored' handler below decides */
+        if(vis>=4000){clearInterval(iv);if(cv.isConnected)offer();}},500);},false);
+    ael.call(cv,'webglcontextrestored',()=>{const f=()=>{if(document.hidden){setTimeout(f,500);return;}
+      if(cv.isConnected&&!rebuilds.has(cv))offer();};f();},false);}
+  return g;
+};
+})();</script>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>KOUGA ─ 光で描く肖像</title>
+<meta name="description" content="灯りを消した部屋で、指先が空中に光の線を描く。止まってポーズを決めるとストロボが焚かれ、銀塩写真のあなたが光の線の中に焼き付く。">
+<meta name="theme-color" content="#050505">
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  KOUGA ─ 光で描く肖像                              ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  元ネタ    ジョン・ミリ（Gjon Mili）が 1949 年に LIFE 誌のために撮った
+            「光で描くピカソ」。暗い部屋でピカソが小さな電灯を振り、開けたままの
+            シャッターに線だけが残る。最後に一発ストロボが焚かれ、描き手の姿が
+            白黒で止まる。線は遅いところほど太く明るく、速いところは細く、
+            止めたところは光の玉に焼ける。線の向こうにいる体は、線に隠れる。
+
+  最終の一枚  真っ黒な闇に、ストロボで止まった銀色のモノクロのあなた。そのまわりを
+            指先が空中に描いた白熱の光の線が一筆書きで取り巻き、縁がにじむ。
+
+  主役      指先が光のペンになり、描いた線は空中に残る。体は止まったときだけ
+            ストロボで写り、動いているあいだは闇の中で自分のペンの灯りにだけ
+            照らされて流れる。
+
+  層        ① 露光の線：遅い筆は太く明るく、速い筆は細く淡い。止めると光の玉。
+              手持ちの電灯らしい明るさのゆらぎ、線の両端は細る、白く飛んだ芯と色のにじみ
+            ② 体：動くあいだは闇。指先の灯りが近くの顔や手だけを暖かく照らし、跡が流れる。
+              止まってポーズを決めるとストロボ。銀塩の肖像が焼き付き、ゆっくり沈む。
+              動いてまた止まれば、前の姿の上にもう一枚 ── 多重露光
+            ③ 線は立体：手の大きさから奥行きを読む。描くのをやめると線がゆっくり回り、
+              体の向こう側へ回った線は体に隠れる
+            ④ 四つの版：1949（銀塩）・EKTA（タングステンの琥珀と青い閃光）・
+              CYANO（青写真）・SAFELIGHT（暗室の赤い灯）
+            ⑤ 切り替え：部屋の白熱灯が赤く落ちて暗転、一拍おいてストロボ一発で現れる。
+              戻るときは灯りが赤からゆっくり白へ点く
+            ⑥ 音：ストロボの「ポン」と充電の高い唸り、灯りのスイッチ、部屋の静けさ
+            ⑦ フィルムの仕上げ：粒子、ハレーション、周辺の落ち、露光時間の小さな記載
+
+  PALETTE   1949     黒 #050505 ／ 銀 #efe9dd（二色）
+            EKTA     黒青 #03060b ／ 琥珀 #ffa040 ／ 閃光の青白 #cfe4ff
+            CYANO    プルシアンブルー #0b2350 ／ 紙 #f1ede2
+            SAFELIGHT 黒 #070101 ／ 暗室灯の赤 #c92a17 ／ 白く飛んだ光 #fff0e2
+
+  TYPE      Bodoni Moda（イタリック、題）・Martian Mono（記載）・Zen Old Mincho（本文）
+
+  MOTION    線は描いたぶんだけ一気に、消えるのはゆっくり。回転は一往復 20 秒。
+            ストロボだけが一瞬。
+
+  TECH      WebGL2。線は CPU で投影した三角形の帯を加算で RGBA16F へ、
+            縮小ぼかし二段でハレーション。体は MediaPipe ImageSegmenter（selfie）の
+            切り抜き、ペンは HandLandmarker の人差し指（「五本の指」で五本）。
+            体の露光は半解像度の往復バッファ（減衰＋ストロボ＋ペンの灯り）。
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:ital,opsz,wght@0,6..96,400;1,6..96,400&family=Martian+Mono:wght@200;400&family=Zen+Old+Mincho:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --serif:"Bodoni Moda","Didot","Bodoni 72",Georgia,serif;
+  --mono:"Martian Mono",ui-monospace,Menlo,monospace;
+  --jp:"Zen Old Mincho","Hiragino Mincho ProN","Yu Mincho",serif;
+  --ui-ink:#efe9dd; --ui-bg:rgba(8,8,8,.38); --ui-line:rgba(239,233,221,.22);
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+[hidden]{display:none!important}
+html,body{margin:0;height:100%;background:#050505;color:#efe9dd;font-family:var(--jp);overflow:hidden;-webkit-user-select:none;user-select:none}
+#gl{position:fixed;inset:0;width:100vw;height:100vh;height:100dvh;display:block;touch-action:none}
+#cam{position:fixed;left:0;top:0;width:2px;height:2px;opacity:0;pointer-events:none}
+
+#start{position:fixed;inset:0;z-index:10;display:grid;place-items:center;overflow:auto;padding:28px 24px;
+  padding-top:calc(28px + env(safe-area-inset-top,0px));padding-bottom:calc(28px + env(safe-area-inset-bottom,0px));
+  background:#050505;transition:opacity 1.1s ease,visibility 1.1s}
+#start.hide{opacity:0;visibility:hidden;pointer-events:none}
+.wrap{max-width:390px;width:100%}
+.work{display:block;width:100%;max-width:330px;margin:0 0 30px;aspect-ratio:4/5}
+h1{font-family:var(--serif);font-weight:400;font-style:italic;font-size:clamp(48px,14vw,72px);line-height:.95;margin:0;letter-spacing:-.01em}
+.sub{font-size:13px;letter-spacing:.34em;margin:12px 0 24px;color:#a59f94}
+.how{font-size:14px;line-height:2.1;margin:0 0 26px;color:#d9d3c7}
+.how b{font-weight:600;color:#fff}
+.meta{font-family:var(--mono);font-size:9.5px;letter-spacing:.14em;color:#6f6a62;margin:-10px 0 26px;line-height:1.9}
+button.go{font-family:var(--jp);font-size:14px;letter-spacing:.3em;padding:14px 30px 14px 34px;cursor:pointer;color:#050505;border:0;border-radius:0;background:#efe9dd}
+button.go:disabled{opacity:.5;cursor:default}
+button:focus-visible{outline:1px solid currentColor;outline-offset:3px}
+#err{min-height:1.4em;font-size:12.5px;color:#ffb27a;margin-top:14px;line-height:1.75;white-space:pre-wrap}
+.note{font-size:11px;color:#6f6a62;margin-top:6px;line-height:1.7}
+
+#status{position:fixed;left:50%;top:calc(16px + env(safe-area-inset-top,0px));transform:translateX(-50%);z-index:5;
+  font-size:12.5px;letter-spacing:.22em;white-space:nowrap;pointer-events:none;color:var(--ui-ink);transition:opacity .8s;
+  max-width:calc(100vw - 24px);overflow:hidden;text-overflow:ellipsis;text-shadow:0 1px 12px rgba(0,0,0,.6)}
+#status.off{opacity:0}
+#cap{position:fixed;left:calc(18px + env(safe-area-inset-left,0px));bottom:calc(env(safe-area-inset-bottom,0px) + 72px);z-index:4;pointer-events:none;
+  color:var(--ui-ink);opacity:0;transition:opacity 1s}
+#cap.on{opacity:.86}
+#cap .t{font-family:var(--serif);font-style:italic;font-size:19px;letter-spacing:.01em;line-height:1}
+#cap .m{font-family:var(--mono);font-weight:200;font-size:9px;letter-spacing:.16em;margin-top:6px;opacity:.8;white-space:pre}
+#toast{position:fixed;left:50%;top:44%;transform:translate(-50%,-50%);z-index:6;font-family:var(--serif);font-style:italic;font-size:clamp(30px,8vw,46px);
+  color:var(--ui-ink);opacity:0;transition:opacity .5s;pointer-events:none;white-space:nowrap;text-shadow:0 2px 24px rgba(0,0,0,.5)}
+#toast.on{opacity:.92}
+#ui{position:fixed;left:0;right:0;bottom:0;z-index:5;display:none;gap:7px;justify-content:center;align-items:center;flex-wrap:wrap;
+  padding:10px 10px calc(env(safe-area-inset-bottom,0px) + 14px)}
+#ui.on{display:flex}
+.btn{appearance:none;font-family:var(--jp);font-size:12.5px;letter-spacing:.12em;color:var(--ui-ink);background:var(--ui-bg);
+  border:1px solid var(--ui-line);border-radius:0;height:40px;min-width:40px;padding:0 13px;cursor:pointer;white-space:nowrap;
+  -webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
+#mode{background:var(--ui-ink);color:#050505;border-color:var(--ui-ink)}
+#mode.dark{background:var(--ui-bg);color:var(--ui-ink);border-color:var(--ui-line)}
+#rec.act{background:#b8261c;border-color:#b8261c;color:#fff}
+#shot{width:42px;padding:0;position:relative}
+#shot::after{content:"";position:absolute;left:50%;top:50%;width:16px;height:12px;margin:-6px 0 0 -8px;border:1px solid currentColor}
+#panel{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom,0px) + 70px);z-index:7;width:min(340px,calc(100vw - 24px));
+  padding:18px 16px 14px;background:rgba(14,13,12,.92);color:#d9d3c7;border:1px solid rgba(239,233,221,.14);display:flex;flex-direction:column;gap:12px;
+  font-size:12.5px;-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px)}
+#panel .row{display:flex;gap:6px}
+#panel .row button{flex:1;appearance:none;font-family:var(--jp);font-size:12px;color:#d9d3c7;background:transparent;border:1px solid rgba(239,233,221,.2);padding:8px 0;cursor:pointer}
+#panel .row button.on{background:#efe9dd;color:#0a0a0a}
+#panel label{display:flex;justify-content:space-between;align-items:center;gap:10px}
+#panel input[type=range]{width:150px;accent-color:#efe9dd}
+#panel .note{font-size:11px;line-height:1.8;color:#8a847a;margin:0}
+#panel .x{position:absolute;right:6px;top:4px;background:none;border:0;color:#d9d3c7;font:inherit;font-size:14px;padding:6px 8px;cursor:pointer}
+@media (max-width:480px){
+  #ui{gap:5px}
+  .btn{padding:0 10px}
+  .btn .t{display:none}
+}
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<video id="cam" playsinline muted autoplay></video>
+
+<div id="start">
+  <div class="wrap">
+    <svg class="work" viewBox="0 0 400 500" aria-hidden="true">
+      <defs>
+        <filter id="glow" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+        <radialGradient id="sit" cx=".5" cy=".42" r=".55"><stop offset="0" stop-color="#9c968c"/><stop offset=".6" stop-color="#3b3833"/><stop offset="1" stop-color="#050505"/></radialGradient>
+      </defs>
+      <rect width="400" height="500" fill="#050505"/>
+      <path d="M150 500 C150 400 168 352 200 340 C232 352 250 400 250 500Z" fill="url(#sit)" opacity=".55"/>
+      <ellipse cx="200" cy="300" rx="34" ry="42" fill="url(#sit)" opacity=".7"/>
+      <g fill="none" stroke="#fff3df" stroke-linecap="round" filter="url(#glow)">
+        <path d="M70 230 C 90 120, 210 70, 290 120 S 360 260, 300 300 S 160 330, 120 260 S 170 150, 240 170" stroke-width="3.2"/>
+        <path d="M240 170 C 300 190, 330 120, 352 92" stroke-width="1.2" opacity=".8"/>
+        <path d="M110 380 C 140 330, 170 420, 210 380 S 280 340, 300 400" stroke-width="2.2"/>
+        <circle cx="352" cy="92" r="3.6" fill="#fff"/>
+      </g>
+    </svg>
+    <h1>Kouga.</h1>
+    <div class="sub">光画 ── 光で描く肖像</div>
+    <div class="how">
+      部屋の灯りを消して、指先に光を。<br>
+      <b>人差し指を立てると、空中に光の線が引ける。</b><br>
+      止まってポーズを決めると、ストロボが焚かれる。<br>
+      描くのをやめると、線はゆっくり回りだす。
+    </div>
+    <div class="meta">AFTER GJON MILI, LIFE, 1949 — OPEN SHUTTER · ONE FLASH</div>
+    <button class="go" id="go" type="button">はじめる</button>
+    <div id="err"></div>
+    <div class="note">映像はこの端末の中だけで処理されます。</div>
+  </div>
+</div>
+
+<div id="status" class="off"></div>
+<div id="cap"><div class="t" id="capT">Kouga, 1949</div><div class="m" id="capM"></div></div>
+<div id="toast"></div>
+<div id="ui">
+  <button class="btn" id="flip" type="button" aria-label="カメラを切り替える">⟲<span class="t"> カメラ</span></button>
+  <button class="btn" id="mode" type="button">◐ 消灯</button>
+  <button class="btn" id="pal" type="button">1949</button>
+  <button class="btn" id="clear" type="button">✕<span class="t"> 消す</span></button>
+  <button class="btn" id="rec" type="button" aria-label="録画">●<span class="t"> REC</span></button>
+  <button class="btn" id="shot" type="button" aria-label="いまの画面を保存"></button>
+  <button class="btn" id="gear" type="button" aria-label="調整" aria-expanded="false">⚙</button>
+</div>
+<div id="panel" hidden>
+  <button class="x" id="panelX" type="button" aria-label="閉じる">✕</button>
+  <label>線の残る時間<input id="sLife" type="range" min="0" max="1" step="0.01" value="0.45"><span id="oLife" style="min-width:3.2em;text-align:right">30 秒</span></label>
+  <label>線の太さ<input id="sThick" type="range" min="0.4" max="2" step="0.05" value="1"></label>
+  <label>闇の深さ<input id="sDark" type="range" min="0" max="1" step="0.05" value="0.75"></label>
+  <label>残像<input id="sGhost" type="range" min="0" max="1" step="0.05" value="0.5"></label>
+  <div class="row"><button type="button" id="bAuto" class="on">自動ストロボ：入</button><button type="button" id="bTurn" class="on">回転：入</button></div>
+  <div class="row"><button type="button" id="bFive">五本の指：切</button><button type="button" id="bSound" class="on">音：入</button><button type="button" id="bFs">全画面</button></div>
+  <p class="note">画面を指でなぞっても描けます。画面をトンとたたくと、ストロボが焚かれます。</p>
+</div>
+
+<script type="module">
+/* =========================================================
+   KOUGA — 光で描く肖像
+   ========================================================= */
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+const $ = id => document.getElementById(id);
+const hex = h => [parseInt(h.slice(1, 3), 16) / 255, parseInt(h.slice(3, 5), 16) / 255, parseInt(h.slice(5, 7), 16) / 255];
+const finite = v => typeof v === 'number' && isFinite(v);
+
+/* ---------- the four prints ----------
+   duo: 1 = the picture is one light value mapped from c0 (no light) to c1 (full light);
+   duo: 0 = colour film: the pen light and the flash keep their own colours */
+const PALS = [
+  { name: '1949', jp: '銀塩', duo: 1, c0: '#050505', c1: '#efe9dd', c2: '#fbf8f1', pen: '#fff1dc', flash: '#ffffff', hal: '#ff8a52', bg: '#050505', grain: 0.07 },
+  { name: 'EKTA', jp: 'タングステン', duo: 0, c0: '#03060b', c1: '#ffffff', c2: '#ffffff', pen: '#ffa040', flash: '#cfe4ff', hal: '#ff6a2a', bg: '#03060b', grain: 0.05 },
+  { name: 'CYANO', jp: '青写真', duo: 1, c0: '#0b2350', c1: '#dfe2e2', c2: '#f6f3ea', pen: '#ffffff', flash: '#ffffff', hal: '#9fb8e8', bg: '#0b2350', grain: 0.05 },
+  { name: 'SAFELIGHT', jp: '暗室灯', duo: 1, c0: '#070101', c1: '#c92a17', c2: '#fff0e2', pen: '#ffffff', flash: '#ffffff', hal: '#ff2a10', bg: '#070101', grain: 0.07 },
+];
+for (const p of PALS) for (const k of ['c0', 'c1', 'c2', 'pen', 'flash', 'hal']) p[k + 'F'] = hex(p[k]);
+
+/* ---------- MediaPipe ---------- */
+const MP_BASE = window.__KOUGA_MP || 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14';
+const SEG_MODEL = 'https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite';
+const HAND_MODEL = 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task';
+const DELEGATE = /[?&]cpu=1/.test(location.search) ? 'CPU' : 'GPU';
+
+/* ---------- GL ---------- */
+const cv = $('gl'), video = $('cam'), statusEl = $('status'), toastEl = $('toast');
+const gl = cv.getContext('webgl2', { antialias: false, alpha: false, premultipliedAlpha: false, preserveDrawingBuffer: false });
+if (!gl) { $('err').textContent = 'この端末のブラウザは WebGL2 に対応していないため表示できません。'; $('go').disabled = true; }
+let useFloat = false;
+if (gl) {
+  useFloat = !!gl.getExtension('EXT_color_buffer_float');
+  if (useFloat) {
+    const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, 4, 4, 0, gl.RGBA, gl.HALF_FLOAT, null);
+    const f = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, f); gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, t, 0);
+    useFloat = gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.deleteFramebuffer(f); gl.deleteTexture(t);
+  }
+}
+
+const VS_FULL = `#version 300 es
+out vec2 vUv;
+void main(){vec2 p=vec2(float((gl_VertexID<<1)&2),float(gl_VertexID&2));vUv=p;gl_Position=vec4(p*2.-1.,0.,1.);}`;
+const COMMON = `
+float h12(vec2 p){vec3 p3=fract(vec3(p.xyx)*.1031);p3+=dot(p3,p3.yzx+33.33);return fract((p3.x+p3.y)*p3.z);}
+float luma(vec3 c){return dot(c,vec3(.2126,.7152,.0722));}
+uniform vec2 uVA, uVB;          /* screen uv (y down) -> video uv */
+uniform sampler2D uVid, uMask;
+uniform float uMaskOK;
+uniform vec2 uWH;               /* screen size in short-side units */
+uniform vec4 uPen[5];           /* live pens: x, y (short-side units), brightness, - */
+float mask(vec2 s){
+  if(uMaskOK>.5){
+    /* the cut-out is coarse: soften it over a few of its own texels so the edge is a clean curve */
+    vec2 u=s*uVA+uVB, t=vec2(1.)/vec2(textureSize(uMask,0));
+    float m=texture(uMask,u).r*.2;
+    for(int i=0;i<8;i++){
+      float a=float(i)*.7853982+.39;
+      vec2 d=vec2(cos(a),sin(a))*t;
+      m+=texture(uMask,u+d*1.8).r*.06+texture(uMask,u+d*3.6).r*.04;
+    }
+    return smoothstep(.28,.75,m);
+  }
+  vec2 q=(s-vec2(.5,.62))*vec2(uWH.x/min(uWH.x,uWH.y)*1.6,1.1);   /* no cut-out yet: a soft sitter in the middle */
+  return smoothstep(.62,.3,length(q));
+}
+/* how a camera frame reads on the plate: a hard, clean silver curve */
+float plate(vec2 s){
+  vec3 c=texture(uVid,s*uVA+uVB).rgb;
+  float l=luma(c);
+  l=clamp((l-.07)/.8,0.,1.);
+  l=l*l*(3.-2.*l);
+  return pow(l,1.12);
+}
+/* one strobe, held high and to the side: it falls off across the frame, so one side of the sitter goes to shadow */
+float keyLight(vec2 q){
+  vec2 k=vec2(uWH.x*.18,-.3);
+  float d=length((q-k)*vec2(1.,.8));
+  return 1.9/(1.+d*d*1.6);
+}
+/* the light a hand-held torch throws on the sitter: falls off with distance */
+float penLight(vec2 q){
+  float a=0.;
+  for(int i=0;i<5;i++){ if(uPen[i].z<=0.) continue; vec2 d=q-uPen[i].xy; a+=uPen[i].z*.010/(dot(d,d)+.010); }
+  return a;
+}`;
+
+/* ---- the sitter's exposure: what the open shutter has gathered so far ---- */
+const FS_FILM = `#version 300 es
+precision highp float;
+in vec2 vUv; out vec4 o;
+${COMMON}
+uniform sampler2D uPrev;
+uniform float uDecay, uFlash, uPenK;
+uniform vec3 uPenCol, uFlashCol;
+void main(){
+  vec2 s=vec2(vUv.x,1.-vUv.y), q=s*uWH;
+  vec3 prev=texture(uPrev,vUv).rgb;
+  float m=mask(s), p=plate(s);
+  vec3 c=prev*uDecay;
+  /* the strobe replaces most of what was there where the sitter stands now: one more sheet on the film */
+  if(uFlash>0.){ c=c*(1.-.85*m*uFlash)+uFlashCol*m*p*keyLight(q)*uFlash; }
+  /* the torch slowly exposes whatever it is held near */
+  float pl=penLight(q);
+  c+=uPenCol*m*(p*.85+.08)*pl*uPenK;
+  o=vec4(min(c,vec3(4.)),1.);
+}`;
+
+/* ---- the lines of light, as ribbons ---- */
+const VS_LINE = `#version 300 es
+in vec2 aPos; in vec4 aD; in float aB;   /* across, along (-1..1; along is 0 on a ribbon), brightness, core fraction; behind the body (0..1) */
+uniform vec2 uRes;
+out vec4 vD; out float vB;
+void main(){ vD=aD; vB=aB; gl_Position=vec4(aPos.x/uRes.x*2.-1.,1.-aPos.y/uRes.y*2.,0.,1.); }`;
+const FS_LINE = `#version 300 es
+precision highp float;
+in vec4 vD; in float vB; out vec4 o;
+void main(){
+  float d=length(vD.xy), cf=max(vD.w,.02);
+  float core=exp(-d*d/(cf*cf)*2.6);
+  float glow=exp(-d*d*5.)*.3*(1.-smoothstep(.8,1.,d));
+  float e=vD.z*(core+glow);
+  o=vec4(e,e*vB,0.,1.);
+}`;
+
+/* ---- blur for the halation ---- */
+const FS_DOWN = `#version 300 es
+precision highp float;
+in vec2 vUv; out vec4 o;
+uniform sampler2D uSrc; uniform vec2 uTx;
+void main(){
+  vec4 a=texture(uSrc,vUv+uTx*vec2(-1,-1))+texture(uSrc,vUv+uTx*vec2(1,-1))+texture(uSrc,vUv+uTx*vec2(-1,1))+texture(uSrc,vUv+uTx*vec2(1,1));
+  o=a*.25;
+}`;
+const FS_BLUR = `#version 300 es
+precision highp float;
+in vec2 vUv; out vec4 o;
+uniform sampler2D uSrc; uniform vec2 uDir;
+void main(){
+  vec4 a=texture(uSrc,vUv)*.2270270;
+  a+=(texture(uSrc,vUv+uDir*1.3846154)+texture(uSrc,vUv-uDir*1.3846154))*.3162162;
+  a+=(texture(uSrc,vUv+uDir*3.2307692)+texture(uSrc,vUv-uDir*3.2307692))*.0702703;
+  o=a;
+}`;
+
+/* ---- the print ---- */
+const FS_COMP = `#version 300 es
+precision highp float;
+in vec2 vUv; out vec4 o;
+${COMMON}
+uniform sampler2D uFilm, uLine, uB1, uB2;
+uniform vec2 uRes;
+uniform float uT, uAmb, uFlashGlow, uDuo, uGrain, uShow, uCam, uCamWarm, uSeed, uFade;
+uniform vec3 uC0, uC1, uC2, uPenCol, uFlashCol, uHal;
+/* the toe and shoulder of a film: shadows sink, light piles up and goes white */
+vec3 film(vec3 x){ vec3 y=1.-exp(-x*1.35); return y*y*(1.6-.6*y); }
+void main(){
+  vec2 s=vec2(vUv.x,1.-vUv.y), q=s*uWH, px=s*uRes;
+  float S=min(uRes.x,uRes.y);
+  /* the plain room, before the lights go out (and as they come back) */
+  vec3 cam=texture(uVid,s*uVA+uVB).rgb;
+  vec3 room=cam*uCam*mix(vec3(1.),vec3(1.,.62,.34),uCamWarm);
+
+  float m=mask(s), p=plate(s);
+  vec3 rad=texture(uFilm,vUv).rgb;
+  /* the sitter right now: a little modelling light, and the torch where it is held */
+  float pl=penLight(q);
+  rad+=uFlashCol*m*p*keyLight(q)*uAmb;
+  rad+=uPenCol*m*(p*.9+.1)*pl*.55;
+  /* the lines; the parts that went behind the body are hidden by it */
+  vec2 ln=texture(uLine,vUv).rg;
+  float occ=clamp(m*1.2,0.,1.)*.92;
+  float L=max(ln.r-ln.g*occ,0.);
+  vec3 b1=texture(uB1,vUv).rgb, b2=texture(uB2,vUv).rgb;
+  float bl=b1.r*.55+b2.r*.7;
+  /* the line's core burns white, its edge keeps the torch's colour */
+  vec3 lineC=uPenCol*L*2.+vec3(1.)*max(L-.6,0.)*1.2;
+  rad+=lineC;
+  /* halation: light spreading back through the film base, warm */
+  rad+=uHal*bl*.9+uPenCol*b1.r*.5;
+  /* the flash itself, a breath of white over everything */
+  rad+=uFlashCol*uFlashGlow*(.25+.75*m);
+  vec3 c=film(rad);
+  /* grain, strongest in the middle greys */
+  float g=h12(px*.73+fract(uT*13.7)*vec2(91.7,47.3)+uSeed)-.5;
+  g+=h12(floor(px*.5)+fract(uT*7.1)*vec2(31.,17.))-.5;
+  float lv=luma(c);
+  float gk=uGrain*(.35+2.4*lv*(1.-lv));
+  vec2 vq=(s-.5)*vec2(uRes.x/S,uRes.y/S);
+  float vig=1.-.32*smoothstep(.35,1.05,length(vq));
+  vec3 outc;
+  if(uDuo>.5){
+    float v=clamp((lv+g*gk)*vig,0.,1.);
+    v=pow(v,.92);
+    /* two inks: the dark into the print colour, and the brightest light past it to near white */
+    outc=v<.7?mix(uC0,uC1,v/.7):mix(uC1,uC2,smoothstep(.7,.97,v));
+  } else {
+    outc=clamp((c+g*gk)*vig,0.,1.);
+    outc=mix(uC0,vec3(1.),outc);
+  }
+  o=vec4(mix(room,outc*uFade,uShow),1.);
+}`;
+
+function mkProg(vsSrc, fsSrc) {
+  const sh = (t, s) => { const o = gl.createShader(t); gl.shaderSource(o, s); gl.compileShader(o);
+    if (!gl.getShaderParameter(o, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(o)); return o; };
+  const p = gl.createProgram(); gl.attachShader(p, sh(gl.VERTEX_SHADER, vsSrc)); gl.attachShader(p, sh(gl.FRAGMENT_SHADER, fsSrc));
+  gl.bindAttribLocation(p, 0, 'aPos'); gl.bindAttribLocation(p, 1, 'aD'); gl.bindAttribLocation(p, 2, 'aB'); gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+  const u = {}, n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+  for (let i = 0; i < n; i++) { const info = gl.getActiveUniform(p, i); u[info.name.replace(/\[0\]$/, '')] = gl.getUniformLocation(p, info.name); }
+  return { p, u };
+}
+const f1 = (P, n, v) => { const l = P.u[n]; if (l) gl.uniform1f(l, v); };
+const f2 = (P, n, a, b) => { const l = P.u[n]; if (l) gl.uniform2f(l, a, b); };
+const f3 = (P, n, a) => { const l = P.u[n]; if (l) gl.uniform3f(l, a[0], a[1], a[2]); };
+const i1 = (P, n, v) => { const l = P.u[n]; if (l) gl.uniform1i(l, v); };
+
+let PR = null, VAO = null, lineVAO = null, lineBuf = null, texVid = null, texMask = null;
+let filmA = null, filmB = null, filmFlip = false, lineT = null, bA = null, bB = null, cA = null, cB = null;
+function mkTex(w, h, float) {
+  const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  if (float && useFloat) gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, w, h, 0, gl.RGBA, gl.HALF_FLOAT, null);
+  else gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+  const f = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, f); gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, t, 0);
+  gl.viewport(0, 0, w, h); gl.clearColor(0, 0, 0, 1); gl.clear(gl.COLOR_BUFFER_BIT); gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  return { t, f, w, h };
+}
+const freeT = T => { if (T) { gl.deleteTexture(T.t); gl.deleteFramebuffer(T.f); } };
+function initGL() {
+  PR = { film: mkProg(VS_FULL, FS_FILM), line: mkProg(VS_LINE, FS_LINE), down: mkProg(VS_FULL, FS_DOWN), blur: mkProg(VS_FULL, FS_BLUR), comp: mkProg(VS_FULL, FS_COMP) };
+  VAO = gl.createVertexArray();
+  lineVAO = gl.createVertexArray(); gl.bindVertexArray(lineVAO);
+  lineBuf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, lineBuf);
+  gl.bufferData(gl.ARRAY_BUFFER, vbuf.byteLength, gl.DYNAMIC_DRAW);
+  gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 28, 0);
+  gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 4, gl.FLOAT, false, 28, 8);
+  gl.enableVertexAttribArray(2); gl.vertexAttribPointer(2, 1, gl.FLOAT, false, 28, 24);
+  gl.bindVertexArray(null);
+  const plain = (minF) => { const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, minF); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE); return t; };
+  texVid = plain(gl.LINEAR); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([8, 8, 8, 255]));
+  texMask = plain(gl.LINEAR); gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, 1, 1, 0, gl.RED, gl.UNSIGNED_BYTE, new Uint8Array([0]));
+}
+
+/* ---------- state ---------- */
+let W = 0, H = 0, DPR = 1, S = 1;
+let vw = 0, vh = 0, VA_ = [1, 1], VB_ = [0, 0];
+let running = false, facing = 'user', mirror = true, stream = null;
+let palIdx = 0, soundOn = true, autoFlash = true, turnOn = true, fiveOn = false;
+let lifeSet = 0.45, thick = 1, dark = 0.75, ghost = 0.5;
+let T = 0, lastT = performance.now() / 1000, shotReq = false, seed = Math.random() * 10;
+const TEST = { dt: 0, frames: 0, hands: null, mask: null, budget: null };
+/* the room: 'cam' (lights on) or 'fx' (dark room); tr counts seconds into the change */
+let mode = 'cam', tr = 99, flashGlow = 0, flashCount = 0, exposeT0 = 0, lastFlashT = -99, pendingFlash = 0;
+const lifeSec = () => lifeSet >= 0.99 ? Infinity : 5 + Math.pow(lifeSet, 1.6) * 75;
+
+/* ---------- layout ---------- */
+function resize() {
+  W = innerWidth; H = innerHeight; S = Math.min(W, H);
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  if (W * H * DPR * DPR > 2.6e6) DPR = Math.sqrt(2.6e6 / (W * H));
+  cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR);
+  if (!PR) return;
+  const fw = Math.round(cv.width / 2), fh = Math.round(cv.height / 2);
+  if (!filmA || filmA.w !== fw || filmA.h !== fh) { freeT(filmA); freeT(filmB); filmA = mkTex(fw, fh, true); filmB = mkTex(fw, fh, true); }
+  if (!lineT || lineT.w !== cv.width || lineT.h !== cv.height) {
+    freeT(lineT); lineT = mkTex(cv.width, cv.height, true);
+    freeT(bA); freeT(bB); freeT(cA); freeT(cB);
+    const w4 = Math.max(2, Math.round(cv.width / 4)), h4 = Math.max(2, Math.round(cv.height / 4));
+    const w16 = Math.max(2, Math.round(cv.width / 16)), h16 = Math.max(2, Math.round(cv.height / 16));
+    bA = mkTex(w4, h4, true); bB = mkTex(w4, h4, true); cA = mkTex(w16, h16, true); cB = mkTex(w16, h16, true);
+  }
+  updateVideoMap();
+}
+/* screen uv (top-left origin) → video uv is s*VA_ + VB_ (the camera covers the screen, mirrored for the front camera) */
+function updateVideoMap() {
+  vw = video.videoWidth || 0; vh = video.videoHeight || 0; if (!vw || !W) return;
+  const va = vw / vh, sa = W / H; let fx = 1, fy = 1;
+  if (va > sa) fx = sa / va; else fy = va / sa;
+  VA_ = [mirror ? -fx : fx, fy]; VB_ = [mirror ? 0.5 + fx / 2 : 0.5 - fx / 2, 0.5 - fy / 2];
+}
+const v2s = (x, y) => [(x - VB_[0]) / VA_[0] * W, (y - VB_[1]) / VA_[1] * H];   // video uv → screen css px
+
+/* ---------- the sitter and the hands ---------- */
+let segmenter = null, handLm = null, mpErr = false, mpTs = 0, lastSegMs = -1e9, lastHandMs = -1e9, maskOK = false;
+const segC = document.createElement('canvas'), segX = segC.getContext('2d', { willReadFrequently: false });
+let maskF = new Float32Array(0), maskP = new Float32Array(0), maskU8 = new Uint8Array(0), segW = 0, segH = 0;
+let motion = 0, motionRaw = 0;          // how much the sitter is moving (mask change per second)
+async function initMP() {
+  try {
+    let V; try { V = await import(`${MP_BASE}/vision_bundle.mjs`); } catch (e) { V = await import(MP_BASE); }
+    const fs = await V.FilesetResolver.forVisionTasks(`${MP_BASE}/wasm`);
+    const segOpts = d => ({ baseOptions: { modelAssetPath: SEG_MODEL, delegate: d }, runningMode: 'VIDEO', outputCategoryMask: false, outputConfidenceMasks: true });
+    const handOpts = d => ({ baseOptions: { modelAssetPath: HAND_MODEL, delegate: d }, runningMode: 'VIDEO', numHands: 2,
+      minHandDetectionConfidence: 0.5, minHandPresenceConfidence: 0.5, minTrackingConfidence: 0.5 });
+    try { segmenter = await V.ImageSegmenter.createFromOptions(fs, segOpts(DELEGATE)); }
+    catch (e) { try { segmenter = await V.ImageSegmenter.createFromOptions(fs, segOpts('CPU')); } catch (e2) { console.warn('segmenter', e2); } }
+    try { handLm = await V.HandLandmarker.createFromOptions(fs, handOpts(DELEGATE)); }
+    catch (e) { handLm = await V.HandLandmarker.createFromOptions(fs, handOpts('CPU')); }
+  } catch (e) {
+    console.warn('MediaPipe failed: lines can still be drawn on the screen', e); mpErr = true;
+    showStatus('手の読み取りを使えません。画面を指でなぞると描けます', 7000);
+  }
+}
+function nextTs(nowMs) { mpTs = Math.max(nowMs, mpTs + 1); return mpTs; }
+function takeMask(d, w, h, nowMs) {
+  if (w !== segW || h !== segH) { segW = w; segH = h; maskF = new Float32Array(w * h); maskP = new Float32Array(w * h); maskU8 = new Uint8Array(w * h); }
+  let diff = 0;
+  for (let i = 0; i < maskF.length; i++) {
+    const v = d[i], m = v >= 0 && v <= 1 ? v : 0;
+    maskF[i] += (m - maskF[i]) * 0.6;
+    diff += Math.abs(maskF[i] - maskP[i]); maskP[i] = maskF[i];
+    maskU8[i] = maskF[i] * 255;
+  }
+  const dt = clamp((nowMs - lastMaskMs) / 1000, 0.03, 0.5); lastMaskMs = nowMs;
+  motionRaw = maskOK ? diff / maskF.length / dt : 0;
+  gl.bindTexture(gl.TEXTURE_2D, texMask); gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, segW, segH, 0, gl.RED, gl.UNSIGNED_BYTE, maskU8);
+  maskOK = true;
+}
+let lastMaskMs = 0, lastTestMask = null;
+function runSeg(nowMs) {
+  if (TEST.mask) { if (TEST.mask !== lastTestMask) { lastTestMask = TEST.mask; takeMask(TEST.mask.data, TEST.mask.w, TEST.mask.h, nowMs); } return; }
+  if (!segmenter || !vw || video.readyState < 2 || nowMs - lastSegMs < 66) return;
+  lastSegMs = nowMs;
+  const sw = vw >= vh ? 256 : Math.round(256 * vw / vh), sh = vw >= vh ? Math.round(256 * vh / vw) : 256;
+  if (segC.width !== sw || segC.height !== sh) { segC.width = sw; segC.height = sh; }
+  segX.drawImage(video, 0, 0, sw, sh);
+  try {
+    segmenter.segmentForVideo(segC, nextTs(nowMs), res => {
+      const ms = res && res.confidenceMasks; if (!ms || !ms.length) return;
+      const d = ms[ms.length - 1].getAsFloat32Array(); if (!d || d.length < sw * sh) return;
+      takeMask(d, sw, sh, nowMs);
+    });
+  } catch (e) { console.warn(e); }
+}
+
+/* two hands, each with up to five pens (the index finger alone, unless 「五本の指」) */
+const TIPS = [8, 4, 12, 16, 20], PIPS = [6, 2, 10, 14, 18], MCPS = [5, 1, 9, 13, 17];
+const mkPen = () => ({ on: false, x: 0, y: 0, z: 0, fx: 0, fy: 0, stroke: null, lastMs: 0, speed: 0, ext: false });
+const HANDS = [0, 1].map(() => ({ on: false, seen: 0, pts: new Float32Array(42), sc: 0.15, sc0: 0, z: 0, lastMs: 0, pens: TIPS.map(mkPen) }));
+function takeHands(list, nowMs) {
+  /* list: arrays of 21 {x,y} in video uv. Each is matched to the slot whose wrist was nearest. */
+  const got = [];
+  if (Array.isArray(list)) for (const lm of list) {
+    if (!lm || !(lm.length >= 21)) continue;
+    let ok = true; for (let i = 0; i < 21; i++) { const p = lm[i]; if (!p || !finite(p.x) || !finite(p.y) || Math.abs(p.x) > 4 || Math.abs(p.y) > 4) { ok = false; break; } }
+    if (ok) got.push(lm);
+  }
+  const used = [false, false];
+  for (const lm of got.slice(0, 2)) {
+    const [wx, wy] = v2s(lm[0].x, lm[0].y);
+    let best = -1, bd = 0.35 * S;
+    for (let k = 0; k < 2; k++) { const h = HANDS[k]; if (used[k] || !h.on) continue; const d = Math.hypot(h.pts[0] * S - wx, h.pts[1] * S - wy); if (d < bd) { bd = d; best = k; } }
+    if (best < 0) for (let k = 0; k < 2; k++) if (!used[k] && !HANDS[k].on) { best = k; break; }
+    if (best < 0) for (let k = 0; k < 2; k++) if (!used[k]) { best = k; loseHand(HANDS[k]); break; }
+    if (best < 0) continue;
+    used[best] = true; updateHand(HANDS[best], lm, nowMs);
+  }
+  for (let k = 0; k < 2; k++) if (!used[k] && HANDS[k].on) loseHand(HANDS[k]);
+}
+const dist2 = (P, a, b) => Math.hypot(P[a * 2] - P[b * 2], P[a * 2 + 1] - P[b * 2 + 1]);
+function updateHand(h, lm, nowMs) {
+  const dtObs = h.on ? clamp((nowMs - h.lastMs) / 1000, 0, 0.5) : 0;
+  for (let i = 0; i < 21; i++) { const [x, y] = v2s(lm[i].x, lm[i].y); h.pts[i * 2] = x / S; h.pts[i * 2 + 1] = y / S; }
+  /* the size of the palm says how far the hand is: nearer is bigger. Compare with its own recent size. */
+  const sc = clamp((dist2(h.pts, 0, 5) + dist2(h.pts, 0, 17) + dist2(h.pts, 5, 17)) / 3, 0.02, 0.8);
+  if (!h.on || h.sc0 <= 0) { h.sc0 = sc; h.sc = sc; }
+  h.sc += (sc - h.sc) * 0.35;
+  h.sc0 += (h.sc - h.sc0) * clamp(dtObs / 8, 0, 1);
+  h.z = clamp((h.sc / h.sc0 - 1) * 0.9, -0.45, 0.45);
+  h.seen = h.on ? h.seen + dtObs : 0;
+  h.on = true; h.lastMs = nowMs;
+  for (let f = 0; f < 5; f++) {
+    const pen = h.pens[f], want = f === 0 || fiveOn;
+    /* a finger is "up" when its tip is well past its middle joint, seen from the knuckle */
+    const tip = TIPS[f], pip = PIPS[f], mcp = MCPS[f];
+    const r = dist2(h.pts, tip, f === 1 ? 17 : 0) / Math.max(1e-4, dist2(h.pts, pip, f === 1 ? 17 : 0));
+    const lenOK = dist2(h.pts, tip, mcp) > h.sc * 0.55;
+    pen.ext = pen.ext ? (r > 1.04 && lenOK) : (r > 1.14 && lenOK);
+    const x = h.pts[tip * 2], y = h.pts[tip * 2 + 1];
+    movePen(pen, x, y, h.z, nowMs, want && pen.ext && h.seen >= 0.12);
+  }
+}
+function loseHand(h) { h.on = false; h.seen = 0; for (const p of h.pens) liftPen(p); }
+let lastHandVT = -1, lastTestHands = null;
+function runHands(nowMs) {
+  /* only a new camera frame is a new observation (a repeated frame would read as a hand that stopped) */
+  if (TEST.hands) { if (TEST.hands !== lastTestHands) { lastTestHands = TEST.hands; takeHands(TEST.hands, nowMs); } return; }
+  if (!handLm || !vw || video.readyState < 2 || nowMs - lastHandMs < 25 || video.currentTime === lastHandVT) return;
+  lastHandMs = nowMs; lastHandVT = video.currentTime;
+  try { const r = handLm.detectForVideo(video, nextTs(nowMs)); takeHands(r && r.landmarks, nowMs); } catch (e) { console.warn(e); }
+}
+
+/* ---------- the lines of light ----------
+   A line is a list of points in the room: x, y (short-side units, screen orientation when the
+   drawing faces you), z (towards the camera), birth time, and exposure (how long the torch lingered). */
+const MAXPTS = 7000, PSTR = 6, F = 2.6;   // F: focal length of the viewing lens, in short sides
+let strokes = [], ptsTotal = 0;
+let rot = 0, rotV = 0, pivX = 0.5, idleSince = 0, lastDrawT = -99;
+function newStroke() {
+  const s = { p: new Float32Array(256 * PSTR), n: 0, born: T, dying: -1, seed: Math.random() * 100 };
+  strokes.push(s); return s;
+}
+function pushPt(s, x, y, z, e) {
+  if ((s.n + 1) * PSTR > s.p.length) { const b = new Float32Array(s.p.length * 2); b.set(s.p); s.p = b; }
+  /* store the point in the drawing's own frame: undo the current turn */
+  const k2 = F / Math.max(F - z, 0.4), pcx = W / S / 2, pcy = H / S / 2;
+  x = pcx + (x - pcx) / k2; y = pcy + (y - pcy) / k2;
+  const c = Math.cos(-rot), sn = Math.sin(-rot), dx = x - pivX;
+  const o = s.n * PSTR;
+  s.p[o] = pivX + dx * c + z * sn; s.p[o + 1] = y; s.p[o + 2] = -dx * sn + z * c;
+  s.p[o + 3] = T; s.p[o + 4] = e; s.p[o + 5] = Math.random();
+  s.n++; ptsTotal++;
+  while (ptsTotal > MAXPTS && strokes.length > 1) { const old = strokes.shift(); ptsTotal -= old.n; }
+}
+function movePen(pen, x, y, z, nowMs, down) {
+  if (mode !== 'fx' || tr < 1) down = false;      // the torch only writes in the dark room
+  if (!down) { liftPen(pen); pen.x = x; pen.y = y; pen.z = z; pen.lastMs = nowMs; pen.fx = x; pen.fy = y; return; }
+  const dt = pen.on ? clamp((nowMs - pen.lastMs) / 1000, 0.004, 0.5) : 0;
+  /* steady the tip a little more when it moves slowly (a light hand-held filter) */
+  const raw = Math.hypot(x - pen.fx, y - pen.fy) / Math.max(dt, 0.016);
+  const a = pen.on ? clamp(0.35 + raw * 0.5, 0.35, 1) : 1;
+  pen.fx += (x - pen.fx) * a; pen.fy += (y - pen.fy) * a;
+  pen.z += (z - pen.z) * (pen.on ? 0.3 : 1);
+  if (!pen.on) {
+    pen.on = true; pen.stroke = newStroke(); pen.speed = 0;
+    pushPt(pen.stroke, pen.fx, pen.fy, pen.z, 1.2); pen.lx = pen.fx; pen.ly = pen.fy;
+  } else {
+    const s = pen.stroke, o = (s.n - 1) * PSTR;
+    const lx = pen.lx, ly = pen.ly;
+    const d = Math.hypot(pen.fx - lx, pen.fy - ly);
+    const v = d / Math.max(dt, 1e-3);
+    pen.speed += (v - pen.speed) * 0.5;
+    if (d > 0.006) {
+      /* exposure: the slower the torch passes, the more light lands on each bit of film */
+      const e = clamp(0.22 / (pen.speed + 0.06), 0.1, 2.6);
+      pushPt(s, pen.fx, pen.fy, pen.z, e); pen.lx = pen.fx; pen.ly = pen.fy;
+      lastDrawT = T;
+    } else {
+      /* lingering in one place burns a bright bead */
+      s.p[o + 4] = Math.min(s.p[o + 4] + dt * 1.4, 4.5);
+    }
+  }
+  pen.x = pen.fx; pen.y = pen.fy; pen.lastMs = nowMs;
+  penActive = T;
+}
+let penActive = -99;
+function liftPen(pen) {
+  if (!pen.on) return;
+  pen.on = false;
+  const s = pen.stroke; pen.stroke = null;
+  if (s && s.n < 2) { const i = strokes.indexOf(s); if (i >= 0 && s.p[4] < 1.6) { strokes.splice(i, 1); ptsTotal -= s.n; } }
+}
+function clearAll(soft) {
+  for (const h of HANDS) for (const p of h.pens) liftPen(p);
+  liftPen(PTR.pen);
+  if (soft) { for (const s of strokes) if (s.dying < 0) s.dying = T; }
+  else { strokes = []; ptsTotal = 0; }
+  exposeT0 = T; flashCount = 0;
+}
+
+/* project the drawing and build its ribbons */
+const crv = (P, i0, i1, i2, i3, j, t, t2, t3) => {
+  const a = P[i0 * PSTR + j], b = P[i1 * PSTR + j], c = P[i2 * PSTR + j], d = P[i3 * PSTR + j];
+  return 0.5 * (2 * b + (c - a) * t + (2 * a - 5 * b + 4 * c - d) * t2 + (3 * b - a - 3 * c + d) * t3);
+};
+const MAXV = 6 * 4 * MAXPTS + 6 * 8;
+const VF = 7, vbuf = new Float32Array(MAXV * VF);
+                       // focal length, short sides
+const SP = new Float32Array(MAXPTS * 6 * 4);   // scratch: screen x, y, scale, brightness, behind, z
+function buildLines() {
+  let n = 0;
+  const cx = pivX, pcx = W / S / 2, cy = H / S / 2, c = Math.cos(rot), sn = Math.sin(rot), life = lifeSec();
+  const thk = 0.0108 * thick * Math.max(S, 0.6 * Math.max(W, H)) * DPR, minW = 0.75 * DPR;
+  const put = (x, y, a, l, e, cf, bh) => { if (n + VF > vbuf.length) return; vbuf[n++] = x; vbuf[n++] = y; vbuf[n++] = a; vbuf[n++] = l; vbuf[n++] = e; vbuf[n++] = cf; vbuf[n++] = bh; };
+  /* a round spot of light (a bead where the torch stopped, or the torch itself) */
+  const dot = (x, y, r, e, cf, bh) => {
+    put(x - r, y - r, -1, -1, e, cf, bh); put(x + r, y - r, 1, -1, e, cf, bh); put(x + r, y + r, 1, 1, e, cf, bh);
+    put(x - r, y - r, -1, -1, e, cf, bh); put(x + r, y + r, 1, 1, e, cf, bh); put(x - r, y + r, -1, 1, e, cf, bh);
+  };
+  for (const s of strokes) {
+    if (s.n < 1) continue;
+    const P = s.p;
+    let m = 0;
+    /* subdivide with a Catmull-Rom curve so the ribbon is smooth, then project */
+    for (let i = 0; i < s.n; i++) {
+      const i0 = Math.max(0, i - 1), i2 = Math.min(s.n - 1, i + 1), i3 = Math.min(s.n - 1, i + 2);
+      const sub = i === s.n - 1 ? 1 : clamp(Math.ceil(Math.hypot(P[i2 * PSTR] - P[i * PSTR], P[i2 * PSTR + 1] - P[i * PSTR + 1]) * S / 5), 1, 4);
+      for (let k = 0; k < sub; k++) {
+        if (m >= SP.length / 6) break;
+        const t = k / sub, t2 = t * t, t3 = t2 * t;
+        const x = crv(P, i0, i, i2, i3, 0, t, t2, t3), y = crv(P, i0, i, i2, i3, 1, t, t2, t3), z = crv(P, i0, i, i2, i3, 2, t, t2, t3);
+        const e = P[i * PSTR + 4] * (1 - t) + P[i2 * PSTR + 4] * t;
+        const born = P[i * PSTR + 3] * (1 - t) + P[i2 * PSTR + 3] * t;
+        const fl = P[i * PSTR + 5] * (1 - t) + P[i2 * PSTR + 5] * t;
+        /* turn about the vertical axis through the drawing, then look at it through a lens */
+        const dx = x - cx, X = cx + dx * c + z * sn, Z = -dx * sn + z * c;
+        const k2 = F / Math.max(F - Z, 0.4);
+        const age = T - born;
+        let fade = life === Infinity ? 1 : clamp((life - age) / (life * 0.35), 0, 1);
+        if (s.dying >= 0) fade *= clamp(1 - (T - s.dying) / 0.7, 0, 1);
+        /* a hand-held torch is never perfectly steady */
+        const flick = 0.82 + 0.3 * Math.sin(born * 23.0 + s.seed) * Math.sin(born * 9.1 + s.seed * 2.3) + 0.08 * (fl - 0.5);
+        const o = m * 6;
+        SP[o] = (pcx + (X - pcx) * k2) * S * DPR; SP[o + 1] = (cy + (y - cy) * k2) * S * DPR; SP[o + 2] = k2;
+        SP[o + 3] = e * fade * flick; SP[o + 4] = clamp((-Z - 0.03) / 0.08, 0, 1); SP[o + 5] = Math.min(age * 6, 1);
+        m++;
+      }
+    }
+    if (m === 1) {
+      /* a single dot of light */
+      const ex = SP[3], r = (thk * 1.4 * Math.sqrt(Math.max(ex, 0.05)) * SP[2] + minW) * 4.5;
+      dot(SP[0], SP[1], r, ex * SP[5], 0.22, SP[4]);
+      continue;
+    }
+    for (let i = 0; i < m - 1; i++) {
+      const a = i * 6, b = (i + 1) * 6;
+      const ia = Math.max(0, i - 1) * 6, ib = Math.min(m - 1, i + 2) * 6;
+      let tx = SP[b] - SP[ia], ty = SP[b + 1] - SP[ia + 1]; let tl = Math.hypot(tx, ty) || 1; const nax = -ty / tl, nay = tx / tl;
+      tx = SP[ib] - SP[a]; ty = SP[ib + 1] - SP[a + 1]; tl = Math.hypot(tx, ty) || 1; const nbx = -ty / tl, nby = tx / tl;
+      /* thin at both ends of a stroke, like a torch switched on and off mid-swing */
+      const ta = clamp(Math.min(i, m - 1 - i) / 6, 0.25, 1), tb = clamp(Math.min(i + 1, m - 2 - i) / 6, 0.25, 1);
+      const ea = SP[a + 3] * ta, eb = SP[b + 3] * tb;
+      const wca = Math.max(thk * Math.pow(Math.max(SP[a + 3], 0.05), 0.75) * SP[a + 2], minW), wcb = Math.max(thk * Math.pow(Math.max(SP[b + 3], 0.05), 0.75) * SP[b + 2], minW);
+      const wga = wca * 5 + 3 * DPR, wgb = wcb * 5 + 3 * DPR;
+      /* thin lines spread their light over one pixel rather than vanishing */
+      const ka = Math.min(1, wca / minW * 0.9 + 0.1), kb = Math.min(1, wcb / minW * 0.9 + 0.1);
+      const Ea = ea * ka * SP[a + 5], Eb = eb * kb * SP[b + 5];
+      const ax = SP[a] + nax * wga, ay = SP[a + 1] + nay * wga, bx = SP[a] - nax * wga, by = SP[a + 1] - nay * wga;
+      const qx = SP[b] + nbx * wgb, qy = SP[b + 1] + nby * wgb, rx = SP[b] - nbx * wgb, ry = SP[b + 1] - nby * wgb;
+      const cfa = wca / wga, cfb = wcb / wgb;
+      put(ax, ay, 1, 0, Ea, cfa, SP[a + 4]); put(bx, by, -1, 0, Ea, cfa, SP[a + 4]); put(qx, qy, 1, 0, Eb, cfb, SP[b + 4]);
+      put(bx, by, -1, 0, Ea, cfa, SP[a + 4]); put(rx, ry, -1, 0, Eb, cfb, SP[b + 4]); put(qx, qy, 1, 0, Eb, cfb, SP[b + 4]);
+    }
+    /* where the torch lingered, the film burned a bead */
+    for (let i = 0; i < m; i++) { const o = i * 6; if (SP[o + 3] > 1.6) dot(SP[o], SP[o + 1], (thk * 1.2 * Math.sqrt(SP[o + 3]) * SP[o + 2] + minW) * 4.5, (SP[o + 3] - 1.6) * 0.7 * SP[o + 5], 0.24, SP[o + 4]); }
+  }
+  /* the torch itself, a hot point wherever a pen is up */
+  for (const pen of livePens()) {
+    dot(pen.x * S * DPR, pen.y * S * DPR, (thk * 2.2 + minW * 2) * 4.5, 1.8, 0.22, 0);
+  }
+  /* drop lines that have fully faded */
+  if (lifeSec() !== Infinity || strokes.some(s => s.dying >= 0)) {
+    const life2 = lifeSec();
+    strokes = strokes.filter(s => {
+      if (s.dying >= 0 && T - s.dying > 0.75) { ptsTotal -= s.n; return false; }
+      if (life2 !== Infinity && s.n && T - s.p[(s.n - 1) * PSTR + 3] > life2 && !isDrawing(s)) { ptsTotal -= s.n; return false; }
+      return true;
+    });
+  }
+  return n / VF;
+}
+const isDrawing = s => HANDS.some(h => h.pens.some(p => p.stroke === s)) || PTR.pen.stroke === s;
+const LP = [];
+function livePens() {
+  LP.length = 0;
+  for (const h of HANDS) if (h.on) for (const p of h.pens) if (p.on) LP.push(p);
+  if (PTR.pen.on) LP.push(PTR.pen);
+  return LP;
+}
+
+/* ---------- a finger or the mouse on the glass: a pen too; a quick tap fires the strobe ---------- */
+const PTR = { down: false, id: -1, t0: 0, x0: 0, y0: 0, moved: 0, pen: mkPen() };
+cv.addEventListener('pointerdown', e => {
+  if (!panel.hidden) { panel.hidden = true; $('gear').setAttribute('aria-expanded', 'false'); }
+  if (!running || mode !== 'fx' || tr < 1) return;
+  PTR.down = true; PTR.id = e.pointerId; PTR.t0 = performance.now(); PTR.x0 = e.clientX; PTR.y0 = e.clientY; PTR.moved = 0;
+  try { cv.setPointerCapture(e.pointerId); } catch (err) {}
+});
+cv.addEventListener('pointermove', e => {
+  if (!PTR.down || e.pointerId !== PTR.id) return;
+  PTR.moved = Math.max(PTR.moved, Math.hypot(e.clientX - PTR.x0, e.clientY - PTR.y0));
+  if (PTR.moved < 10 && performance.now() - PTR.t0 < 250) return;     // could still be a tap
+  movePen(PTR.pen, e.clientX / S, e.clientY / S, 0, performance.now(), true);
+});
+const ptrUp = e => {
+  if (!PTR.down || e.pointerId !== PTR.id) return;
+  PTR.down = false;
+  const tap = PTR.moved < 10 && performance.now() - PTR.t0 < 320;
+  const st = PTR.pen.stroke;
+  liftPen(PTR.pen);
+  if (tap) { if (st) { const i = strokes.indexOf(st); if (i >= 0) { strokes.splice(i, 1); ptsTotal -= st.n; } } fireFlash(); }
+};
+cv.addEventListener('pointerup', ptrUp); cv.addEventListener('pointercancel', ptrUp);
+
+/* ---------- sounds of the dark room ---------- */
+const AE = {
+  ac: null, ready: false, recDest: null,
+  init() {
+    if (this.ac) { this.ac.resume && this.ac.resume(); return; }
+    try {
+      const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+      const ac = this.ac = new AC();
+      this.master = ac.createGain(); this.master.gain.value = 0.85;
+      const comp = ac.createDynamicsCompressor(); comp.threshold.value = -16; comp.ratio.value = 3;
+      this.master.connect(comp); comp.connect(ac.destination);
+      try { this.recDest = ac.createMediaStreamDestination(); comp.connect(this.recDest); } catch (e) { this.recDest = null; }
+      /* a small, dry studio */
+      const len = ac.sampleRate * 1.2 | 0, ir = ac.createBuffer(2, len, ac.sampleRate);
+      for (let c = 0; c < 2; c++) { const d = ir.getChannelData(c); for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 4); }
+      const conv = ac.createConvolver(); conv.buffer = ir; const wet = ac.createGain(); wet.gain.value = 0.16;
+      this.bus = ac.createGain(); this.bus.connect(this.master); this.bus.connect(conv); conv.connect(wet); wet.connect(this.master);
+      this.noise = ac.createBuffer(1, ac.sampleRate * 2 | 0, ac.sampleRate);
+      const nd = this.noise.getChannelData(0); for (let i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
+      /* the room: a low hush */
+      const rs = ac.createBufferSource(); rs.buffer = this.noise; rs.loop = true;
+      const lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 180;
+      const rg = ac.createGain(); rg.gain.value = 0.025; rs.connect(lp); lp.connect(rg); rg.connect(this.master); rs.start();
+      /* the torch moving through the air: a breath of filtered noise, opened by speed */
+      const ns = ac.createBufferSource(); ns.buffer = this.noise; ns.loop = true;
+      const bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 900; bp.Q.value = 0.7;
+      const g = ac.createGain(); g.gain.value = 0; ns.connect(bp); bp.connect(g); g.connect(this.bus); ns.start();
+      this.swish = { g, bp };
+      this.ready = true;
+    } catch (e) { console.warn('audio', e); }
+  },
+  ok() { return this.ready && soundOn; },
+  level() { if (this.ready) this.master.gain.setTargetAtTime(soundOn ? 0.85 : 0, this.ac.currentTime, 0.1); },
+  click(t, f, q, vol, dur) {
+    const ac = this.ac, src = ac.createBufferSource(); src.buffer = this.noise;
+    const bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = f; bp.Q.value = q;
+    const g = ac.createGain(); g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    src.connect(bp); bp.connect(g); g.connect(this.bus); src.start(t, Math.random()); src.stop(t + dur + 0.02);
+  },
+  tone(t, f0, f1, vol, dur, type) {
+    const ac = this.ac, o = ac.createOscillator(); o.type = type || 'sine';
+    o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(f1, t + dur);
+    const g = ac.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + 0.006); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g); g.connect(this.bus); o.start(t); o.stop(t + dur + 0.02);
+  },
+  /* the strobe: a hard pop, then the capacitor whining back up */
+  flash() {
+    if (!this.ok()) return; const ac = this.ac, t = ac.currentTime;
+    this.click(t, 2600, 0.6, 0.32, 0.06); this.click(t, 7000, 1.2, 0.12, 0.03); this.tone(t, 140, 55, 0.22, 0.16);
+    const o = ac.createOscillator(); o.type = 'sine';
+    o.frequency.setValueAtTime(700, t + 0.15); o.frequency.exponentialRampToValueAtTime(6800, t + 2.3);
+    const g = ac.createGain(); g.gain.setValueAtTime(0.0001, t + 0.15); g.gain.exponentialRampToValueAtTime(0.012, t + 0.6);
+    g.gain.setValueAtTime(0.012, t + 2.1); g.gain.exponentialRampToValueAtTime(0.0001, t + 2.35);
+    o.connect(g); g.connect(this.bus); o.start(t + 0.15); o.stop(t + 2.4);
+    this.click(t + 2.36, 5200, 4, 0.04, 0.02);   // ready
+  },
+  /* the light switch, and the filament ticking as it cools or warms */
+  sw(off) {
+    if (!this.ok()) return; const t = this.ac.currentTime;
+    this.click(t, 1900, 3, 0.3, 0.025); this.click(t + 0.03, 900, 2, 0.18, 0.04); this.tone(t, 90, 70, 0.05, 0.1);
+    if (off) { this.click(t + 0.35, 6000, 8, 0.02, 0.02); this.click(t + 0.62, 5400, 8, 0.015, 0.02); }
+  },
+  shutter() { if (!this.ok()) return; const t = this.ac.currentTime; this.click(t, 3200, 2, 0.2, 0.03); this.click(t + 0.07, 2400, 2, 0.16, 0.04); },
+  swishLevel(v) { if (!this.ready) return; const t = this.ac.currentTime; this.swish.g.gain.setTargetAtTime(soundOn ? clamp(v * 0.05, 0, 0.07) : 0, t, 0.05); this.swish.bp.frequency.setTargetAtTime(500 + 900 * clamp(v, 0, 2), t, 0.06); },
+};
+
+/* ---------- the strobe ---------- */
+let stillFor = 0, busyFor = 0;
+function fireFlash() {
+  if (!running || mode !== 'fx') return;
+  pendingFlash = 1; flashGlow = 1; flashCount++; lastFlashT = T; busyFor = 0;
+  AE.flash();
+}
+
+/* ---------- the room lights ---------- */
+let flashOnArrive = false, filmClear = 0;
+function setMode(m, instant) {
+  if (m === mode && !instant) return;
+  mode = m; tr = instant ? 9 : 0;
+  if (m === 'fx') {
+    clearAll(false); filmClear = 1; flashOnArrive = !instant; exposeT0 = T + 1; flashCount = 0;
+    $('mode').textContent = '◑ 点灯'; $('mode').classList.add('dark'); $('cap').classList.add('on');
+    if (!instant) { AE.sw(true); showStatus('人差し指を立てて、空中に描く', 7000); }
+  } else {
+    for (const h of HANDS) for (const p of h.pens) liftPen(p);
+    $('mode').textContent = '◐ 消灯'; $('mode').classList.remove('dark'); $('cap').classList.remove('on');
+    if (!instant) setTimeout(() => AE.sw(false), 420);
+    showStatus('', 0);
+  }
+}
+/* the change itself: the tungsten bulbs dim through orange to black, a beat of dark, then one flash.
+   Back: the picture sinks to black, and the room light comes up from orange to white. */
+function lights() {
+  if (mode === 'fx') {
+    if (tr < 0.75) { const k = tr / 0.75; return { show: 0, cam: Math.pow(1 - k, 2.2), warm: Math.min(1, k * 1.4), fade: 1 }; }
+    if (tr < 1.0) return { show: 0, cam: 0, warm: 1, fade: 1 };
+    return { show: 1, cam: 0, warm: 0, fade: 1 };
+  }
+  if (tr < 0.45) return { show: 1, cam: 0, warm: 1, fade: Math.pow(1 - tr / 0.45, 1.5) };
+  const k = clamp((tr - 0.45) / 1.15, 0, 1);
+  return { show: 0, cam: Math.pow(k, 1.6), warm: 1 - k, fade: 0 };
+}
+
+/* ---------- render ---------- */
+const penU = new Float32Array(20);
+function bindCommon(P) {
+  gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, texVid); i1(P, 'uVid', 1);
+  gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, texMask); i1(P, 'uMask', 2);
+  f1(P, 'uMaskOK', maskOK ? 1 : 0);
+  f2(P, 'uVA', VA_[0], VA_[1]); f2(P, 'uVB', VB_[0], VB_[1]); f2(P, 'uWH', W / S, H / S);
+  if (P.u.uPen) gl.uniform4fv(P.u.uPen, penU);
+}
+function fillPens() {
+  penU.fill(0);
+  const L = livePens();
+  for (let i = 0; i < Math.min(5, L.length); i++) { penU[i * 4] = L[i].x; penU[i * 4 + 1] = L[i].y; penU[i * 4 + 2] = 1; }
+}
+function stepFilm(dt) {
+  const P = PR.film, p = PALS[palIdx];
+  const src = filmFlip ? filmB : filmA, dst = filmFlip ? filmA : filmB; filmFlip = !filmFlip;
+  gl.bindFramebuffer(gl.FRAMEBUFFER, dst.f); gl.viewport(0, 0, dst.w, dst.h);
+  gl.useProgram(P.p); gl.bindVertexArray(VAO);
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, src.t); i1(P, 'uPrev', 0);
+  bindCommon(P);
+  const tau = 0.8 + Math.pow(ghost, 1.3) * 9;
+  let decay = Math.exp(-dt / tau);
+  if (filmClear > 0) { decay *= Math.exp(-dt * 9); filmClear = Math.max(0, filmClear - dt / 0.6); }
+  f1(P, 'uDecay', decay); f1(P, 'uFlash', pendingFlash); f1(P, 'uPenK', dt * 0.8);
+  f3(P, 'uPenCol', p.penF); f3(P, 'uFlashCol', p.flashF);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+  pendingFlash = 0;
+}
+function drawLines() {
+  const nv = buildLines();
+  gl.bindFramebuffer(gl.FRAMEBUFFER, lineT.f); gl.viewport(0, 0, lineT.w, lineT.h);
+  gl.clearColor(0, 0, 0, 1); gl.clear(gl.COLOR_BUFFER_BIT);
+  if (nv > 0) {
+    const P = PR.line; gl.useProgram(P.p); f2(P, 'uRes', lineT.w, lineT.h);
+    gl.bindVertexArray(lineVAO); gl.bindBuffer(gl.ARRAY_BUFFER, lineBuf); gl.bufferSubData(gl.ARRAY_BUFFER, 0, vbuf, 0, nv * VF);
+    gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE);
+    gl.drawArrays(gl.TRIANGLES, 0, nv);
+    gl.disable(gl.BLEND); gl.bindVertexArray(null);
+  }
+}
+function pass(P, src, dst, setU) {
+  gl.bindFramebuffer(gl.FRAMEBUFFER, dst.f); gl.viewport(0, 0, dst.w, dst.h);
+  gl.useProgram(P.p); gl.bindVertexArray(VAO);
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, src.t); i1(P, 'uSrc', 0);
+  setU(P); gl.drawArrays(gl.TRIANGLES, 0, 3);
+}
+function bloom() {
+  pass(PR.down, lineT, bA, P => f2(P, 'uTx', 1 / lineT.w, 1 / lineT.h));
+  pass(PR.blur, bA, bB, P => f2(P, 'uDir', 1 / bA.w, 0));
+  pass(PR.blur, bB, bA, P => f2(P, 'uDir', 0, 1 / bA.h));
+  pass(PR.down, bA, cA, P => f2(P, 'uTx', 1.5 / bA.w, 1.5 / bA.h));
+  pass(PR.blur, cA, cB, P => f2(P, 'uDir', 1.4 / cA.w, 0));
+  pass(PR.blur, cB, cA, P => f2(P, 'uDir', 0, 1.4 / cA.h));
+}
+function composite(L) {
+  const P = PR.comp, p = PALS[palIdx];
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  gl.viewport(0, 0, cv.width, cv.height); gl.useProgram(P.p); gl.bindVertexArray(VAO);
+  bindCommon(P);
+  const film = filmFlip ? filmA : filmB;
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, film.t); i1(P, 'uFilm', 0);
+  gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, lineT.t); i1(P, 'uLine', 3);
+  gl.activeTexture(gl.TEXTURE4); gl.bindTexture(gl.TEXTURE_2D, bA.t); i1(P, 'uB1', 4);
+  gl.activeTexture(gl.TEXTURE5); gl.bindTexture(gl.TEXTURE_2D, cA.t); i1(P, 'uB2', 5);
+  f2(P, 'uRes', cv.width, cv.height); f1(P, 'uT', T); f1(P, 'uSeed', seed);
+  f1(P, 'uAmb', 0.03 + (1 - dark) * 0.5); f1(P, 'uFlashGlow', flashGlow);
+  f1(P, 'uDuo', p.duo); f1(P, 'uGrain', p.grain);
+  f3(P, 'uC0', p.c0F); f3(P, 'uC1', p.c1F); f3(P, 'uC2', p.c2F); f3(P, 'uPenCol', p.penF); f3(P, 'uFlashCol', p.flashF); f3(P, 'uHal', p.halF);
+  f1(P, 'uShow', L.show); f1(P, 'uCam', L.cam); f1(P, 'uCamWarm', L.warm); f1(P, 'uFade', L.fade);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+}
+
+/* ---------- what happens each frame ---------- */
+let rotPh = 0, idle = false, capAt = 0;
+function logic(dt) {
+  if (dt <= 0) return;
+  tr += dt;
+  if (mode === 'fx' && flashOnArrive && tr >= 1.0) { flashOnArrive = false; exposeT0 = T; fireFlash(); }
+  flashGlow *= Math.exp(-dt / 0.07);
+  /* moving or still? the cut-out's change, and whether a pen is moving */
+  motion += (motionRaw - motion) * clamp(dt * 6, 0, 1);
+  const drawing = T - lastDrawT < 0.35;
+  const moving = motion > 0.045 || drawing;
+  if (moving) { stillFor = 0; busyFor += dt; } else stillFor += dt;
+  if (mode === 'fx' && tr > 1.2 && autoFlash) {
+    /* you drew or moved, then held a pose: that is when Mili fired */
+    if (stillFor > 0.7 && busyFor > 0.5 && T - lastFlashT > 1.6) fireFlash();
+    else if (stillFor > 1.2 && T - lastFlashT > 14) fireFlash();
+  }
+  /* the swish of the torch */
+  let sp = 0; for (const pen of livePens()) sp = Math.max(sp, pen.speed || 0);
+  AE.swishLevel(mode === 'fx' ? sp : 0);
+  /* when nobody draws for a while, the drawing turns slowly so you see it is in the air */
+  const wasIdle = idle;
+  idle = turnOn && mode === 'fx' && strokes.length > 0 && T - penActive > 2.5;
+  if (idle && !wasIdle && Math.abs(rot) < 0.02) {
+    let sx = 0, sw = 0; for (const s of strokes) for (let i = 0; i < s.n; i++) { sx += s.p[i * PSTR]; sw++; }
+    if (sw) pivX = sx / sw;
+  }
+  if (idle) rotPh += dt; else if (Math.abs(rot) < 0.02) rotPh = 0;
+  const target = idle ? 0.62 * Math.sin(rotPh * Math.PI * 2 / 20) : 0;
+  rotV += ((target - rot) * 14 - rotV * 7.5) * dt; rot += rotV * dt;
+}
+function caption() {
+  const p = PALS[palIdx];
+  $('capT').textContent = 'Kouga, ' + p.name;
+  const e = Math.max(0, T - exposeT0), mm = Math.floor(e / 60), ss = Math.floor(e % 60);
+  $('capM').textContent = `${p.jp}　EXP ${String(mm).padStart(2, '0')}′${String(ss).padStart(2, '0')}″　STROBE ×${flashCount}`;
+}
+let lastUpVT = -1;
+function frame(nowMs) {
+  requestAnimationFrame(frame);
+  const now = nowMs / 1000; let dt = now - lastT; lastT = now; dt = clamp(dt, 0, 0.1);
+  if (!running || !PR) return;
+  if (TEST.dt) dt = TEST.dt;
+  if (TEST.budget != null) { if (TEST.budget <= 0) return; TEST.budget--; }   // test: advance exactly N frames
+  T += dt; TEST.frames++;
+  updateVideoMap();
+  if (vw && video.readyState >= 2 && video.currentTime !== lastUpVT) {
+    lastUpVT = video.currentTime;
+    gl.bindTexture(gl.TEXTURE_2D, texVid);
+    try { gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video); } catch (e) {}
+  }
+  const clock = TEST.dt ? T * 1000 : nowMs;
+  runSeg(clock); runHands(clock);
+  logic(dt);
+  fillPens();
+  if (dt > 0) stepFilm(dt);
+  drawLines(); bloom();
+  composite(lights());
+  if (T - capAt > 0.25) { capAt = T; caption(); }
+  if (shotReq) { shotReq = false; saveShot(); }
+}
+
+/* ---------- UI ---------- */
+let toastTimer = 0, statusTimer = 0;
+function toast(s) { toastEl.textContent = s; toastEl.classList.add('on'); clearTimeout(toastTimer); toastTimer = setTimeout(() => toastEl.classList.remove('on'), 1300); }
+function showStatus(s, ms) { clearTimeout(statusTimer); if (s) statusEl.textContent = s; statusEl.classList.toggle('off', !s); if (s && ms) statusTimer = setTimeout(() => statusEl.classList.add('off'), ms); }
+function applyPal() {
+  const p = PALS[palIdx];
+  document.body.style.background = p.bg;
+  $('pal').textContent = p.name;
+  caption();
+}
+$('pal').onclick = () => { palIdx = (palIdx + 1) % PALS.length; applyPal(); toast(PALS[palIdx].name); };
+$('mode').onclick = () => setMode(mode === 'fx' ? 'cam' : 'fx');
+$('clear').onclick = () => { if (mode !== 'fx') return; AE.shutter(); clearAll(true); filmClear = 1; };
+const panel = $('panel');
+$('gear').onclick = () => { panel.hidden = !panel.hidden; $('gear').setAttribute('aria-expanded', String(!panel.hidden)); };
+$('panelX').onclick = () => { panel.hidden = true; $('gear').setAttribute('aria-expanded', 'false'); };
+const lifeText = () => { const l = lifeSec(); $('oLife').textContent = l === Infinity ? '∞' : Math.round(l) + ' 秒'; };
+$('sLife').oninput = e => { lifeSet = +e.target.value; lifeText(); };
+$('sThick').oninput = e => { thick = +e.target.value; };
+$('sDark').oninput = e => { dark = +e.target.value; };
+$('sGhost').oninput = e => { ghost = +e.target.value; };
+const tog = (id, on, a, b) => { const el = $(id); el.classList.toggle('on', on); el.textContent = on ? a : b; };
+$('bAuto').onclick = () => { autoFlash = !autoFlash; tog('bAuto', autoFlash, '自動ストロボ：入', '自動ストロボ：切'); };
+$('bTurn').onclick = () => { turnOn = !turnOn; tog('bTurn', turnOn, '回転：入', '回転：切'); };
+$('bFive').onclick = () => { fiveOn = !fiveOn; tog('bFive', fiveOn, '五本の指：入', '五本の指：切'); };
+$('bSound').onclick = () => { soundOn = !soundOn; tog('bSound', soundOn, '音：入', '音：切'); if (soundOn) AE.init(); AE.level(); };
+const fsBtn = $('bFs');
+if (!document.documentElement.requestFullscreen) fsBtn.style.display = 'none';
+else fsBtn.onclick = () => document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen().catch(() => {});
+$('shot').onclick = () => { shotReq = true; };
+function saveShot() {
+  try {
+    cv.toBlob(b => { if (!b) return; const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = 'kouga_' + Date.now() + '.png';
+      document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 4000); }, 'image/png');
+    toast('saved');
+  } catch (e) { toast('保存できませんでした'); }
+}
+let mr = null, chunks = [];
+$('rec').onclick = () => {
+  const b = $('rec');
+  if (mr && mr.state === 'recording') { mr.stop(); return; }
+  AE.init();
+  const tracks = [...cv.captureStream(30).getVideoTracks()];
+  if (AE.recDest) tracks.push(...AE.recDest.stream.getAudioTracks());
+  const ms = new MediaStream(tracks);
+  const types = ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm'];
+  const mt = types.find(t => window.MediaRecorder && MediaRecorder.isTypeSupported(t)) || '';
+  try { mr = new MediaRecorder(ms, mt ? { mimeType: mt, videoBitsPerSecond: 6e6 } : {}); }
+  catch (err) { toast('録画を開始できませんでした'); return; }
+  chunks = []; mr.ondataavailable = ev => { if (ev.data && ev.data.size) chunks.push(ev.data); };
+  mr.onstop = () => {
+    b.classList.remove('act'); b.innerHTML = '●<span class="t"> REC</span>';
+    const blob = new Blob(chunks, { type: mr.mimeType || 'video/mp4' }); const ext = (mr.mimeType || '').includes('mp4') ? 'mp4' : 'webm';
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'kouga_' + Date.now() + '.' + ext;
+    document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 4000);
+  };
+  try { mr.start(1000); } catch (err) { toast('録画を開始できませんでした'); return; }
+  b.classList.add('act'); b.innerHTML = '■<span class="t"> STOP</span>';
+};
+addEventListener('keydown', e => {
+  if (!running) return; const k = e.key.toLowerCase();
+  if (k === ' ') { e.preventDefault(); fireFlash(); }
+  else if (k === 'c') $('pal').click(); else if (k === 'x') $('clear').click(); else if (k === 's') shotReq = true; else if (k === 'm') $('mode').click();
+});
+addEventListener('resize', resize);
+
+function camErrText(e) {
+  const m = (e && (e.message || e.name)) ? (e.message || e.name) : String(e || 'unknown');
+  return 'カメラを起動できませんでした：' + m + '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+}
+async function startCam() {
+  const md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) throw new Error('getUserMedia is unavailable');
+  /* get the new stream first, so a failed flip keeps the old camera running */
+  const s2 = await md.getUserMedia({ video: { facingMode: { ideal: facing }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = s2; video.srcObject = stream;
+  try { await video.play(); } catch (e) {}
+  await new Promise(r => { if (video.videoWidth) r(); else { video.onloadedmetadata = () => r(); setTimeout(r, 3000); } });
+  mirror = facing === 'user'; lastUpVT = -1; maskOK = false; if (maskF.length) { maskF.fill(0); maskP.fill(0); }
+  for (const h of HANDS) loseHand(h);
+  updateVideoMap();
+}
+$('flip').onclick = async () => {
+  const prev = facing; facing = facing === 'user' ? 'environment' : 'user';
+  try { await startCam(); toast(facing === 'user' ? '前のカメラ' : '後ろのカメラ'); }
+  catch (e) { facing = prev; toast('切り替えられませんでした'); console.warn(camErrText(e)); }
+};
+$('go').onclick = async () => {
+  const btn = $('go'); btn.disabled = true; $('err').textContent = 'カメラを起動しています…';
+  AE.init();
+  try { if (!PR) initGL(); resize(); }
+  catch (e) { $('err').textContent = '描画の準備に失敗しました：' + (e && e.message ? e.message.split('\n')[0] : e); console.error(e); btn.disabled = false; return; }
+  try { await startCam(); }
+  catch (e) { $('err').textContent = camErrText(e); btn.disabled = false; btn.textContent = 'もう一度'; return; }
+  $('start').classList.add('hide'); $('ui').classList.add('on'); $('err').textContent = '';
+  running = true; T = 0; lastT = performance.now() / 1000; applyPal(); lifeText();
+  showStatus('◐ 消灯 を押すと、部屋が暗室になる', 6500);
+  if (!handLm && !mpErr) initMP();
+};
+
+requestAnimationFrame(frame);
+/* test hook (local checks only) */
+window.__kouga = {
+  TEST,
+  state: () => ({ running, mode, tr, maskOK, hands: !!handLm, seg: !!segmenter, mpErr, float: useFloat, T, motion, stillFor, busyFor,
+    flashCount, lastFlashT, strokes: strokes.length, pts: ptsTotal, rot, pivX, pal: palIdx,
+    handOn: HANDS.map(h => h.on), pens: livePens().map(p => [+p.x.toFixed(3), +p.y.toFixed(3), +p.z.toFixed(3)]),
+    tips: strokes.map(s => s.n ? [s.p[(s.n - 1) * PSTR], s.p[(s.n - 1) * PSTR + 1]] : null) }),
+  setMode: (m, instant) => setMode(m, instant), flash: () => fireFlash(), clear: () => clearAll(false),
+  set: o => { if (o.pal != null) { palIdx = o.pal; applyPal(); } if (o.rot != null) { rot = o.rot; rotV = 0; } if (o.turn != null) turnOn = o.turn;
+    if (o.auto != null) autoFlash = o.auto; if (o.five != null) fiveOn = o.five; if (o.life != null) lifeSet = o.life; if (o.seed != null) seed = o.seed;
+    if (o.pivX != null) pivX = o.pivX; if (o.ghost != null) ghost = o.ghost; if (o.dark != null) dark = o.dark; },
+  /* draw a line directly: points [[x, y, z, exposure], ...] in short-side units, as if drawn over `dur` seconds ending now */
+  draw: (pts, dur = 1) => { const s = newStroke(); pts.forEach((q, i) => { const keep = T; T = keep - dur + dur * i / Math.max(1, pts.length - 1); pushPt(s, q[0], q[1], q[2] || 0, q[3] != null ? q[3] : 0.6); T = keep; }); lastDrawT = T; penActive = T; return s.n; },
+  W: () => [W, H, S],
+  s2v: (x, y) => [x / W * VA_[0] + VB_[0], y / H * VA_[1] + VB_[1]],
+};
+</script>
+</body>
+</html>
