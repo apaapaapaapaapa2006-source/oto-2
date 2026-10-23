@@ -1,0 +1,1100 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<script>/* REC-FIX (2026-10-12) — iPhone Safari で録画が途中で止まる・壊れる対策。どの作品でも同じ内容。
+   ・mp4 は映像と音声の両方のコーデックを宣言する（avc1 だけだと音声付きで止まることがある）
+   ・1 秒ごとにデータを受け取る（最後に一括で書き出さない）／ビットレートに上限
+   ・保存が終わる前に次の録画を始めない（前のファイルが消えるのを防ぐ）
+   ・録画中は AudioContext を止めない（音声トラックが止まると mp4 ごと止まる） */
+(()=>{const MR=window.MediaRecorder;if(!MR||MR.__recfix)return;let busy=0,active=0;
+class R extends MR{
+  constructor(s,o){if(busy)throw new Error('前の録画を保存しています');o=Object.assign({},o||{});
+    const au=s&&s.getAudioTracks&&s.getAudioTracks().length>0;
+    if(!o.mimeType||/^video\/mp4/.test(o.mimeType)){
+      const c=[au?'video/mp4;codecs="avc1.42E01E,mp4a.40.2"':'video/mp4;codecs="avc1.42E01E"','video/mp4'].find(m=>MR.isTypeSupported(m));
+      if(c)o.mimeType=c;else if(o.mimeType&&!MR.isTypeSupported(o.mimeType))delete o.mimeType;}
+    if(!o.videoBitsPerSecond&&!o.bitsPerSecond)o.videoBitsPerSecond=6e6;
+    super(s,o);this.addEventListener('stop',()=>{active=Math.max(0,active-1);setTimeout(()=>{busy=0;},0);});}
+  start(t){const r=super.start(t==null?1000:t);active++;return r;}
+  stop(){if(this.state!=='inactive'){busy=1;setTimeout(()=>{busy=0;},15000);}return super.stop();}}
+R.__recfix=1;window.MediaRecorder=R;
+const AC=window.AudioContext||window.webkitAudioContext;
+if(AC&&AC.prototype.suspend){const sus=AC.prototype.suspend;AC.prototype.suspend=function(){return active?Promise.resolve():sus.call(this);};}
+/* 録音用の出口には常に無音を流しておく（何も鳴っていないと音声トラックにデータが来ず、録画全体が止まる） */
+if(AC&&AC.prototype.createMediaStreamDestination){const cmd=AC.prototype.createMediaStreamDestination;AC.prototype.createMediaStreamDestination=function(){const d=cmd.apply(this,arguments);
+  try{const c=this.createConstantSource();c.offset.value=0;c.connect(d);c.start();}catch(e){}return d;};}})();</script>
+<script>/* RESUME-FIX (2026-10-17) — iPhone で写真や動画を保存しに行ったり、別のアプリへ行ったりして戻ると、
+   カメラが消える・映像が固まる・画面が壊れる対策。どの作品でも同じ内容。
+   ・ページが裏に回ると、iPhone はカメラを止め、動画を一時停止し、音を止め、ときに WebGL の描画を捨てる
+   ・戻ったら：止められたカメラを同じ条件で取り直して同じ MediaStream に差し込み、止まった動画を再生し、音を再開する
+   ・WebGL の描画が捨てられ、作品が自分で立て直せないときは「タップして再開」を出して読み込み直す */
+(()=>{if(window.__resumefix)return;window.__resumefix=1;
+const md=navigator.mediaDevices,streams=new Map(),vids=new Set(),ctxs=new Set(),lost=new WeakSet(),mutedAt=new Map();
+const watch=t=>{try{t.addEventListener('ended',()=>lost.add(t));t.addEventListener('mute',()=>mutedAt.set(t,performance.now()));
+  t.addEventListener('unmute',()=>mutedAt.delete(t));if(t.muted)mutedAt.set(t,performance.now());}catch(e){}};
+let gum=null;
+if(md&&md.getUserMedia){gum=md.getUserMedia.bind(md);
+  md.getUserMedia=async function(c){const s=await gum(c);try{streams.set(s,c);s.getTracks().forEach(watch);}catch(e){}return s;};}
+/* every <video> that is given a camera stream, also ones never put in the page */
+const MP=HTMLMediaElement.prototype,play=MP.play,so=Object.getOwnPropertyDescriptor(MP,'srcObject');
+MP.play=function(){try{if(this.srcObject)vids.add(this);}catch(e){}return play.apply(this,arguments);};
+if(so&&so.set)Object.defineProperty(MP,'srcObject',{configurable:true,enumerable:so.enumerable,
+  get(){return so.get.call(this);},set(v){if(v)vids.add(this);so.set.call(this,v);}});
+for(const k of['AudioContext','webkitAudioContext']){const C=window[k];if(!C||C.__resumefix)continue;
+  const W=function(...a){const c=new C(...a);ctxs.add(c);return c;};W.prototype=C.prototype;W.__resumefix=1;
+  try{Object.setPrototypeOf(W,C);}catch(e){}window[k]=W;}
+const shown=s=>{for(const v of vids){try{if(so.get.call(v)===s)return true;}catch(e){}}return false;};
+let busy=0;
+async function revive(){
+  if(busy||document.hidden)return;busy=1;
+  try{
+    for(const[s,c]of[...streams]){
+      const tr=s.getTracks();
+      if(!shown(s)){if(tr.every(t=>t.readyState==='ended'))streams.delete(s);continue;}
+      const now=performance.now();
+      const dead=tr.filter(t=>(t.readyState==='ended'&&lost.has(t))||(t.kind==='video'&&mutedAt.has(t)&&now-mutedAt.get(t)>1500));
+      if(!dead.length||!gum)continue;
+      let ns=null;try{ns=await gum(c);}catch(e){continue;}
+      const kinds=new Set(dead.map(t=>t.kind));
+      for(const t of dead){try{t.stop();}catch(e){}s.removeTrack(t);mutedAt.delete(t);}
+      for(const t of ns.getTracks()){if(kinds.has(t.kind)){s.addTrack(t);watch(t);}else t.stop();}
+      for(const v of vids){try{if(so.get.call(v)===s){so.set.call(v,null);so.set.call(v,s);}}catch(e){}}
+    }
+  }finally{busy=0;}
+  for(const v of vids){try{if(so.get.call(v)&&v.paused)play.call(v).catch(()=>{});}catch(e){}}
+  for(const c of ctxs){try{if(c.state!=='running'&&c.state!=='closed')c.resume().catch(()=>{});}catch(e){}}
+}
+const soon=()=>{if(document.hidden)return;const n=performance.now();for(const t of mutedAt.keys())mutedAt.set(t,n);
+  setTimeout(revive,250);setTimeout(revive,1900);};
+document.addEventListener('visibilitychange',soon);
+addEventListener('pageshow',soon);addEventListener('focus',soon);
+/* iPhone sometimes only lets sound and video restart from a tap */
+const tap=()=>{for(const c of ctxs){try{if(c.state!=='running'&&c.state!=='closed')c.resume().catch(()=>{});}catch(e){}}
+  for(const v of vids){try{if(so.get.call(v)&&v.paused)play.call(v).catch(()=>{});}catch(e){}}};
+addEventListener('pointerdown',tap,true);addEventListener('touchend',tap,true);
+/* WebGL: if the drawing is thrown away and the piece does not rebuild it, offer a clean restart */
+const ET=EventTarget.prototype,ael=ET.addEventListener,rebuilds=new WeakSet(),gls=new WeakMap();
+ET.addEventListener=function(t){if(t==='webglcontextrestored'&&this instanceof HTMLCanvasElement)rebuilds.add(this);return ael.apply(this,arguments);};
+let box=null;
+function offer(){
+  if(box)return;box=document.createElement('div');
+  box.style.cssText='position:fixed;inset:0;z-index:2147483647;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;'+
+    'background:rgba(0,0,0,.82);color:#fff;font:14px/1.8 system-ui,sans-serif;text-align:center;padding:24px';
+  box.innerHTML='<div>画面の表示が止まりました。<br>（別のアプリから戻ったとき、iPhone が描画を止めることがあります）</div>'+
+    '<button style="font:inherit;font-size:16px;padding:12px 28px;border-radius:999px;border:0;background:#fff;color:#000">タップして再開</button>';
+  box.querySelector('button').onclick=()=>location.reload();
+  (document.body||document.documentElement).appendChild(box);
+}
+const GC=HTMLCanvasElement.prototype,getCtx=GC.getContext;
+GC.getContext=function(type){
+  const g=getCtx.apply(this,arguments);
+  if(g&&/webgl/i.test(String(type))&&!gls.has(this)){gls.set(this,g);const cv=this;
+    ael.call(cv,'webglcontextlost',e=>{e.preventDefault();let vis=0;
+      const iv=setInterval(()=>{vis=document.hidden?0:vis+500;let still=false;try{still=g.isContextLost();}catch(_){}
+        if(!still){clearInterval(iv);return;}                     /* came back: the 'restored' handler below decides */
+        if(vis>=4000){clearInterval(iv);if(cv.isConnected)offer();}},500);},false);
+    ael.call(cv,'webglcontextrestored',()=>{const f=()=>{if(document.hidden){setTimeout(f,500);return;}
+      if(cv.isConnected&&!rebuilds.has(cv))offer();};f();},false);}
+  return g;
+};
+})();</script>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>AMAYADORI ─ あなたの上だけ雨がやむ</title>
+<meta name="description" content="暗い部屋にうしろから一灯の光が差し、光る雨が降りつづける。あなたの頭と肩の上でだけ雨がやみ、手をのばせばその上でもやむ。すばやく動くと雨粒があなたを濡らし、タップすると雨粒が宙で止まる。">
+<meta name="theme-color" content="#000000">
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  AMAYADORI ─ あなたの上だけ雨がやむ                     ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  元ネタ    Random International「Rain Room」（2012 バービカン・センター The Curve、
+            2013 MoMA、2015 LACMA）。黒い箱の部屋で、奥の一灯が降りつづける雨を逆光で
+            光らせ、センサーが人を見つけた場所だけ雨が止まる。写真に残っているのは、
+            光る雨の幕の中に黒く立つ人、肩と頭の輪郭に散る細かいしぶき、床から立つ霧、
+            そしてセンサーが追いつかない一瞬に濡れる人。SODIUM の版はウォン・カーウァイと
+            クリストファー・ドイルの、ナトリウム灯に光る夜の雨。
+
+  最終の一枚  黒い部屋。うしろの一灯に照らされた雨が銀の線になって降り、あなたの頭と
+            肩の上でだけ雨がやみ、そこに光のしぶきがあなたの輪郭を描く。
+
+  主役      映っている人と、その人を避ける雨。立っていれば雨は頭の少し上で砕けて
+            輪郭の光になり、手をのばせばその上でもやむ。センサーには遅れがあるので、
+            すばやく動くと間に合わなかった雨粒が当たり、顔や肩に水の粒が光って伝い、
+            続けるほど濡れてつやが出る。
+
+  層        ① 一灯：画面の外、上の奥にある強い灯り。霧の中に光の筋を落とし、人がそれを遮る
+            ② 三つの深さの雨：奥の細い雨（人に隠れる）、人のいる深さの明るい雨、手前の太い
+               ぼけた雨。一灯に近いほど強く光る
+            ③ 見えない傘：人の輪郭の少し外で雨が砕け、しぶきが輪郭を光でなぞる
+               （⚙ で「天井」に切り替えると、本物どおり真上の雨の列ごと止まる）
+            ④ 濡れる：センサーの遅れのあいだに当たった雨粒が体に残って伝い落ち、
+               当たるほど髪と肩につやが出て、ゆっくり乾く
+            ⑤ 止まる時間：タップすると雨粒が宙で止まって玉になる。その中を歩くと、
+               玉があなたの形に押しのけられる。もう一度タップすると落ちる
+            ⑥ 音：雨のざわめき、傘を打つ細かい音、肌に落ちる一滴。時間が止まると無音に
+               近くなり、一つだけ鐘のような音が残る
+            切り替え：はじめは普通のカメラ。「雨を降らせる」で部屋の蛍光灯が二度瞬いて
+            消え、奥の一灯が音をたてて点き、天井から雨の前線が降りてくる。
+
+  PALETTE   黒と、灯りの色一つ。版は四つ ── BARBICAN（白銀）・SODIUM（ナトリウムの琥珀）・
+            NOIR（硬いモノクロ、粒子が強い）・CRIMSON（深紅の非常灯）。
+
+  TYPE      Instrument Sans（狭い幅・字間を広く、美術館の壁の文字のように）と Noto Sans JP（細）。
+
+  MOTION    雨は速く、灯りと人はゆっくり。派手な一撃はなく、止まる時間だけが大きな出来事。
+
+  TECH      WebGL2 で合成。雨は 2D キャンバスに描き、奥・人の深さ・手前を R・G・B に分けて
+            一枚で送る。体は MediaPipe ImageSegmenter（selfie）。センサーは切り抜きを外へ
+            ふくらませ、遅れをつけて追わせたもの。光の筋は一灯へ向けた放射方向のぼかし。
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wdth,wght@75..100,400..600&family=Noto+Sans+JP:wght@300;400&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ink:#e9ecef; --dim:rgba(233,236,239,.56); --faint:rgba(233,236,239,.17);
+  --disp:"Instrument Sans","Helvetica Neue",Arial,sans-serif;
+  --jp:"Noto Sans JP","Hiragino Sans","Yu Gothic",sans-serif;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+[hidden]{display:none!important}
+html,body{margin:0;height:100%;background:#000;color:var(--ink);font-family:var(--jp);overflow:hidden;-webkit-user-select:none;user-select:none}
+#gl{position:fixed;inset:0;width:100vw;height:100vh;height:100dvh;display:block;touch-action:none}
+#cam{position:fixed;left:0;top:0;width:2px;height:2px;opacity:0;pointer-events:none}
+
+#start{position:fixed;inset:0;z-index:10;display:grid;place-items:center;overflow:auto;padding:28px 22px;
+  padding-top:calc(28px + env(safe-area-inset-top,0px));padding-bottom:calc(28px + env(safe-area-inset-bottom,0px));
+  background:#000;transition:opacity 1.2s ease,visibility 1.2s}
+#start.hide{opacity:0;visibility:hidden}
+.wrap{max-width:390px;width:100%}
+#art{display:block;width:100%;height:auto;margin:0 0 26px}
+h1{font-family:var(--disp);font-stretch:75%;font-weight:400;font-size:clamp(40px,12.5vw,60px);letter-spacing:.2em;line-height:1;margin:0 -.2em 0 0}
+.sub{font-size:12.5px;letter-spacing:.38em;margin:16px 0 24px;color:var(--dim);font-weight:300}
+.how{font-size:13.5px;font-weight:300;line-height:2.05;margin:0 0 26px;color:#d6d9dc}
+button.go{font-family:var(--jp);font-size:14px;letter-spacing:.24em;padding:14px 30px 14px 34px;cursor:pointer;color:#000;border:0;border-radius:0;background:var(--ink)}
+button.go:disabled{opacity:.5;cursor:default}
+button:focus-visible{outline:1px solid currentColor;outline-offset:3px}
+#err{min-height:1.4em;font-size:12.5px;color:#ff9b8f;margin-top:14px;line-height:1.75;white-space:pre-wrap}
+.note{font-size:11px;color:#71767b;margin-top:6px;line-height:1.7}
+.credit{font-family:var(--disp);font-stretch:75%;font-size:10.5px;letter-spacing:.3em;color:#5d6267;margin-top:22px;text-transform:uppercase}
+
+#status{position:fixed;left:50%;top:calc(16px + env(safe-area-inset-top,0px));transform:translateX(-50%);z-index:5;
+  font-size:12.5px;letter-spacing:.22em;white-space:nowrap;pointer-events:none;color:var(--ink);transition:opacity .8s;font-weight:300;
+  max-width:calc(100vw - 24px);overflow:hidden;text-overflow:ellipsis;text-shadow:0 0 12px #000}
+#status.off{opacity:0}
+#toast{position:fixed;left:50%;top:40%;transform:translate(-50%,-50%);z-index:6;font-family:var(--disp);font-stretch:75%;font-size:clamp(20px,5.5vw,30px);letter-spacing:.42em;
+  color:var(--ink);opacity:0;transition:opacity .5s;pointer-events:none;white-space:nowrap;text-shadow:0 0 18px #000}
+#toast.on{opacity:.92}
+#ui{position:fixed;left:0;right:0;bottom:0;z-index:5;display:none;gap:8px;justify-content:center;align-items:center;flex-wrap:wrap;
+  padding:10px 10px calc(env(safe-area-inset-bottom,0px) + 14px)}
+#ui.on{display:flex}
+.btn{appearance:none;font-family:var(--jp);font-weight:300;font-size:12.5px;letter-spacing:.12em;color:var(--ink);background:rgba(0,0,0,.42);
+  border:1px solid var(--faint);border-radius:0;height:40px;min-width:40px;padding:0 13px;cursor:pointer;white-space:nowrap;
+  -webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
+#ver{font-family:var(--disp);font-stretch:75%;letter-spacing:.24em}
+#mode.pulse{animation:pulse 2.4s ease-in-out infinite}
+@keyframes pulse{50%{border-color:rgba(233,236,239,.7)}}
+#rec.act{background:#b3121b;border-color:#b3121b;color:#fff}
+#shot{width:42px;padding:0;position:relative}
+#shot::after{content:"";position:absolute;left:50%;top:50%;width:16px;height:12px;margin:-6px 0 0 -8px;border:1.5px solid currentColor}
+#panel{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom,0px) + 70px);z-index:7;width:min(340px,calc(100vw - 24px));
+  padding:16px 16px 14px;background:rgba(8,9,10,.9);border:1px solid var(--faint);display:flex;flex-direction:column;gap:12px;
+  font-size:12.5px;color:var(--dim);font-weight:300;-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px)}
+#panel .row{display:flex;gap:6px}
+#panel .row button{flex:1;appearance:none;font-family:var(--jp);font-weight:300;font-size:12px;color:var(--ink);background:transparent;border:1px solid var(--faint);padding:8px 0;cursor:pointer}
+#panel .row button.on{background:var(--ink);color:#000}
+#panel label{display:flex;justify-content:space-between;align-items:center;gap:10px}
+#panel input[type=range]{width:160px;accent-color:#e9ecef}
+#panel .note{font-size:11px;line-height:1.75;margin:0}
+#panel .x{position:absolute;right:6px;top:4px;background:none;border:0;color:var(--ink);font:inherit;font-size:14px;padding:6px 8px;cursor:pointer}
+@media (max-width:480px){ #ui{gap:5px;padding-left:6px;padding-right:6px} .btn{padding:0 8px;letter-spacing:.06em} .btn .t{display:none} #ver{font-size:11px;letter-spacing:.14em} }
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<video id="cam" playsinline muted autoplay></video>
+
+<div id="start">
+  <div class="wrap">
+    <svg id="art" viewBox="0 0 390 150" aria-hidden="true"></svg>
+    <h1>AMAYADORI</h1>
+    <div class="sub">雨宿り ─ あなたの上だけ雨がやむ</div>
+    <div class="how">
+      暗い部屋に、うしろから一灯。光る雨が降りつづける。<br>
+      あなたの頭と肩の上でだけ、雨がやむ。<br>
+      手をのばせば、その上でもやむ。<br>
+      すばやく動けば、間に合わない雨があなたを濡らす。<br>
+      画面をタップすると、雨粒が宙で止まる。
+    </div>
+    <button class="go" id="go" type="button">部屋に入る</button>
+    <div id="err"></div>
+    <div class="note">映像はこの端末の中だけで処理されます。音が出ます。</div>
+    <div class="credit">after Random International — Rain Room, 2012</div>
+  </div>
+</div>
+
+<div id="status" class="off"></div>
+<div id="toast"></div>
+<div id="ui">
+  <button class="btn" id="flip" type="button" aria-label="カメラを切り替える">⟲<span class="t"> カメラ</span></button>
+  <button class="btn" id="mode" type="button">雨を降らせる</button>
+  <button class="btn" id="ver" type="button">BARBICAN</button>
+  <button class="btn" id="rec" type="button" aria-label="録画">●<span class="t"> REC</span></button>
+  <button class="btn" id="shot" type="button" aria-label="いまの画面を保存"></button>
+  <button class="btn" id="gear" type="button" aria-label="調整" aria-expanded="false">⚙</button>
+</div>
+<div id="panel" hidden>
+  <button class="x" id="panelX" type="button" aria-label="閉じる">✕</button>
+  <div class="row"><button type="button" id="bUmb" class="on">傘（頭の上）</button><button type="button" id="bCeil">天井（列ごと）</button></div>
+  <label>雨の量<input id="sRain" type="range" min="0.3" max="1.8" step="0.05" value="1"></label>
+  <label>センサーの遅れ<input id="sLag" type="range" min="0.04" max="0.7" step="0.01" value="0.2"></label>
+  <label>人の明るさ<input id="sFill" type="range" min="0.3" max="1.8" step="0.05" value="1"></label>
+  <label>粒子<input id="sGrain" type="range" min="0" max="2" step="0.05" value="1"></label>
+  <div class="row"><button type="button" id="bSound" class="on">音：入</button><button type="button" id="bFs">全画面</button></div>
+  <p class="note">「傘」は頭の少し上で雨が砕ける。「天井」は本物の Rain Room と同じく、真上の雨の列ごと止まる。遅れを大きくすると、よく濡れる。画面をタップすると雨粒が宙で止まる。</p>
+</div>
+
+<script>
+/* the poster on the start screen: rain lines that stop above a head and shoulders */
+(() => {
+  const svg = document.getElementById('art'), NS = 'http://www.w3.org/2000/svg';
+  /* a head and shoulders, seen from the front */
+  const body = x => { const a = Math.abs(x - 195); let y = 999;
+    if (a < 21) y = Math.min(y, 84 - Math.sqrt(441 - a * a) * 1.12);
+    if (a < 96) y = Math.min(y, shoulder(a));
+    return y; };
+  function shoulder(a) { const u = Math.max(0, (a - 12) / 84); return 119 + 3 * u + 22 * Math.pow(u, 3); }
+  const top = x => body(x) - 2;
+  let s = 7; const rnd = () => (s = (s * 16807) % 2147483647) / 2147483647;
+  let h = '';
+  for (let i = 0; i < 150; i++) {
+    const x = rnd() * 390, y0 = rnd() * 150 - 30, len = 6 + rnd() * 14, lim = top(x) - 4;
+    if (y0 > lim) continue;
+    const y1 = Math.min(y0 + len, lim, 150), o = (0.25 + rnd() * 0.6).toFixed(2);
+    h += `<line x1="${x.toFixed(1)}" y1="${y0.toFixed(1)}" x2="${(x + 0.6).toFixed(1)}" y2="${y1.toFixed(1)}" stroke="#e9ecef" stroke-width="${rnd() < 0.15 ? 1.4 : 0.7}" opacity="${o}"/>`;
+  }
+  for (let x = 96; x <= 294; x += 2.0) { const y = top(x) - 4; if (y > 146) continue; const r = rnd();
+    if (r < 0.55) h += `<circle cx="${(x + rnd() * 2).toFixed(1)}" cy="${(y - rnd() * 5).toFixed(1)}" r="${(0.5 + rnd() * 0.7).toFixed(2)}" fill="#fff" opacity="${(0.35 + rnd() * 0.6).toFixed(2)}"/>`; }
+  let d = 'M99 150'; for (let x = 99; x <= 291; x += 1.5) d += ` L${x.toFixed(1)} ${Math.min(150, shoulder(Math.abs(x - 195))).toFixed(1)}`; d += ' L291 150Z';
+  h += `<path d="${d}" fill="#000" stroke="#e9ecef" stroke-opacity=".5" stroke-width=".7"/>` +
+    `<rect x="188" y="100" width="14" height="22" fill="#000"/><ellipse cx="195" cy="84" rx="21" ry="23.5" fill="#000" stroke="#e9ecef" stroke-opacity=".5" stroke-width=".7"/>`;
+  svg.innerHTML = '<defs><radialGradient id="lg" cx=".5" cy="0" r=".9"><stop offset="0" stop-color="#e9ecef" stop-opacity=".22"/><stop offset="1" stop-color="#000" stop-opacity="0"/></radialGradient></defs>' +
+    '<rect width="390" height="150" fill="url(#lg)"/>' + h;
+})();
+</script>
+
+<script type="module">
+/* =========================================================
+   AMAYADORI — あなたの上だけ雨がやむ
+   ========================================================= */
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+const $ = id => document.getElementById(id);
+const finite = v => typeof v === 'number' && isFinite(v);
+
+/* ---------- the four lamps ---------- */
+const VERS = [
+  { name: 'BARBICAN', lamp: [0.5, -0.1], lampC: [0.9, 0.95, 1.0], rainC: [0.8, 0.88, 1.0], rimC: [0.85, 0.92, 1.0],
+    shadC: [0.5, 0.58, 0.68], hiC: [1.0, 1.0, 1.03], bgC: [0.0, 0.002, 0.005], sat: 0.16, gam: 1.3, grain: 0.8 },
+  { name: 'SODIUM', lamp: [0.78, -0.07], lampC: [1.0, 0.58, 0.2], rainC: [1.0, 0.7, 0.36], rimC: [1.0, 0.6, 0.26],
+    shadC: [0.3, 0.38, 0.4], hiC: [1.1, 0.93, 0.78], bgC: [0.005, 0.002, 0.0], sat: 0.45, gam: 1.22, grain: 1.0 },
+  { name: 'NOIR', lamp: [0.3, -0.12], lampC: [1, 1, 1], rainC: [1, 1, 1], rimC: [1, 1, 1],
+    shadC: [0.46, 0.46, 0.46], hiC: [1.15, 1.15, 1.15], bgC: [0, 0, 0], sat: 0.0, gam: 1.65, grain: 1.7 },
+  { name: 'CRIMSON', lamp: [0.5, -0.1], lampC: [1.0, 0.13, 0.09], rainC: [1.0, 0.3, 0.24], rimC: [1.0, 0.2, 0.13],
+    shadC: [0.2, 0.05, 0.06], hiC: [0.86, 0.8, 0.8], bgC: [0.006, 0.0, 0.0], sat: 0.0, gam: 1.45, grain: 1.0 },
+];
+
+/* ---------- MediaPipe ---------- */
+const MP_BASE = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14';
+const SEG_MODEL = 'https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite';
+const DELEGATE = 'GPU';
+
+/* ---------- state ---------- */
+const video = $('cam'), cv = $('gl');
+let gl = null, PR = null, VAO = null, W = 0, H = 0, S = 1, DPR = 1, RS = 1;
+let running = false, mode = 'cam', tr = 9, T = 0, lastT = 0, shotReq = false;
+let verIdx = 0, stopMode = 'umb', density = 1, lag = 0.2, fill = 1, grainAmt = 1, soundOn = true, qual = 1;
+let facing = 'user', mirror = true, stream = null, vw = 0, vh = 0, VA_ = [1, 1], VB_ = [0, 0];
+let rainOn = false, lampOn = false, freeze = false, freezeT = 0, ts = 1, flash = 0;
+let hitsShell = 0, hitsBody = 0, patter = 0, dripBudget = 0;
+const TEST = { dt: 0, frames: 0, seg: null, budget: null };
+
+/* ---------- GL ---------- */
+const VS = `#version 300 es
+void main(){ vec2 p=vec2(float((gl_VertexID<<1)&2), float(gl_VertexID&2)); gl_Position=vec4(p*2.-1.,0.,1.); }`;
+const COMMON = `#version 300 es
+precision highp float;
+uniform vec2 uRes, uVA, uVB, uLamp, uAspV;
+vec2 LD(vec2 s, vec2 l){ return (s-l)*uAspV/max(uAspV.x,uAspV.y)*1.45; }
+uniform float uT, uMaskOK, uLampI;
+uniform sampler2D uMask;
+float hash(vec2 p){ p=fract(p*vec2(443.897,441.423)); p+=dot(p,p.yx+19.19); return fract((p.x+p.y)*p.x); }
+float vn(vec2 p){ vec2 i=floor(p), f=fract(p); f=f*f*(3.-2.*f);
+  return mix(mix(hash(i),hash(i+vec2(1,0)),f.x), mix(hash(i+vec2(0,1)),hash(i+vec2(1,1)),f.x), f.y); }
+vec2 V(vec2 s){ return uVB + s*uVA; }
+float M(vec2 s, float lod){ vec2 v=V(s); if(v.x<0.||v.x>1.||v.y<0.||v.y>1.) return 0.; return textureLod(uMask, v, lod).r*uMaskOK; }
+`;
+/* light shafts: march from each pixel toward the lamp through the haze; the body blocks it */
+const FS_RAYS = COMMON + `
+out vec4 o;
+void main(){
+  vec2 s=vec2(gl_FragCoord.x/uRes.x, 1.-gl_FragCoord.y/uRes.y);
+  vec2 d0=LD(s,uLamp);
+  float ang=atan(d0.x,d0.y), rad=length(d0);
+  /* shafts: haze that is thicker along some directions from the lamp, drifting slowly */
+  float sh=vn(vec2(ang*9.+uT*0.06, rad*0.8-uT*0.04))*0.6+vn(vec2(ang*19.-uT*0.05, rad*1.6))*0.4;
+  sh=smoothstep(0.2,0.95,sh);
+  float acc=0.;
+  for(int i=0;i<32;i++){
+    float f=(float(i)+0.5)/32.;
+    vec2 p=mix(s,uLamp,f*0.97);
+    acc+=1.-M(p,1.)*0.98;
+  }
+  acc/=32.;
+  float fall=exp(-rad*rad*3.2)*0.9+exp(-rad*2.4)*0.16;
+  o=vec4(vec3(fall*acc*(0.5+0.5*sh)*uLampI),1.);
+}`;
+const FS_MAIN = COMMON + `
+uniform sampler2D uVid, uRain, uBead, uWet, uRays;
+uniform float uMix, uRoom, uFill, uGrain, uSat, uGam, uFlash, uStill;
+uniform vec3 uLampC, uRainC, uRimC, uShadC, uHiC, uBgC;
+out vec4 o;
+void main(){
+  vec2 fc=gl_FragCoord.xy; vec2 s=vec2(fc.x/uRes.x, 1.-fc.y/uRes.y);
+  vec3 cam=texture(uVid,V(s)).rgb;
+  vec3 plain=cam*uRoom;
+  float m=M(s,0.);
+  float Y=dot(cam,vec3(.299,.587,.114));
+  vec2 dl=LD(s,uLamp); float r2=dot(dl,dl);
+  float glowN=exp(-r2*9.), glowW=exp(-r2*2.4);
+  float rays=texture(uRays,vec2(s.x,1.-s.y)).r;
+
+  /* the black room: only the lamp's haze and the mist off the floor */
+  float mist=smoothstep(0.5,1.08,s.y)*(0.35+0.65*vn(vec2(s.x*5.+uT*0.06, s.y*9.-uT*0.35)));
+  vec3 bg=uBgC+uLampC*(rays*0.24*(1.-0.45*uStill)+(glowN*0.55+glowW*0.05)*uLampI+mist*mix(0.025,0.07,glowW)*uLampI);
+
+  /* the person, backlit */
+  vec3 base=mix(vec3(Y),cam,uSat);
+  vec3 pc=pow(max(base,0.),vec3(uGam));
+  /* a backlit subject: the face sits in soft shadow, light falls from the top behind */
+  float top=1.-smoothstep(0.,0.75,s.y-uLamp.y-0.1);
+  pc*=mix(uShadC,uHiC,smoothstep(0.02,0.8,Y))*uFill*(0.1+0.9*uLampI)*(0.4+0.2*top)*(1.+0.75*uStill);
+  vec2 e=vec2(0.006)/uAspV;
+  float gx=M(s+vec2(e.x,0.),1.)-M(s-vec2(e.x,0.),1.);
+  float gy=M(s+vec2(0.,e.y),1.)-M(s-vec2(0.,e.y),1.);
+  vec2 g=vec2(gx,gy);
+  float edge=clamp(length(g)*1.8,0.,1.)*smoothstep(0.1,0.5,m);
+  vec2 nOut=-g/(length(g)+1e-4);
+  vec2 toL=normalize((uLamp-s)*uAspV);
+  float rim=edge*pow(max(dot(nOut,toL)+0.12,0.),1.6);
+  pc+=uRimC*uLampI*(rim*(0.5+0.9*Y)*3.0*(0.35+0.65*top)+edge*0.04);
+  pc+=uLampC*uLampI*glowW*0.16*Y*Y;
+  float wet=texture(uWet,s).r;
+  pc*=1.-0.2*wet;
+  pc+=uLampC*uLampI*(smoothstep(0.3,0.9,Y)*wet*0.75+rim*wet*0.9);
+  float bead=texture(uBead,s).r*smoothstep(0.22,0.6,m);
+  pc+=uLampC*bead*(0.25+0.9*uLampI)*(0.45+Y);
+  float mm=smoothstep(0.08,0.9,m);
+  vec3 fx=mix(bg,pc,mm)+(1.-uMaskOK)*pc*0.5;
+
+  /* the rain: R behind you, G at your depth (and its splashes), B in front of you */
+  vec4 R=texture(uRain,s);
+  float nearB=textureLod(uRain,s,2.2).b*1.5;
+  vec4 B3=textureLod(uRain,s,3.), B5=textureLod(uRain,s,5.);
+  /* when time stops a front strobe has fired: every hanging drop catches it */
+  float lp=0.035+1.9*glowW+1.2*glowN+rays*0.7+uStill*0.85;
+  float rl=R.r*0.5*(1.-mm)+R.g*0.9+nearB*0.8*(1.-0.65*mm);
+  float bl=(B3.g*0.9+B3.r*0.25*(1.-mm)+B3.b*0.5)*0.55+(B5.g+B5.b*0.6)*0.5;
+  fx+=uRainC*uLampI*lp*(rl+bl);
+  fx+=uLampC*uFlash*0.16;
+
+  /* film: soft shoulder, vignette, grain */
+  fx=1.-exp(-fx*1.35);
+  vec2 q=(s-.5)*uAspV;
+  fx*=mix(1.,1.-smoothstep(.2,1.2,length(q)),.5);
+  float gr=hash(fc*0.731+fract(uT*7.13)*vec2(91.7,57.3))-.5;
+  fx+=gr*uGrain*0.075*(0.35+fx);
+  o=vec4(plain*(1.-uMix)+max(fx,0.)*uMix,1.);
+}`;
+function compile(type, src) {
+  const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s));
+  return s;
+}
+function program(fs) {
+  const p = gl.createProgram(); gl.attachShader(p, compile(gl.VERTEX_SHADER, VS)); gl.attachShader(p, compile(gl.FRAGMENT_SHADER, fs)); gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+  const u = {}, n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+  for (let i = 0; i < n; i++) { const a = gl.getActiveUniform(p, i); u[a.name] = gl.getUniformLocation(p, a.name); }
+  return { p, u };
+}
+const f1 = (P, n, a) => { if (P.u[n]) gl.uniform1f(P.u[n], a); };
+const f2 = (P, n, a, b) => { if (P.u[n]) gl.uniform2f(P.u[n], a, b); };
+const f3 = (P, n, v) => { if (P.u[n]) gl.uniform3f(P.u[n], v[0], v[1], v[2]); };
+const i1 = (P, n, a) => { if (P.u[n]) gl.uniform1i(P.u[n], a); };
+function mkTex(mip) {
+  const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, mip ? gl.LINEAR_MIPMAP_LINEAR : gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4));
+  if (mip) gl.generateMipmap(gl.TEXTURE_2D);
+  return t;
+}
+let texVid, texMask, texRain, texBead, texWet, rays = null;
+function initGL() {
+  gl = cv.getContext('webgl2', { antialias: false, alpha: false, premultipliedAlpha: false, preserveDrawingBuffer: false });
+  if (!gl) throw new Error('この端末では WebGL2 が使えません');
+  PR = { rays: program(FS_RAYS), main: program(FS_MAIN) };
+  VAO = gl.createVertexArray();
+  texVid = mkTex(false); texMask = mkTex(true); texRain = mkTex(true); texBead = mkTex(false); texWet = mkTex(false);
+}
+/* iPhone may throw the drawing away while the page is in the background: rebuild everything on return */
+cv.addEventListener('webglcontextlost', e => e.preventDefault());
+cv.addEventListener('webglcontextrestored', () => {
+  try { PR = null; rays = null; maskOK = false; initGL(); resize(); } catch (e) { console.error(e); }
+});
+function mkTarget(w, h) {
+  const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  const f = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, f);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, t, 0);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  return { t, f, w, h };
+}
+
+/* ---------- the rain, drawn on a 2D canvas: R behind, G at your depth, B in front ---------- */
+const rc = document.createElement('canvas'), rx = rc.getContext('2d');
+const bc = document.createElement('canvas'), bx = bc.getContext('2d');
+const LAYERS = [
+  { col: 'rgb(255,0,0)', base: 1300, cap: 3000, v0: 0.8, v1: 0.25, w: 0.75, a0: 0.25, a1: 0.45, sh: 0.02, nz: 1, nzK: 140 },  // far, behind you
+  { col: 'rgb(0,255,0)', base: 760, cap: 1800, v0: 1.5, v1: 0.3, w: 1.1, a0: 0.45, a1: 0.55, sh: 0.034, nz: 1, nzK: 62 },   // at your depth
+  { col: 'rgb(0,0,255)', base: 56, cap: 160, v0: 2.6, v1: 0.7, w: 4.2, a0: 0.2, a1: 0.32, sh: 0.034, nz: 0 },              // in front, out of focus
+];
+for (const L of LAYERS) {
+  L.x = new Float32Array(L.cap); L.y = new Float32Array(L.cap); L.v = new Float32Array(L.cap);
+  L.a = new Float32Array(L.cap); L.wait = new Float32Array(L.cap); L.live = new Uint8Array(L.cap); L.n = 0;
+}
+let Hs = 1;                                   /* fall-speed scale: the screen height, but never shorter than a landscape view */
+let wind = 0;
+function layerCount(L) {
+  const area = L.nz ? clamp(W * H / (1280 * 720), 0.42, 1.35) : 1;
+  return Math.min(L.cap, Math.round(L.base * density * area * qual));
+}
+function buildNozzles() {
+  for (const L of LAYERS) {
+    const sp = L.nz ? S / L.nzK : 0;
+    if (!sp) { L.noz = null; continue; }
+    const n = Math.ceil((W + 40) / sp); L.noz = new Float32Array(n);
+    for (let i = 0; i < n; i++) L.noz[i] = -20 + (i + 0.5 + (Math.random() - 0.5) * 0.7) * sp;
+  }
+}
+function respawn(L, i, fresh) {
+  const r = Math.random();
+  L.v[i] = (L.v0 + L.v1 * r) * Hs;
+  L.a[i] = L.a0 + L.a1 * Math.random();
+  L.x[i] = L.noz ? L.noz[(Math.random() * L.noz.length) | 0] + (Math.random() - 0.5) * 0.6 : Math.random() * (W + 40) - 20;
+  L.y[i] = fresh ? -Math.random() * H * 0.25 - 10 : -10 - Math.random() * 30;
+  L.live[i] = 1;
+}
+function resetRain(allDead) {
+  for (const L of LAYERS) {
+    L.n = layerCount(L);
+    for (let i = 0; i < L.cap; i++) {
+      L.live[i] = 0; L.wait[i] = allDead ? Math.random() * 0.5 : 0;
+      if (!allDead) { respawn(L, i, true); L.y[i] = Math.random() * (H + 60) - 30; }
+    }
+  }
+}
+
+/* splashes: on the invisible umbrella (the shell) and on you */
+const SP_CAP = 2600, SP = { x: new Float32Array(SP_CAP), y: new Float32Array(SP_CAP), vx: new Float32Array(SP_CAP), vy: new Float32Array(SP_CAP),
+  life: new Float32Array(SP_CAP), max: new Float32Array(SP_CAP), b: new Float32Array(SP_CAP), k: new Uint8Array(SP_CAP), n: 0 };
+function splash(x, y, nx, ny, k, bright, onBody) {
+  for (let j = 0; j < k; j++) {
+    if (SP.n >= SP_CAP) return;
+    const i = SP.n++;
+    const ang = -Math.PI / 2 + (Math.random() - 0.5) * 2.2, sp = (0.12 + Math.random() * 0.3) * S;
+    SP.x[i] = x; SP.y[i] = y;
+    SP.vx[i] = Math.cos(ang) * sp + nx * sp * 0.6; SP.vy[i] = Math.sin(ang) * sp * 0.9 + ny * sp * 0.4;
+    SP.max[i] = SP.life[i] = onBody ? 0.08 + Math.random() * 0.12 : 0.16 + Math.random() * 0.3; SP.b[i] = bright * (0.5 + Math.random() * 0.5);
+    SP.k[i] = onBody ? 1 : 0;
+  }
+}
+/* drops that reached you: they cling, slide down, and dry */
+const BD_CAP = 520, BD = { x: new Float32Array(BD_CAP), y: new Float32Array(BD_CAP), vy: new Float32Array(BD_CAP), life: new Float32Array(BD_CAP),
+  r: new Float32Array(BD_CAP), n: 0 };
+function bead(x, y) {
+  let i = BD.n;
+  if (i >= BD_CAP) { i = (Math.random() * BD_CAP) | 0; } else BD.n++;
+  BD.x[i] = x; BD.y[i] = y; BD.vy[i] = 0; BD.life[i] = 2.5 + Math.random() * 4.5; BD.r[i] = (0.6 + Math.random() * 1.1) * S / 720;
+}
+/* how wet you are, on a coarse grid of the screen */
+let GW = 48, GH = 27, wetG = new Float32Array(GW * GH), wetU8 = new Uint8Array(GW * GH);
+function wetAdd(x, y, a) {
+  const gx = (x / W * GW) | 0, gy = (y / H * GH) | 0;
+  for (let j = -1; j <= 1; j++) for (let i = -1; i <= 1; i++) {
+    const X = gx + i, Y = gy + j; if (X < 0 || Y < 0 || X >= GW || Y >= GH) continue;
+    const k = Y * GW + X; wetG[k] = Math.min(1, wetG[k] + a * (i || j ? 0.45 : 1));
+  }
+}
+
+/* ---------- the person: mask, and the sensor that follows it a little late ---------- */
+let segmenter = null, mpErr = false, mpTs = 0, lastSegMs = -1e9, maskOK = false, lastMaskMs = 0;
+const segC = document.createElement('canvas'), segX = segC.getContext('2d', { willReadFrequently: false });
+let segW = 0, segH = 0, maskF = new Float32Array(0), maskU8 = new Uint8Array(0), sens = new Float32Array(0), dilA = new Float32Array(0), dilB = new Float32Array(0);
+const NCOL = 160; const colOff = new Uint8Array(NCOL), colTmp = new Uint8Array(NCOL);
+let presence = 0;
+async function initMP() {
+  try {
+    let V; try { V = await import(`${MP_BASE}/vision_bundle.mjs`); } catch (e) { V = await import(MP_BASE); }
+    const fs = await V.FilesetResolver.forVisionTasks(`${MP_BASE}/wasm`);
+    const segOpts = d => ({ baseOptions: { modelAssetPath: SEG_MODEL, delegate: d }, runningMode: 'VIDEO', outputCategoryMask: false, outputConfidenceMasks: true });
+    try { segmenter = await V.ImageSegmenter.createFromOptions(fs, segOpts(DELEGATE)); }
+    catch (e) { segmenter = await V.ImageSegmenter.createFromOptions(fs, segOpts('CPU')); }
+  } catch (e) {
+    console.warn('MediaPipe failed: the rain falls, but cannot see you', e); mpErr = true;
+    showStatus('人の切り抜きを読み込めませんでした。雨は降りますが、あなたを避けません', 7000);
+  }
+}
+function nextTs(nowMs) { mpTs = Math.max(Math.round(nowMs), mpTs + 1); return mpTs; }
+function sizeMask(w, h) {
+  if (w === segW && h === segH) return;
+  segW = w; segH = h; const n = w * h;
+  maskF = new Float32Array(n); maskU8 = new Uint8Array(n); sens = new Float32Array(n); dilA = new Float32Array(n); dilB = new Float32Array(n);
+}
+function takeMask(d, w, h, nowMs) {
+  if (!d || !(w > 0) || !(h > 0) || w > 1024 || h > 1024 || d.length < w * h) return;
+  sizeMask(w, h);
+  const n = w * h, scale = d instanceof Uint8Array || d instanceof Uint8ClampedArray ? 1 / 255 : 1;
+  let sum = 0;
+  for (let i = 0; i < n; i++) {
+    let v = d[i] * scale; if (!(v >= 0)) v = 0; else if (v > 1) v = 1;     /* NaN and garbage become "nobody" */
+    maskF[i] += (v - maskF[i]) * 0.65; maskU8[i] = maskF[i] * 255; sum += maskF[i];
+  }
+  presence = sum / n;
+  const dtm = clamp((nowMs - lastMaskMs) / 1000, 0.016, 0.5); lastMaskMs = nowMs;
+  updateSensor(dtm);
+  gl.bindTexture(gl.TEXTURE_2D, texMask); gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, segW, segH, 0, gl.RED, gl.UNSIGNED_BYTE, maskU8); gl.generateMipmap(gl.TEXTURE_2D);
+  maskOK = true;
+}
+/* the sensor: the body puffed out by the umbrella's gap, catching up with you after a delay */
+function updateSensor(dtm) {
+  const w = segW, h = segH;
+  const gap = 0.034 * S;
+  const rxT = clamp(Math.round(gap * w * Math.abs(VA_[0]) / W), 1, 24), ryT = clamp(Math.round(gap * h * Math.abs(VA_[1]) / H), 1, 24);
+  for (let y = 0; y < h; y++) {               /* max over rows */
+    const o = y * w;
+    for (let x = 0; x < w; x++) { let m = 0; const a = Math.max(0, x - rxT), b = Math.min(w - 1, x + rxT);
+      for (let k = a; k <= b; k++) { const v = maskF[o + k]; if (v > m) m = v; } dilA[o + x] = m; }
+  }
+  for (let x = 0; x < w; x++) {               /* then over columns */
+    for (let y = 0; y < h; y++) { let m = 0; const a = Math.max(0, y - ryT), b = Math.min(h - 1, y + ryT);
+      for (let k = a; k <= b; k++) { const v = dilA[k * w + x]; if (v > m) m = v; } dilB[y * w + x] = m; }
+  }
+  const up = 1 - Math.exp(-dtm / Math.max(0.02, lag)), dn = 1 - Math.exp(-dtm / (lag * 1.5 + 0.12));
+  colTmp.fill(0);
+  for (let i = 0; i < w * h; i++) {
+    const t = dilB[i], s = sens[i]; sens[i] = s + (t - s) * (t > s ? up : dn);
+    if (sens[i] > 0.5) {
+      const sx = (((i % w) + 0.5) / w - VB_[0]) / VA_[0];
+      if (sx >= 0 && sx < 1) colTmp[(sx * NCOL) | 0] = 1;
+    }
+  }
+  for (let c = 0; c < NCOL; c++) colOff[c] = colTmp[c] || (c > 0 && colTmp[c - 1]) || (c < NCOL - 1 && colTmp[c + 1]) ? 1 : 0;
+}
+let lastTestSeg = 0;
+function runSeg(nowMs) {
+  if (TEST.seg) {
+    if (nowMs - lastTestSeg < 66) return; lastTestSeg = nowMs;
+    let r = null; try { r = TEST.seg(nowMs); } catch (e) { r = null; }
+    if (r) takeMask(r.data, r.w, r.h, nowMs);
+    return;
+  }
+  if (!segmenter || !vw || video.readyState < 2 || nowMs - lastSegMs < 66) return;
+  lastSegMs = nowMs;
+  const sw = vw >= vh ? 256 : Math.round(256 * vw / vh), sh = vw >= vh ? Math.round(256 * vh / vw) : 256;
+  if (segC.width !== sw || segC.height !== sh) { segC.width = sw; segC.height = sh; }
+  segX.drawImage(video, 0, 0, sw, sh);
+  try {
+    segmenter.segmentForVideo(segC, nextTs(nowMs), res => {
+      const ms = res && res.confidenceMasks; if (!ms || !ms.length) return;
+      const d = ms[ms.length - 1].getAsFloat32Array();
+      takeMask(d, sw, sh, nowMs);
+    });
+  } catch (e) { console.warn(e); }
+}
+/* screen px → mask texel */
+let mA = 0, mB = 0, mC = 0, mD = 0;
+function mapPrep() { mA = VA_[0] * segW / W; mB = VB_[0] * segW; mC = VA_[1] * segH / H; mD = VB_[1] * segH; }
+function at(arr, x, y) {
+  if (!maskOK) return 0;
+  const fx = x * mA + mB, fy = y * mC + mD;
+  if (!(fx >= 0 && fy >= 0 && fx < segW && fy < segH)) return 0;
+  return arr[(fy | 0) * segW + (fx | 0)];
+}
+
+/* ---------- the room ---------- */
+function setMode(m, instant) {
+  if (m === mode && !instant) return;
+  mode = m; tr = instant ? 9 : 0;
+  const b = $('mode'); b.classList.remove('pulse');
+  if (m === 'fx') {
+    b.textContent = '明かりをつける';
+    rainOn = false; lampOn = false; freeze = false; ts = 1;
+    if (instant) { rainOn = lampOn = true; resetRain(false); }
+    else { resetRain(true); for (let i = 0; i < wetG.length; i++) wetG[i] = 0; BD.n = 0; SP.n = 0; }
+    showStatus('', 0);
+  } else {
+    b.textContent = '雨を降らせる';
+    rainOn = false; freeze = false;
+    if (instant) { lampOn = false; resetRain(true); }
+    showStatus('', 0);
+  }
+}
+/* the change itself. In: the room's tubes flicker twice and die, a beat of dark, the lamp strikes, and the rain
+   front comes down from the ceiling. Out: the nozzles close, the last drops fall, the lamp fades, the room comes up. */
+function lights() {
+  if (mode === 'fx') {
+    if (tr < 0.62) {
+      const k = tr / 0.62; let room = Math.pow(1 - k, 1.6);
+      if ((tr > 0.16 && tr < 0.22) || (tr > 0.33 && tr < 0.37)) room *= 0.18;
+      return { room, mix: 0, lamp: 0 };
+    }
+    if (tr < 0.85) return { room: 0, mix: 1, lamp: 0 };
+    const t = tr - 0.85;
+    let lamp = t < 0.06 ? 1 : t < 0.13 ? 0.15 : t < 0.2 ? 0.9 : t < 0.25 ? 0.4 : Math.min(1, 0.75 + t * 0.6);
+    return { room: 0, mix: 1, lamp };
+  }
+  if (tr < 0.6) return { room: 0, mix: 1, lamp: 1 };
+  if (tr < 1.25) return { room: 0, mix: 1, lamp: 1 - (tr - 0.6) / 0.65 };
+  const k = clamp((tr - 1.25) / 1.0, 0, 1);
+  return { room: Math.pow(k, 1.4), mix: 1 - k, lamp: 0 };
+}
+
+/* ---------- one step of the world ---------- */
+function step(dt) {
+  mapPrep();
+  if (mode === 'fx' && tr > 0.85 && !lampOn) { lampOn = true; flash = 1; AE.thump(); }
+  if (mode === 'fx' && tr > 1.05 && !rainOn && !freeze) { rainOn = true; showStatus('手をのばすと、その上で雨がやむ', 6500); hintAt = T + 9; }
+  if (hintAt && T > hintAt && mode === 'fx') { hintAt = 0; showStatus('画面をタップすると、雨粒が宙で止まる', 5000); }
+  flash = Math.max(0, flash - dt * 3.5);
+  if (freeze) { freezeT += dt; if (freezeT > 10) setFreeze(false); }
+  ts += ((freeze ? 0 : 1) - ts) * (1 - Math.exp(-dt / (freeze ? 0.09 : 0.18)));
+  if (ts < 0.002) ts = 0;
+  wind += (Math.sin(T * 0.21) * 0.035 + Math.sin(T * 0.77) * 0.012 - wind) * Math.min(1, dt * 2);
+  const sdt = dt * ts;
+  const umb = stopMode === 'umb';
+  hitsShell = 0; hitsBody = 0;
+
+  for (let li = 0; li < 3; li++) {
+    const L = LAYERS[li], n = L.n;
+    for (let i = 0; i < n; i++) {
+      if (!L.live[i]) {
+        if (!rainOn || ts < 0.5) continue;
+        L.wait[i] -= sdt; if (L.wait[i] > 0) continue;
+        respawn(L, i, false);
+        if (!umb && li > 0) { const c = (L.x[i] / W * NCOL) | 0; if (c >= 0 && c < NCOL && colOff[c]) { L.live[i] = 0; L.wait[i] = 0.04 + Math.random() * 0.06; continue; } }
+        continue;
+      }
+      const y0 = L.y[i], dy = L.v[i] * sdt;
+      const y1 = y0 + dy;
+      L.x[i] += L.v[i] * wind * sdt;
+      if (li === 1 && maskOK && dy > 0) {
+        /* look along this frame's fall, so a fast drop cannot pass through a thin arm */
+        const steps = Math.min(5, 1 + (dy / (0.012 * S)) | 0);
+        let hit = 0, hy = y1;
+        for (let k = 1; k <= steps; k++) {
+          const yy = y0 + dy * k / steps, x = L.x[i];
+          if (umb && at(sens, x, yy) > 0.5) { hit = 1; hy = yy; break; }
+          if (at(maskF, x, yy) > 0.55) { hit = 2; hy = yy; break; }
+        }
+        if (hit) {
+          const x = L.x[i];
+          if (hit === 1) {
+            hitsShell++;
+            const e = 0.02 * S, gx = at(sens, x + e, hy) - at(sens, x - e, hy), gy = at(sens, x, hy + e) - at(sens, x, hy - e);
+            const gl_ = Math.hypot(gx, gy) + 1e-4;
+            splash(x, hy, -gx / gl_, -gy / gl_, 3 + (Math.random() < 0.5 ? 1 : 0), 1);
+          } else {
+            hitsBody++;
+            splash(x, hy, 0, -1, 3, 0.75, true);
+            if (Math.random() < 0.3) bead(x + (Math.random() - 0.5) * 3, hy + Math.random() * 0.01 * S);
+            wetAdd(x, hy, 0.09);
+          }
+          L.live[i] = 0; L.wait[i] = Math.random() * 0.03; continue;
+        }
+      }
+      L.y[i] = y1;
+      if (freeze && li === 1 && ts < 0.4 && maskOK) {
+        /* the hanging drops make way for you */
+        const x = L.x[i], s = at(sens, x, y1);
+        if (s > 0.2) {
+          const e = 0.018 * S, gx = at(sens, x + e, y1) - at(sens, x - e, y1), gy = at(sens, x, y1 + e) - at(sens, x, y1 - e);
+          const g = Math.hypot(gx, gy);
+          const push = 0.9 * S * dt * s;
+          if (g > 1e-3) { L.x[i] -= gx / g * push; L.y[i] -= gy / g * push; }
+          else { L.x[i] += (x < W / 2 ? -1 : 1) * push; }
+        }
+      }
+      if (L.y[i] - L.v[i] * L.sh > H + 4 || L.x[i] < -40 || L.x[i] > W + 40) { L.live[i] = 0; L.wait[i] = Math.random() * 0.02; }
+    }
+  }
+  /* splashes */
+  const g = 3.0 * S;
+  for (let i = 0; i < SP.n; i++) {
+    SP.life[i] -= sdt;
+    /* a spray off the umbrella that falls back onto you is gone: you stay dry */
+    if (SP.life[i] > 0 && !SP.k[i] && maskOK && at(maskF, SP.x[i], SP.y[i]) > 0.4) SP.life[i] = 0;
+    if (SP.life[i] <= 0) { const j = --SP.n; SP.x[i] = SP.x[j]; SP.y[i] = SP.y[j]; SP.vx[i] = SP.vx[j]; SP.vy[i] = SP.vy[j]; SP.life[i] = SP.life[j]; SP.max[i] = SP.max[j]; SP.b[i] = SP.b[j]; SP.k[i] = SP.k[j]; i--; continue; }
+    SP.vy[i] += g * sdt; SP.x[i] += SP.vx[i] * sdt; SP.y[i] += SP.vy[i] * sdt;
+  }
+  /* beads run down and dry; one that is no longer on you is gone */
+  for (let i = 0; i < BD.n; i++) {
+    BD.life[i] -= dt * (ts * 0.8 + 0.2);
+    if (Math.random() < 0.02 * ts) BD.vy[i] = (0.04 + Math.random() * 0.12) * S;
+    BD.vy[i] *= Math.exp(-dt * 1.4); BD.y[i] += BD.vy[i] * sdt;
+    if (BD.life[i] <= 0 || (maskOK && at(maskF, BD.x[i], BD.y[i]) < 0.32)) {
+      const j = --BD.n; BD.x[i] = BD.x[j]; BD.y[i] = BD.y[j]; BD.vy[i] = BD.vy[j]; BD.life[i] = BD.life[j]; BD.r[i] = BD.r[j]; i--;
+    }
+  }
+  const dec = Math.exp(-dt / 14);
+  for (let i = 0; i < wetG.length; i++) { wetG[i] *= dec; wetU8[i] = Math.min(255, wetG[i] * 255); }
+
+  /* sound */
+  patter += (Math.min(1, hitsShell / Math.max(1, dt * 900)) - patter) * Math.min(1, dt * 8);
+  dripBudget = Math.min(3, dripBudget + dt * 14);
+  if (hitsBody && dripBudget >= 1) { dripBudget -= 1; AE.drip(); }
+  const rainLvl = rainOn ? 1 : 0;
+  AE.update(rainLvl * clamp(density, 0.3, 1.5), patter, ts);
+}
+let hintAt = 0;
+
+/* ---------- draw the rain canvas ---------- */
+function drawRain() {
+  rx.setTransform(1, 0, 0, 1, 0, 0);
+  rx.globalCompositeOperation = 'source-over'; rx.globalAlpha = 1; rx.fillStyle = '#000'; rx.fillRect(0, 0, rc.width, rc.height);
+  rx.setTransform(RS, 0, 0, RS, 0, 0);
+  rx.globalCompositeOperation = 'lighter'; rx.lineCap = 'round';
+  const fr = 1 - ts;
+  for (let li = 0; li < 3; li++) {
+    const L = LAYERS[li];
+    rx.strokeStyle = L.col;
+    rx.lineWidth = L.w * (li === 2 ? Math.max(S / 720, 0.85) * RS : S / 720) * (1 + fr * (li === 2 ? 1.0 : 1.4));
+    for (let bkt = 0; bkt < 3; bkt++) {
+      const lo = L.a0 + L.a1 * bkt / 3, hi = L.a0 + L.a1 * (bkt + 1) / 3 + (bkt === 2 ? 1 : 0);
+      rx.globalAlpha = Math.min(1, (lo + L.a1 / 6) * (1 + fr * (li === 1 ? 1.6 : 1.3)));
+      rx.beginPath();
+      for (let i = 0; i < L.n; i++) {
+        if (!L.live[i]) continue; const a = L.a[i]; if (a < lo || a >= hi) continue;
+        const x = L.x[i], y = L.y[i], len = Math.max(0.6, L.v[i] * L.sh * (li === 2 ? Math.max(ts, 0.04) : 0.12 + 0.88 * ts));
+        if (y < -len || y - len > H) continue;
+        rx.moveTo(x - L.v[i] * wind * L.sh * ts, y - len); rx.lineTo(x, y);
+      }
+      rx.stroke();
+    }
+  }
+  /* splashes: short bright strokes along their flight */
+  rx.strokeStyle = 'rgb(0,255,0)'; rx.lineWidth = 1.2 * (S / 720);
+  for (let bkt = 0; bkt < 2; bkt++) {
+    rx.globalAlpha = bkt ? 0.95 : 0.5; rx.beginPath();
+    for (let i = 0; i < SP.n; i++) {
+      const f = SP.life[i] / SP.max[i] * SP.b[i]; if ((f > 0.45) !== !!bkt) continue;
+      const x = SP.x[i], y = SP.y[i], k = 0.02 * ts + 0.003;
+      rx.moveTo(x - SP.vx[i] * k, y - SP.vy[i] * k); rx.lineTo(x, y);
+    }
+    rx.stroke();
+  }
+  /* the drops on you */
+  bx.setTransform(1, 0, 0, 1, 0, 0); bx.globalCompositeOperation = 'source-over'; bx.globalAlpha = 1;
+  bx.fillStyle = '#000'; bx.fillRect(0, 0, bc.width, bc.height);
+  if (BD.n) {
+    bx.setTransform(RS, 0, 0, RS, 0, 0); bx.globalCompositeOperation = 'lighter'; bx.fillStyle = '#f00';
+    for (let i = 0; i < BD.n; i++) {
+      bx.globalAlpha = Math.min(1, BD.life[i] * 0.5) * 0.7;
+      const r = BD.r[i], x = BD.x[i], y = BD.y[i];
+      bx.beginPath(); bx.ellipse(x, y, r, r * (1 + Math.min(2.5, BD.vy[i] / S * 25)), 0, 0, Math.PI * 2); bx.fill();
+    }
+  }
+}
+
+/* ---------- render ---------- */
+function render() {
+  const P = PR.main, R = PR.rays, V = VERS[verIdx], lt = lights();
+  gl.bindVertexArray(VAO);
+  const SK = TEST.skip || {};
+  if (video.readyState >= 2 && vw && !SK.vid) {
+    gl.bindTexture(gl.TEXTURE_2D, texVid); gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+    try { gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video); } catch (e) {}
+  }
+  const fxOn = lt.mix > 0;
+  if (fxOn) {
+    if (!SK.rain) { gl.bindTexture(gl.TEXTURE_2D, texRain); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, rc); gl.generateMipmap(gl.TEXTURE_2D); }
+    if (!SK.bead) { gl.bindTexture(gl.TEXTURE_2D, texBead); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, bc); }
+    gl.bindTexture(gl.TEXTURE_2D, texWet); gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, GW, GH, 0, gl.RED, gl.UNSIGNED_BYTE, wetU8);
+  }
+  const lampI = lt.lamp;
+  const common = Q => {
+    f2(Q, 'uVA', VA_[0], VA_[1]); f2(Q, 'uVB', VB_[0], VB_[1]); f2(Q, 'uLamp', V.lamp[0], V.lamp[1]); f2(Q, 'uAspV', W / S, H / S);
+    f1(Q, 'uT', T); f1(Q, 'uMaskOK', maskOK ? 1 : 0); f1(Q, 'uLampI', lampI);
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, texMask); i1(Q, 'uMask', 0);
+  };
+  if (fxOn) {
+    gl.bindFramebuffer(gl.FRAMEBUFFER, rays.f); gl.viewport(0, 0, rays.w, rays.h);
+    gl.useProgram(R.p); common(R); f2(R, 'uRes', rays.w, rays.h);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+  }
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, 0, cv.width, cv.height);
+  gl.useProgram(P.p); common(P); f2(P, 'uRes', cv.width, cv.height);
+  gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, texVid); i1(P, 'uVid', 1);
+  gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, texRain); i1(P, 'uRain', 2);
+  gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, texBead); i1(P, 'uBead', 3);
+  gl.activeTexture(gl.TEXTURE4); gl.bindTexture(gl.TEXTURE_2D, texWet); i1(P, 'uWet', 4);
+  gl.activeTexture(gl.TEXTURE5); gl.bindTexture(gl.TEXTURE_2D, rays.t); i1(P, 'uRays', 5);
+  f1(P, 'uMix', lt.mix); f1(P, 'uRoom', lt.room); f1(P, 'uFill', fill); f1(P, 'uGrain', V.grain * grainAmt);
+  f1(P, 'uSat', V.sat); f1(P, 'uGam', V.gam); f1(P, 'uFlash', flash * lampI); f1(P, 'uStill', (1 - ts) * lampI);
+  f3(P, 'uLampC', V.lampC); f3(P, 'uRainC', V.rainC); f3(P, 'uRimC', V.rimC); f3(P, 'uShadC', V.shadC); f3(P, 'uHiC', V.hiC); f3(P, 'uBgC', V.bgC);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+}
+
+/* ---------- layout ---------- */
+function resize() {
+  W = innerWidth; H = innerHeight; S = Math.min(W, H);
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  if (W * H * DPR * DPR > 2.2e6) DPR = Math.sqrt(2.2e6 / (W * H));
+  cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR);
+  RS = Math.min(DPR, 1.5); if (W * H * RS * RS > 1.3e6) RS = Math.sqrt(1.3e6 / (W * H));
+  rc.width = bc.width = Math.max(2, Math.round(W * RS)); rc.height = bc.height = Math.max(2, Math.round(H * RS));
+  Hs = Math.max(H, S * 1.25); buildNozzles();
+  GW = 48; GH = clamp(Math.round(48 * H / W), 16, 110); wetG = new Float32Array(GW * GH); wetU8 = new Uint8Array(GW * GH);
+  if (!PR) return;
+  const rw = Math.max(8, Math.round(cv.width / 4)), rh = Math.max(8, Math.round(cv.height / 4));
+  if (!rays || rays.w !== rw || rays.h !== rh) { if (rays) { gl.deleteTexture(rays.t); gl.deleteFramebuffer(rays.f); } rays = mkTarget(rw, rh); }
+  updateVideoMap();
+  const live = mode === 'fx' && rainOn;
+  resetRain(!live);
+}
+function updateVideoMap() {
+  vw = video.videoWidth || 0; vh = video.videoHeight || 0; if (!vw || !W) return;
+  const va = vw / vh, sa = W / H; let fx = 1, fy = 1;
+  if (va > sa) fx = sa / va; else fy = va / sa;
+  VA_ = [mirror ? -fx : fx, fy]; VB_ = [mirror ? 0.5 + fx / 2 : 0.5 - fx / 2, 0.5 - fy / 2];
+}
+
+/* ---------- sound ---------- */
+const AE = {
+  ctx: null, out: null, lp: null, recDest: null, hiss: null, rumble: null, pat: null, noise: null,
+  init() {
+    if (this.ctx) { if (this.ctx.state !== 'running') this.ctx.resume().catch(() => {}); return; }
+    const C = window.AudioContext || window.webkitAudioContext; if (!C) return;
+    let c; try { c = this.ctx = new C(); } catch (e) { return; }
+    const out = this.out = c.createGain(); out.gain.value = soundOn ? 0.9 : 0;
+    const lp = this.lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 16000; lp.Q.value = 0.5;
+    lp.connect(out); out.connect(c.destination);
+    try { this.recDest = c.createMediaStreamDestination(); out.connect(this.recDest); } catch (e) {}
+    const n = c.sampleRate * 2, buf = c.createBuffer(1, n, c.sampleRate), d = buf.getChannelData(0);
+    let b0 = 0, b1 = 0, b2 = 0;
+    for (let i = 0; i < n; i++) { const w = Math.random() * 2 - 1; b0 = 0.99765 * b0 + w * 0.099046; b1 = 0.963 * b1 + w * 0.2965164; b2 = 0.57 * b2 + w * 1.0526913; d[i] = (b0 + b1 + b2 + w * 0.1848) * 0.16; }
+    this.noise = buf;
+    const src = () => { const s = c.createBufferSource(); s.buffer = buf; s.loop = true; s.start(0, Math.random() * 1.9); return s; };
+    const chain = (type, f, q) => { const b = c.createBiquadFilter(); b.type = type; b.frequency.value = f; if (q) b.Q.value = q; return b; };
+    const g1 = this.hiss = c.createGain(); g1.gain.value = 0; src().connect(chain('highpass', 1100)).connect(chain('lowpass', 9000)).connect(g1).connect(lp);
+    const g2 = this.rumble = c.createGain(); g2.gain.value = 0; src().connect(chain('lowpass', 420)).connect(g2).connect(lp);
+    const g3 = this.pat = c.createGain(); g3.gain.value = 0; src().connect(chain('bandpass', 2900, 1.3)).connect(g3).connect(lp);
+  },
+  level() { if (this.out) this.out.gain.setTargetAtTime(soundOn ? 0.9 : 0, this.ctx.currentTime, 0.05); },
+  update(rain, pat, k) {
+    if (!this.ctx || !this.hiss) return; const t = this.ctx.currentTime;
+    this.hiss.gain.setTargetAtTime(rain * 0.3 * k, t, 0.12);
+    this.rumble.gain.setTargetAtTime(rain * 0.55 * k, t, 0.2);
+    this.pat.gain.setTargetAtTime(pat * k * 0.9 * (0.4 + Math.random() * 1.2), t, 0.012);
+  },
+  drip() {
+    if (!this.ctx || this.ctx.state !== 'running') return; const c = this.ctx, t = c.currentTime + 0.005;
+    const o = c.createOscillator(), g = c.createGain(), f = 1300 + Math.random() * 1700;
+    o.type = 'sine'; o.frequency.setValueAtTime(f, t); o.frequency.exponentialRampToValueAtTime(f * 1.9, t + 0.045);
+    g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(0.05 + Math.random() * 0.04, t + 0.003); g.gain.exponentialRampToValueAtTime(0.0005, t + 0.08);
+    o.connect(g).connect(this.lp); o.start(t); o.stop(t + 0.1);
+  },
+  thump() {
+    if (!this.ctx || this.ctx.state !== 'running') return; const c = this.ctx, t = c.currentTime + 0.01;
+    const o = c.createOscillator(), g = c.createGain();
+    o.frequency.setValueAtTime(74, t); o.frequency.exponentialRampToValueAtTime(38, t + 0.5);
+    g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.5, t + 0.01); g.gain.exponentialRampToValueAtTime(0.0005, t + 0.7);
+    o.connect(g).connect(this.lp); o.start(t); o.stop(t + 0.75);
+    const s = c.createBufferSource(), h = c.createBiquadFilter(), gg = c.createGain(); s.buffer = this.noise; h.type = 'highpass'; h.frequency.value = 2500;
+    gg.gain.setValueAtTime(0.5, t); gg.gain.exponentialRampToValueAtTime(0.001, t + 0.04);
+    s.connect(h).connect(gg).connect(this.lp); s.start(t, Math.random()); s.stop(t + 0.06);
+  },
+  freeze(on) {
+    if (!this.ctx) return; const c = this.ctx, t = c.currentTime;
+    this.lp.frequency.cancelScheduledValues(t);
+    this.lp.frequency.setTargetAtTime(on ? 240 : 16000, t, on ? 0.05 : 0.25);
+    if (!on || c.state !== 'running') return;
+    for (const [f, a] of [[1318.5, 0.045], [1975.5, 0.025], [2637, 0.012]]) {
+      const o = c.createOscillator(), g = c.createGain(); o.frequency.value = f;
+      g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(a, t + 0.004); g.gain.exponentialRampToValueAtTime(0.0002, t + 2.8);
+      o.connect(g).connect(this.out); o.start(t); o.stop(t + 3);
+    }
+  },
+};
+
+/* ---------- time stops ---------- */
+function setFreeze(on) {
+  if (on === freeze) return;
+  if (on && (mode !== 'fx' || !rainOn)) return;
+  freeze = on; freezeT = 0; AE.freeze(on); if (on) flash = 0.7;
+  toast(on ? 'STILL' : '');
+}
+
+/* ---------- ui ---------- */
+let stT = 0;
+function showStatus(t, ms) {
+  const el = $('status'); clearTimeout(stT);
+  if (!t) { el.classList.add('off'); return; }
+  el.textContent = t; el.classList.remove('off');
+  if (ms) stT = setTimeout(() => el.classList.add('off'), ms);
+}
+let toT = 0;
+function toast(t) {
+  const el = $('toast'); clearTimeout(toT);
+  if (!t) { el.classList.remove('on'); return; }
+  el.textContent = t; el.classList.add('on'); toT = setTimeout(() => el.classList.remove('on'), 1300);
+}
+$('mode').onclick = () => { AE.init(); setMode(mode === 'fx' ? 'cam' : 'fx'); };
+$('ver').onclick = () => { verIdx = (verIdx + 1) % VERS.length; $('ver').textContent = VERS[verIdx].name; toast(VERS[verIdx].name); };
+cv.addEventListener('pointerdown', e => {
+  if (!running || e.button > 0) return;
+  if (!$('panel').hidden) { $('panel').hidden = true; $('gear').setAttribute('aria-expanded', 'false'); return; }
+  if (mode === 'fx') setFreeze(!freeze);
+});
+const panel = $('panel');
+$('gear').onclick = () => { panel.hidden = !panel.hidden; $('gear').setAttribute('aria-expanded', String(!panel.hidden)); };
+$('panelX').onclick = () => { panel.hidden = true; $('gear').setAttribute('aria-expanded', 'false'); };
+$('sRain').oninput = e => { density = +e.target.value; for (const L of LAYERS) { const n = layerCount(L); for (let i = L.n; i < n; i++) { L.live[i] = 0; L.wait[i] = Math.random() * 0.4; } L.n = n; } };
+$('sLag').oninput = e => { lag = +e.target.value; };
+$('sFill').oninput = e => { fill = +e.target.value; };
+$('sGrain').oninput = e => { grainAmt = +e.target.value; };
+const setStop = m => { stopMode = m; $('bUmb').classList.toggle('on', m === 'umb'); $('bCeil').classList.toggle('on', m === 'ceil'); };
+$('bUmb').onclick = () => setStop('umb'); $('bCeil').onclick = () => setStop('ceil');
+$('bSound').onclick = () => { soundOn = !soundOn; const b = $('bSound'); b.classList.toggle('on', soundOn); b.textContent = soundOn ? '音：入' : '音：切'; AE.init(); AE.level(); };
+const fsBtn = $('bFs');
+if (!document.documentElement.requestFullscreen) fsBtn.style.display = 'none';
+else fsBtn.onclick = () => document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen().catch(() => {});
+$('shot').onclick = () => { shotReq = true; };
+function saveShot() {
+  try {
+    cv.toBlob(b => { if (!b) { toast('保存できませんでした'); return; } const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = 'amayadori_' + Date.now() + '.png';
+      document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 4000); }, 'image/png');
+    toast('SAVED');
+  } catch (e) { toast('保存できませんでした'); }
+}
+let mr = null, chunks = [];
+$('rec').onclick = () => {
+  const b = $('rec');
+  if (mr && mr.state === 'recording') { mr.stop(); return; }
+  AE.init();
+  const tracks = [...cv.captureStream(30).getVideoTracks()];
+  if (AE.recDest) tracks.push(...AE.recDest.stream.getAudioTracks());
+  const ms = new MediaStream(tracks);
+  const types = ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm'];
+  const mt = types.find(t => window.MediaRecorder && MediaRecorder.isTypeSupported(t)) || '';
+  try { mr = new MediaRecorder(ms, mt ? { mimeType: mt, videoBitsPerSecond: 6e6 } : {}); }
+  catch (err) { toast('録画できません'); return; }
+  chunks = []; mr.ondataavailable = ev => { if (ev.data && ev.data.size) chunks.push(ev.data); };
+  mr.onstop = () => {
+    b.classList.remove('act'); b.innerHTML = '●<span class="t"> REC</span>';
+    const blob = new Blob(chunks, { type: mr.mimeType || 'video/mp4' }); const ext = (mr.mimeType || '').includes('mp4') ? 'mp4' : 'webm';
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'amayadori_' + Date.now() + '.' + ext;
+    document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 4000);
+  };
+  try { mr.start(1000); } catch (err) { toast('録画できません'); return; }
+  b.classList.add('act'); b.innerHTML = '■<span class="t"> STOP</span>';
+};
+addEventListener('keydown', e => {
+  if (!running) return; const k = e.key.toLowerCase();
+  if (k === 'v') $('ver').onclick(); else if (k === 's') shotReq = true; else if (k === ' ') { e.preventDefault(); if (mode === 'fx') setFreeze(!freeze); } else if (k === 'm') $('mode').onclick();
+});
+addEventListener('resize', resize);
+
+function camErrText(e) {
+  const m = (e && (e.message || e.name)) ? (e.message || e.name) : String(e || 'unknown');
+  return 'カメラを起動できませんでした：' + m + '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+}
+async function startCam() {
+  const md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) throw new Error('getUserMedia is unavailable');
+  /* get the new stream first, so a failed flip keeps the old camera running */
+  const s2 = await md.getUserMedia({ video: { facingMode: { ideal: facing }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = s2; video.srcObject = stream;
+  try { await video.play(); } catch (e) {}
+  await new Promise(r => { if (video.videoWidth) r(); else { video.onloadedmetadata = () => r(); setTimeout(r, 3000); } });
+  mirror = facing === 'user'; maskOK = false; if (maskF.length) { maskF.fill(0); sens.fill(0); } colOff.fill(0);
+  updateVideoMap();
+}
+$('flip').onclick = async () => {
+  const prev = facing; facing = facing === 'user' ? 'environment' : 'user';
+  try { await startCam(); toast(facing === 'user' ? 'FRONT' : 'BACK'); }
+  catch (e) { facing = prev; toast('切り替えられませんでした'); console.warn(camErrText(e)); }
+};
+$('go').onclick = async () => {
+  const btn = $('go'); btn.disabled = true; $('err').textContent = 'カメラを起動しています…';
+  AE.init();
+  try { if (!PR) initGL(); resize(); }
+  catch (e) { $('err').textContent = '描画の準備に失敗しました：' + (e && e.message ? e.message.split('\n')[0] : e); console.error(e); btn.disabled = false; return; }
+  try { await startCam(); }
+  catch (e) { $('err').textContent = camErrText(e); btn.disabled = false; btn.textContent = 'もう一度'; return; }
+  $('start').classList.add('hide'); $('ui').classList.add('on'); $('err').textContent = '';
+  running = true; T = 0; lastT = performance.now() / 1000;
+  $('mode').classList.add('pulse');
+  showStatus('「雨を降らせる」を押すと、部屋の明かりが落ちる', 7000);
+  if (!segmenter && !mpErr) initMP();
+};
+
+/* ---------- the loop ---------- */
+let slow = 0;
+function frame(now) {
+  requestAnimationFrame(frame);
+  const tNow = now / 1000; let dt = Math.min(0.1, Math.max(0, tNow - lastT)); lastT = tNow;
+  if (!running || !PR || gl.isContextLost()) return;
+  if (TEST.dt) dt = TEST.dt;
+  if (TEST.budget != null) { if (TEST.budget <= 0) return; TEST.budget--; }
+  T += dt; tr += dt; TEST.frames++;
+  const clock = TEST.dt ? T * 1000 : now;
+  /* keep it real-time: thin the rain on slow devices */
+  if (!TEST.dt) { slow += ((dt > 0.05 ? 1 : 0) - slow) * 0.02; if (slow > 0.6 && qual > 0.45) { qual *= 0.85; slow = 0; for (const L of LAYERS) L.n = layerCount(L); } }
+  const t0 = TEST.dt ? performance.now() : 0;
+  runSeg(clock);
+  step(dt);
+  const t1 = TEST.dt ? performance.now() : 0;
+  if (lights().mix > 0) drawRain();
+  const t2 = TEST.dt ? performance.now() : 0;
+  render();
+  if (TEST.dt) { gl.finish(); TEST.prof = [t1 - t0, t2 - t1, performance.now() - t2]; }
+  if (shotReq) { shotReq = false; saveShot(); }
+}
+requestAnimationFrame(frame);
+
+/* test hook (local checks only) */
+window.__ama = {
+  TEST, T: () => T,
+  state: () => ({ running, mode, tr, rainOn, lampOn, freeze, ts, maskOK, seg: !!segmenter, mpErr, presence,
+    drops: LAYERS.map(L => { let k = 0; for (let i = 0; i < L.n; i++) k += L.live[i]; return k; }), splashes: SP.n, beads: BD.n,
+    wet: wetG.reduce((a, b) => a + b, 0), colOff: colOff.reduce((a, b) => a + b, 0), hitsShell, hitsBody, ver: verIdx, stopMode, W, H }),
+  set: o => {
+    if (o.ver != null) { verIdx = o.ver; $('ver').textContent = VERS[verIdx].name; }
+    if (o.stop) setStop(o.stop); if (o.lag != null) lag = o.lag; if (o.density != null) { density = o.density; for (const L of LAYERS) L.n = layerCount(L); }
+    if (o.freeze != null) setFreeze(!!o.freeze);
+  },
+  setMode: (m, instant) => setMode(m, instant),
+  sensorAt: (x, y) => { mapPrep(); return at(sens, x, y); }, maskAt: (x, y) => { mapPrep(); return at(maskF, x, y); },
+  dropsIn: (x0, y0, x1, y1, li = 1) => { const L = LAYERS[li]; let k = 0; for (let i = 0; i < L.n; i++) if (L.live[i] && L.x[i] >= x0 && L.x[i] < x1 && L.y[i] >= y0 && L.y[i] < y1) k++; return k; },
+};
+</script>
+</body>
+</html>
