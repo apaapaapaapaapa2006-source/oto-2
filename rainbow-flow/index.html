@@ -109,6 +109,8 @@ GC.getContext=function(type){
   ギャラリーの決まりに合わせて足したもの：REC-FIX と RESUME-FIX、題名と説明、⟲ カメラ、撮影と録画、
   カメラが使えないときの決まった文言、手のランドマークの確認（欠けた・壊れた点は使わない）、
   浮動小数テクスチャを線形補間で読むための拡張。
+  オーナーの指摘で（同日）：「量」のスライダーを足して、はじめの量を少なめに（すぐ画面が色で埋まるため）。
+  はじめのカメラはインカメラ。
 
   構成
   - 手の検出 : MediaPipe Tasks Vision / HandLandmarker（21点 × 最大2手）
@@ -162,6 +164,8 @@ GC.getContext=function(type){
     border:1px solid var(--line);border-radius:10px;padding:8px 10px;display:flex;align-items:center;gap:6px}
   #bar button:active{background:rgba(255,255,255,.18)}
   #bar input[type=range]{width:90px;accent-color:#ff8a3b}
+  /* phones: keep the bar at three rows with the 量 slider added */
+  @media (max-width:440px){#bar{gap:5px;padding:7px}#bar button,#bar label{padding:8px 8px;gap:5px}#bar input[type=range]{width:62px}}
   /* shot and REC sit beside the ◎ toggle, as small round buttons */
   .rnd{position:fixed;right:calc(env(safe-area-inset-right) + 12px);width:34px;height:34px;border-radius:50%;border:1px solid var(--line);
     background:var(--glass);color:var(--fg);font-size:13px;z-index:6;-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px)}
@@ -190,6 +194,7 @@ GC.getContext=function(type){
   <button id="bMode">色：虹</button>
   <button id="bTex">質感：クローム</button>
   <button id="bHand">手を前：ON</button>
+  <label>量 <input id="sAmt" type="range" min="0" max="100" value="30"></label>
   <label>余韻 <input id="sFade" type="range" min="0" max="100" value="70"></label>
   <label>勢い <input id="sForce" type="range" min="0" max="100" value="50"></label>
   <button id="bClear">クリア</button>
@@ -211,7 +216,9 @@ const CFG = {
   velDissipation: 0.25,
   dyeDissipation: 1.0,             // スライダー「余韻」で変更
   force: 2600,                     // スライダー「勢い」で変更
-  dyeAmount: 0.7,
+  dyeAmount: 0.7,                  // スライダー「量」で変更
+  size: 1.0,                       // 液の太さ。スライダー「量」で変更
+  edge: 0.02,                      // 薄まった液を見せないしきい値。スライダー「量」で変更
   refraction: 0.035,               // 背景の屈折量（uv）
   bump: 4.5,                       // 濃度勾配→法線の強さ
   gloss: 1.0,                      // 1=クローム, 0=なめらか
@@ -355,7 +362,7 @@ void main(){
   display: FS_HEAD + `
 uniform sampler2D uDye, uCam, uMask;
 uniform vec2 dyeTexel, camScale;
-uniform float mirror, hasCam, refr, gloss, bump, handFront;
+uniform float mirror, hasCam, refr, gloss, bump, handFront, edge;
 
 vec2 camUV(vec2 uv){
   uv = clamp(uv, 0.001, 0.999);
@@ -382,7 +389,7 @@ void main(){
 
   // 手の上は流体を描かない
   float m = handFront * smoothstep(0.25, 0.75, texture(uMask, vec2(vUv.x, 1.0-vUv.y)).r);
-  float cover = smoothstep(0.02, 0.45, a) * (1.0-m);
+  float cover = smoothstep(edge, 0.45 + 0.5*edge, a) * (1.0-m);  // edge：薄まった液を見せないしきい値（「量」で変わる）
 
   // 背景の屈折
   vec3 camR = camAt(vUv + n.xy*refr*cover);
@@ -508,7 +515,7 @@ function resize() {
 /* ============================================================
    カメラ
    ============================================================ */
-let facing = 'environment', stream = null, hasCam = false;
+let facing = 'user', stream = null, hasCam = false;
 async function startCamera() {
   if (stream) stream.getTracks().forEach(t => t.stop());
   hasCam = false;
@@ -660,7 +667,7 @@ function emit(points) {
     bufP.fill(0); bufV.fill(0);
     // 速度
     chunk.forEach((p, i) => {
-      bufP.set([p.x, p.y, p.rad * 2.2, 0], i * 4);
+      bufP.set([p.x, p.y, p.rad * 2.2 * Math.sqrt(CFG.size), 0], i * 4);  // 量を減らすと渦の広がりも小さく
       bufV.set([p.dx * CFG.force, p.dy * CFG.force, 0, 0], i * 4);
     });
     let u = P.splat.use();
@@ -671,7 +678,7 @@ function emit(points) {
     // 染料
     chunk.forEach((p, i) => {
       const c = colorFor(p.f, p.k), amt = Math.min(p.sp * 16, 1) * CFG.dyeAmount;
-      bufP.set([p.x, p.y, p.rad, 0], i * 4);
+      bufP.set([p.x, p.y, p.rad * CFG.size, 0], i * 4);
       bufV.set([c[0] * amt, c[1] * amt, c[2] * amt, 0], i * 4);
     });
     u = P.splat.use();
@@ -799,6 +806,7 @@ function render() {
   gl.uniform1f(u.gloss, CFG.gloss);
   gl.uniform1f(u.bump, CFG.bump);
   gl.uniform1f(u.handFront, CFG.handFront ? 1 : 0);
+  gl.uniform1f(u.edge, CFG.edge);
   blit(null);
 }
 
@@ -827,7 +835,10 @@ $('#bHand').onclick = e => { CFG.handFront = !CFG.handFront; e.currentTarget.tex
 $('#bClear').onclick = () => initFBOs();
 const fade = () => { const v = +$('#sFade').value / 100; CFG.dyeDissipation = 3.0 - 2.85 * v; };
 const force = () => { const v = +$('#sForce').value / 100; CFG.force = 800 + 3600 * v; CFG.curl = 6 + 22 * v; };
-$('#sFade').oninput = fade; $('#sForce').oninput = force; fade(); force();
+// 量：0 で細い筋だけ、30（はじめ）で手を振りつづけても画面の 3 分の 1 ほど、100 で持ち込み時と同じくらい（持ち込み時はおよそ 90）
+const amount = () => { const v = +$('#sAmt').value / 100;
+  CFG.size = 0.18 + 1.02 * Math.pow(v, 2.2); CFG.dyeAmount = 0.25 + 0.45 * v * v; CFG.edge = 0.02 + 0.13 * Math.pow(1 - v, 0.75); };
+$('#sAmt').oninput = amount; $('#sFade').oninput = fade; $('#sForce').oninput = force; amount(); fade(); force();
 $('#toggle').onclick = () => $('#bar').classList.toggle('hidden');
 $('#bShot').onclick = () => { shotReq = true; };
 let mr = null, chunks = [];
