@@ -1,0 +1,868 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<script>/* REC-FIX (2026-10-12) — iPhone Safari で録画が途中で止まる・壊れる対策。どの作品でも同じ内容。
+   ・mp4 は映像と音声の両方のコーデックを宣言する（avc1 だけだと音声付きで止まることがある）
+   ・1 秒ごとにデータを受け取る（最後に一括で書き出さない）／ビットレートに上限
+   ・保存が終わる前に次の録画を始めない（前のファイルが消えるのを防ぐ）
+   ・録画中は AudioContext を止めない（音声トラックが止まると mp4 ごと止まる） */
+(()=>{const MR=window.MediaRecorder;if(!MR||MR.__recfix)return;let busy=0,active=0;
+class R extends MR{
+  constructor(s,o){if(busy)throw new Error('前の録画を保存しています');o=Object.assign({},o||{});
+    const au=s&&s.getAudioTracks&&s.getAudioTracks().length>0;
+    if(!o.mimeType||/^video\/mp4/.test(o.mimeType)){
+      const c=[au?'video/mp4;codecs="avc1.42E01E,mp4a.40.2"':'video/mp4;codecs="avc1.42E01E"','video/mp4'].find(m=>MR.isTypeSupported(m));
+      if(c)o.mimeType=c;else if(o.mimeType&&!MR.isTypeSupported(o.mimeType))delete o.mimeType;}
+    if(!o.videoBitsPerSecond&&!o.bitsPerSecond)o.videoBitsPerSecond=6e6;
+    super(s,o);this.addEventListener('stop',()=>{active=Math.max(0,active-1);setTimeout(()=>{busy=0;},0);});}
+  start(t){const r=super.start(t==null?1000:t);active++;return r;}
+  stop(){if(this.state!=='inactive'){busy=1;setTimeout(()=>{busy=0;},15000);}return super.stop();}}
+R.__recfix=1;window.MediaRecorder=R;
+const AC=window.AudioContext||window.webkitAudioContext;
+if(AC&&AC.prototype.suspend){const sus=AC.prototype.suspend;AC.prototype.suspend=function(){return active?Promise.resolve():sus.call(this);};}
+/* 録音用の出口には常に無音を流しておく（何も鳴っていないと音声トラックにデータが来ず、録画全体が止まる） */
+if(AC&&AC.prototype.createMediaStreamDestination){const cmd=AC.prototype.createMediaStreamDestination;AC.prototype.createMediaStreamDestination=function(){const d=cmd.apply(this,arguments);
+  try{const c=this.createConstantSource();c.offset.value=0;c.connect(d);c.start();}catch(e){}return d;};}})();</script>
+<script>/* RESUME-FIX (2026-10-17) — iPhone で写真や動画を保存しに行ったり、別のアプリへ行ったりして戻ると、
+   カメラが消える・映像が固まる・画面が壊れる対策。どの作品でも同じ内容。
+   ・ページが裏に回ると、iPhone はカメラを止め、動画を一時停止し、音を止め、ときに WebGL の描画を捨てる
+   ・戻ったら：止められたカメラを同じ条件で取り直して同じ MediaStream に差し込み、止まった動画を再生し、音を再開する
+   ・WebGL の描画が捨てられ、作品が自分で立て直せないときは「タップして再開」を出して読み込み直す */
+(()=>{if(window.__resumefix)return;window.__resumefix=1;
+const md=navigator.mediaDevices,streams=new Map(),vids=new Set(),ctxs=new Set(),lost=new WeakSet(),mutedAt=new Map();
+const watch=t=>{try{t.addEventListener('ended',()=>lost.add(t));t.addEventListener('mute',()=>mutedAt.set(t,performance.now()));
+  t.addEventListener('unmute',()=>mutedAt.delete(t));if(t.muted)mutedAt.set(t,performance.now());}catch(e){}};
+let gum=null;
+if(md&&md.getUserMedia){gum=md.getUserMedia.bind(md);
+  md.getUserMedia=async function(c){const s=await gum(c);try{streams.set(s,c);s.getTracks().forEach(watch);}catch(e){}return s;};}
+/* every <video> that is given a camera stream, also ones never put in the page */
+const MP=HTMLMediaElement.prototype,play=MP.play,so=Object.getOwnPropertyDescriptor(MP,'srcObject');
+MP.play=function(){try{if(this.srcObject)vids.add(this);}catch(e){}return play.apply(this,arguments);};
+if(so&&so.set)Object.defineProperty(MP,'srcObject',{configurable:true,enumerable:so.enumerable,
+  get(){return so.get.call(this);},set(v){if(v)vids.add(this);so.set.call(this,v);}});
+for(const k of['AudioContext','webkitAudioContext']){const C=window[k];if(!C||C.__resumefix)continue;
+  const W=function(...a){const c=new C(...a);ctxs.add(c);return c;};W.prototype=C.prototype;W.__resumefix=1;
+  try{Object.setPrototypeOf(W,C);}catch(e){}window[k]=W;}
+const shown=s=>{for(const v of vids){try{if(so.get.call(v)===s)return true;}catch(e){}}return false;};
+let busy=0;
+async function revive(){
+  if(busy||document.hidden)return;busy=1;
+  try{
+    for(const[s,c]of[...streams]){
+      const tr=s.getTracks();
+      if(!shown(s)){if(tr.every(t=>t.readyState==='ended'))streams.delete(s);continue;}
+      const now=performance.now();
+      const dead=tr.filter(t=>(t.readyState==='ended'&&lost.has(t))||(t.kind==='video'&&mutedAt.has(t)&&now-mutedAt.get(t)>1500));
+      if(!dead.length||!gum)continue;
+      let ns=null;try{ns=await gum(c);}catch(e){continue;}
+      const kinds=new Set(dead.map(t=>t.kind));
+      for(const t of dead){try{t.stop();}catch(e){}s.removeTrack(t);mutedAt.delete(t);}
+      for(const t of ns.getTracks()){if(kinds.has(t.kind)){s.addTrack(t);watch(t);}else t.stop();}
+      for(const v of vids){try{if(so.get.call(v)===s){so.set.call(v,null);so.set.call(v,s);}}catch(e){}}
+    }
+  }finally{busy=0;}
+  for(const v of vids){try{if(so.get.call(v)&&v.paused)play.call(v).catch(()=>{});}catch(e){}}
+  for(const c of ctxs){try{if(c.state!=='running'&&c.state!=='closed')c.resume().catch(()=>{});}catch(e){}}
+}
+const soon=()=>{if(document.hidden)return;const n=performance.now();for(const t of mutedAt.keys())mutedAt.set(t,n);
+  setTimeout(revive,250);setTimeout(revive,1900);};
+document.addEventListener('visibilitychange',soon);
+addEventListener('pageshow',soon);addEventListener('focus',soon);
+/* iPhone sometimes only lets sound and video restart from a tap */
+const tap=()=>{for(const c of ctxs){try{if(c.state!=='running'&&c.state!=='closed')c.resume().catch(()=>{});}catch(e){}}
+  for(const v of vids){try{if(so.get.call(v)&&v.paused)play.call(v).catch(()=>{});}catch(e){}}};
+addEventListener('pointerdown',tap,true);addEventListener('touchend',tap,true);
+/* WebGL: if the drawing is thrown away and the piece does not rebuild it, offer a clean restart */
+const ET=EventTarget.prototype,ael=ET.addEventListener,rebuilds=new WeakSet(),gls=new WeakMap();
+ET.addEventListener=function(t){if(t==='webglcontextrestored'&&this instanceof HTMLCanvasElement)rebuilds.add(this);return ael.apply(this,arguments);};
+let box=null;
+function offer(){
+  if(box)return;box=document.createElement('div');
+  box.style.cssText='position:fixed;inset:0;z-index:2147483647;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;'+
+    'background:rgba(0,0,0,.82);color:#fff;font:14px/1.8 system-ui,sans-serif;text-align:center;padding:24px';
+  box.innerHTML='<div>画面の表示が止まりました。<br>（別のアプリから戻ったとき、iPhone が描画を止めることがあります）</div>'+
+    '<button style="font:inherit;font-size:16px;padding:12px 28px;border-radius:999px;border:0;background:#fff;color:#000">タップして再開</button>';
+  box.querySelector('button').onclick=()=>location.reload();
+  (document.body||document.documentElement).appendChild(box);
+}
+const GC=HTMLCanvasElement.prototype,getCtx=GC.getContext;
+GC.getContext=function(type){
+  const g=getCtx.apply(this,arguments);
+  if(g&&/webgl/i.test(String(type))&&!gls.has(this)){gls.set(this,g);const cv=this;
+    ael.call(cv,'webglcontextlost',e=>{e.preventDefault();let vis=0;
+      const iv=setInterval(()=>{vis=document.hidden?0:vis+500;let still=false;try{still=g.isContextLost();}catch(_){}
+        if(!still){clearInterval(iv);return;}                     /* came back: the 'restored' handler below decides */
+        if(vis>=4000){clearInterval(iv);if(cv.isConnected)offer();}},500);},false);
+    ael.call(cv,'webglcontextrestored',()=>{const f=()=>{if(document.hidden){setTimeout(f,500);return;}
+      if(cv.isConnected&&!rebuilds.has(cv))offer();};f();},false);}
+  return g;
+};
+})();</script>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>RAINBOW FLOW ─ 虹色の流体</title>
+<meta name="description" content="カメラの前で手を動かすと、指先から虹色の液体があふれ出す。液体はクロームのように光り、うしろの景色をゆがめて映す。虹・炎・オーロラ・単色の四つ。">
+<!--
+  RAINBOW FLOW — 手の動きから虹色の液体があふれ出すカメラエフェクト（楽器ではなく映像エフェクトのみ）
+
+  オーナーが持ち込んだ作品（2026-10-24）。仕組み・シェーダ・色・UI はオーナーのもの。
+  ギャラリーの決まりに合わせて足したもの：REC-FIX と RESUME-FIX、題名と説明、⟲ カメラ、撮影と録画、
+  カメラが使えないときの決まった文言、手のランドマークの確認（欠けた・壊れた点は使わない）、
+  浮動小数テクスチャを線形補間で読むための拡張。
+
+  構成
+  - 手の検出 : MediaPipe Tasks Vision / HandLandmarker（21点 × 最大2手）
+  - 流体     : WebGL2 の Stable Fluids（curl → vorticity → divergence → pressure(Jacobi) → gradient subtract → advection）
+  - 描画     : 染料（dye）の濃度勾配から法線を作り、
+               ・背景カメラ映像を屈折させる
+               ・カメラ映像の明暗を映り込ませてクローム／液体金属っぽい質感にする
+               ・スペキュラ＋リムライト
+  - 手の前後 : 手のランドマークから簡易マスクを描き、手の上には流体を描かない（手が流体の手前に見える）
+  - 入力     : 手が無い／モデル未読込でも、画面ドラッグで流体を出せる（動作確認用）
+
+  動作要件 : HTTPS（またはlocalhost）でカメラ許可。iPhone Safari / PC Chrome 想定。
+-->
+<style>
+  :root{
+    --fg:#f4f4f6; --dim:rgba(244,244,246,.62);
+    --glass:rgba(18,18,24,.42); --line:rgba(255,255,255,.16);
+  }
+  *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+  html,body{height:100%;background:#000;color:var(--fg);overflow:hidden;
+    font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto Sans JP",system-ui,sans-serif;
+    touch-action:none;user-select:none;-webkit-user-select:none}
+  #c{position:fixed;inset:0;width:100vw;height:100vh;height:100dvh;display:block}
+  #v{position:fixed;width:1px;height:1px;opacity:0;pointer-events:none}
+
+  #start{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    gap:18px;padding:24px;text-align:center;z-index:10;
+    background:radial-gradient(120% 80% at 50% 40%,#1a1030 0%,#07060c 70%)}
+  #start h1{font-size:clamp(34px,9vw,64px);letter-spacing:.06em;font-weight:800;line-height:1;
+    background:linear-gradient(90deg,#ff3b6b,#ffb03b,#d8ff3b,#3bffb0,#3bb8ff,#a43bff,#ff3b6b);
+    background-size:200% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;
+    animation:hue 6s linear infinite}
+  @keyframes hue{to{background-position:200% 0}}
+  #start p{color:var(--dim);font-size:14px;line-height:1.8;max-width:32em}
+  #go{margin-top:6px;padding:14px 36px;border-radius:999px;border:1px solid var(--line);
+    background:rgba(255,255,255,.08);color:var(--fg);font-size:16px;font-weight:600;letter-spacing:.08em}
+  #go:active{transform:scale(.97)}
+
+  #status{position:fixed;left:50%;top:calc(env(safe-area-inset-top) + 14px);transform:translateX(-50%);
+    padding:6px 14px;border-radius:999px;background:var(--glass);border:1px solid var(--line);
+    font-size:12px;color:var(--dim);z-index:5;white-space:pre-line;text-align:center;width:max-content;max-width:calc(100vw - 24px);
+    -webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);transition:opacity .4s}
+  #status.hide{opacity:0}
+
+  #bar{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom) + 14px);transform:translateX(-50%);
+    width:min(560px,calc(100vw - 24px));display:flex;flex-wrap:wrap;gap:6px;justify-content:center;
+    padding:8px;border-radius:18px;background:var(--glass);border:1px solid var(--line);z-index:5;
+    -webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);transition:opacity .3s,transform .3s}
+  #bar.hidden{opacity:0;pointer-events:none;transform:translate(-50%,20px)}
+  #bar button,#bar label{font:inherit;font-size:12px;color:var(--fg);background:rgba(255,255,255,.07);
+    border:1px solid var(--line);border-radius:10px;padding:8px 10px;display:flex;align-items:center;gap:6px}
+  #bar button:active{background:rgba(255,255,255,.18)}
+  #bar input[type=range]{width:90px;accent-color:#ff8a3b}
+  /* shot and REC sit beside the ◎ toggle, as small round buttons */
+  .rnd{position:fixed;right:calc(env(safe-area-inset-right) + 12px);width:34px;height:34px;border-radius:50%;border:1px solid var(--line);
+    background:var(--glass);color:var(--fg);font-size:13px;z-index:6;-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px)}
+  #bShot{top:calc(env(safe-area-inset-top) + 52px)}
+  #bRec{top:calc(env(safe-area-inset-top) + 94px)}
+  #bRec.act{background:#c0263a;border-color:#c0263a}
+  #toggle{position:fixed;right:calc(env(safe-area-inset-right) + 12px);top:calc(env(safe-area-inset-top) + 10px);
+    width:34px;height:34px;border-radius:50%;border:1px solid var(--line);background:var(--glass);
+    color:var(--fg);font-size:14px;z-index:6;-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px)}
+</style>
+</head>
+<body>
+<video id="v" playsinline muted autoplay></video>
+<canvas id="c"></canvas>
+
+<div id="start">
+  <h1>RAINBOW FLOW</h1>
+  <p>カメラの前で手を動かすと、指先から虹色の液体があふれ出します。<br>手が無くても画面をなぞれば流体が出ます。</p>
+  <button id="go">はじめる</button>
+</div>
+
+<div id="status" class="hide">…</div>
+
+<div id="bar">
+  <button id="bCam">⟲ カメラ</button>
+  <button id="bMode">色：虹</button>
+  <button id="bTex">質感：クローム</button>
+  <button id="bHand">手を前：ON</button>
+  <label>余韻 <input id="sFade" type="range" min="0" max="100" value="70"></label>
+  <label>勢い <input id="sForce" type="range" min="0" max="100" value="50"></label>
+  <button id="bClear">クリア</button>
+</div>
+<button id="toggle" title="UIの表示切替">◎</button>
+<button id="bShot" class="rnd" title="いまの画面を保存" aria-label="いまの画面を保存">◉</button>
+<button id="bRec" class="rnd" title="録画" aria-label="録画">●</button>
+
+<script type="module">
+/* ============================================================
+   設定
+   ============================================================ */
+const IS_MOBILE = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && /Mac/.test(navigator.userAgent));
+const CFG = {
+  simRes: 128,                     // 速度場の解像度
+  dyeRes: IS_MOBILE ? 640 : 1024,  // 染料の解像度
+  pressureIters: 20,
+  curl: 28,                        // 渦の強さ（しわ・うねりの細かさ）
+  velDissipation: 0.25,
+  dyeDissipation: 1.0,             // スライダー「余韻」で変更
+  force: 2600,                     // スライダー「勢い」で変更
+  dyeAmount: 0.7,
+  refraction: 0.035,               // 背景の屈折量（uv）
+  bump: 4.5,                       // 濃度勾配→法線の強さ
+  gloss: 1.0,                      // 1=クローム, 0=なめらか
+  handFront: true,
+  mode: 0,
+  maxDpr: IS_MOBILE ? 1.5 : 1.75,
+};
+const MODES = ['虹', '炎', 'オーロラ', '単色'];
+const MAXP = 48; // 1ドローあたりのスプラット点数
+
+/* ============================================================
+   DOM
+   ============================================================ */
+const $ = s => document.querySelector(s);
+const video = $('#v'), canvas = $('#c'), statusEl = $('#status');
+function setStatus(t, autoHideMs) {
+  statusEl.textContent = t; statusEl.classList.remove('hide');
+  clearTimeout(setStatus._t);
+  if (autoHideMs) setStatus._t = setTimeout(() => statusEl.classList.add('hide'), autoHideMs);
+}
+
+/* ============================================================
+   WebGL2 セットアップ
+   ============================================================ */
+const gl = canvas.getContext('webgl2', { alpha: false, depth: false, stencil: false, antialias: false, premultipliedAlpha: false, preserveDrawingBuffer: false });
+if (!gl) { $('#start p').textContent = 'この端末/ブラウザはWebGL2に対応していないため動きません。'; throw new Error('WebGL2 not supported'); }
+gl.getExtension('EXT_color_buffer_float');
+gl.getExtension('EXT_color_buffer_half_float');
+gl.getExtension('OES_texture_float_linear');
+
+function rtSupported(internal, format, type) {
+  const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+  gl.texImage2D(gl.TEXTURE_2D, 0, internal, 4, 4, 0, format, type, null);
+  const fb = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, t, 0);
+  const ok = gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE;
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.deleteFramebuffer(fb); gl.deleteTexture(t);
+  return ok;
+}
+const FMT = rtSupported(gl.RGBA16F, gl.RGBA, gl.HALF_FLOAT)
+  ? { i: gl.RGBA16F, f: gl.RGBA, t: gl.HALF_FLOAT }
+  : rtSupported(gl.RGBA32F, gl.RGBA, gl.FLOAT) ? { i: gl.RGBA32F, f: gl.RGBA, t: gl.FLOAT } : null;
+if (!FMT) { $('#start p').textContent = 'この端末は浮動小数点テクスチャ描画に対応していないため動きません。'; throw new Error('No float RT'); }
+
+/* ---------- シェーダ ---------- */
+const VS_SRC = `#version 300 es
+precision highp float;
+in vec2 aPos;
+uniform vec2 texelSize;
+out vec2 vUv, vL, vR, vT, vB;
+void main(){
+  vUv = aPos*0.5+0.5;
+  vL = vUv - vec2(texelSize.x,0.0); vR = vUv + vec2(texelSize.x,0.0);
+  vT = vUv + vec2(0.0,texelSize.y); vB = vUv - vec2(0.0,texelSize.y);
+  gl_Position = vec4(aPos,0.0,1.0);
+}`;
+const FS_HEAD = `#version 300 es
+precision highp float;
+precision highp sampler2D;
+in vec2 vUv, vL, vR, vT, vB;
+out vec4 o;
+`;
+
+const FS = {
+  splat: FS_HEAD + `
+uniform sampler2D uTarget;
+uniform float aspect;
+uniform int uCount;
+uniform vec4 uP[${MAXP}];  // xy=位置(uv), z=半径^2
+uniform vec4 uV[${MAXP}];  // xyz=加える値
+void main(){
+  vec3 base = texture(uTarget, vUv).xyz;
+  vec3 add = vec3(0.0);
+  for(int i=0;i<${MAXP};i++){
+    if(i>=uCount) break;
+    vec2 p = vUv - uP[i].xy; p.x *= aspect;
+    add += exp(-dot(p,p)/uP[i].z) * uV[i].xyz;
+  }
+  o = vec4(base+add, 1.0);
+}`,
+  advect: FS_HEAD + `
+uniform sampler2D uVelocity, uSource;
+uniform vec2 texelSize;
+uniform float dt, dissipation;
+void main(){
+  vec2 coord = vUv - dt*texture(uVelocity, vUv).xy*texelSize;
+  o = texture(uSource, coord) / (1.0 + dissipation*dt);
+  o.a = 1.0;
+}`,
+  curl: FS_HEAD + `
+uniform sampler2D uVelocity;
+void main(){
+  float L = texture(uVelocity, vL).y, R = texture(uVelocity, vR).y;
+  float T = texture(uVelocity, vT).x, B = texture(uVelocity, vB).x;
+  o = vec4(0.5*(R - L - T + B), 0.0, 0.0, 1.0);
+}`,
+  vorticity: FS_HEAD + `
+uniform sampler2D uVelocity, uCurl;
+uniform float curl, dt;
+void main(){
+  float L = texture(uCurl, vL).x, R = texture(uCurl, vR).x;
+  float T = texture(uCurl, vT).x, B = texture(uCurl, vB).x;
+  float C = texture(uCurl, vUv).x;
+  vec2 f = 0.5*vec2(abs(T)-abs(B), abs(R)-abs(L));
+  f /= length(f) + 1e-4;
+  f *= curl*C; f.y *= -1.0;
+  vec2 vel = texture(uVelocity, vUv).xy + f*dt;
+  o = vec4(clamp(vel, -1000.0, 1000.0), 0.0, 1.0);
+}`,
+  divergence: FS_HEAD + `
+uniform sampler2D uVelocity;
+void main(){
+  float L = texture(uVelocity, vL).x, R = texture(uVelocity, vR).x;
+  float T = texture(uVelocity, vT).y, B = texture(uVelocity, vB).y;
+  vec2 C = texture(uVelocity, vUv).xy;
+  if(vL.x<0.0) L = -C.x; if(vR.x>1.0) R = -C.x;
+  if(vT.y>1.0) T = -C.y; if(vB.y<0.0) B = -C.y;
+  o = vec4(0.5*(R-L+T-B), 0.0, 0.0, 1.0);
+}`,
+  clear: FS_HEAD + `
+uniform sampler2D uTexture; uniform float value;
+void main(){ o = value*texture(uTexture, vUv); }`,
+  pressure: FS_HEAD + `
+uniform sampler2D uPressure, uDivergence;
+void main(){
+  float L = texture(uPressure, vL).x, R = texture(uPressure, vR).x;
+  float T = texture(uPressure, vT).x, B = texture(uPressure, vB).x;
+  float d = texture(uDivergence, vUv).x;
+  o = vec4((L+R+B+T-d)*0.25, 0.0, 0.0, 1.0);
+}`,
+  gradient: FS_HEAD + `
+uniform sampler2D uPressure, uVelocity;
+void main(){
+  float L = texture(uPressure, vL).x, R = texture(uPressure, vR).x;
+  float T = texture(uPressure, vT).x, B = texture(uPressure, vB).x;
+  vec2 vel = texture(uVelocity, vUv).xy - vec2(R-L, T-B);
+  o = vec4(vel, 0.0, 1.0);
+}`,
+  display: FS_HEAD + `
+uniform sampler2D uDye, uCam, uMask;
+uniform vec2 dyeTexel, camScale;
+uniform float mirror, hasCam, refr, gloss, bump, handFront;
+
+vec2 camUV(vec2 uv){
+  uv = clamp(uv, 0.001, 0.999);
+  if(mirror>0.5) uv.x = 1.0-uv.x;
+  uv = (uv-0.5)*camScale + 0.5;
+  uv.y = 1.0-uv.y;
+  return uv;
+}
+vec3 camAt(vec2 uv){
+  if(hasCam < 0.5) return vec3(0.05,0.05,0.07) + 0.06*vec3(uv.x, uv.y, 1.0-uv.x);
+  return texture(uCam, camUV(uv)).rgb;
+}
+float dens(vec2 uv){ vec3 d = texture(uDye, uv).rgb; return 1.0 - exp(-1.6*(d.r+d.g+d.b)); }
+
+void main(){
+  vec3 d = texture(uDye, vUv).rgb;
+  float a = 1.0 - exp(-1.6*(d.r+d.g+d.b));
+
+  // 濃度の勾配 → 法線（液体の表面）
+  vec2 e = dyeTexel*2.5;
+  float l = dens(vUv-vec2(e.x,0.0)), r = dens(vUv+vec2(e.x,0.0));
+  float b = dens(vUv-vec2(0.0,e.y)), t = dens(vUv+vec2(0.0,e.y));
+  vec3 n = normalize(vec3(-vec2(r-l, t-b)*bump, 1.0));
+
+  // 手の上は流体を描かない
+  float m = handFront * smoothstep(0.25, 0.75, texture(uMask, vec2(vUv.x, 1.0-vUv.y)).r);
+  float cover = smoothstep(0.02, 0.45, a) * (1.0-m);
+
+  // 背景の屈折
+  vec3 camR = camAt(vUv + n.xy*refr*cover);
+
+  // 色（正規化した色相）
+  vec3 hue = d / max(max(d.r, max(d.g, d.b)), 1e-4);
+
+  vec3 Ld = normalize(vec3(-0.45, 0.55, 0.7));
+  float diff = clamp(dot(n, Ld), 0.0, 1.0);
+  float spec = pow(clamp(dot(n, normalize(Ld+vec3(0.0,0.0,1.0))), 0.0, 1.0), 48.0);
+  float rim  = pow(1.0 - n.z, 1.5);
+
+  // クローム：カメラ映像の明暗を映り込ませる
+  float lumR = dot(camAt(vUv + n.xy*0.12*cover), vec3(0.299,0.587,0.114));
+  vec3 soft   = hue*(0.55 + 0.6*diff);
+  vec3 chrome = hue*(0.22 + 1.55*lumR)*(0.55 + 0.6*diff) + hue*rim*0.6;
+  vec3 fluid  = mix(soft, chrome, gloss) + vec3(spec)*(0.35 + 0.8*gloss);
+
+  o = vec4(mix(camR, fluid, cover), 1.0);
+}`,
+};
+
+function compile(type, src) {
+  const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s) + '\n' + src);
+  return s;
+}
+const VS = compile(gl.VERTEX_SHADER, VS_SRC);
+class Prog {
+  constructor(fsSrc) {
+    const p = gl.createProgram();
+    gl.attachShader(p, VS); gl.attachShader(p, compile(gl.FRAGMENT_SHADER, fsSrc));
+    gl.bindAttribLocation(p, 0, 'aPos'); gl.linkProgram(p);
+    if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+    this.p = p; this.u = {};
+    const n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+    for (let i = 0; i < n; i++) {
+      const name = gl.getActiveUniform(p, i).name;
+      this.u[name.replace(/\[0\]$/, '')] = gl.getUniformLocation(p, name);
+    }
+  }
+  use() { gl.useProgram(this.p); return this.u; }
+}
+const P = Object.fromEntries(Object.entries(FS).map(([k, v]) => [k, new Prog(v)]));
+
+/* ---------- フルスクリーン四角形 ---------- */
+gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
+gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, -1, 1, 1, 1, 1, -1]), gl.STATIC_DRAW);
+gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, gl.createBuffer());
+gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array([0, 1, 2, 0, 2, 3]), gl.STATIC_DRAW);
+gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+gl.enableVertexAttribArray(0);
+function blit(target) {
+  if (target) { gl.viewport(0, 0, target.w, target.h); gl.bindFramebuffer(gl.FRAMEBUFFER, target.fb); }
+  else { gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight); gl.bindFramebuffer(gl.FRAMEBUFFER, null); }
+  gl.drawElements(gl.TRIANGLES, 6, gl.UNSIGNED_SHORT, 0);
+}
+
+/* ---------- FBO ---------- */
+function makeFBO(w, h, filter) {
+  gl.activeTexture(gl.TEXTURE0);
+  const tex = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, tex);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, filter);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, filter);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.texImage2D(gl.TEXTURE_2D, 0, FMT.i, w, h, 0, FMT.f, FMT.t, null);
+  const fb = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+  gl.viewport(0, 0, w, h); gl.clearColor(0, 0, 0, 1); gl.clear(gl.COLOR_BUFFER_BIT);
+  return { tex, fb, w, h, tx: 1 / w, ty: 1 / h,
+    attach(id) { gl.activeTexture(gl.TEXTURE0 + id); gl.bindTexture(gl.TEXTURE_2D, tex); return id; },
+    dispose() { gl.deleteTexture(tex); gl.deleteFramebuffer(fb); } };
+}
+function makeDouble(w, h, filter) {
+  let a = makeFBO(w, h, filter), b = makeFBO(w, h, filter);
+  return { w, h, tx: 1 / w, ty: 1 / h,
+    get read() { return a; }, get write() { return b; },
+    swap() { [a, b] = [b, a]; }, dispose() { a.dispose(); b.dispose(); } };
+}
+function resFor(base) {
+  let asp = gl.drawingBufferWidth / gl.drawingBufferHeight; if (asp < 1) asp = 1 / asp;
+  const mn = Math.round(base), mx = Math.round(base * asp);
+  return gl.drawingBufferWidth > gl.drawingBufferHeight ? { w: mx, h: mn } : { w: mn, h: mx };
+}
+let velocity, dye, divergence, curlF, pressure;
+function initFBOs() {
+  [velocity, dye, divergence, curlF, pressure].forEach(f => f && f.dispose());
+  const s = resFor(CFG.simRes), d = resFor(CFG.dyeRes);
+  velocity = makeDouble(s.w, s.h, gl.LINEAR);
+  dye = makeDouble(d.w, d.h, gl.LINEAR);
+  divergence = makeFBO(s.w, s.h, gl.NEAREST);
+  curlF = makeFBO(s.w, s.h, gl.NEAREST);
+  pressure = makeDouble(s.w, s.h, gl.NEAREST);
+}
+
+/* ---------- カメラ・マスク用テクスチャ ---------- */
+function makeTex() {
+  const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0, 0, 0, 255]));
+  return t;
+}
+const camTex = makeTex(), maskTex = makeTex();
+const maskCanvas = document.createElement('canvas');
+const mctx = maskCanvas.getContext('2d');
+
+/* ============================================================
+   リサイズ
+   ============================================================ */
+function resize() {
+  const dpr = Math.min(window.devicePixelRatio || 1, CFG.maxDpr);
+  const w = Math.round(canvas.clientWidth * dpr), h = Math.round(canvas.clientHeight * dpr);
+  if (w === canvas.width && h === canvas.height && velocity) return;
+  canvas.width = w; canvas.height = h;
+  maskCanvas.width = 128; maskCanvas.height = Math.max(1, Math.round(128 * h / w));
+  initFBOs();
+}
+
+/* ============================================================
+   カメラ
+   ============================================================ */
+let facing = 'environment', stream = null, hasCam = false;
+async function startCamera() {
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  hasCam = false;
+  const tries = [
+    { video: { facingMode: { ideal: facing }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false },
+    { video: true, audio: false },
+  ];
+  let lastErr = null;
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) lastErr = new Error('getUserMedia is unavailable');
+  else for (const c of tries) {
+    try { stream = await navigator.mediaDevices.getUserMedia(c); break; } catch (e) { stream = null; lastErr = e; }
+  }
+  if (!stream) {
+    const m = lastErr ? (lastErr.message || lastErr.name || String(lastErr)) : 'unknown';
+    setStatus('カメラを起動できませんでした：' + m + '\nHTTPS または localhost で開き、カメラの使用を許可してください。\n（画面をなぞると流体は出ます）');
+    return;
+  }
+  video.srcObject = stream;
+  await video.play().catch(() => {});
+  const s = stream.getVideoTracks()[0].getSettings();
+  // facingMode が取れないPCは前面扱い（ミラー表示）
+  facing = s.facingMode || (IS_MOBILE ? facing : 'user');
+  hasCam = true;
+}
+function camScale() {
+  const vw = video.videoWidth || 1, vh = video.videoHeight || 1;
+  const va = vw / vh, ca = canvas.width / canvas.height;
+  return va > ca ? [ca / va, 1] : [1, va / ca];
+}
+const mirrored = () => facing === 'user';
+// 映像の正規化座標(左上原点) → 画面uv(左下原点)
+function toScreen(lx, ly) {
+  const [sx, sy] = camScale();
+  let x = (lx - 0.5) / sx + 0.5;
+  if (mirrored()) x = 1 - x;
+  const y = (0.5 - ly) / sy + 0.5;
+  return { x, y };
+}
+
+/* ============================================================
+   手の検出（MediaPipe）
+   ============================================================ */
+let landmarker = null;
+async function loadLandmarker() {
+  try {
+    const { FilesetResolver, HandLandmarker } = await import('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs');
+    const fileset = await FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm');
+    const opts = delegate => ({
+      baseOptions: { modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task', delegate },
+      runningMode: 'VIDEO', numHands: 2,
+      minHandDetectionConfidence: 0.5, minHandPresenceConfidence: 0.5, minTrackingConfidence: 0.5,
+    });
+    try { landmarker = await HandLandmarker.createFromOptions(fileset, opts('GPU')); }
+    catch (e) { landmarker = await HandLandmarker.createFromOptions(fileset, opts('CPU')); }
+    return true;
+  } catch (e) {
+    console.warn('HandLandmarker load failed', e);
+    return false;
+  }
+}
+
+const BONES = [[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],
+               [9,13],[13,14],[14,15],[15,16],[13,17],[17,18],[18,19],[19,20],[0,17]];
+const FINGER = i => i === 0 ? 5 : i <= 4 ? 0 : i <= 8 ? 1 : i <= 12 ? 2 : i <= 16 ? 3 : 4; // 0親指…4小指, 5手首
+const FINGER_CHAINS = [[1,2,3,4],[5,6,7,8],[9,10,11,12],[13,14,15,16],[17,18,19,20]];
+const PALM = [0, 1, 2, 5, 9, 13, 17];
+
+let prevHands = new Map(), latestHands = [], lastVT = -1, lastDetect = 0, lastSeen = 0;
+
+function detectHands(now) {
+  if (!landmarker || !hasCam || video.readyState < 2) return;
+  if (video.currentTime === lastVT) return;
+  lastVT = video.currentTime;
+  let res;
+  try { res = landmarker.detectForVideo(video, now); } catch (e) { return; }
+  takeHands(res, now);
+}
+const finite = v => typeof v === 'number' && isFinite(v);
+function takeHands(res, now) {
+  const hands = [], used = new Set();
+  ((res && res.landmarks) || []).forEach((lm, i) => {
+    if (!Array.isArray(lm) || lm.length < 21) return;
+    for (let j = 0; j < 21; j++) if (!lm[j] || !finite(lm[j].x) || !finite(lm[j].y)) return;
+    let key = res.handedness?.[i]?.[0]?.categoryName || 'H';
+    if (used.has(key)) key += i; used.add(key);
+    hands.push({ key, pts: lm.map(p => toScreen(p.x, p.y)) });
+  });
+  const dtd = Math.min(Math.max((now - lastDetect) / 1000, 1 / 120), 0.2);
+  lastDetect = now;
+
+  const aspect = canvas.width / canvas.height;
+  const points = [];
+  const next = new Map();
+  for (const h of hands) {
+    next.set(h.key, h.pts);
+    const prev = prevHands.get(h.key);
+    if (!prev || prev.length < 21) continue;
+    const p0 = h.pts[0], p9 = h.pts[9];
+    const size = Math.hypot((p9.x - p0.x) * aspect, p9.y - p0.y); // 手の大きさ（uv）
+    const rad = Math.max(0.00012, Math.pow(size * 0.16, 2));
+    const frameNorm = (1 / 30) / dtd; // 検出レートの違いを吸収
+    BONES.forEach(([a, b], bi) => {
+      for (const t of [0.0, 0.5]) {
+        const x = h.pts[a].x + (h.pts[b].x - h.pts[a].x) * t, y = h.pts[a].y + (h.pts[b].y - h.pts[a].y) * t;
+        const px = prev[a].x + (prev[b].x - prev[a].x) * t, py = prev[a].y + (prev[b].y - prev[a].y) * t;
+        let dx = (x - px) * frameNorm, dy = (y - py) * frameNorm;
+        const sp = Math.hypot(dx * aspect, dy);
+        if (sp < 0.0025 || sp > 0.3) continue;  // 静止 or トラッキング飛び
+        const f = FINGER(b);
+        points.push({ x, y, dx, dy, sp, rad, f, k: bi * 0.37 + t });
+      }
+    });
+    // 指先も追加（いちばん勢いよく出る場所）
+    for (const tip of [4, 8, 12, 16, 20]) {
+      const dx = (h.pts[tip].x - prev[tip].x) * frameNorm, dy = (h.pts[tip].y - prev[tip].y) * frameNorm;
+      const sp = Math.hypot(dx * aspect, dy);
+      if (sp < 0.0025 || sp > 0.3) continue;
+      points.push({ x: h.pts[tip].x, y: h.pts[tip].y, dx, dy, sp, rad: rad * 1.3, f: FINGER(tip), k: tip });
+    }
+  }
+  prevHands = next;
+  latestHands = hands;
+  if (hands.length) lastSeen = now;
+  if (points.length) emit(points);
+}
+
+/* ---------- 色 ---------- */
+function hsv(h, s, v) {
+  h = ((h % 1) + 1) % 1;
+  const i = Math.floor(h * 6), f = h * 6 - i, p = v * (1 - s), q = v * (1 - f * s), t = v * (1 - (1 - f) * s);
+  return [[v, t, p], [q, v, p], [p, v, t], [p, q, v], [t, p, v], [v, p, q]][i % 6];
+}
+function colorFor(f, k) {
+  const T = performance.now() / 1000;
+  switch (CFG.mode) {
+    case 0: return hsv(T * 0.06 + f * 0.11 + k * 0.004, 0.92, 1);                               // 虹
+    case 1: return hsv(-0.04 + 0.17 * (0.5 + 0.5 * Math.sin(T * 1.4 + f * 1.1 + k * 0.3)), 0.95, 1); // 炎
+    case 2: return hsv(0.30 + 0.48 * (0.5 + 0.5 * Math.sin(T * 0.6 + f * 0.7 + k * 0.1)), 0.85, 1);  // オーロラ
+    default: return hsv(T * 0.045 + f * 0.012, 0.9, 1);                                        // 単色（ゆっくり色が変わる）
+  }
+}
+
+/* ---------- スプラット ---------- */
+const bufP = new Float32Array(MAXP * 4), bufV = new Float32Array(MAXP * 4);
+function emit(points) {
+  const aspect = canvas.width / canvas.height;
+  for (let s = 0; s < points.length; s += MAXP) {
+    const chunk = points.slice(s, s + MAXP), n = chunk.length;
+    bufP.fill(0); bufV.fill(0);
+    // 速度
+    chunk.forEach((p, i) => {
+      bufP.set([p.x, p.y, p.rad * 2.2, 0], i * 4);
+      bufV.set([p.dx * CFG.force, p.dy * CFG.force, 0, 0], i * 4);
+    });
+    let u = P.splat.use();
+    gl.uniform1i(u.uTarget, velocity.read.attach(0));
+    gl.uniform1f(u.aspect, aspect); gl.uniform1i(u.uCount, n);
+    gl.uniform4fv(u.uP, bufP); gl.uniform4fv(u.uV, bufV);
+    blit(velocity.write); velocity.swap();
+    // 染料
+    chunk.forEach((p, i) => {
+      const c = colorFor(p.f, p.k), amt = Math.min(p.sp * 16, 1) * CFG.dyeAmount;
+      bufP.set([p.x, p.y, p.rad, 0], i * 4);
+      bufV.set([c[0] * amt, c[1] * amt, c[2] * amt, 0], i * 4);
+    });
+    u = P.splat.use();
+    gl.uniform1i(u.uTarget, dye.read.attach(0));
+    gl.uniform4fv(u.uP, bufP); gl.uniform4fv(u.uV, bufV);
+    blit(dye.write); dye.swap();
+  }
+}
+
+/* ---------- 手マスク（手を流体の手前に見せる） ---------- */
+function drawMask() {
+  const w = maskCanvas.width, h = maskCanvas.height;
+  mctx.fillStyle = '#000'; mctx.fillRect(0, 0, w, h);
+  if (!CFG.handFront) return;
+  mctx.fillStyle = mctx.strokeStyle = '#fff';
+  mctx.lineCap = mctx.lineJoin = 'round';
+  for (const hnd of latestHands) {
+    const q = hnd.pts.map(p => [p.x * w, (1 - p.y) * h]);
+    const size = Math.hypot(q[9][0] - q[0][0], q[9][1] - q[0][1]);
+    mctx.lineWidth = size * 0.36;
+    mctx.beginPath(); PALM.forEach((i, j) => j ? mctx.lineTo(...q[i]) : mctx.moveTo(...q[i])); mctx.closePath();
+    mctx.fill(); mctx.stroke();
+    for (const ch of FINGER_CHAINS) {
+      mctx.beginPath(); mctx.moveTo(...q[ch[0]]); for (let j = 1; j < ch.length; j++) mctx.lineTo(...q[ch[j]]); mctx.stroke();
+    }
+  }
+}
+
+/* ============================================================
+   ドラッグ入力（手が無くても試せる）
+   ============================================================ */
+const pointers = new Map();
+canvas.addEventListener('pointerdown', e => { pointers.set(e.pointerId, { x: e.clientX, y: e.clientY }); });
+canvas.addEventListener('pointermove', e => {
+  const p = pointers.get(e.pointerId); if (!p) return;
+  const r = canvas.getBoundingClientRect();
+  const x = (e.clientX - r.left) / r.width, y = 1 - (e.clientY - r.top) / r.height;
+  const dx = (e.clientX - p.x) / r.width, dy = -(e.clientY - p.y) / r.height;
+  p.x = e.clientX; p.y = e.clientY;
+  const sp = Math.hypot(dx * r.width / r.height, dy);
+  if (sp < 0.0005) return;
+  emit([{ x, y, dx: dx * 1.4, dy: dy * 1.4, sp: Math.max(sp * 2, 0.04), rad: 0.0012, f: (performance.now() / 700) % 5, k: 0 }]);
+});
+['pointerup', 'pointercancel', 'pointerleave'].forEach(t => canvas.addEventListener(t, e => pointers.delete(e.pointerId)));
+
+/* ============================================================
+   シミュレーション & 描画
+   ============================================================ */
+function step(dt) {
+  gl.disable(gl.BLEND);
+  let u = P.curl.use();
+  gl.uniform2f(u.texelSize, velocity.tx, velocity.ty);
+  gl.uniform1i(u.uVelocity, velocity.read.attach(0));
+  blit(curlF);
+
+  u = P.vorticity.use();
+  gl.uniform2f(u.texelSize, velocity.tx, velocity.ty);
+  gl.uniform1i(u.uVelocity, velocity.read.attach(0));
+  gl.uniform1i(u.uCurl, curlF.attach(1));
+  gl.uniform1f(u.curl, CFG.curl); gl.uniform1f(u.dt, dt);
+  blit(velocity.write); velocity.swap();
+
+  u = P.divergence.use();
+  gl.uniform2f(u.texelSize, velocity.tx, velocity.ty);
+  gl.uniform1i(u.uVelocity, velocity.read.attach(0));
+  blit(divergence);
+
+  u = P.clear.use();
+  gl.uniform1i(u.uTexture, pressure.read.attach(0)); gl.uniform1f(u.value, 0.8);
+  blit(pressure.write); pressure.swap();
+
+  u = P.pressure.use();
+  gl.uniform2f(u.texelSize, velocity.tx, velocity.ty);
+  gl.uniform1i(u.uDivergence, divergence.attach(0));
+  for (let i = 0; i < CFG.pressureIters; i++) {
+    gl.uniform1i(u.uPressure, pressure.read.attach(1));
+    blit(pressure.write); pressure.swap();
+  }
+
+  u = P.gradient.use();
+  gl.uniform2f(u.texelSize, velocity.tx, velocity.ty);
+  gl.uniform1i(u.uPressure, pressure.read.attach(0));
+  gl.uniform1i(u.uVelocity, velocity.read.attach(1));
+  blit(velocity.write); velocity.swap();
+
+  u = P.advect.use();
+  gl.uniform2f(u.texelSize, velocity.tx, velocity.ty);
+  const vid = velocity.read.attach(0);
+  gl.uniform1i(u.uVelocity, vid); gl.uniform1i(u.uSource, vid);
+  gl.uniform1f(u.dt, dt); gl.uniform1f(u.dissipation, CFG.velDissipation);
+  blit(velocity.write); velocity.swap();
+
+  gl.uniform1i(u.uVelocity, velocity.read.attach(0));
+  gl.uniform1i(u.uSource, dye.read.attach(1));
+  gl.uniform1f(u.dissipation, CFG.dyeDissipation);
+  blit(dye.write); dye.swap();
+}
+
+let shotReq = false;
+function saveShot() {
+  try {
+    canvas.toBlob(b => { if (!b) return; const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = 'rainbow_flow_' + Date.now() + '.png';
+      document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 4000); }, 'image/png');
+    setStatus('保存しました', 1500);
+  } catch (e) { setStatus('保存できませんでした', 2000); }
+}
+function render() {
+  if (hasCam && video.readyState >= 2) {
+    gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, camTex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video);
+  }
+  drawMask();
+  gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, maskTex);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, maskCanvas);
+
+  const u = P.display.use();
+  gl.uniform1i(u.uDye, dye.read.attach(0));
+  gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, camTex); gl.uniform1i(u.uCam, 1);
+  gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, maskTex); gl.uniform1i(u.uMask, 2);
+  gl.uniform2f(u.dyeTexel, dye.tx, dye.ty);
+  gl.uniform2f(u.camScale, ...camScale());
+  gl.uniform1f(u.mirror, mirrored() ? 1 : 0);
+  gl.uniform1f(u.hasCam, hasCam && video.readyState >= 2 ? 1 : 0);
+  gl.uniform1f(u.refr, CFG.refraction);
+  gl.uniform1f(u.gloss, CFG.gloss);
+  gl.uniform1f(u.bump, CFG.bump);
+  gl.uniform1f(u.handFront, CFG.handFront ? 1 : 0);
+  blit(null);
+}
+
+let last = performance.now(), running = false;
+function loop(now) {
+  const dt = Math.min((now - last) / 1000, 1 / 40); last = now;
+  resize();
+  detectHands(now);
+  step(dt);
+  render();
+  if (shotReq) { shotReq = false; saveShot(); }
+  if (landmarker && hasCam) {
+    if (now - lastSeen > 2500) setStatus('カメラに手を映して動かしてください');
+    else statusEl.classList.add('hide');
+  }
+  requestAnimationFrame(loop);
+}
+
+/* ============================================================
+   UI
+   ============================================================ */
+$('#bCam').onclick = async () => { facing = facing === 'user' ? 'environment' : 'user'; prevHands.clear(); await startCamera(); };
+$('#bMode').onclick = e => { CFG.mode = (CFG.mode + 1) % MODES.length; e.currentTarget.textContent = '色：' + MODES[CFG.mode]; };
+$('#bTex').onclick = e => { CFG.gloss = CFG.gloss > 0.5 ? 0 : 1; e.currentTarget.textContent = '質感：' + (CFG.gloss > 0.5 ? 'クローム' : 'なめらか'); };
+$('#bHand').onclick = e => { CFG.handFront = !CFG.handFront; e.currentTarget.textContent = '手を前：' + (CFG.handFront ? 'ON' : 'OFF'); };
+$('#bClear').onclick = () => initFBOs();
+const fade = () => { const v = +$('#sFade').value / 100; CFG.dyeDissipation = 3.0 - 2.85 * v; };
+const force = () => { const v = +$('#sForce').value / 100; CFG.force = 800 + 3600 * v; CFG.curl = 6 + 22 * v; };
+$('#sFade').oninput = fade; $('#sForce').oninput = force; fade(); force();
+$('#toggle').onclick = () => $('#bar').classList.toggle('hidden');
+$('#bShot').onclick = () => { shotReq = true; };
+let mr = null, chunks = [];
+$('#bRec').onclick = () => {
+  const b = $('#bRec');
+  if (mr && mr.state === 'recording') { mr.stop(); return; }
+  const ms = new MediaStream([...canvas.captureStream(30).getVideoTracks()]);
+  const types = ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm'];
+  const mt = types.find(t => window.MediaRecorder && MediaRecorder.isTypeSupported(t)) || '';
+  try { mr = new MediaRecorder(ms, mt ? { mimeType: mt, videoBitsPerSecond: 6e6 } : {}); }
+  catch (err) { setStatus('録画を開始できませんでした', 2500); return; }
+  chunks = []; mr.ondataavailable = ev => { if (ev.data && ev.data.size) chunks.push(ev.data); };
+  mr.onstop = () => {
+    b.classList.remove('act'); b.textContent = '●';
+    const blob = new Blob(chunks, { type: mr.mimeType || 'video/mp4' }); const ext = (mr.mimeType || '').includes('mp4') ? 'mp4' : 'webm';
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'rainbow_flow_' + Date.now() + '.' + ext;
+    document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 4000);
+  };
+  mr.start(1000); b.classList.add('act'); b.textContent = '■';
+};
+/* test hook (local checks only): feed hand landmarks as the detector would */
+window.__rainbow = { feed: (landmarks, now) => takeHands({ landmarks, handedness: landmarks.map((_, i) => [{ categoryName: i ? 'Left' : 'Right' }]) }, now || performance.now()),
+  state: () => ({ hasCam, landmarker: !!landmarker, hands: latestHands.length, facing }) };
+
+const landmarkerReady = loadLandmarker();
+$('#go').onclick = async () => {
+  $('#start').remove();
+  setStatus('カメラを起動中…');
+  await startCamera();
+  if (!running) { running = true; requestAnimationFrame(loop); }
+  if (!landmarker) setStatus('手の検出モデルを読み込み中…');
+  const ok = await landmarkerReady;
+  if (!ok) setStatus('手の検出を読み込めませんでした（画面をなぞると流体は出ます）', 6000);
+  else setStatus('手を動かしてみてください', 3000);
+};
+</script>
+</body>
+</html>
