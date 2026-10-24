@@ -1,0 +1,1299 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<script>/* REC-FIX (2026-10-12) — iPhone Safari で録画が途中で止まる・壊れる対策。どの作品でも同じ内容。
+   ・mp4 は映像と音声の両方のコーデックを宣言する（avc1 だけだと音声付きで止まることがある）
+   ・1 秒ごとにデータを受け取る（最後に一括で書き出さない）／ビットレートに上限
+   ・保存が終わる前に次の録画を始めない（前のファイルが消えるのを防ぐ）
+   ・録画中は AudioContext を止めない（音声トラックが止まると mp4 ごと止まる） */
+(()=>{const MR=window.MediaRecorder;if(!MR||MR.__recfix)return;let busy=0,active=0;
+class R extends MR{
+  constructor(s,o){if(busy)throw new Error('前の録画を保存しています');o=Object.assign({},o||{});
+    const au=s&&s.getAudioTracks&&s.getAudioTracks().length>0;
+    if(!o.mimeType||/^video\/mp4/.test(o.mimeType)){
+      const c=[au?'video/mp4;codecs="avc1.42E01E,mp4a.40.2"':'video/mp4;codecs="avc1.42E01E"','video/mp4'].find(m=>MR.isTypeSupported(m));
+      if(c)o.mimeType=c;else if(o.mimeType&&!MR.isTypeSupported(o.mimeType))delete o.mimeType;}
+    if(!o.videoBitsPerSecond&&!o.bitsPerSecond)o.videoBitsPerSecond=6e6;
+    super(s,o);this.addEventListener('stop',()=>{active=Math.max(0,active-1);setTimeout(()=>{busy=0;},0);});}
+  start(t){const r=super.start(t==null?1000:t);active++;return r;}
+  stop(){if(this.state!=='inactive'){busy=1;setTimeout(()=>{busy=0;},15000);}return super.stop();}}
+R.__recfix=1;window.MediaRecorder=R;
+const AC=window.AudioContext||window.webkitAudioContext;
+if(AC&&AC.prototype.suspend){const sus=AC.prototype.suspend;AC.prototype.suspend=function(){return active?Promise.resolve():sus.call(this);};}
+/* 録音用の出口には常に無音を流しておく（何も鳴っていないと音声トラックにデータが来ず、録画全体が止まる） */
+if(AC&&AC.prototype.createMediaStreamDestination){const cmd=AC.prototype.createMediaStreamDestination;AC.prototype.createMediaStreamDestination=function(){const d=cmd.apply(this,arguments);
+  try{const c=this.createConstantSource();c.offset.value=0;c.connect(d);c.start();}catch(e){}return d;};}})();</script>
+<script>/* RESUME-FIX (2026-10-17) — iPhone で写真や動画を保存しに行ったり、別のアプリへ行ったりして戻ると、
+   カメラが消える・映像が固まる・画面が壊れる対策。どの作品でも同じ内容。
+   ・ページが裏に回ると、iPhone はカメラを止め、動画を一時停止し、音を止め、ときに WebGL の描画を捨てる
+   ・戻ったら：止められたカメラを同じ条件で取り直して同じ MediaStream に差し込み、止まった動画を再生し、音を再開する
+   ・WebGL の描画が捨てられ、作品が自分で立て直せないときは「タップして再開」を出して読み込み直す */
+(()=>{if(window.__resumefix)return;window.__resumefix=1;
+const md=navigator.mediaDevices,streams=new Map(),vids=new Set(),ctxs=new Set(),lost=new WeakSet(),mutedAt=new Map();
+const watch=t=>{try{t.addEventListener('ended',()=>lost.add(t));t.addEventListener('mute',()=>mutedAt.set(t,performance.now()));
+  t.addEventListener('unmute',()=>mutedAt.delete(t));if(t.muted)mutedAt.set(t,performance.now());}catch(e){}};
+let gum=null;
+if(md&&md.getUserMedia){gum=md.getUserMedia.bind(md);
+  md.getUserMedia=async function(c){const s=await gum(c);try{streams.set(s,c);s.getTracks().forEach(watch);}catch(e){}return s;};}
+/* every <video> that is given a camera stream, also ones never put in the page */
+const MP=HTMLMediaElement.prototype,play=MP.play,so=Object.getOwnPropertyDescriptor(MP,'srcObject');
+MP.play=function(){try{if(this.srcObject)vids.add(this);}catch(e){}return play.apply(this,arguments);};
+if(so&&so.set)Object.defineProperty(MP,'srcObject',{configurable:true,enumerable:so.enumerable,
+  get(){return so.get.call(this);},set(v){if(v)vids.add(this);so.set.call(this,v);}});
+for(const k of['AudioContext','webkitAudioContext']){const C=window[k];if(!C||C.__resumefix)continue;
+  const W=function(...a){const c=new C(...a);ctxs.add(c);return c;};W.prototype=C.prototype;W.__resumefix=1;
+  try{Object.setPrototypeOf(W,C);}catch(e){}window[k]=W;}
+const shown=s=>{for(const v of vids){try{if(so.get.call(v)===s)return true;}catch(e){}}return false;};
+let busy=0;
+async function revive(){
+  if(busy||document.hidden)return;busy=1;
+  try{
+    for(const[s,c]of[...streams]){
+      const tr=s.getTracks();
+      if(!shown(s)){if(tr.every(t=>t.readyState==='ended'))streams.delete(s);continue;}
+      const now=performance.now();
+      const dead=tr.filter(t=>(t.readyState==='ended'&&lost.has(t))||(t.kind==='video'&&mutedAt.has(t)&&now-mutedAt.get(t)>1500));
+      if(!dead.length||!gum)continue;
+      let ns=null;try{ns=await gum(c);}catch(e){continue;}
+      const kinds=new Set(dead.map(t=>t.kind));
+      for(const t of dead){try{t.stop();}catch(e){}s.removeTrack(t);mutedAt.delete(t);}
+      for(const t of ns.getTracks()){if(kinds.has(t.kind)){s.addTrack(t);watch(t);}else t.stop();}
+      for(const v of vids){try{if(so.get.call(v)===s){so.set.call(v,null);so.set.call(v,s);}}catch(e){}}
+    }
+  }finally{busy=0;}
+  for(const v of vids){try{if(so.get.call(v)&&v.paused)play.call(v).catch(()=>{});}catch(e){}}
+  for(const c of ctxs){try{if(c.state!=='running'&&c.state!=='closed')c.resume().catch(()=>{});}catch(e){}}
+}
+const soon=()=>{if(document.hidden)return;const n=performance.now();for(const t of mutedAt.keys())mutedAt.set(t,n);
+  setTimeout(revive,250);setTimeout(revive,1900);};
+document.addEventListener('visibilitychange',soon);
+addEventListener('pageshow',soon);addEventListener('focus',soon);
+/* iPhone sometimes only lets sound and video restart from a tap */
+const tap=()=>{for(const c of ctxs){try{if(c.state!=='running'&&c.state!=='closed')c.resume().catch(()=>{});}catch(e){}}
+  for(const v of vids){try{if(so.get.call(v)&&v.paused)play.call(v).catch(()=>{});}catch(e){}}};
+addEventListener('pointerdown',tap,true);addEventListener('touchend',tap,true);
+/* WebGL: if the drawing is thrown away and the piece does not rebuild it, offer a clean restart */
+const ET=EventTarget.prototype,ael=ET.addEventListener,rebuilds=new WeakSet(),gls=new WeakMap();
+ET.addEventListener=function(t){if(t==='webglcontextrestored'&&this instanceof HTMLCanvasElement)rebuilds.add(this);return ael.apply(this,arguments);};
+let box=null;
+function offer(){
+  if(box)return;box=document.createElement('div');
+  box.style.cssText='position:fixed;inset:0;z-index:2147483647;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;'+
+    'background:rgba(0,0,0,.82);color:#fff;font:14px/1.8 system-ui,sans-serif;text-align:center;padding:24px';
+  box.innerHTML='<div>画面の表示が止まりました。<br>（別のアプリから戻ったとき、iPhone が描画を止めることがあります）</div>'+
+    '<button style="font:inherit;font-size:16px;padding:12px 28px;border-radius:999px;border:0;background:#fff;color:#000">タップして再開</button>';
+  box.querySelector('button').onclick=()=>location.reload();
+  (document.body||document.documentElement).appendChild(box);
+}
+const GC=HTMLCanvasElement.prototype,getCtx=GC.getContext;
+GC.getContext=function(type){
+  const g=getCtx.apply(this,arguments);
+  if(g&&/webgl/i.test(String(type))&&!gls.has(this)){gls.set(this,g);const cv=this;
+    ael.call(cv,'webglcontextlost',e=>{e.preventDefault();let vis=0;
+      const iv=setInterval(()=>{vis=document.hidden?0:vis+500;let still=false;try{still=g.isContextLost();}catch(_){}
+        if(!still){clearInterval(iv);return;}                     /* came back: the 'restored' handler below decides */
+        if(vis>=4000){clearInterval(iv);if(cv.isConnected)offer();}},500);},false);
+    ael.call(cv,'webglcontextrestored',()=>{const f=()=>{if(document.hidden){setTimeout(f,500);return;}
+      if(cv.isConnected&&!rebuilds.has(cv))offer();};f();},false);}
+  return g;
+};
+})();</script>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>KARAKURI ─ 千枚の木の板があなたを映す</title>
+<meta name="description" content="明かりの落ちた美術館の壁で、千枚あまりの胡桃の小板が一枚ずつ傾き、上からの一灯を受けた陰影であなたを映す。動けば板が波打って鳴り、速く動くと裏返り、立ち去るとあなたの形が一枚ずつほどける。">
+<meta name="theme-color" content="#000000">
+<!--
+  ══════════════════════════════════════════════════════════════════════════
+  KARAKURI ─ 千枚の木の板があなたを映す                   ART DIRECTION SHEET
+  ══════════════════════════════════════════════════════════════════════════
+  元ネタ    Daniel Rozin「Wooden Mirror」（1999、830 枚の木片と 830 個のサーボ）と、
+            そのあとの機械仕掛けの鏡（Peg Mirror・Penguins Mirror ほか）。暗い展示室の壁に
+            額に入った木の板の面があり、カメラが見た明るさに合わせて一枚ずつ上を向いたり
+            下を向いたりして、天井の灯りを受ける量を変える。写真に残っているのは、木目の違う
+            小板の陰影だけで浮かぶ顔、板の厚みと隙間の影、そして見る人が動いたときの
+            「ざわっ」という木の板の波と音。
+
+  最終の一枚  闇の中、一灯に照らされた胡桃の小板の壁。板の傾きの陰影だけで、あなたの顔と
+            肩が彫刻のように浮かび、動いた跡が裏返った明るい木口のきらめきで残っている。
+
+  主役      映っている人。部屋は壁のまま静かで、人のいる板だけが光をつかむ。
+            止まれば板も止まり、音も消えて、一枚の肖像になる。
+
+  層        ① 千数百枚の小板：それぞれ木目・色・角度のくせが違う。上からの一灯（スポット）
+               を受ける量を傾きで変えて、陰影で像を作る。厚み・隙間・縁の影
+            ② サーボの遅れ：板は一枚ずつ自分の間合いで指令を読み、速さに上限があるので、
+               動くとざわっと波が走って少し遅れて追いつく。止まれば完全に静止する
+            ③ 裏返り：速く動いたところは板がくるりと一回転し、明るい裏面がきらめく。
+               裏返りは隣へ移って波になる
+            ④ 抜け殻：立ち去ったあとも板はしばらくあなたの形を覚えていて、一枚ずつ
+               ばらばらに「手を放して」壁に戻る
+            ⑤ 視差：体を左右に寄せると壁を斜めから見る角度になり、板の厚みと影が見える
+            ⑥ 音：板が止まるたびの木の「こつ」、サーボのうなり、裏返りの風切り。
+               左右の位置で定位する。画面をたたくと、そこからノックの波が広がる
+            切り替え：はじめは普通のカメラ。「鏡を組む」で明かりが落ち、映像が板に割れ、
+            上から順に板が裏返って木の面が現れる。戻すときは下から順に映像の面へ。
+
+  PALETTE   版ごとに 2〜3 色 ── WALNUT（胡桃・裏は明るい楓）・BRASS（真鍮・裏は黒い緑青）・
+            URUSHI（黒漆・裏は朱）・ASH（白いタモ材・裏は焼杉の黒）。
+
+  TYPE      Fraunces（柔らかいセリフ、細め、光学サイズ大）・Spline Sans Mono（キャプションの
+            等幅、機械の側）・Shippori Mincho（和文）。美術館の壁のキャプションの組み方。
+
+  MOTION    板は機械の速さ（速く、短く、止まる）。カメラと光はゆっくり。派手な一撃は無く、
+            たたいた場所からのノックの波だけ。
+
+  TECH      WebGL2 のインスタンス描画で板を一枚ずつ箱として描き、点光源＋環境の映り込み
+            で陰影をつける。明るさ→角度は、行ごとの光の向きから作った逆引き表。
+            人は MediaPipe ImageSegmenter（selfie）。板ごとに露出を人の中で合わせる。
+  ══════════════════════════════════════════════════════════════════════════
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400&family=Spline+Sans+Mono:wght@300;400&family=Shippori+Mincho:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ink:#ece4d8; --dim:rgba(236,228,216,.58); --faint:rgba(236,228,216,.18);
+  --disp:"Fraunces","Times New Roman",serif;
+  --mono:"Spline Sans Mono",ui-monospace,Menlo,monospace;
+  --jp:"Shippori Mincho","Hiragino Mincho ProN","Yu Mincho",serif;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+[hidden]{display:none!important}
+html,body{margin:0;height:100%;background:#000;color:var(--ink);font-family:var(--jp);overflow:hidden;-webkit-user-select:none;user-select:none}
+#gl{position:fixed;inset:0;width:100vw;height:100vh;height:100dvh;display:block;touch-action:none}
+#cam{position:fixed;left:0;top:0;width:2px;height:2px;opacity:0;pointer-events:none}
+
+#start{position:fixed;inset:0;z-index:10;display:grid;place-items:center;overflow:auto;padding:28px 22px;
+  padding-top:calc(28px + env(safe-area-inset-top,0px));padding-bottom:calc(28px + env(safe-area-inset-bottom,0px));
+  background:#070504;transition:opacity 1.2s ease,visibility 1.2s}
+#start.hide{opacity:0;visibility:hidden}
+.wrap{max-width:400px;width:100%}
+#art{display:block;width:100%;height:auto;margin:0 0 26px}
+h1{font-family:var(--disp);font-weight:300;font-variation-settings:"opsz" 144;font-size:clamp(44px,13.5vw,66px);letter-spacing:.06em;line-height:1;margin:0}
+.sub{font-size:13px;letter-spacing:.3em;margin:14px 0 24px;color:var(--dim)}
+.how{font-size:14px;line-height:2.05;margin:0 0 26px;color:#d9d0c3}
+button.go{font-family:var(--jp);font-size:14px;letter-spacing:.24em;padding:14px 30px 14px 34px;cursor:pointer;color:#120c08;border:0;border-radius:0;background:var(--ink)}
+button.go:disabled{opacity:.5;cursor:default}
+button:focus-visible{outline:1px solid currentColor;outline-offset:3px}
+#err{min-height:1.4em;font-size:12.5px;color:#ff9b8f;margin-top:14px;line-height:1.75;white-space:pre-wrap}
+.note{font-size:11px;color:#7d7368;margin-top:6px;line-height:1.7}
+.credit{font-family:var(--mono);font-weight:300;font-size:10px;letter-spacing:.14em;color:#6d6359;margin-top:22px;line-height:1.8}
+
+#label{position:fixed;left:calc(16px + env(safe-area-inset-left,0px));top:calc(16px + env(safe-area-inset-top,0px));z-index:4;pointer-events:none;
+  font-family:var(--mono);font-weight:300;font-size:10px;letter-spacing:.12em;line-height:1.75;color:var(--dim);transition:opacity 1.6s;text-shadow:0 0 10px #000}
+#label b{font-family:var(--disp);font-weight:400;font-size:15px;letter-spacing:.08em;color:var(--ink);display:block;margin-bottom:2px}
+#label.off{opacity:0}
+#status{position:fixed;left:50%;bottom:calc(76px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);z-index:5;
+  font-size:12.5px;letter-spacing:.18em;white-space:nowrap;pointer-events:none;color:var(--ink);transition:opacity .8s;
+  max-width:calc(100vw - 24px);overflow:hidden;text-overflow:ellipsis;text-shadow:0 0 12px #000,0 0 4px #000}
+#status.off{opacity:0}
+#toast{position:fixed;left:50%;top:42%;transform:translate(-50%,-50%);z-index:6;font-family:var(--disp);font-weight:300;font-size:clamp(22px,6vw,34px);letter-spacing:.3em;
+  color:var(--ink);opacity:0;transition:opacity .5s;pointer-events:none;white-space:nowrap;text-shadow:0 0 18px #000}
+#toast.on{opacity:.92}
+#ui{position:fixed;left:0;right:0;bottom:0;z-index:5;display:none;gap:8px;justify-content:center;align-items:center;flex-wrap:wrap;
+  padding:10px 10px calc(env(safe-area-inset-bottom,0px) + 14px)}
+#ui.on{display:flex}
+.btn{appearance:none;font-family:var(--jp);font-size:12.5px;letter-spacing:.12em;color:var(--ink);background:rgba(10,7,5,.46);
+  border:1px solid var(--faint);border-radius:0;height:40px;min-width:40px;padding:0 13px;cursor:pointer;white-space:nowrap;
+  -webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
+#ver{font-family:var(--mono);font-weight:300;letter-spacing:.16em;font-size:11.5px}
+#mode.pulse{animation:pulse 2.4s ease-in-out infinite}
+@keyframes pulse{50%{border-color:rgba(236,228,216,.75)}}
+#rec.act{background:#9e1d12;border-color:#9e1d12;color:#fff}
+#shot{width:42px;padding:0;position:relative}
+#shot::after{content:"";position:absolute;left:50%;top:50%;width:16px;height:12px;margin:-6px 0 0 -8px;border:1.5px solid currentColor}
+#panel{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom,0px) + 70px);z-index:7;width:min(340px,calc(100vw - 24px));
+  padding:16px 16px 14px;background:rgba(12,9,7,.92);border:1px solid var(--faint);display:flex;flex-direction:column;gap:12px;
+  font-size:12.5px;color:var(--dim);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px)}
+#panel .row{display:flex;gap:6px}
+#panel .row button{flex:1;appearance:none;font-family:var(--jp);font-size:12px;color:var(--ink);background:transparent;border:1px solid var(--faint);padding:8px 0;cursor:pointer}
+#panel .row button.on{background:var(--ink);color:#120c08}
+#panel label{display:flex;justify-content:space-between;align-items:center;gap:10px}
+#panel input[type=range]{width:160px;accent-color:#c9a77a}
+#panel .note{font-size:11px;line-height:1.75;margin:0}
+#panel .x{position:absolute;right:6px;top:4px;background:none;border:0;color:var(--ink);font:inherit;font-size:14px;padding:6px 8px;cursor:pointer}
+@media (max-width:480px){ #ui{gap:5px;padding-left:6px;padding-right:6px} .btn{padding:0 8px;letter-spacing:.06em} .btn .t{display:none} #ver{font-size:10.5px;letter-spacing:.1em} }
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<video id="cam" playsinline muted autoplay></video>
+
+<div id="start">
+  <div class="wrap">
+    <svg id="art" viewBox="0 0 400 190" aria-hidden="true"></svg>
+    <h1>KARAKURI</h1>
+    <div class="sub">からくり鏡 ─ 千枚の木の板があなたを映す</div>
+    <div class="how">
+      明かりの落ちた美術館の壁に、胡桃の小板が並ぶ。<br>
+      板は一枚ずつ傾いて光を受け、陰影であなたを映す。<br>
+      動けば板がざわっと波打って鳴り、止まれば静まる。<br>
+      速く動くと裏返り、立ち去ると一枚ずつほどける。<br>
+      画面をたたくと、そこから板がめくれる。
+    </div>
+    <button class="go" id="go" type="button">壁の前に立つ</button>
+    <div id="err"></div>
+    <div class="note">映像はこの端末の中だけで処理されます。音が出ます。</div>
+    <div class="credit">after Daniel Rozin — Wooden Mirror, 1999<br>830 pieces of wood, 830 servo motors, video camera</div>
+  </div>
+</div>
+
+<div id="label" class="off"><b>KARAKURI</b><span id="labelMat">walnut, servo motors, camera</span><br>Oto II, 2026</div>
+<div id="status" class="off"></div>
+<div id="toast"></div>
+<div id="ui">
+  <button class="btn" id="flip" type="button" aria-label="カメラを切り替える">⟲<span class="t"> カメラ</span></button>
+  <button class="btn" id="mode" type="button">鏡を組む</button>
+  <button class="btn" id="ver" type="button">WALNUT</button>
+  <button class="btn" id="rec" type="button" aria-label="録画">●<span class="t"> REC</span></button>
+  <button class="btn" id="shot" type="button" aria-label="いまの画面を保存"></button>
+  <button class="btn" id="gear" type="button" aria-label="調整" aria-expanded="false">⚙</button>
+</div>
+<div id="panel" hidden>
+  <button class="x" id="panelX" type="button" aria-label="閉じる">✕</button>
+  <div class="row"><button type="button" id="bPerson" class="on">人だけ映す</button><button type="button" id="bAll">部屋も映す</button><button type="button" id="bFrame" class="on">顔に寄る</button></div>
+  <label>板の細かさ<input id="sGrid" type="range" min="24" max="60" step="2" value="40"></label>
+  <label>サーボの速さ<input id="sSpeed" type="range" min="0.3" max="2" step="0.05" value="1"></label>
+  <label>裏返りやすさ<input id="sFlip" type="range" min="0" max="2" step="0.05" value="1"></label>
+  <label>抜け殻の長さ<input id="sGhost" type="range" min="0" max="3" step="0.05" value="1"></label>
+  <label>コントラスト<input id="sCon" type="range" min="0.5" max="1.8" step="0.05" value="1"></label>
+  <div class="row"><button type="button" id="bPar" class="on">視差：入</button><button type="button" id="bSound" class="on">音：入</button><button type="button" id="bFs">全画面</button></div>
+  <p class="note">「人だけ映す」は部屋の板を休ませて、あなたの板だけを動かす。「顔に寄る」は頭に合わせて肖像の構図にする。体を左右に寄せると壁を斜めから見る。画面をたたくと、そこから板がめくれる。</p>
+</div>
+
+<script>
+/* the poster on the start screen: a small wall of tilted tiles, a head and shoulders in their shading */
+(() => {
+  const svg = document.getElementById('art');
+  const C = 34, R = 16, cw = 400 / C, ch = 190 / R;
+  let s = 11; const rnd = () => (s = (s * 16807) % 2147483647) / 2147483647;
+  let h = '';
+  for (let j = 0; j < R; j++) for (let i = 0; i < C; i++) {
+    const x = (i + 0.5) / C, y = (j + 0.5) / R;
+    const hx = (x - 0.5) / 0.115, hy = (y - 0.42) / 0.34, head = hx * hx + hy * hy < 1;
+    const sx = (x - 0.5) / 0.36, sy = y - 0.86, sh = sy > 0 && sx * sx + (sy / 0.3) * 0 < 1 && Math.abs(sx) < 1 - sy * 0.2;
+    const neck = Math.abs(x - 0.5) < 0.05 && y > 0.65 && y < 0.9;
+    let b = 0.12 + rnd() * 0.04;
+    if (head) b = 0.25 + 0.65 * Math.max(0, 1 - Math.hypot(hx + 0.35, hy + 0.3) * 0.75);
+    else if (sh) b = 0.22 + 0.4 * Math.max(0, 1 - Math.abs(sx + 0.25)) * (1 - sy * 2);
+    else if (neck) b = 0.18;
+    b = Math.min(1, Math.max(0, b + (rnd() - 0.5) * 0.06));
+    const tilt = (b - 0.4) * 1.1, hgt = ch * (0.8 - 0.22 * Math.abs(tilt)), r = Math.round(30 + 225 * b), g = Math.round(18 + 168 * b), bl = Math.round(10 + 118 * b);
+    h += `<rect x="${(i * cw + 0.8).toFixed(1)}" y="${(j * ch + (ch - hgt) / 2).toFixed(1)}" width="${(cw - 1.6).toFixed(1)}" height="${hgt.toFixed(1)}" fill="rgb(${r},${g},${bl})"/>`;
+  }
+  svg.innerHTML = '<defs><radialGradient id="sp" cx=".5" cy="0" r="1"><stop offset="0" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#070504" stop-opacity=".85"/></radialGradient></defs>' +
+    '<rect width="400" height="190" fill="#0b0705"/>' + h + '<rect width="400" height="190" fill="url(#sp)"/>';
+})();
+</script>
+
+<script type="module">
+/* =========================================================
+   KARAKURI — 千枚の木の板があなたを映す
+   ========================================================= */
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+const $ = id => document.getElementById(id);
+const TAU = Math.PI * 2, DEG = Math.PI / 180;
+const smooth = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
+
+/* ---------- the four walls ---------- */
+/* a0/a1: the face's two wood tones, back: the face that shows when a tile turns over, side: end grain.
+   wd: how much the face drinks the lamp (matte), we: how much it mirrors the softbox above (gloss), ks: highlight */
+const VERS = [
+  { name: 'WALNUT', mat: 'walnut, servo motors, camera', a0: [0.30, 0.17, 0.09], a1: [0.15, 0.075, 0.035], back: [0.80, 0.62, 0.40], side: [0.16, 0.10, 0.06],
+    wall: [0.010, 0.006, 0.004], rest: 0.1, jit: 1, gam: 1.25, frame: [0.012, 0.01, 0.009], light: [1.0, 0.82, 0.6], wd: 1.0, we: 0.08, ks: 0.08, shin: 18, metal: 0, grainK: 1, expo: 3.4, click: [1650, 7, 0.006] },
+  { name: 'BRASS', mat: 'polished brass, servo motors, camera', a0: [0.86, 0.62, 0.30], a1: [0.70, 0.48, 0.20], back: [0.05, 0.06, 0.05], side: [0.55, 0.40, 0.18],
+    wall: [0.008, 0.008, 0.009], rest: 0.08, jit: 0.6, gam: 1.4, frame: [0.02, 0.02, 0.022], light: [1.0, 0.95, 0.86], wd: 0.22, we: 1.0, ks: 1.0, shin: 60, metal: 1, grainK: 0.25, expo: 2.0, click: [4300, 38, 0.05] },
+  { name: 'URUSHI', mat: 'black lacquer, vermilion, servo motors, camera', a0: [0.035, 0.028, 0.026], a1: [0.022, 0.018, 0.017], back: [0.62, 0.09, 0.04], side: [0.09, 0.03, 0.02],
+    wall: [0.006, 0.004, 0.004], rest: 0.05, jit: 0.3, gam: 1.8, frame: [0.30, 0.04, 0.02], light: [1.0, 0.76, 0.52], wd: 0.04, we: 1.0, ks: 0.9, shin: 90, metal: 0.5, grainK: 0.2, expo: 2.1, click: [1100, 6, 0.008] },
+  { name: 'ASH', mat: 'white ash, charred cedar, servo motors, camera', a0: [0.86, 0.80, 0.70], a1: [0.72, 0.66, 0.56], back: [0.035, 0.033, 0.032], side: [0.5, 0.45, 0.38],
+    wall: [0.20, 0.20, 0.21], rest: 0.82, jit: 1, gam: 1.05, frame: [0.55, 0.52, 0.47], light: [0.92, 0.95, 1.0], wd: 1.0, we: 0.05, ks: 0.10, shin: 16, metal: 0, grainK: 0.7, expo: 2.3, click: [2300, 4, 0.004] },
+];
+const TH_MIN = -58 * DEG, TH_MAX = 46 * DEG;
+
+/* ---------- MediaPipe ---------- */
+const MP_BASE = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14';
+const SEG_MODEL = 'https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite';
+
+/* ---------- state ---------- */
+const video = $('cam'), cv = $('gl');
+let gl = null, W = 0, H = 0, S = 1, DPR = 1;
+let running = false, mode = 'cam', tr = 99, T = 0, lastT = 0, shotReq = false;
+let verIdx = 0, N = 40, speedK = 1, flipK = 1, ghostK = 1, conK = 1, onlyPerson = true, parallax = true, soundOn = true;
+let facing = 'user', mirror = true, stream = null, vw = 0, vh = 0, VA_ = [1, 1], VB_ = [0, 0], PA_ = [1, 1], PB_ = [0, 0];
+/* the part of the camera picture the panel shows (normalised, unmirrored): a portrait crop that follows the head */
+const CROP = { x: 0, y: 0, w: 1, h: 1 }, CROPT = { x: 0, y: 0, w: 1, h: 1, ok: false };
+let autoFrame = true;
+const TEST = { dt: 0, frames: 0, seg: null, budget: null };
+
+/* ---------- the panel: geometry in "wall units" where the screen's short edge is 1 (at the gallery distance).
+   hw/hh are the panel's half size; hwS/hhS the screen's. The panel hangs on a wall at z = 0. ---------- */
+let cols = 0, rows = 0, NT = 0, cell = 1 / 36, hw = 0.4, hh = 0.4, hwS = 0.5, hhS = 0.5, D0 = 1;
+let tx, ty, seed, uS, vS;                                 /* tile centre, random, panel uv */
+let acc, ang, vel, cmd, spin, nextUpd, flipAt, cool, lum, lumP, bP, bPP, mk, mkP, energy, mem, seen, relax, startAt, bOut, blurT;
+let moving; let LUT = new Float32Array(0); const LUTN = 64;
+const LZ = 0.9, LYO = 0.75, DCAM = 3.2;                                /* the lamp: above the wall's top edge, in front of it */
+function buildWall() {
+  hwS = W / S / 2; hhS = H / S / 2;
+  /* a tall panel on a phone held upright, a wide one on a laptop; it leaves the gallery wall around it */
+  let pw, ph;
+  if (W < H) { pw = hwS * 0.84; ph = Math.min(hhS * 0.74, pw * 1.42); }
+  else { ph = hhS * 0.74; pw = Math.min(hwS * 0.78, ph * 1.32); }
+  cell = 2 * Math.min(pw, ph) / N;
+  cols = Math.max(8, Math.round(2 * pw / cell)); rows = Math.max(8, Math.round(2 * ph / cell));
+  hw = cols * cell / 2; hh = rows * cell / 2;
+  /* the distance at which the panel covers the whole screen: where the change starts */
+  D0 = DCAM * Math.min(hh / hhS, hw / hwS);
+  NT = cols * rows;
+  const F = () => new Float32Array(NT);
+  tx = F(); ty = F(); seed = F(); uS = F(); vS = F();
+  acc = F(); ang = F(); vel = F(); cmd = F(); spin = new Int8Array(NT); nextUpd = F(); flipAt = F(); cool = F();
+  lum = F(); lumP = F(); bP = F(); bPP = F(); mk = F(); mkP = F(); energy = F(); mem = F(); seen = F(); relax = F(); startAt = F(); bOut = F(); blurT = F();
+  moving = new Uint8Array(NT);
+  for (let j = 0; j < rows; j++) for (let i = 0; i < cols; i++) {
+    const k = j * cols + i;
+    tx[k] = (i - (cols - 1) / 2) * cell; ty[k] = ((rows - 1) / 2 - j) * cell;
+    seed[k] = Math.random();
+    uS[k] = (tx[k] + hw) / (2 * hw); vS[k] = (hh - ty[k]) / (2 * hh);
+    relax[k] = 0.4 + Math.random() * 3.2; seen[k] = -99; flipAt[k] = Infinity;
+  }
+  buildLUT();
+  const live = mode === 'fx' && tr > 9;
+  for (let k = 0; k < NT; k++) { const r = restAngle(k); ang[k] = live ? r : Math.PI; cmd[k] = ang[k]; bOut[k] = 0.15; }
+  if (gl) uploadInstances();
+}
+/* how bright a face looks at tilt th in a given row, worked out the same way the shader lights it (the lamp,
+   its highlight, the softbox seen in a gloss), then inverted per row so a wanted brightness gives an angle.
+   Only the rising part is used, so the rendered brightness always grows with the wanted one. */
+function shadeJS(V, th, y) {
+  const nx = 0, ny = Math.sin(th), nz = Math.cos(th);
+  let lx = 0, ly = hh + LYO - y, lz = LZ; const ld = Math.hypot(ly, lz); ly /= ld; lz /= ld;
+  let vx = 0, vy = -y, vz = DCAM; const vd = Math.hypot(vy, vz); vy /= vd; vz /= vd;
+  const r2 = (hh + LYO - y) ** 2 + LZ * LZ, fall = 1 / (1 + 0.12 * r2);
+  const diff = Math.max(0, ny * ly + nz * lz);
+  let hx = 0, hy = ly + vy, hz = lz + vz; const hd = Math.hypot(hy, hz); hy /= hd; hz /= hd;
+  const sp = Math.pow(Math.max(0, ny * hy + nz * hz), V.shin);
+  const nv = ny * vy + nz * vz, ry = 2 * nv * ny - vy, rz = 2 * nv * nz - vz;
+  const sm = t => { t = clamp(t, 0, 1); return t * t * (3 - 2 * t); };
+  const box = Math.pow(sm((ry + 0.2) / 1.15), 1.5) * (0.55 + 0.45 * sm((rz + 0.4) / 0.9));
+  const hot = Math.pow(Math.max(0, ry * ly + rz * lz), 70) * 2.2;
+  const fres = 0.04 + 0.96 * Math.pow(1 - Math.max(nv, 0), 5), envK = V.metal ? 1 : 0.35 + 0.65 * fres;
+  const aL = 0.2126 * (V.a0[0] + V.a1[0]) / 2 + 0.7152 * (V.a0[1] + V.a1[1]) / 2 + 0.0722 * (V.a0[2] + V.a1[2]) / 2;
+  const sL = V.metal ? aL * 1.4 * V.metal + (1 - V.metal) : 1;
+  return aL * (diff * V.wd * fall * 1.25 + 0.004) + sL * (sp * V.ks * fall * 2 + (box + hot) * V.we * envK * (0.25 + 0.75 * fall));
+}
+function buildLUT() {
+  const V = VERS[verIdx];
+  LUT = new Float32Array(rows * LUTN);
+  const M = 160, f = new Float32Array(M), th = new Float32Array(M);
+  for (let j = 0; j < rows; j++) {
+    const y = ((rows - 1) / 2 - j) * cell;
+    for (let m = 0; m < M; m++) {
+      const t = TH_MIN + (TH_MAX - TH_MIN) * m / (M - 1); th[m] = t;
+      /* compare in the film's tone, which is what the eye sees */
+      f[m] = Math.pow(1 - Math.exp(-shadeJS(V, t, y) * V.expo), 1 / 2.2);
+    }
+    /* use the angles up to the brightest one, and only where brightness rises */
+    let top = 0; for (let m = 1; m < M; m++) if (f[m] > f[top]) top = m;
+    for (let m = 1; m <= top; m++) f[m] = Math.max(f[m], f[m - 1]);
+    const lo = f[0], hi = f[top] - 1e-6;
+    let m = 0;
+    for (let q = 0; q < LUTN; q++) {
+      const want = lo + (hi - lo) * q / (LUTN - 1);
+      while (m < top && f[m] < want) m++;
+      LUT[j * LUTN + q] = th[m];
+    }
+  }
+}
+function angleFor(k, b) {
+  const j = (k / cols) | 0, q = clamp(b, 0, 1) * (LUTN - 1), q0 = q | 0, q1 = Math.min(LUTN - 1, q0 + 1), f = q - q0;
+  return LUT[j * LUTN + q0] * (1 - f) + LUT[j * LUTN + q1] * f;
+}
+function restAngle(k) { const V = VERS[verIdx]; return angleFor(k, V.rest + (seed[k] - 0.5) * 0.04 * V.jit); }
+
+/* ---------- GL ---------- */
+const VS_TILE = `#version 300 es
+layout(location=0) in vec3 aPos;
+layout(location=1) in vec3 aNrm;
+layout(location=2) in vec3 aInst;
+layout(location=3) in float aAng;
+layout(location=4) in float aUp;
+uniform mat4 uVP; uniform float uCell, uScale, uThick; uniform vec3 uLight;
+out vec3 vW, vN; out vec2 vLoc; out float vFace, vSeed, vShadow; out vec2 vC;
+void main(){
+  float s=sin(aAng), c=cos(aAng);
+  vec3 n=vec3(0.,s,c), u=vec3(0.,c,-s);
+  vec3 lp=aPos*vec3(uCell*uScale, uCell*uScale, uThick);
+  vec3 w=vec3(aInst.xy,0.)+vec3(lp.x,0.,0.)+u*lp.y+n*lp.z;
+  vN=vec3(aNrm.x,0.,0.)+u*aNrm.y+n*aNrm.z;
+  vLoc=aPos.xy; vFace=aNrm.z; vSeed=aInst.z; vW=w; vC=aInst.xy;
+  /* the tile above: where its lower edge throws a shadow down across this face (side view, y–z) */
+  float h=uCell*uScale*.5;
+  vec2 uu=vec2(cos(aUp),-sin(aUp)), nu=vec2(sin(aUp),cos(aUp));
+  vec2 Pu=vec2(aInst.y+uCell,0.)-uu*h+nu*uThick*.5;
+  vec2 d=-normalize(uLight.yz-Pu);
+  vec2 uT=vec2(c,-s), Q=vec2(aInst.y,0.)+vec2(s,c)*uThick*.5;
+  float det=-uT.x*d.y+d.x*uT.y;
+  float t=abs(det)>1e-5 ? ((Pu.x-Q.x)*(-d.y)+d.x*(Pu.y-Q.y))/det : 1e3;
+  vShadow=t/(uCell*uScale);           /* in face units: shadow covers vLoc.y > vShadow */
+  gl_Position=uVP*vec4(w,1.);
+}`;
+const COMMON = `#version 300 es
+precision highp float;
+uniform vec3 uEye, uLight, uLightC, uWall;
+uniform vec2 uHalf, uVA, uVB, uPA, uPB, uRes;
+uniform float uT, uGrain, uExpo, uDark;
+uniform sampler2D uVid;
+float hash(vec2 p){ p=fract(p*vec2(443.897,441.423)); p+=dot(p,p.yx+19.19); return fract((p.x+p.y)*p.x); }
+float vn(vec2 p){ vec2 i=floor(p), f=fract(p); f=f*f*(3.-2.*f);
+  return mix(mix(hash(i),hash(i+vec2(1,0)),f.x), mix(hash(i+vec2(0,1)),hash(i+vec2(1,1)),f.x), f.y); }
+/* the lamp is a spot above the wall: a pool that falls off sideways and with distance */
+float spot(vec3 p){ vec3 d=uLight-p; float r2=dot(d,d);
+  float side=exp(-p.x*p.x/(uHalf.x*uHalf.x*1.1+0.08)*0.9);
+  return side/(1.+0.12*r2); }
+vec3 film(vec3 c){ c=1.-exp(-c*uExpo); return pow(c,vec3(1./2.2)); }
+vec3 finish(vec3 c){
+  vec2 fc=gl_FragCoord.xy; vec2 q=(fc/uRes-.5)*vec2(uRes.x/min(uRes.x,uRes.y), uRes.y/min(uRes.x,uRes.y));
+  c*=1.-0.38*smoothstep(.35,1.25,length(q));
+  float g=hash(fc*0.731+fract(uT*7.13)*vec2(91.7,57.3))-.5;
+  c+=g*uGrain*0.06*(0.25+c);
+  return c;
+}
+vec3 camAt(vec2 w){ vec2 s=vec2((w.x+uHalf.x)/(2.*uHalf.x), (uHalf.y-w.y)/(2.*uHalf.y)); vec2 v=uPB+s*uPA;
+  return texture(uVid, clamp(v,0.,1.)).rgb; }
+`;
+const FS_TILE = COMMON + `
+uniform vec3 uA0, uA1, uBack, uSide;
+uniform float uWd, uWe, uKs, uShin, uMetal, uGrainK, uBackCam, uCell, uFrame;
+uniform vec3 uFrameC;
+in vec3 vW, vN; in vec2 vLoc; in float vFace, vSeed, vShadow; in vec2 vC;
+out vec4 o;
+float wood(vec2 p, float sd){
+  float a=(sd-.5)*0.5; p=mat2(cos(a),-sin(a),sin(a),cos(a))*p;
+  float x=p.x*(4.+sd*5.)+vn(vec2(p.y*2.2+sd*17., sd*9.))*1.6+sd*40.;
+  float ring=abs(fract(x)-.5)*2.; ring=smoothstep(.15,.95,ring);
+  float fine=vn(vec2(p.x*70.+sd*3., p.y*5.+sd*11.));
+  return clamp(ring*.62+fine*.38,0.,1.);
+}
+float env(vec3 R, vec3 L){
+  float box=pow(smoothstep(-.2,.95,R.y),1.5)*(0.55+0.45*smoothstep(-.4,.5,R.z));
+  float hot=pow(max(dot(R,L),0.),70.)*2.2;
+  return box+hot;
+}
+void main(){
+  vec3 N=normalize(vN); vec3 V=normalize(uEye-vW);
+  vec3 Lv=uLight-vW; vec3 L=normalize(Lv);
+  float fall=spot(vW);
+  float face=vFace>.5?1.:vFace<-.5?-1.:0.;
+  vec3 alb; float wd=uWd, we=uWe, ks=uKs;
+  if(face>0.){
+    float g=wood(vLoc,vSeed);
+    alb=mix(uA1,uA0,mix(.5,g,uGrainK))*(0.91+0.18*fract(vSeed*7.31));
+    if(uFrame>0.){ alb=uFrameC*(0.85+0.3*g); ks=0.02; we=0.015; }
+  } else if(face<0.){
+    float g=wood(vLoc.yx*1.3,fract(vSeed*3.7));
+    alb=uBack*(0.88+0.24*mix(.5,g,uGrainK)); wd=max(uWd,.7); we=uWe*.4;
+  } else { alb=uFrame>0.?uFrameC*1.3:uSide*(0.7+0.3*vn(vLoc*vec2(30.,6.)+vSeed*9.)); we*=.3; ks*=.3; }
+  float diff=max(dot(N,L),0.);
+  vec3 Hh=normalize(L+V); float sp=pow(max(dot(N,Hh),0.),uShin);
+  vec3 R=reflect(-V,N);
+  vec3 specC=mix(vec3(1.),alb*1.4,uMetal*step(.5,face));
+  float fres=mix(0.04,1.,pow(1.-max(dot(N,V),0.),5.));
+  float envK=mix(0.35+0.65*fres,1.,uMetal);
+  vec3 col=alb*uLightC*(diff*wd*fall*1.25+0.004)
+          +specC*uLightC*(sp*ks*fall*2.+env(R,L)*we*envK*(0.25+0.75*fall));
+  /* the edges of each tile catch a little less light: the gap's shadow and a soft bevel */
+  float ed=max(abs(vLoc.x),abs(vLoc.y))*(1.-uFrame);
+  if(face!=0.) col*=1.-0.35*smoothstep(.38,.5,ed);
+  /* a tile's edges sit in the narrow gap to its neighbours, mostly in their shadow */
+  else if(uFrame<.5) col*=0.28;
+  /* cast shadow from the tile above (only on the face that looks out) */
+  if(face>0.){ float sh=smoothstep(vShadow-.06,vShadow+.06,vLoc.y); col=mix(col,col*0.12+alb*uLightC*0.002,sh*0.92); }
+  col*=1.-uDark;
+  vec3 c=film(col);
+  /* during the change the backs carry the camera picture, cut into pieces */
+  if(face<0. && uBackCam>0.){
+    vec3 cam=camAt(vC+vec2(vLoc.x,-vLoc.y)*uCell)*(1.-uDark*.55);
+    cam*=1.-0.25*smoothstep(.4,.5,ed);
+    c=mix(c,cam,uBackCam);
+  }
+  o=vec4(finish(c),1.);
+}`;
+/* the wall behind the tiles, seen through the gaps */
+const VS_QUAD = `#version 300 es
+void main(){ vec2 p=vec2(float((gl_VertexID<<1)&2), float(gl_VertexID&2)); gl_Position=vec4(p*2.-1.,0.,1.); }`;
+const VS_BACK = `#version 300 es
+uniform mat4 uVP; uniform float uZ;
+out vec3 vW;
+void main(){ vec2 p=vec2(float((gl_VertexID<<1)&2), float(gl_VertexID&2))*2.-1.;
+  vW=vec3(p*vec2(9.,6.),uZ); gl_Position=uVP*vec4(vW,1.); }`;
+/* the gallery wall: a pool of light from the spot above the panel, dark behind the tiles */
+const FS_BACK = COMMON + `
+uniform float uIn;
+in vec3 vW; out vec4 o;
+void main(){
+  vec2 q=vW.xy-vec2(0.,uHalf.y*0.25);
+  float pool=exp(-(q.x*q.x/(uHalf.x*uHalf.x*2.4+0.2)+q.y*q.y/(uHalf.y*uHalf.y*3.2+0.3))*1.2);
+  float behind=step(abs(vW.x),uHalf.x)*step(abs(vW.y),uHalf.y);
+  vec3 c=uWall*(pool*3.2+0.012+0.5*spot(vW))*mix(1.,0.15,behind*uIn);
+  /* a little texture of painted plaster */
+  c*=0.94+0.12*vn(vW.xy*40.)*vn(vW.xy*7.);
+  c*=1.-uDark;
+  o=vec4(finish(film(c)),1.); }`;
+/* the frame: four mouldings around the tiles */
+const VS_FRAME = `#version 300 es
+layout(location=0) in vec3 aPos;
+layout(location=1) in vec3 aNrm;
+uniform mat4 uVP; uniform vec4 uBox; uniform vec2 uZ;
+out vec3 vW, vN; out vec2 vLoc; out float vFace, vSeed, vShadow; out vec2 vC;
+void main(){
+  vec3 w=vec3(uBox.xy,uZ.x)+aPos*vec3(uBox.zw,uZ.y);
+  vW=w; vN=aNrm; vLoc=aPos.xy*uBox.zw*6.; vFace=aNrm.z; vSeed=0.37+uBox.x*3.; vShadow=1e3; vC=uBox.xy;
+  gl_Position=uVP*vec4(w,1.);
+}`;
+/* the plain camera */
+const FS_CAM = COMMON + `
+out vec4 o;
+void main(){ vec2 s=vec2(gl_FragCoord.x/uRes.x, 1.-gl_FragCoord.y/uRes.y);
+  vec3 c=texture(uVid, uVB+s*uVA).rgb*(1.-uDark*.55);
+  o=vec4(c,1.); }`;
+
+let PT = null, PB = null, PC = null, PF = null, vaoT = null, vaoQ = null, bufInst = null, bufAng = null, bufUp = null, texVid = null;
+const U = new Map();
+function compile(type, src) {
+  const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s));
+  return s;
+}
+function program(vs, fs) {
+  const p = gl.createProgram(); gl.attachShader(p, compile(gl.VERTEX_SHADER, vs)); gl.attachShader(p, compile(gl.FRAGMENT_SHADER, fs));
+  gl.linkProgram(p); if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+  return p;
+}
+function u(p, n) { let m = U.get(p); if (!m) U.set(p, m = new Map()); if (!m.has(n)) m.set(n, gl.getUniformLocation(p, n)); return m.get(n); }
+function initGL() {
+  gl = cv.getContext('webgl2', { antialias: true, alpha: false, preserveDrawingBuffer: false, powerPreference: 'high-performance' });
+  if (!gl) throw new Error('WebGL2 が使えません');
+  PT = program(VS_TILE, FS_TILE); PB = program(VS_BACK, FS_BACK); PC = program(VS_QUAD, FS_CAM); PF = program(VS_FRAME, FS_TILE);
+  /* one box: six faces, normals in the tile's own frame */
+  const P = [], faces = [[0, 0, 1], [0, 0, -1], [1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0]];
+  for (const n of faces) {
+    const a = n.findIndex(v => v !== 0), b = (a + 1) % 3, c = (a + 2) % 3;
+    const q = [[-1, -1], [1, -1], [1, 1], [-1, -1], [1, 1], [-1, 1]];
+    for (const [x, y] of q) { const v = [0, 0, 0]; v[a] = n[a] * 0.5; v[b] = x * 0.5; v[c] = y * 0.5;
+      if (n[a] < 0) { const t = v[b]; v[b] = v[c]; v[c] = t; }             /* keep the winding outward (no culling anyway) */
+      P.push(...v, ...n); }
+  }
+  vaoT = gl.createVertexArray(); gl.bindVertexArray(vaoT);
+  const bg = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, bg); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(P), gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 24, 0);
+  gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 24, 12);
+  bufInst = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, bufInst);
+  gl.enableVertexAttribArray(2); gl.vertexAttribPointer(2, 3, gl.FLOAT, false, 12, 0); gl.vertexAttribDivisor(2, 1);
+  bufAng = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, bufAng);
+  gl.enableVertexAttribArray(3); gl.vertexAttribPointer(3, 1, gl.FLOAT, false, 4, 0); gl.vertexAttribDivisor(3, 1);
+  bufUp = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, bufUp);
+  gl.enableVertexAttribArray(4); gl.vertexAttribPointer(4, 1, gl.FLOAT, false, 4, 0); gl.vertexAttribDivisor(4, 1);
+  gl.bindVertexArray(null);
+  vaoQ = gl.createVertexArray();
+  vaoF = gl.createVertexArray(); gl.bindVertexArray(vaoF); gl.bindBuffer(gl.ARRAY_BUFFER, bg);
+  gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 24, 0);
+  gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 24, 12);
+  gl.bindVertexArray(null);
+  texVid = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, texVid);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0, 0, 0, 255]));
+  cv.addEventListener('webglcontextlost', e => e.preventDefault());
+}
+let instData = new Float32Array(0), vaoF = null;
+function uploadInstances() {
+  instData = new Float32Array(NT * 3);
+  for (let k = 0; k < NT; k++) { instData[k * 3] = tx[k]; instData[k * 3 + 1] = ty[k]; instData[k * 3 + 2] = seed[k]; }
+  gl.bindBuffer(gl.ARRAY_BUFFER, bufInst); gl.bufferData(gl.ARRAY_BUFFER, instData, gl.STATIC_DRAW);
+  gl.bindBuffer(gl.ARRAY_BUFFER, bufAng); gl.bufferData(gl.ARRAY_BUFFER, ang.byteLength, gl.DYNAMIC_DRAW);
+  gl.bindBuffer(gl.ARRAY_BUFFER, bufUp); gl.bufferData(gl.ARRAY_BUFFER, ang.byteLength, gl.DYNAMIC_DRAW);
+  angUp = new Float32Array(NT);
+}
+let angUp = new Float32Array(0);
+
+/* ---------- a tiny camera: perspective from the eye toward the wall ---------- */
+const VP = new Float32Array(16), EYE = [0, 0, 3];
+const CAMX = [1, 0, 0], CAMY = [0, 1, 0], CAMZ = [0, 0, 1]; let CAMF = 1;
+function makeVP(ex, ey, ez) {
+  const f = DCAM / hhS, asp = W / H, nr = 0.2, fr = 20;
+  /* look at the wall's centre */
+  let zx = ex, zy = ey, zz = ez; const zl = Math.hypot(zx, zy, zz); zx /= zl; zy /= zl; zz /= zl;
+  let xx = zz, xy = 0, xz = -zx; const xl = Math.hypot(xx, xy, xz); xx /= xl; xy /= xl; xz /= xl;    /* up × z, up = +y */
+  const yx = zy * xz - zz * xy, yy = zz * xx - zx * xz, yz = zx * xy - zy * xx;
+  const ex2 = ex, ey2 = ey, ez2 = ez;
+  const v = [xx, yx, zx, 0, xy, yy, zy, 0, xz, yz, zz, 0,
+    -(xx * ex2 + xy * ey2 + xz * ez2), -(yx * ex2 + yy * ey2 + yz * ez2), -(zx * ex2 + zy * ey2 + zz * ez2), 1];
+  const p = [f / asp, 0, 0, 0, 0, f, 0, 0, 0, 0, (fr + nr) / (nr - fr), -1, 0, 0, 2 * fr * nr / (nr - fr), 0];
+  for (let c = 0; c < 4; c++) for (let r = 0; r < 4; r++) {
+    let s = 0; for (let k = 0; k < 4; k++) s += p[k * 4 + r] * v[c * 4 + k]; VP[c * 4 + r] = s;
+  }
+  EYE[0] = ex; EYE[1] = ey; EYE[2] = ez;
+  CAMX[0] = xx; CAMX[1] = xy; CAMX[2] = xz; CAMY[0] = yx; CAMY[1] = yy; CAMY[2] = yz; CAMZ[0] = zx; CAMZ[1] = zy; CAMZ[2] = zz; CAMF = f;
+}
+/* a point on the screen → where it lands on the wall (z = 0), in panel uv */
+function screenToPanel(px, py) {
+  const nx = 2 * px / W - 1, ny = 1 - 2 * py / H, asp = W / H;
+  const dx = CAMX[0] * nx * asp / CAMF + CAMY[0] * ny / CAMF - CAMZ[0];
+  const dy = CAMX[1] * nx * asp / CAMF + CAMY[1] * ny / CAMF - CAMZ[1];
+  const dz = CAMX[2] * nx * asp / CAMF + CAMY[2] * ny / CAMF - CAMZ[2];
+  if (!(Math.abs(dz) > 1e-6)) return null;
+  const t = -EYE[2] / dz; if (!(t > 0)) return null;
+  const x = EYE[0] + dx * t, y = EYE[1] + dy * t;
+  return { u: (x + hw) / (2 * hw), v: (hh - y) / (2 * hh), x, y };
+}
+
+/* ---------- the camera, read at the wall's resolution ---------- */
+const smp = document.createElement('canvas'), smpX = smp.getContext('2d', { willReadFrequently: true });
+const SUB = 3; let smpW = 0, smpH = 0, lumG = new Float32Array(0), camReady = false;
+function sampleCamera() {
+  if (!vw || video.readyState < 2) return false;
+  const gw = cols, gh = rows;
+  const sw = gw * SUB, sh = gh * SUB;
+  if (smp.width !== sw || smp.height !== sh) { smp.width = sw; smp.height = sh; }
+  smpW = gw; smpH = gh;
+  /* cover-crop the video to the panel's shape, mirrored for the front camera */
+  const cw = CROP.w * vw, ch = CROP.h * vh, cx = CROP.x * vw, cy = CROP.y * vh;
+  smpX.setTransform(mirror ? -1 : 1, 0, 0, 1, mirror ? sw : 0, 0);
+  try { smpX.drawImage(video, cx, cy, cw, ch, 0, 0, sw, sh); } catch (e) { return false; }
+  smpX.setTransform(1, 0, 0, 1, 0, 0);
+  let d; try { d = smpX.getImageData(0, 0, sw, sh).data; } catch (e) { return false; }
+  if (lumG.length !== gw * gh) lumG = new Float32Array(gw * gh);
+  for (let y = 0; y < gh; y++) for (let x = 0; x < gw; x++) {
+    let s = 0;
+    for (let b = 0; b < SUB; b++) { let o = ((y * SUB + b) * sw + x * SUB) * 4;
+      for (let a = 0; a < SUB; a++, o += 4) s += d[o] * 0.299 + d[o + 1] * 0.587 + d[o + 2] * 0.114; }
+    lumG[y * gw + x] = s / (SUB * SUB * 255);
+  }
+  return true;
+}
+
+/* ---------- the person ---------- */
+let segmenter = null, mpErr = false, mpTs = 0, lastSegMs = -1e9, maskOK = false;
+const segC = document.createElement('canvas'), segX = segC.getContext('2d');
+let segW = 0, segH = 0, maskF = new Float32Array(0), presence = 0, cxP = 0.5, cyP = 0.5;
+async function initMP() {
+  try {
+    let V; try { V = await import(`${MP_BASE}/vision_bundle.mjs`); } catch (e) { V = await import(MP_BASE); }
+    const fs = await V.FilesetResolver.forVisionTasks(`${MP_BASE}/wasm`);
+    const opts = d => ({ baseOptions: { modelAssetPath: SEG_MODEL, delegate: d }, runningMode: 'VIDEO', outputCategoryMask: false, outputConfidenceMasks: true });
+    try { segmenter = await V.ImageSegmenter.createFromOptions(fs, opts('GPU')); }
+    catch (e) { segmenter = await V.ImageSegmenter.createFromOptions(fs, opts('CPU')); }
+  } catch (e) {
+    console.warn('MediaPipe failed: the wall shows the whole room', e); mpErr = true;
+    showStatus('人の切り抜きを読み込めませんでした。部屋ごと映します', 7000);
+  }
+}
+function nextTs(nowMs) { mpTs = Math.max(Math.round(nowMs), mpTs + 1); return mpTs; }
+function takeMask(d, w, h) {
+  if (!d || !(w > 0) || !(h > 0) || w > 1024 || h > 1024 || !(d.length >= w * h)) return;
+  if (w !== segW || h !== segH) { segW = w; segH = h; maskF = new Float32Array(w * h); }
+  const n = w * h, scale = d instanceof Uint8Array || d instanceof Uint8ClampedArray ? 1 / 255 : 1;
+  let sum = 0, sx = 0, sy = 0;
+  for (let i = 0; i < n; i++) {
+    let v = d[i] * scale; if (!(v >= 0)) v = 0; else if (v > 1) v = 1;       /* NaN and garbage become "nobody" */
+    maskF[i] += (v - maskF[i]) * 0.7; const m = maskF[i];
+    sum += m; sx += m * (i % w); sy += m * ((i / w) | 0);
+  }
+  presence = sum / n;
+  if (sum > n * 0.004) {
+    /* centroid in the whole camera picture (as the viewer sees it, mirrored for the front camera) */
+    const mx = sx / sum / w, my = sy / sum / h;
+    cxP = mirror ? 1 - mx : mx; cyP = my;
+  }
+  if (h <= 1024) frameFromMask(w, h);
+  maskOK = true;
+}
+let lastTestSeg = 0;
+function runSeg(nowMs) {
+  if (TEST.seg) {
+    if (nowMs - lastTestSeg < 66) return; lastTestSeg = nowMs;
+    let r = null; try { r = TEST.seg(nowMs); } catch (e) { r = null; }
+    if (r) takeMask(r.data, r.w, r.h);
+    return;
+  }
+  if (!segmenter || !vw || video.readyState < 2 || nowMs - lastSegMs < 66) return;
+  lastSegMs = nowMs;
+  const sw = vw >= vh ? 256 : Math.round(256 * vw / vh), sh = vw >= vh ? Math.round(256 * vh / vw) : 256;
+  if (segC.width !== sw || segC.height !== sh) { segC.width = sw; segC.height = sh; }
+  segX.drawImage(video, 0, 0, sw, sh);
+  try {
+    segmenter.segmentForVideo(segC, nextTs(nowMs), res => {
+      const ms = res && res.confidenceMasks; if (!ms || !ms.length) return;
+      takeMask(ms[ms.length - 1].getAsFloat32Array(), sw, sh);
+    });
+  } catch (e) { console.warn(e); }
+}
+/* screen uv → mask (bilinear-ish: the nearest texel of the smoothed mask) */
+function maskAtUV(u, v) {
+  if (!maskOK) return 0;
+  const fx = (PB_[0] + u * PA_[0]) * segW, fy = (PB_[1] + v * PA_[1]) * segH;
+  if (!(fx >= 0 && fy >= 0 && fx < segW && fy < segH)) return 0;
+  return maskF[(fy | 0) * segW + (fx | 0)];
+}
+
+/* ---------- the wall's brain: what each tile should show ---------- */
+const HB = 64, hist = new Float32Array(HB);
+let boxTmp = new Float32Array(0);
+function boxBlur(src, dst, r) {
+  if (boxTmp.length !== NT) boxTmp = new Float32Array(NT);
+  const inv = 1 / (2 * r + 1);
+  for (let j = 0; j < rows; j++) { const o = j * cols;
+    for (let i = 0; i < cols; i++) { let s = 0; for (let d = -r; d <= r; d++) s += src[o + clamp(i + d, 0, cols - 1)]; boxTmp[o + i] = s * inv; } }
+  for (let j = 0; j < rows; j++) for (let i = 0; i < cols; i++) {
+    let s = 0; for (let d = -r; d <= r; d++) s += boxTmp[clamp(j + d, 0, rows - 1) * cols + i]; dst[j * cols + i] = s * inv; }
+}
+let expLo = 0.1, expHi = 0.9, personNow = 0, eyeX = 0, eyeY = 0;
+function think(now, dt) {
+  const gw = smpW, gh = smpH, havePerson = maskOK && !mpErr;
+  const usePerson = onlyPerson && havePerson;
+  /* 1. what the camera sees under each tile, and how much of it is a person */
+  hist.fill(0); let hn = 0;
+  for (let k = 0; k < NT; k++) {
+    const u = uS[k], v = vS[k];
+    const x = clamp((u * gw) | 0, 0, gw - 1), y = clamp((v * gh) | 0, 0, gh - 1);
+    lumP[k] = lum[k]; lum[k] = lumG[y * gw + x];
+    mkP[k] = mk[k]; mk[k] = havePerson ? maskAtUV(clamp(u, 0, 0.999), clamp(v, 0, 0.999)) : 1;
+    const inView = u >= 0 && u <= 1 && v >= 0 && v <= 1;
+    if (inView && (!usePerson || mk[k] > 0.5)) { hist[clamp((lum[k] * HB) | 0, 0, HB - 1)]++; hn++; }
+  }
+  personNow = hn;
+  /* 2. exposure: stretch what is inside the person to the full range of the tiles */
+  if (hn > 12) {
+    let acc = 0, lo = 0, hi = 1; const a = hn * 0.03, b = hn * 0.97;
+    for (let i = 0; i < HB; i++) { const p = acc; acc += hist[i]; if (p < a && acc >= a) lo = i / HB; if (p < b && acc >= b) hi = (i + 1) / HB; }
+    if (hi - lo < 0.18) { const m = (hi + lo) / 2; lo = m - 0.09; hi = m + 0.09; }
+    const kk = 1 - Math.exp(-dt / 0.5); expLo += (lo - expLo) * kk; expHi += (hi - expHi) * kk;
+  }
+  const span = Math.max(0.12, expHi - expLo);
+  for (let k = 0; k < NT; k++) { let b = (lum[k] - expLo) / span; b = clamp(b, 0, 1); blurT[k] = b; }
+  /* 3. a touch of local contrast so a face reads at forty tiles across */
+  const gam = VERS[verIdx].gam;
+  for (let j = 0; j < rows; j++) for (let i = 0; i < cols; i++) {
+    const k = j * cols + i, b = blurT[k];
+    let s = 0, c = 0;
+    for (let dj = -1; dj <= 1; dj++) { const jj = j + dj; if (jj < 0 || jj >= rows) continue;
+      for (let di = -1; di <= 1; di++) { const ii = i + di; if (ii < 0 || ii >= cols) continue; s += blurT[jj * cols + ii]; c++; } }
+    let o = b + 0.45 * conK * (b - s / c);
+    o = 0.5 + (o - 0.5) * (0.8 + 0.2 * conK);
+    o = clamp(o, 0, 1);
+    bPP[k] = bP[k]; bP[k] = Math.pow(o, gam);
+  }
+  /* 4. per tile: the person, a ghost of them, or the resting wall */
+  const gK = ghostK;
+  for (let k = 0; k < NT; k++) {
+    const m = mk[k];
+    let tgt;
+    if (!usePerson) tgt = bP[k];
+    else if (m > 0.5) { mem[k] = bP[k]; seen[k] = now; tgt = bP[k]; }
+    else if (now - seen[k] < relax[k] * gK) tgt = mem[k];
+    else tgt = -1;                                                 /* rest */
+    if (tgt < 0) { bOut[k] = -1; }
+    else bOut[k] = tgt;
+    /* how hard this spot is changing: the picture and the person's edge */
+    const inst = Math.abs(bP[k] - bPP[k]) * (usePerson ? Math.max(m, mkP[k]) * 0.7 : 1) + Math.abs(m - mkP[k]) * (usePerson ? 1 : 0);
+    acc[k] = acc[k] * Math.exp(-dt / 0.25) + inst;
+  }
+  /* a tile crossing the person's edge always jumps in one frame; what tells fast from slow is how wide the
+     band of changed tiles is, so the flip test looks at a 5×5 neighbourhood */
+  boxBlur(acc, energy, 2);
+  /* parallax: lean to one side and you see the wall from there */
+  const tx_ = parallax && havePerson && presence > 0.01 ? (cxP - 0.5) * 2.2 : 0;
+  const ty_ = parallax && havePerson && presence > 0.01 ? (0.42 - cyP) * 1.5 : 0;
+  const ek = 1 - Math.exp(-dt / 0.7); eyeX += (tx_ - eyeX) * ek; eyeY += (ty_ - eyeY) * ek;
+}
+
+/* ---------- the motors ---------- */
+let arrivals = 0, movingN = 0, flipsNow = 0, flipTotal = 0; const ARRX = new Float32Array(24); let arrN = 0;
+function flipTile(k, now, dir) {
+  if (spin[k] || cool[k] > now) return false;
+  spin[k] = dir; cmd[k] += dir * TAU; cool[k] = now + 1.1; flipsNow++; flipTotal++;
+  return true;
+}
+function motors(now, dt, phase) {
+  const vmax = 10 * speedK, amax = 160 * speedK, Kp = 26;
+  const thr = 0.5 / Math.max(0.05, flipK);
+  let budget = flipK > 0 ? Math.max(3, (NT * 0.004) | 0) : 0;
+  arrivals = 0; movingN = 0; flipsNow = 0; arrN = 0;
+  const live = phase === 'live';
+  for (let k = 0; k < NT; k++) {
+    /* each motor reads its order on its own beat, so a change runs across the wall as a ripple */
+    if (phase === 'in' && now < startAt[k]) { /* still showing the camera's side */ }
+    else if (phase === 'out') { if (now >= startAt[k] && !spin[k]) { const tgtPi = Math.PI; if (Math.abs(cmd[k] - tgtPi) > 0.01) { cmd[k] = tgtPi; nextUpd[k] = Infinity; } } }
+    else if (now >= nextUpd[k]) {
+      nextUpd[k] = now + 0.03 + seed[k] * 0.09 + Math.random() * 0.02;
+      const want = bOut[k] < 0 ? restAngle(k) : angleFor(k, bOut[k]);
+      cmd[k] = want + spin[k] * TAU;
+      if (spin[k] === 0 && phase === 'in') cmd[k] = want;
+    }
+    /* flips: where the picture changes hard, and spreading along the moving edge */
+    if (live && budget > 0) {
+      if (flipAt[k] <= now) { flipAt[k] = Infinity; if (flipTile(k, now, seed[k] < 0.5 ? 1 : -1)) budget--; }
+      else if (energy[k] > thr && Math.random() < 0.35) {
+        const dir = mk[k] >= mkP[k] ? 1 : -1;
+        if (flipTile(k, now, dir)) {
+          budget--;
+          const i = k % cols, j = (k / cols) | 0;
+          for (const [di, dj] of NB) { const ii = i + di, jj = j + dj; if (ii < 0 || jj < 0 || ii >= cols || jj >= rows) continue;
+            const q = jj * cols + ii; if (energy[q] > thr * 0.6 && flipAt[q] === Infinity) flipAt[q] = now + 0.05 + Math.random() * 0.06; }
+        }
+      }
+    } else if (live && flipAt[k] <= now && flipK === 0) flipAt[k] = Infinity;
+    /* the servo: a speed limit, an acceleration limit, a stiff controller */
+    const a = ang[k], err = cmd[k] - a;
+    const vm = spin[k] ? vmax * 1.7 : phase === 'live' ? vmax : vmax * 1.25;
+    const want = clamp(err * Kp, -vm, vm);
+    let v = vel[k]; const dv = clamp(want - v, -amax * dt, amax * dt); v += dv;
+    let na = a + v * dt;
+    if ((err > 0 && na > cmd[k]) || (err < 0 && na < cmd[k])) { if (Math.abs(v) > 3.5) { na = cmd[k] - (na - cmd[k]) * 0.3; v *= -0.25; } else { na = cmd[k]; v = 0; } }
+    ang[k] = na; vel[k] = v;
+    const mov = Math.abs(v) > 0.35;
+    if (mov) movingN++;
+    if (moving[k] && !mov && Math.abs(cmd[k] - na) < 0.03) {
+      arrivals++; if (arrN < ARRX.length) ARRX[arrN++] = uS[k];
+      if (spin[k]) { ang[k] -= spin[k] * TAU; cmd[k] -= spin[k] * TAU; spin[k] = 0; }
+    }
+    moving[k] = mov ? 1 : 0;
+  }
+}
+const NB = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+function knock(px, py, now) {
+  /* the screen point → the wall, then a ring of flips running outward */
+  const P = screenToPanel(px, py); if (!P) return;
+  const x = P.x, y = P.y, u = clamp(P.u, 0, 1);
+  for (let k = 0; k < NT; k++) {
+    const d = Math.hypot(tx[k] - x, ty[k] - y);
+    if (d < 0.55) { const t = now + d / 0.85 + Math.random() * 0.03; if (t < flipAt[k]) flipAt[k] = t; cool[k] = Math.min(cool[k], now); }
+  }
+  AE.knock(u);
+}
+
+/* ---------- the change between the plain camera and the wall ---------- */
+/* in: the room dims, the picture splits into tiles, the tiles turn over from the top, wood appears.
+   out: from the bottom, the tiles turn back to the camera's side, the gaps close, the room comes up. */
+function setMode(m, instant) {
+  if (m === mode && !instant) return;
+  mode = m; tr = instant ? 99 : 0;
+  const b = $('mode'); b.classList.remove('pulse');
+  const now = T;
+  if (m === 'fx') {
+    b.textContent = 'カメラに戻す';
+    for (let k = 0; k < NT; k++) {
+      const j = (k / cols) | 0, x = tx[k];
+      startAt[k] = now + 0.85 + 1.15 * (j / rows) + 0.22 * Math.abs(x) + Math.random() * 0.22;
+      if (instant) { ang[k] = cmd[k] = restAngle(k); startAt[k] = 0; }
+      else { ang[k] = cmd[k] = Math.PI; }
+      vel[k] = 0; spin[k] = 0; flipAt[k] = Infinity; nextUpd[k] = 0; moving[k] = 0; seen[k] = -99;
+    }
+    $('label').classList.toggle('off', false); setTimeout(() => { if (mode === 'fx') $('label').classList.add('off'); }, 9000);
+    if (!instant) AE.breaker();
+  } else {
+    b.textContent = '鏡を組む';
+    for (let k = 0; k < NT; k++) {
+      const j = (k / cols) | 0;
+      startAt[k] = now + 0.15 + 1.0 * (1 - j / rows) + Math.random() * 0.22;
+      /* finish any turn in flight first */
+      if (spin[k]) { ang[k] -= spin[k] * TAU; cmd[k] -= spin[k] * TAU; spin[k] = 0; }
+      flipAt[k] = Infinity;
+    }
+    $('label').classList.add('off');
+  }
+  showStatus('', 0);
+}
+/* lights and pieces over the change */
+function look() {
+  if (mode === 'fx') {
+    if (tr < 0.45) return { tiles: false, dark: 0.5 * smooth(0, 0.45, tr), scale: 1, backCam: 1, dolly: 0 };
+    const scale = 1 - 0.075 * smooth(0.45, 0.8, tr);
+    return { tiles: true, dark: tr < 0.8 ? 0.5 * (1 - smooth(0.6, 0.8, tr)) : 0, scale, backCam: 1 - smooth(3.6, 4.1, tr), phase: tr < 3.8 ? 'in' : 'live',
+      dolly: smooth(0.9, 3.6, tr) };
+  }
+  if (tr > 2.9) return { tiles: false, dark: 0, scale: 1, backCam: 1, dolly: 0 };
+  const close = smooth(2.1, 2.45, tr);
+  return { tiles: true, dark: 0.45 * (1 - smooth(2.3, 2.9, tr)), scale: 0.925 + 0.075 * close, backCam: 1, phase: 'out', dolly: 1 - smooth(0.3, 2.1, tr) };
+}
+
+/* ---------- drawing ---------- */
+function setCommon(p, dark) {
+  const V = VERS[verIdx];
+  gl.uniform3f(u(p, 'uEye'), EYE[0], EYE[1], EYE[2]);
+  gl.uniform3f(u(p, 'uLight'), 0, hh + LYO, LZ);
+  gl.uniform3fv(u(p, 'uLightC'), V.light); gl.uniform3fv(u(p, 'uWall'), V.wall);
+  gl.uniform2f(u(p, 'uHalf'), hw, hh); gl.uniform2f(u(p, 'uVA'), VA_[0], VA_[1]); gl.uniform2f(u(p, 'uVB'), VB_[0], VB_[1]);
+  gl.uniform2f(u(p, 'uPA'), PA_[0], PA_[1]); gl.uniform2f(u(p, 'uPB'), PB_[0], PB_[1]);
+  gl.uniform2f(u(p, 'uRes'), cv.width, cv.height);
+  gl.uniform1f(u(p, 'uT'), T); gl.uniform1f(u(p, 'uGrain'), 1); gl.uniform1f(u(p, 'uExpo'), V.expo); gl.uniform1f(u(p, 'uDark'), dark);
+  gl.uniform1i(u(p, 'uVid'), 0);
+}
+function setMat(p, V) {
+  gl.uniform3fv(u(p, 'uA0'), V.a0); gl.uniform3fv(u(p, 'uA1'), V.a1); gl.uniform3fv(u(p, 'uBack'), V.back); gl.uniform3fv(u(p, 'uSide'), V.side);
+  gl.uniform1f(u(p, 'uWd'), V.wd); gl.uniform1f(u(p, 'uWe'), V.we); gl.uniform1f(u(p, 'uKs'), V.ks); gl.uniform1f(u(p, 'uShin'), V.shin);
+  gl.uniform1f(u(p, 'uMetal'), V.metal); gl.uniform1f(u(p, 'uGrainK'), V.grainK); gl.uniform1f(u(p, 'uCell'), cell); gl.uniform3fv(u(p, 'uFrameC'), V.frame);
+}
+function render(L) {
+  gl.viewport(0, 0, cv.width, cv.height);
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, texVid);
+  if (vw && video.readyState >= 2) { try { gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video); } catch (e) {} }
+  if (!L.tiles) {
+    gl.disable(gl.DEPTH_TEST); gl.useProgram(PC); setCommon(PC, L.dark);
+    gl.bindVertexArray(vaoQ); gl.drawArrays(gl.TRIANGLES, 0, 3); return;
+  }
+  const V = VERS[verIdx];
+  gl.clearColor(0, 0, 0, 1); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+  gl.enable(gl.DEPTH_TEST);
+  gl.useProgram(PB); setCommon(PB, L.dark);
+  gl.uniformMatrix4fv(u(PB, 'uVP'), false, VP); gl.uniform1f(u(PB, 'uZ'), -cell * 0.9); gl.uniform1f(u(PB, 'uIn'), 1);
+  gl.bindVertexArray(vaoQ); gl.drawArrays(gl.TRIANGLES, 0, 3);
+  /* the frame, once the camera has stepped back far enough to see it */
+  if (L.dolly > 0.02) {
+    gl.useProgram(PF); setCommon(PF, L.dark); setMat(PF, V); gl.uniform1f(u(PF, 'uFrame'), 1); gl.uniform1f(u(PF, 'uBackCam'), 0);
+    gl.uniformMatrix4fv(u(PF, 'uVP'), false, VP);
+    const fw = cell * 1.3, zb = -cell * 0.9, zt = cell * 0.55;
+    gl.uniform2f(u(PF, 'uZ'), (zb + zt) / 2, zt - zb);
+    gl.bindVertexArray(vaoF);
+    for (const b of [[0, hh + fw / 2, 2 * hw + 2 * fw, fw], [0, -hh - fw / 2, 2 * hw + 2 * fw, fw], [hw + fw / 2, 0, fw, 2 * hh], [-hw - fw / 2, 0, fw, 2 * hh]]) {
+      gl.uniform4f(u(PF, 'uBox'), b[0], b[1], b[2], b[3]); gl.drawArrays(gl.TRIANGLES, 0, 36);
+    }
+  }
+  gl.useProgram(PT); setCommon(PT, L.dark);
+  gl.uniformMatrix4fv(u(PT, 'uVP'), false, VP);
+  gl.uniform1f(u(PT, 'uCell'), cell); gl.uniform1f(u(PT, 'uScale'), L.scale); gl.uniform1f(u(PT, 'uThick'), cell * 0.2);
+  setMat(PT, V); gl.uniform1f(u(PT, 'uFrame'), 0); gl.uniform1f(u(PT, 'uBackCam'), L.backCam);
+  gl.bindBuffer(gl.ARRAY_BUFFER, bufAng); gl.bufferSubData(gl.ARRAY_BUFFER, 0, ang);
+  for (let k = 0; k < NT; k++) angUp[k] = k >= cols ? ang[k - cols] : ang[k];
+  gl.bindBuffer(gl.ARRAY_BUFFER, bufUp); gl.bufferSubData(gl.ARRAY_BUFFER, 0, angUp);
+  gl.bindVertexArray(vaoT); gl.drawArraysInstanced(gl.TRIANGLES, 0, 36, NT);
+  gl.bindVertexArray(null);
+}
+
+/* ---------- layout ---------- */
+function resize() {
+  W = innerWidth; H = innerHeight; S = Math.min(W, H);
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  if (W * H * DPR * DPR > 2.4e6) DPR = Math.sqrt(2.4e6 / (W * H));
+  cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR);
+  buildWall();
+  updateVideoMap();
+}
+function updateVideoMap() {
+  vw = video.videoWidth || 0; vh = video.videoHeight || 0; if (!vw || !W) return;
+  const va = vw / vh, sa = W / H; let fx = 1, fy = 1;
+  if (va > sa) fx = sa / va; else fy = va / sa;
+  VA_ = [mirror ? -fx : fx, fy]; VB_ = [mirror ? 0.5 + fx / 2 : 0.5 - fx / 2, 0.5 - fy / 2];
+  if (!CROPT.ok) { const c = coverCrop(); CROP.x = c.x; CROP.y = c.y; CROP.w = c.w; CROP.h = c.h; }
+  cropMap();
+}
+function coverCrop() {
+  const va = vw / vh, pa = hw / hh; let gx = 1, gy = 1;
+  if (va > pa) gx = pa / va; else gy = va / pa;
+  return { x: 0.5 - gx / 2, y: 0.5 - gy / 2, w: gx, h: gy };
+}
+function cropMap() {
+  PA_ = [mirror ? -CROP.w : CROP.w, CROP.h]; PB_ = [mirror ? CROP.x + CROP.w : CROP.x, CROP.y];
+}
+/* ease the crop toward the portrait framing (or back to the whole picture when nobody is there) */
+function updateCrop(dt) {
+  if (!vw) return;
+  let t = coverCrop();
+  if (autoFrame && CROPT.ok) t = CROPT;
+  const k = 1 - Math.exp(-dt / 0.9);
+  CROP.x += (t.x - CROP.x) * k; CROP.y += (t.y - CROP.y) * k; CROP.w += (t.w - CROP.w) * k; CROP.h += (t.h - CROP.h) * k;
+  cropMap();
+}
+/* from the mask: the top of the head and the head's width → a head-and-shoulders crop of the panel's shape */
+const rowW = new Float32Array(1024), rowC = new Float32Array(1024);
+function frameFromMask(w, h) {
+  let top = -1, bottom = -1, xmin = w, xmax = -1;
+  for (let y = 0; y < h; y++) {
+    let c = 0, sx = 0; const o = y * w;
+    for (let x = 0; x < w; x++) { const m = maskF[o + x]; if (m > 0.5) { c++; sx += x; if (x < xmin) xmin = x; if (x > xmax) xmax = x; } }
+    rowW[y] = c; rowC[y] = c ? sx / c : 0;
+    if (c > w * 0.02) { if (top < 0) top = y; bottom = y; }
+  }
+  if (top < 0 || bottom - top < h * 0.08) { CROPT.ok = false; return; }
+  /* the head: the rows just under its top; its width is the median of those rows */
+  const span = Math.max(3, Math.round(h * 0.16)), ws = [];
+  let cx = 0, n = 0;
+  for (let y = top + 1; y < Math.min(h, top + 1 + span); y++) { ws.push(rowW[y]); cx += rowC[y]; n++; }
+  ws.sort((a, b) => a - b);
+  const headW = (ws[ws.length >> 1] || 0) / w * vw;             /* in video pixels */
+  if (!(headW > 4)) { CROPT.ok = false; return; }
+  const pa = hw / hh;
+  let ch = clamp(headW * 2.7, vh * 0.34, vh), cw = ch * pa;
+  /* two people side by side: widen until both are in */
+  const spanX = (xmax - xmin) / w * vw * 1.1;
+  let hx = (cx / n) / w * vw;
+  if (spanX > headW * 3.8) { cw = Math.max(cw, spanX); ch = cw / pa; hx = (xmin + xmax) / 2 / w * vw; }
+  if (ch > vh) { ch = vh; cw = ch * pa; }
+  if (cw > vw) { cw = vw; ch = cw / pa; }
+  const top_ = top / h * vh;
+  let x0 = clamp(hx - cw / 2, 0, vw - cw), y0 = clamp(top_ - ch * 0.1, 0, vh - ch);
+  CROPT.x = x0 / vw; CROPT.y = y0 / vh; CROPT.w = cw / vw; CROPT.h = ch / vh; CROPT.ok = true;
+}
+
+/* ---------- sound: wood knocking on wood, the hum of many small motors ---------- */
+const AE = {
+  ctx: null, out: null, recDest: null, hum: null, humF: null, swish: null, clicks: [], noise: null, ver: -1,
+  init() {
+    if (this.ctx) { if (this.ctx.state !== 'running') this.ctx.resume().catch(() => {}); return; }
+    const C = window.AudioContext || window.webkitAudioContext; if (!C) return;
+    let c; try { c = this.ctx = new C(); } catch (e) { return; }
+    const out = this.out = c.createGain(); out.gain.value = soundOn ? 0.9 : 0;
+    const comp = c.createDynamicsCompressor(); comp.threshold.value = -16; comp.ratio.value = 4;
+    out.connect(comp).connect(c.destination);
+    try { this.recDest = c.createMediaStreamDestination(); comp.connect(this.recDest); } catch (e) {}
+    const n = c.sampleRate * 2, buf = c.createBuffer(1, n, c.sampleRate), d = buf.getChannelData(0);
+    for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+    this.noise = buf;
+    const src = () => { const s = c.createBufferSource(); s.buffer = buf; s.loop = true; s.start(0, Math.random() * 1.9); return s; };
+    /* the motors: a gritty band of noise around a low gear whine */
+    const hf = this.humF = c.createBiquadFilter(); hf.type = 'bandpass'; hf.frequency.value = 340; hf.Q.value = 2.2;
+    const hg = this.hum = c.createGain(); hg.gain.value = 0;
+    src().connect(hf).connect(hg).connect(out);
+    const sf = c.createBiquadFilter(); sf.type = 'bandpass'; sf.frequency.value = 1800; sf.Q.value = 0.7; this.swishF = sf;
+    const sg = this.swish = c.createGain(); sg.gain.value = 0;
+    src().connect(sf).connect(sg).connect(out);
+    this.makeClicks();
+  },
+  /* a few short knocks, rung through the material's own resonance */
+  makeClicks() {
+    if (!this.ctx || this.ver === verIdx) return; this.ver = verIdx;
+    const c = this.ctx, sr = c.sampleRate, [f0, q, dec] = VERS[verIdx].click;
+    this.clicks = [];
+    for (let v = 0; v < 6; v++) {
+      const len = Math.round(sr * (dec * 4 + 0.02)), b = c.createBuffer(1, len, sr), d = b.getChannelData(0);
+      const f = f0 * (0.82 + v * 0.07), w = TAU * f / sr, r = Math.exp(-1 / (sr * Math.max(dec, f0 > 0 ? q / (Math.PI * f) : dec)));
+      const c1 = 2 * r * Math.cos(w), c2 = -r * r;
+      let y1 = 0, y2 = 0, pk = 0;
+      for (let i = 0; i < len; i++) {
+        const x = i < sr * 0.0015 ? (Math.random() * 2 - 1) * Math.exp(-i / (sr * 0.0004)) : 0;
+        const y = x + c1 * y1 + c2 * y2; y2 = y1; y1 = y;
+        const body = (Math.random() * 2 - 1) * Math.exp(-i / (sr * 0.0012)) * 0.4;
+        d[i] = y + body; pk = Math.max(pk, Math.abs(d[i]));
+      }
+      for (let i = 0; i < len; i++) d[i] /= pk || 1;
+      this.clicks.push(b);
+    }
+  },
+  level() { if (this.out) this.out.gain.setTargetAtTime(soundOn ? 0.9 : 0, this.ctx.currentTime, 0.05); },
+  click(pan, g, when) {
+    const c = this.ctx, s = c.createBufferSource(), gn = c.createGain();
+    s.buffer = this.clicks[(Math.random() * this.clicks.length) | 0]; s.playbackRate.value = 0.9 + Math.random() * 0.25;
+    gn.gain.value = g;
+    let node = s.connect(gn);
+    if (c.createStereoPanner) { const p = c.createStereoPanner(); p.pan.value = clamp(pan, -1, 1); node = node.connect(p); }
+    node.connect(this.out); s.start(when);
+  },
+  update(arrivals, xs, nx, movingFrac, flips, dt) {
+    if (!this.ctx || !this.hum || this.ctx.state !== 'running') return;
+    this.makeClicks();
+    const c = this.ctx, t = c.currentTime;
+    const n = Math.min(14, Math.round(Math.pow(arrivals, 0.62)));
+    const g = 0.28 / Math.sqrt(Math.max(1, n));
+    for (let i = 0; i < n; i++) {
+      const x = nx ? xs[(Math.random() * nx) | 0] : Math.random();
+      this.click((x - 0.5) * 1.6, g * (0.5 + Math.random() * 0.8), t + 0.01 + Math.random() * Math.max(0.016, dt));
+    }
+    this.hum.gain.setTargetAtTime(Math.min(0.22, Math.sqrt(movingFrac) * 0.5), t, 0.05);
+    this.humF.frequency.setTargetAtTime(260 + 420 * Math.sqrt(movingFrac), t, 0.08);
+    this.swish.gain.setTargetAtTime(Math.min(0.18, flips * 0.012), t, 0.03);
+  },
+  knock(u) {
+    if (!this.ctx || this.ctx.state !== 'running') return; const c = this.ctx, t = c.currentTime + 0.005;
+    const o = c.createOscillator(), g = c.createGain();
+    o.frequency.setValueAtTime(190, t); o.frequency.exponentialRampToValueAtTime(95, t + 0.12);
+    g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.45, t + 0.004); g.gain.exponentialRampToValueAtTime(0.0005, t + 0.22);
+    let node = o.connect(g); if (c.createStereoPanner) { const p = c.createStereoPanner(); p.pan.value = (u - 0.5) * 1.4; node = node.connect(p); }
+    node.connect(this.out); o.start(t); o.stop(t + 0.25);
+    this.makeClicks(); this.click((u - 0.5) * 1.4, 0.6, t);
+  },
+  breaker() {
+    if (!this.ctx || this.ctx.state !== 'running') return; const c = this.ctx, t = c.currentTime + 0.42;
+    const s = c.createBufferSource(), f = c.createBiquadFilter(), g = c.createGain(); s.buffer = this.noise;
+    f.type = 'lowpass'; f.frequency.value = 900; g.gain.setValueAtTime(0.5, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.09);
+    s.connect(f).connect(g).connect(this.out); s.start(t, Math.random()); s.stop(t + 0.12);
+  },
+};
+
+/* ---------- ui ---------- */
+let stT = 0;
+function showStatus(t, ms) {
+  const el = $('status'); clearTimeout(stT);
+  if (!t) { el.classList.add('off'); return; }
+  el.textContent = t; el.classList.remove('off');
+  if (ms) stT = setTimeout(() => el.classList.add('off'), ms);
+}
+let toT = 0;
+function toast(t) {
+  const el = $('toast'); clearTimeout(toT);
+  if (!t) { el.classList.remove('on'); return; }
+  el.textContent = t; el.classList.add('on'); toT = setTimeout(() => el.classList.remove('on'), 1300);
+}
+function setVer(i) {
+  verIdx = i; $('ver').textContent = VERS[i].name; $('labelMat').textContent = VERS[i].mat;
+  if (NT) buildLUT();
+}
+$('mode').onclick = () => { AE.init(); setMode(mode === 'fx' ? 'cam' : 'fx'); };
+$('ver').onclick = () => { setVer((verIdx + 1) % VERS.length); toast(VERS[verIdx].name); };
+cv.addEventListener('pointerdown', e => {
+  if (!running || e.button > 0) return;
+  if (!$('panel').hidden) { $('panel').hidden = true; $('gear').setAttribute('aria-expanded', 'false'); return; }
+  if (mode === 'fx' && tr > 3.6) { AE.init(); knock(e.clientX, e.clientY, T); }
+});
+const panel = $('panel');
+$('gear').onclick = () => { panel.hidden = !panel.hidden; $('gear').setAttribute('aria-expanded', String(!panel.hidden)); };
+$('panelX').onclick = () => { panel.hidden = true; $('gear').setAttribute('aria-expanded', 'false'); };
+$('sGrid').oninput = e => { N = +e.target.value; buildWall(); };
+$('sSpeed').oninput = e => { speedK = +e.target.value; };
+$('sFlip').oninput = e => { flipK = +e.target.value; };
+$('sGhost').oninput = e => { ghostK = +e.target.value; };
+$('sCon').oninput = e => { conK = +e.target.value; };
+const setPerson = on => { onlyPerson = on; $('bPerson').classList.toggle('on', on); $('bAll').classList.toggle('on', !on); };
+$('bPerson').onclick = () => setPerson(true); $('bAll').onclick = () => setPerson(false);
+$('bFrame').onclick = () => { autoFrame = !autoFrame; $('bFrame').classList.toggle('on', autoFrame); };
+$('bPar').onclick = () => { parallax = !parallax; const b = $('bPar'); b.classList.toggle('on', parallax); b.textContent = parallax ? '視差：入' : '視差：切'; };
+$('bSound').onclick = () => { soundOn = !soundOn; const b = $('bSound'); b.classList.toggle('on', soundOn); b.textContent = soundOn ? '音：入' : '音：切'; AE.init(); AE.level(); };
+const fsBtn = $('bFs');
+if (!document.documentElement.requestFullscreen) fsBtn.style.display = 'none';
+else fsBtn.onclick = () => document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen().catch(() => {});
+$('shot').onclick = () => { shotReq = true; };
+function saveShot() {
+  try {
+    cv.toBlob(b => { if (!b) { toast('保存できませんでした'); return; } const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = 'karakuri_' + Date.now() + '.png';
+      document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 4000); }, 'image/png');
+    toast('SAVED');
+  } catch (e) { toast('保存できませんでした'); }
+}
+let mr = null, chunks = [];
+$('rec').onclick = () => {
+  const b = $('rec');
+  if (mr && mr.state === 'recording') { mr.stop(); return; }
+  AE.init();
+  const tracks = [...cv.captureStream(30).getVideoTracks()];
+  if (AE.recDest) tracks.push(...AE.recDest.stream.getAudioTracks());
+  const ms = new MediaStream(tracks);
+  const types = ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm'];
+  const mt = types.find(t => window.MediaRecorder && MediaRecorder.isTypeSupported(t)) || '';
+  try { mr = new MediaRecorder(ms, mt ? { mimeType: mt, videoBitsPerSecond: 6e6 } : {}); }
+  catch (err) { toast('録画できません'); return; }
+  chunks = []; mr.ondataavailable = ev => { if (ev.data && ev.data.size) chunks.push(ev.data); };
+  mr.onstop = () => {
+    b.classList.remove('act'); b.innerHTML = '●<span class="t"> REC</span>';
+    const blob = new Blob(chunks, { type: mr.mimeType || 'video/mp4' }); const ext = (mr.mimeType || '').includes('mp4') ? 'mp4' : 'webm';
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'karakuri_' + Date.now() + '.' + ext;
+    document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 4000);
+  };
+  try { mr.start(1000); } catch (err) { toast('録画できません'); return; }
+  b.classList.add('act'); b.innerHTML = '■<span class="t"> STOP</span>';
+};
+addEventListener('keydown', e => {
+  if (!running) return; const k = e.key.toLowerCase();
+  if (k === 'v') $('ver').onclick(); else if (k === 's') shotReq = true; else if (k === 'm') $('mode').onclick();
+});
+let rsT = 0;
+addEventListener('resize', () => { clearTimeout(rsT); rsT = setTimeout(() => { if (gl) resize(); }, 120); });
+
+function camErrText(e) {
+  const m = (e && (e.message || e.name)) ? (e.message || e.name) : String(e || 'unknown');
+  return 'カメラを起動できませんでした：' + m + '\nHTTPS または localhost で開き、カメラの使用を許可してください。';
+}
+async function startCam() {
+  const md = navigator.mediaDevices;
+  if (!md || !md.getUserMedia) throw new Error('getUserMedia is unavailable');
+  /* get the new stream first, so a failed flip keeps the old camera running */
+  const s2 = await md.getUserMedia({ video: { facingMode: { ideal: facing }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = s2; video.srcObject = stream;
+  try { await video.play(); } catch (e) {}
+  await new Promise(r => { if (video.videoWidth) r(); else { video.onloadedmetadata = () => r(); setTimeout(r, 3000); } });
+  mirror = facing === 'user'; maskOK = false; if (maskF.length) maskF.fill(0);
+  updateVideoMap();
+}
+$('flip').onclick = async () => {
+  const prev = facing; facing = facing === 'user' ? 'environment' : 'user';
+  try { await startCam(); toast(facing === 'user' ? 'FRONT' : 'BACK'); }
+  catch (e) { facing = prev; toast('切り替えられませんでした'); console.warn(camErrText(e)); }
+};
+$('go').onclick = async () => {
+  const btn = $('go'); btn.disabled = true; $('err').textContent = 'カメラを起動しています…';
+  AE.init();
+  try { if (!gl) initGL(); resize(); }
+  catch (e) { $('err').textContent = '描画の準備に失敗しました：' + (e && e.message ? e.message.split('\n')[0] : e); console.error(e); btn.disabled = false; return; }
+  try { await startCam(); }
+  catch (e) { $('err').textContent = camErrText(e); btn.disabled = false; btn.textContent = 'もう一度'; return; }
+  $('start').classList.add('hide'); $('ui').classList.add('on'); $('err').textContent = '';
+  running = true; T = 0; lastT = performance.now() / 1000;
+  $('mode').classList.add('pulse');
+  showStatus('「鏡を組む」を押すと、映像が木の板に組み替わる', 7000);
+  if (!segmenter && !mpErr) initMP();
+};
+
+/* ---------- the loop ---------- */
+let slow = 0, eyeSX = 0, eyeSY = 0; const YAW0 = 0.3, PITCH0 = -0.07;
+function frame(now) {
+  requestAnimationFrame(frame);
+  const tNow = now / 1000; let dt = Math.min(0.1, Math.max(0, tNow - lastT)); lastT = tNow;
+  if (!running || !gl || gl.isContextLost()) return;
+  if (TEST.dt) dt = TEST.dt;
+  if (TEST.budget != null) { if (TEST.budget <= 0) return; TEST.budget--; }
+  T += dt; tr += dt; TEST.frames++;
+  const clock = TEST.dt ? T * 1000 : now;
+  if (!TEST.dt) { slow += ((dt > 0.055 ? 1 : 0) - slow) * 0.02; if (slow > 0.7 && N > 30) { N -= 4; slow = 0; buildWall(); } }
+  const L = look();
+  if (L.tiles) {
+    runSeg(clock);
+    updateCrop(dt);
+    if (sampleCamera()) think(T, dt);
+    /* the motors run in small steps so a slow frame does not make them jump */
+    const nsub = Math.min(4, Math.max(1, Math.ceil(dt / 0.02)));
+    let arr = 0, fl = 0, mv = 0;
+    for (let i = 0; i < nsub; i++) { motors(T - dt + dt * (i + 1) / nsub, dt / nsub, L.phase); arr += arrivals; fl += flipsNow; mv = Math.max(mv, movingN); }
+    /* stepping back from the panel to where an installation is photographed from: a little to the side, a little
+       below; the viewer's own lean turns it further */
+    const ek = 1 - Math.exp(-dt / 0.8);
+    eyeSX += (clamp(eyeX, -1, 1) - eyeSX) * ek; eyeSY += (clamp(eyeY, -1, 1) - eyeSY) * ek;
+    const dl = L.dolly, dist = D0 + (DCAM - D0) * dl;
+    const yaw = (YAW0 + eyeSX * 0.2) * dl, pitch = (PITCH0 + eyeSY * 0.08) * dl;
+    makeVP(dist * Math.sin(yaw) * Math.cos(pitch), dist * Math.sin(pitch), dist * Math.cos(yaw) * Math.cos(pitch));
+    AE.update(arr, ARRX, arrN, mv / Math.max(1, NT), fl, dt);
+    TEST.arr = arr; TEST.fl = fl; TEST.mv = mv;
+  } else { makeVP(0, 0, D0); AE.update(0, ARRX, 0, 0, 0, dt); }
+  render(L);
+  if (shotReq) { shotReq = false; saveShot(); }
+}
+requestAnimationFrame(frame);
+
+/* test hook (local checks only) */
+window.__kara = {
+  TEST, T: () => T,
+  state: () => {
+    let spinning = 0, mov = 0, dev = 0, ghosts = 0;
+    for (let k = 0; k < NT; k++) { if (spin[k]) spinning++; if (moving[k]) mov++; if (Math.abs(ang[k] - restAngle(k)) > 0.08) dev++; if (onlyPerson && mk[k] <= 0.5 && bOut[k] >= 0) ghosts++; }
+    return { running, mode, tr, maskOK, seg: !!segmenter, mpErr, presence, NT, cols, rows, N, spinning, moving: mov, deviating: dev, ghosts, flipTotal,
+      expLo, expHi, eyeX, eyeY, ver: verIdx, W, H, person: personNow };
+  },
+  set: o => {
+    if (o.ver != null) setVer(o.ver); if (o.flip != null) flipK = o.flip; if (o.ghost != null) ghostK = o.ghost;
+    if (o.N != null) { N = o.N; buildWall(); } if (o.person != null) setPerson(!!o.person); if (o.parallax != null) parallax = !!o.parallax;
+  },
+  setMode: (m, instant) => setMode(m, instant),
+  knock: (x, y) => knock(x, y, T),
+  estat: () => { let mx = 0, n = 0, s2 = 0; for (let k = 0; k < NT; k++) { mx = Math.max(mx, energy[k]); if (energy[k] > 0.5) n++; s2 += acc[k]; } return { mx, n, accMean: s2 / NT }; },
+  spinners: () => { const o = []; for (let k = 0; k < NT && o.length < 8; k++) if (spin[k]) o.push({ k, a: +ang[k].toFixed(3), c: +cmd[k].toFixed(3), v: +vel[k].toFixed(3), mv: moving[k], mk: +mk[k].toFixed(2), b: +bOut[k].toFixed(2), e: +energy[k].toFixed(3) }); return o; },
+  dump: (what) => { const A = { b: bOut, ang, lum, mk, bP }[what]; const o = []; for (let j = 0; j < rows; j += 2) { let l = ''; for (let i = 0; i < cols; i++) { const v = A[j * cols + i];
+    l += what === 'ang' ? ' .:-=+*#%@'[clamp(Math.round((v - TH_MIN) / (TH_MAX - TH_MIN) * 9), 0, 9)] : v < 0 ? '_' : ' .:-=+*#%@'[clamp(Math.round(v * 9), 0, 9)]; } o.push(l); } return o.join('\n'); },
+  /* the tile under a screen point: its angle, its order, and whether it sees a person there */
+  tileAt: (x, y) => {
+    const P = screenToPanel(x, y) || { x: 0, y: 0 }; const wx = P.x, wy = P.y;
+    const i = clamp(Math.round(wx / cell + (cols - 1) / 2), 0, cols - 1), j = clamp(Math.round((rows - 1) / 2 - wy / cell), 0, rows - 1), k = j * cols + i;
+    return { k, ang: ang[k], cmd: cmd[k], rest: restAngle(k), mk: mk[k], b: bOut[k], lum: lum[k], spin: spin[k] };
+  },
+};
+</script>
+</body>
+</html>
