@@ -1,0 +1,846 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<script>/* REC-FIX (2026-10-12) — iPhone Safari で録画が途中で止まる・壊れる対策。どの作品でも同じ内容。
+   ・mp4 は映像と音声の両方のコーデックを宣言する（avc1 だけだと音声付きで止まることがある）
+   ・1 秒ごとにデータを受け取る（最後に一括で書き出さない）／ビットレートに上限
+   ・保存が終わる前に次の録画を始めない（前のファイルが消えるのを防ぐ）
+   ・録画中は AudioContext を止めない（音声トラックが止まると mp4 ごと止まる） */
+(()=>{const MR=window.MediaRecorder;if(!MR||MR.__recfix)return;let busy=0,active=0;
+class R extends MR{
+  constructor(s,o){if(busy)throw new Error('前の録画を保存しています');o=Object.assign({},o||{});
+    const au=s&&s.getAudioTracks&&s.getAudioTracks().length>0;
+    if(!o.mimeType||/^video\/mp4/.test(o.mimeType)){
+      const c=[au?'video/mp4;codecs="avc1.42E01E,mp4a.40.2"':'video/mp4;codecs="avc1.42E01E"','video/mp4'].find(m=>MR.isTypeSupported(m));
+      if(c)o.mimeType=c;else if(o.mimeType&&!MR.isTypeSupported(o.mimeType))delete o.mimeType;}
+    if(!o.videoBitsPerSecond&&!o.bitsPerSecond)o.videoBitsPerSecond=6e6;
+    super(s,o);this.addEventListener('stop',()=>{active=Math.max(0,active-1);setTimeout(()=>{busy=0;},0);});}
+  start(t){const r=super.start(t==null?1000:t);active++;return r;}
+  stop(){if(this.state!=='inactive'){busy=1;setTimeout(()=>{busy=0;},15000);}return super.stop();}}
+R.__recfix=1;window.MediaRecorder=R;
+const AC=window.AudioContext||window.webkitAudioContext;
+if(AC&&AC.prototype.suspend){const sus=AC.prototype.suspend;AC.prototype.suspend=function(){return active?Promise.resolve():sus.call(this);};}
+/* 録音用の出口には常に無音を流しておく（何も鳴っていないと音声トラックにデータが来ず、録画全体が止まる） */
+if(AC&&AC.prototype.createMediaStreamDestination){const cmd=AC.prototype.createMediaStreamDestination;AC.prototype.createMediaStreamDestination=function(){const d=cmd.apply(this,arguments);
+  try{const c=this.createConstantSource();c.offset.value=0;c.connect(d);c.start();}catch(e){}return d;};}})();</script>
+<script>/* RESUME-FIX (2026-10-17) — iPhone で写真や動画を保存しに行ったり、別のアプリへ行ったりして戻ると、
+   カメラが消える・映像が固まる・画面が壊れる対策。どの作品でも同じ内容。
+   ・ページが裏に回ると、iPhone はカメラを止め、動画を一時停止し、音を止め、ときに WebGL の描画を捨てる
+   ・戻ったら：止められたカメラを同じ条件で取り直して同じ MediaStream に差し込み、止まった動画を再生し、音を再開する
+   ・WebGL の描画が捨てられ、作品が自分で立て直せないときは「タップして再開」を出して読み込み直す */
+(()=>{if(window.__resumefix)return;window.__resumefix=1;
+const md=navigator.mediaDevices,streams=new Map(),vids=new Set(),ctxs=new Set(),lost=new WeakSet(),mutedAt=new Map();
+const watch=t=>{try{t.addEventListener('ended',()=>lost.add(t));t.addEventListener('mute',()=>mutedAt.set(t,performance.now()));
+  t.addEventListener('unmute',()=>mutedAt.delete(t));if(t.muted)mutedAt.set(t,performance.now());}catch(e){}};
+let gum=null;
+if(md&&md.getUserMedia){gum=md.getUserMedia.bind(md);
+  md.getUserMedia=async function(c){const s=await gum(c);try{streams.set(s,c);s.getTracks().forEach(watch);}catch(e){}return s;};}
+/* every <video> that is given a camera stream, also ones never put in the page */
+const MP=HTMLMediaElement.prototype,play=MP.play,so=Object.getOwnPropertyDescriptor(MP,'srcObject');
+MP.play=function(){try{if(this.srcObject)vids.add(this);}catch(e){}return play.apply(this,arguments);};
+if(so&&so.set)Object.defineProperty(MP,'srcObject',{configurable:true,enumerable:so.enumerable,
+  get(){return so.get.call(this);},set(v){if(v)vids.add(this);so.set.call(this,v);}});
+for(const k of['AudioContext','webkitAudioContext']){const C=window[k];if(!C||C.__resumefix)continue;
+  const W=function(...a){const c=new C(...a);ctxs.add(c);return c;};W.prototype=C.prototype;W.__resumefix=1;
+  try{Object.setPrototypeOf(W,C);}catch(e){}window[k]=W;}
+const shown=s=>{for(const v of vids){try{if(so.get.call(v)===s)return true;}catch(e){}}return false;};
+let busy=0;
+async function revive(){
+  if(busy||document.hidden)return;busy=1;
+  try{
+    for(const[s,c]of[...streams]){
+      const tr=s.getTracks();
+      if(!shown(s)){if(tr.every(t=>t.readyState==='ended'))streams.delete(s);continue;}
+      const now=performance.now();
+      const dead=tr.filter(t=>(t.readyState==='ended'&&lost.has(t))||(t.kind==='video'&&mutedAt.has(t)&&now-mutedAt.get(t)>1500));
+      if(!dead.length||!gum)continue;
+      let ns=null;try{ns=await gum(c);}catch(e){continue;}
+      const kinds=new Set(dead.map(t=>t.kind));
+      for(const t of dead){try{t.stop();}catch(e){}s.removeTrack(t);mutedAt.delete(t);}
+      for(const t of ns.getTracks()){if(kinds.has(t.kind)){s.addTrack(t);watch(t);}else t.stop();}
+      for(const v of vids){try{if(so.get.call(v)===s){so.set.call(v,null);so.set.call(v,s);}}catch(e){}}
+    }
+  }finally{busy=0;}
+  for(const v of vids){try{if(so.get.call(v)&&v.paused)play.call(v).catch(()=>{});}catch(e){}}
+  for(const c of ctxs){try{if(c.state!=='running'&&c.state!=='closed')c.resume().catch(()=>{});}catch(e){}}
+}
+const soon=()=>{if(document.hidden)return;const n=performance.now();for(const t of mutedAt.keys())mutedAt.set(t,n);
+  setTimeout(revive,250);setTimeout(revive,1900);};
+document.addEventListener('visibilitychange',soon);
+addEventListener('pageshow',soon);addEventListener('focus',soon);
+/* iPhone sometimes only lets sound and video restart from a tap */
+const tap=()=>{for(const c of ctxs){try{if(c.state!=='running'&&c.state!=='closed')c.resume().catch(()=>{});}catch(e){}}
+  for(const v of vids){try{if(so.get.call(v)&&v.paused)play.call(v).catch(()=>{});}catch(e){}}};
+addEventListener('pointerdown',tap,true);addEventListener('touchend',tap,true);
+/* WebGL: if the drawing is thrown away and the piece does not rebuild it, offer a clean restart */
+const ET=EventTarget.prototype,ael=ET.addEventListener,rebuilds=new WeakSet(),gls=new WeakMap();
+ET.addEventListener=function(t){if(t==='webglcontextrestored'&&this instanceof HTMLCanvasElement)rebuilds.add(this);return ael.apply(this,arguments);};
+let box=null;
+function offer(){
+  if(box)return;box=document.createElement('div');
+  box.style.cssText='position:fixed;inset:0;z-index:2147483647;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;'+
+    'background:rgba(0,0,0,.82);color:#fff;font:14px/1.8 system-ui,sans-serif;text-align:center;padding:24px';
+  box.innerHTML='<div>画面の表示が止まりました。<br>（別のアプリから戻ったとき、iPhone が描画を止めることがあります）</div>'+
+    '<button style="font:inherit;font-size:16px;padding:12px 28px;border-radius:999px;border:0;background:#fff;color:#000">タップして再開</button>';
+  box.querySelector('button').onclick=()=>location.reload();
+  (document.body||document.documentElement).appendChild(box);
+}
+const GC=HTMLCanvasElement.prototype,getCtx=GC.getContext;
+GC.getContext=function(type){
+  const g=getCtx.apply(this,arguments);
+  if(g&&/webgl/i.test(String(type))&&!gls.has(this)){gls.set(this,g);const cv=this;
+    ael.call(cv,'webglcontextlost',e=>{e.preventDefault();let vis=0;
+      const iv=setInterval(()=>{vis=document.hidden?0:vis+500;let still=false;try{still=g.isContextLost();}catch(_){}
+        if(!still){clearInterval(iv);return;}                     /* came back: the 'restored' handler below decides */
+        if(vis>=4000){clearInterval(iv);if(cv.isConnected)offer();}},500);},false);
+    ael.call(cv,'webglcontextrestored',()=>{const f=()=>{if(document.hidden){setTimeout(f,500);return;}
+      if(cv.isConnected&&!rebuilds.has(cv))offer();};f();},false);}
+  return g;
+};
+})();</script>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>PROFILE MASK ─ 横顔マスク</title>
+<meta name="description" content="横顔を1枚撮ってから正面を向くと、まわりが白い板でふさがれ、自分の横顔の形の窓から正面の顔がのぞく。輪郭は横顔、中身は正面顔の騙し絵の動画が撮れる。">
+<!--
+  PROFILE MASK ─ 横顔マスク
+
+  オーナーが持ち込んだ作品（2026-10-24）。仕組み・画面・色・文言はオーナーのもの。
+  1 横顔：横を向いて 1 枚撮る（または写真から読み込む）。人物の切り抜き（selfie segmenter）から
+          顔側の輪郭を取り、鼻先・あご・首のくびれを自動で見つける。
+  2 目印：目・鼻先・口・あごの高さを線で合わせる。
+  3 演じる：正面を向くと、画面が白い板でふさがれ、横顔の形にあいた窓が FaceLandmarker の両目・鼻・あごに
+          合わせて顔に追従する（窓の中は正面の顔）。口を開けると窓のあごも下がる。そのまま録画（マイクの音声つき）。
+  パレット：灰緑の壁 #a8bcb3／紙の白 #f5f5f2／墨 #0d1011／録画の赤 #ff4b3e。
+  書体：Zen Kaku Gothic New と DM Mono。
+
+  ギャラリーの決まりに合わせて足したもの：REC-FIX と RESUME-FIX、題名と説明、⟲ カメラ、
+  撮影（右下の ◉、いまの画面を PNG で保存）、カメラが使えないときの決まった文言、
+  顔のランドマークの確認（欠けた・壊れた点は使わない）、検出や切り抜きが失敗しても止まらない処理、
+  カメラ切り替えに失敗したときに元のカメラへ戻す処理、モデルの読み込み失敗を開始画面に出す処理。
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* Layout: full-bleed stage (the video is the instrument), slim header, a dark control tray at the thumb edge. */
+:root{
+  --ink:#0d1011;          /* stage surround */
+  --tray:rgba(13,16,17,.86);
+  --line:rgba(238,240,236,.14);
+  --fg:#eef0ec;
+  --dim:#929b97;
+  --sage:#a8bcb3;         /* the grey-green wall from the original illusion */
+  --paper:#f5f5f2;        /* the mask */
+  --rec:#ff4b3e;
+  --jp:"Zen Kaku Gothic New","Hiragino Sans","Hiragino Kaku Gothic ProN",system-ui,sans-serif;
+  --mono:"DM Mono",ui-monospace,Menlo,monospace;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{margin:0;height:100%;background:var(--ink);color:var(--fg);font-family:var(--jp);
+  -webkit-user-select:none;user-select:none;overscroll-behavior:none;-webkit-tap-highlight-color:transparent}
+body{touch-action:manipulation}
+#app{position:fixed;inset:0;display:flex;flex-direction:column}
+header{display:flex;align-items:center;gap:12px;
+  padding:calc(env(safe-area-inset-top,0px) + 10px) max(16px,env(safe-area-inset-right,0px)) 10px max(16px,env(safe-area-inset-left,0px))}
+.brand{font-family:var(--mono);font-weight:500;font-size:13px;letter-spacing:.14em;display:flex;align-items:baseline;gap:8px;white-space:nowrap}
+.brand small{font-family:var(--jp);font-size:11px;letter-spacing:.08em;color:var(--dim)}
+.brand i{display:inline-block;width:10px;height:14px;border-radius:7px 2px 2px 7px;background:var(--paper);transform:translateY(2px)}
+ol#steps{list-style:none;margin:0 0 0 auto;padding:0;display:flex;gap:4px;font-family:var(--mono);font-size:11px}
+#steps li{padding:4px 8px;border-radius:99px;color:var(--dim);border:1px solid transparent;white-space:nowrap}
+#steps li.on{color:var(--ink);background:var(--sage)}
+.icon{appearance:none;border:1px solid var(--line);background:transparent;color:var(--fg);width:34px;height:34px;border-radius:50%;font-size:15px;display:grid;place-items:center;cursor:pointer}
+#stageWrap{flex:1;position:relative;min-height:0;touch-action:none}
+#stage{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;display:block}
+#hint{position:absolute;left:50%;top:12px;transform:translateX(-50%);max-width:calc(100% - 32px);
+  background:rgba(13,16,17,.7);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
+  padding:8px 14px;border-radius:12px;font-size:13px;line-height:1.5;text-align:center;text-wrap:balance;pointer-events:none}
+#hint:empty{display:none}
+#count{position:absolute;inset:0;display:grid;place-items:center;font-family:var(--mono);font-size:min(40vw,220px);font-weight:500;color:var(--paper);
+  text-shadow:0 4px 40px rgba(0,0,0,.5);pointer-events:none}
+#flash{position:absolute;inset:0;background:var(--paper);opacity:0;pointer-events:none;transition:opacity .5s}
+#flash.on{opacity:.9;transition:none}
+#recDot{position:absolute;top:14px;right:max(16px,env(safe-area-inset-right,0px));font-family:var(--mono);font-size:12px;color:var(--fg);
+  background:rgba(13,16,17,.6);padding:4px 10px 4px 8px;border-radius:99px;display:flex;align-items:center;gap:6px;pointer-events:none}
+#recDot::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--rec);animation:blink 1s steps(2) infinite}
+@keyframes blink{50%{opacity:.2}}
+footer{background:var(--tray);border-top:1px solid var(--line);
+  padding:12px max(16px,env(safe-area-inset-right,0px)) calc(env(safe-area-inset-bottom,0px) + 12px) max(16px,env(safe-area-inset-left,0px))}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.row.main{justify-content:space-between;flex-wrap:nowrap}
+.btn{appearance:none;border:1px solid var(--line);background:rgba(238,240,236,.06);color:var(--fg);font:inherit;font-size:14px;
+  padding:11px 16px;border-radius:99px;cursor:pointer;white-space:nowrap}
+.btn.primary{background:var(--paper);color:var(--ink);border-color:var(--paper);font-weight:700}
+.btn.on{background:var(--sage);color:var(--ink);border-color:var(--sage)}
+.btn:disabled{opacity:.4}
+button:focus-visible,label:focus-within{outline:2px solid var(--sage);outline-offset:2px}
+.rec{appearance:none;width:64px;height:64px;border-radius:50%;border:3px solid var(--paper);background:transparent;display:grid;place-items:center;cursor:pointer;flex:none}
+.rec::after{content:"";width:48px;height:48px;border-radius:50%;background:var(--rec);transition:all .2s}
+.rec.on::after{width:24px;height:24px;border-radius:5px}
+.note{font-size:11px;color:var(--dim);margin-top:8px;line-height:1.6}
+.adj{display:grid;grid-template-columns:auto 1fr auto;gap:8px 12px;align-items:center;margin-bottom:12px}
+.adj label{font-size:12px;color:var(--dim)}
+.adj output{font-family:var(--mono);font-size:11px;color:var(--dim);min-width:3.5em;text-align:right;font-variant-numeric:tabular-nums}
+input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:28px;background:transparent;margin:0}
+input[type=range]::-webkit-slider-runnable-track{height:2px;background:var(--line)}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:20px;height:20px;border-radius:50%;background:var(--paper);margin-top:-9px}
+.swatches{display:flex;gap:8px;align-items:center}
+.sw{width:28px;height:28px;border-radius:50%;border:2px solid var(--line);cursor:pointer;padding:0}
+.sw.on{border-color:var(--sage);box-shadow:0 0 0 2px var(--ink) inset}
+.sheet{position:fixed;inset:0;background:var(--ink);display:flex;flex-direction:column;justify-content:center;gap:20px;z-index:20;
+  padding:calc(env(safe-area-inset-top,0px) + 24px) max(24px,env(safe-area-inset-right,0px)) calc(env(safe-area-inset-bottom,0px) + 24px) max(24px,env(safe-area-inset-left,0px));overflow:auto}
+.sheet h1{font-family:var(--mono);font-weight:500;font-size:clamp(34px,11vw,64px);letter-spacing:.06em;line-height:1;margin:0}
+.sheet h1 span{display:block;font-family:var(--jp);font-size:15px;letter-spacing:.2em;color:var(--sage);margin-top:10px}
+.sheet p{margin:0;max-width:34em;color:var(--dim);font-size:14px;line-height:1.8}
+.sheet ol{margin:0;padding-left:1.4em;color:var(--fg);font-size:14px;line-height:1.9;max-width:34em}
+.sheet .row{gap:12px}
+#demo{width:120px;height:160px;align-self:flex-start}
+#status{font-family:var(--mono);font-size:12px;color:var(--dim);white-space:pre-line;line-height:1.7}
+#result video{width:100%;max-height:60vh;background:#000;border-radius:12px}
+#toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 150px);transform:translate(-50%,20px);opacity:0;
+  background:var(--paper);color:var(--ink);padding:10px 16px;border-radius:99px;font-size:13px;transition:all .3s;pointer-events:none;z-index:30;max-width:calc(100% - 32px);text-align:center}
+#toast.on{opacity:1;transform:translate(-50%,0)}
+#video{position:absolute;width:2px;height:2px;opacity:0;pointer-events:none;left:0;top:0}
+.btn.cam{padding:7px 12px;font-size:12px;flex:none}
+#shotBtn{position:absolute;right:max(16px,env(safe-area-inset-right,0px));bottom:14px;background:rgba(13,16,17,.6);
+  -webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px)}
+@media (max-width:440px){.brand small{display:none} header{gap:8px} ol#steps{gap:2px} #steps li{padding:4px 6px} footer .row.main .btn{padding:10px 12px}
+  .btn.cam{padding:6px 9px;font-size:11px} .brand{letter-spacing:.06em} .brand i{display:none}}
+/* small phones: the header keeps PROFILE MASK, the three steps and ⟲ カメラ on one line */
+@media (max-width:374px){.brand{font-size:12px;letter-spacing:.04em} header{gap:6px;padding-left:12px;padding-right:12px}
+  #steps li{padding:4px 4px;font-size:10px} .btn.cam{padding:6px 7px}}
+@media (max-width:340px){.brand{font-size:11px;letter-spacing:0} ol#steps{gap:0}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <div class="brand"><i></i>PROFILE MASK<small>横顔マスク</small></div>
+    <ol id="steps">
+      <li data-s="capture">1 横顔</li>
+      <li data-s="edit">2 目印</li>
+      <li data-s="live">3 演じる</li>
+    </ol>
+    <button id="flipCam" class="btn cam" aria-label="前後のカメラを切り替え" title="カメラ切替">⟲ カメラ</button>
+  </header>
+
+  <div id="stageWrap">
+    <canvas id="stage"></canvas>
+    <div id="hint"></div>
+    <div id="count" hidden></div>
+    <div id="flash"></div>
+    <div id="recDot" hidden>REC <span id="recTime">0:00</span></div>
+    <button id="shotBtn" class="icon" hidden aria-label="いまの画面を保存" title="撮影">◉</button>
+  </div>
+
+  <footer>
+    <section data-mode="capture" hidden>
+      <div class="row main">
+        <label class="btn" for="photoIn">写真から<input id="photoIn" type="file" accept="image/*" hidden></label>
+        <button id="shootBtn" class="btn primary">5秒後に撮影</button>
+      </div>
+      <div class="note">無地の壁の前で、頭のてっぺんから肩まで入れて撮ると輪郭がきれいに取れます。</div>
+    </section>
+
+    <section data-mode="edit" hidden>
+      <div class="row main">
+        <button id="retakeBtn" class="btn">撮り直す</button>
+        <button id="mirrorBtn" class="btn">左右反転</button>
+        <button id="okBtn" class="btn primary">決定</button>
+      </div>
+    </section>
+
+    <section data-mode="live" hidden>
+      <div id="adjust" hidden>
+        <div class="adj">
+          <label for="sScale">大きさ</label><input id="sScale" type="range" min="0.7" max="1.4" step="0.01" value="1"><output id="oScale">1.00</output>
+          <label for="sK">左右</label><input id="sK" type="range" min="-0.6" max="1.2" step="0.01" value="0.35"><output id="oK">0.35</output>
+          <label for="sY">上下</label><input id="sY" type="range" min="-0.3" max="0.3" step="0.005" value="0"><output id="oY">0.00</output>
+        </div>
+        <div class="row" style="margin-bottom:12px;justify-content:space-between">
+          <div class="swatches" role="group" aria-label="マスクの色">
+            <button class="sw on" data-c="#f5f5f2" style="background:#f5f5f2" aria-label="白"></button>
+            <button class="sw" data-c="#0b0b0b" style="background:#0b0b0b" aria-label="黒"></button>
+            <button class="sw" data-c="#a8bcb3" style="background:#a8bcb3" aria-label="灰緑"></button>
+            <button id="pickBg" class="btn" style="padding:6px 12px;font-size:12px">背景の色を拾う</button>
+          </div>
+          <button id="jawBtn" class="btn on" style="padding:6px 12px;font-size:12px">あご連動</button>
+        </div>
+      </div>
+      <div class="row main">
+        <button id="backBtn" class="btn">横顔</button>
+        <button id="adjBtn" class="btn">調整</button>
+        <button id="recBtn" class="rec" aria-label="録画"></button>
+        <button id="guideBtn" class="btn">透かす</button>
+        <button id="audioBtn" class="btn on" aria-pressed="true">音声</button>
+      </div>
+    </section>
+  </footer>
+
+  <div id="start" class="sheet">
+    <canvas id="demo" width="240" height="320" aria-hidden="true"></canvas>
+    <h1>PROFILE MASK<span>横顔マスク</span></h1>
+    <p>正面を向いてしゃべる顔に、自分の横顔の形をした白い板をかぶせて「横顔にも正面顔にも見える」騙し絵動画を作ります。</p>
+    <ol>
+      <li>横を向いて、横顔を1枚撮る</li>
+      <li>目・鼻先・口・あごの高さを確認する</li>
+      <li>正面を向くと、横顔の形が顔に追従する。そのまま録画</li>
+    </ol>
+    <div class="row">
+      <button id="goBtn" class="btn primary">カメラを起動</button>
+      <button id="resumeBtn" class="btn" hidden>前回の横顔で始める</button>
+    </div>
+    <div id="status">モデルを読み込み中…</div>
+  </div>
+
+  <div id="result" class="sheet" hidden>
+    <video id="resultVideo" playsinline controls></video>
+    <div class="row">
+      <button id="shareBtn" class="btn primary">保存・共有</button>
+      <a id="dlLink" class="btn" download="profile-mask.mp4">ダウンロード</a>
+      <button id="closeResult" class="btn">閉じる</button>
+    </div>
+  </div>
+
+  <div id="toast" role="status"></div>
+  <video id="video" playsinline muted autoplay></video>
+</div>
+
+<script type="module">
+import { FilesetResolver, FaceLandmarker, ImageSegmenter } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs";
+const WASM = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm";
+const FACE_MODEL = "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task";
+const SEG_MODEL = "https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite";
+const STORE = "profilemask.v1";
+
+const $ = id => document.getElementById(id);
+const stage = $("stage"), ctx = stage.getContext("2d", { willReadFrequently: true });
+const video = $("video");
+const prof = document.createElement("canvas"), pctx = prof.getContext("2d", { willReadFrequently: true });
+
+let face = null, seg = null, stream = null, audioStream = null;
+let facing = "user", mirror = true, mode = "start";
+let P = null;          // 横顔の解析結果
+let T = null;          // 正面顔の追従状態（平滑化済み）
+let lastVT = -1, lostFrames = 0, sampleBg = false;
+let actx = null, wakeLock = null;
+const st = { k: 0.35, scale: 1, offY: 0, color: "#f5f5f2", jaw: true, guide: false, audio: true };
+
+/* ---------- 起動 ---------- */
+const modelsReady = (async () => {
+  const fs = await FilesetResolver.forVisionTasks(WASM);
+  const mkFace = d => FaceLandmarker.createFromOptions(fs, { baseOptions: { modelAssetPath: FACE_MODEL, delegate: d }, runningMode: "VIDEO", numFaces: 1 });
+  try { face = await mkFace("GPU"); } catch (e) { face = await mkFace("CPU"); }
+  seg = await ImageSegmenter.createFromOptions(fs, { baseOptions: { modelAssetPath: SEG_MODEL, delegate: "CPU" }, runningMode: "IMAGE", outputConfidenceMasks: true, outputCategoryMask: false });
+})();
+modelsReady.then(() => { $("status").textContent = "準備OK"; })
+  .catch(e => { $("status").textContent = "モデルの読み込みに失敗しました。通信状況を確認して再読み込みしてください。"; console.error(e); });
+
+let saved = null;
+try { saved = JSON.parse(localStorage.getItem(STORE) || "null"); } catch (e) {}
+if (saved) $("resumeBtn").hidden = false;
+
+$("goBtn").onclick = () => boot(false);
+$("resumeBtn").onclick = () => boot(true);
+
+async function boot(resume) {
+  initAudio();
+  $("goBtn").disabled = $("resumeBtn").disabled = true;
+  $("status").textContent = "カメラを起動中…";
+  try { await startCamera(); }
+  catch (e) { $("status").textContent = camErr(e); $("goBtn").disabled = $("resumeBtn").disabled = false; return; }
+  $("status").textContent = "モデルを読み込み中…";
+  try { await modelsReady; }
+  catch (e) { $("status").textContent = "モデルの読み込みに失敗しました。通信状況を確認して再読み込みしてください。"; return; }
+  $("start").hidden = true;
+  keepAwake();
+  if (resume && saved) {
+    const img = new Image();
+    img.onload = () => {
+      prof.width = img.naturalWidth; prof.height = img.naturalHeight; pctx.drawImage(img, 0, 0);
+      if (analyze(false)) { Object.assign(P, { eye: saved.eye, nose: saved.nose, mouth: saved.mouth, chin: saved.chin, neck: saved.neck }); setMode("live"); }
+      else setMode("capture");
+    };
+    img.src = saved.img;
+  } else setMode("capture");
+  requestAnimationFrame(loop);
+}
+
+const camErr = e => "カメラを起動できませんでした：" + (e && (e.message || e.name) || String(e)) + "\nHTTPS または localhost で開き、カメラの使用を許可してください。";
+async function startCamera() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) throw new Error("getUserMedia is unavailable");
+  if (stream) stream.getVideoTracks().forEach(t => t.stop());
+  stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: facing, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
+  video.srcObject = stream;
+  await video.play();
+  mirror = facing === "user";
+  lastVT = -1; T = null;
+}
+
+$("flipCam").onclick = async () => {
+  facing = facing === "user" ? "environment" : "user";
+  try { await startCamera(); toast(facing === "user" ? "インカメラ" : "外カメラ"); }
+  catch (e) {
+    facing = facing === "user" ? "environment" : "user";
+    try { await startCamera(); } catch (e2) {}
+    toast(camErr(e).split("\n")[0]);
+  }
+};
+
+function keepAwake() {
+  try { navigator.wakeLock?.request("screen").then(l => wakeLock = l).catch(() => {}); } catch (e) {}
+}
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && mode !== "start") keepAwake(); });
+
+/* ---------- モード ---------- */
+const HINTS = {
+  capture: "右を向いて横顔に（画面の中で鼻が右を向く向き）",
+  edit: "線を上下にドラッグして、目・鼻先・口・あごの高さに合わせる",
+  live: "正面を向いてください"
+};
+function setMode(m) {
+  mode = m;
+  document.querySelectorAll("footer section").forEach(s => s.hidden = s.dataset.mode !== m);
+  document.querySelectorAll("#steps li").forEach(li => li.classList.toggle("on", li.dataset.s === m));
+  $("hint").textContent = HINTS[m] || "";
+  $("flipCam").hidden = m === "edit";
+  $("shotBtn").hidden = m !== "live";
+  if (m === "live") { T = null; lostFrames = 0; }
+}
+
+/* ---------- ループ ---------- */
+function fitStage(w, h) { if (stage.width !== w || stage.height !== h) { stage.width = w; stage.height = h; } }
+
+function drawVideo() {
+  const W = stage.width, H = stage.height;
+  ctx.save();
+  if (mirror) { ctx.translate(W, 0); ctx.scale(-1, 1); }
+  ctx.drawImage(video, 0, 0, W, H);
+  ctx.restore();
+}
+
+function loop() {
+  requestAnimationFrame(loop);
+  if (mode === "edit") { drawEdit(); return; }
+  if (!video.videoWidth) return;
+  fitStage(video.videoWidth, video.videoHeight);
+  if (mode === "capture") drawVideo();
+  else if (mode === "live") drawLive();
+}
+
+/* ---------- 1 横顔の撮影 ---------- */
+let counting = false;
+$("shootBtn").onclick = async () => {
+  if (counting) return;
+  counting = true; $("shootBtn").disabled = true;
+  const c = $("count"); c.hidden = false;
+  for (let n = 5; n > 0; n--) { c.textContent = n; beep(n === 1 ? 880 : 660, 0.07); await sleep(1000); }
+  c.hidden = true;
+  flash(); beep(1320, 0.12);
+  snapProfile(video, video.videoWidth, video.videoHeight, mirror);
+  counting = false; $("shootBtn").disabled = false;
+};
+
+$("photoIn").onchange = e => {
+  const f = e.target.files[0]; if (!f) return;
+  const img = new Image();
+  img.onload = () => {
+    const k = Math.min(1, 1280 / Math.max(img.naturalWidth, img.naturalHeight));
+    snapProfile(img, Math.round(img.naturalWidth * k), Math.round(img.naturalHeight * k), false);
+    URL.revokeObjectURL(img.src);
+  };
+  img.src = URL.createObjectURL(f);
+  e.target.value = "";
+};
+
+function snapProfile(src, w, h, flip) {
+  prof.width = w; prof.height = h;
+  pctx.save();
+  if (flip) { pctx.translate(w, 0); pctx.scale(-1, 1); }
+  pctx.drawImage(src, 0, 0, w, h);
+  pctx.restore();
+  if (analyze(true)) setMode("edit");
+}
+
+function flipProf() {
+  const tmp = document.createElement("canvas"); tmp.width = prof.width; tmp.height = prof.height;
+  tmp.getContext("2d").drawImage(prof, 0, 0);
+  pctx.save(); pctx.setTransform(-1, 0, 0, 1, prof.width, 0); pctx.drawImage(tmp, 0, 0); pctx.restore();
+}
+
+/* 横顔を人物マスクにし、顔側の輪郭と目印を取り出す */
+function analyze(autoFlip) {
+  let res = null;
+  try { res = seg.segment(prof); } catch (e) { console.warn(e); }
+  if (!res || !res.confidenceMasks || !res.confidenceMasks[0]) { toast("人物の輪郭が見つかりませんでした。もう一度撮ってください"); return false; }
+  const m = res.confidenceMasks[0];
+  const mw = m.width, mh = m.height;
+  const a = new Float32Array(m.getAsFloat32Array());
+  res.close();
+
+  // 端の方が濃ければ背景マスクなので反転
+  let edge = 0, ne = 0, mid = 0, nm = 0;
+  for (let y = 0; y < mh; y += 4) for (let x = 0; x < mw; x += 4) {
+    const v = a[y * mw + x];
+    if (x < mw * 0.05 || x > mw * 0.95 || y < mh * 0.03) { edge += v; ne++; }
+    else if (x > mw * 0.35 && x < mw * 0.65 && y > mh * 0.3 && y < mh * 0.7) { mid += v; nm++; }
+  }
+  if (edge / ne > mid / nm) for (let i = 0; i < a.length; i++) a[i] = 1 - a[i];
+
+  const sx = prof.width / mw, sy = prof.height / mh;
+  const Lr = new Float32Array(mh).fill(-1), Rr = new Float32Array(mh).fill(-1);
+  let top = -1, bottom = -1;
+  for (let y = 0; y < mh; y++) {
+    let l = -1, r = -1; const o = y * mw;
+    for (let x = 0; x < mw; x++) if (a[o + x] > 0.5) { if (l < 0) l = x; r = x; }
+    if (l >= 0) {
+      Lr[y] = l; Rr[y] = r + 1;
+      if (top < 0 && r - l > mw * 0.03) top = y;
+      bottom = y;
+    }
+  }
+  if (top < 0 || bottom - top < mh * 0.2) { toast("人物の輪郭が見つかりませんでした。もう一度撮ってください"); return false; }
+  for (let y = top + 1; y <= bottom; y++) if (Lr[y] < 0) { Lr[y] = Lr[y - 1]; Rr[y] = Rr[y - 1]; }
+
+  const n = bottom - top + 1;
+  const R = new Float32Array(n), L = new Float32Array(n), Y = new Float32Array(n);
+  const rad = Math.max(1, Math.round(mh * 0.004));
+  for (let i = 0; i < n; i++) {
+    let sr = 0, sl = 0, c = 0;
+    for (let j = Math.max(0, i - rad); j <= Math.min(n - 1, i + rad); j++) { sr += Rr[top + j]; sl += Lr[top + j]; c++; }
+    R[i] = sr / c * sx; L[i] = sl / c * sx; Y[i] = (top + i + 0.5) * sy;
+  }
+
+  // 鼻が左を向いていたら自動で反転（輪郭の出っ張りが大きい側が顔）
+  if (autoFlip) {
+    const bump = (arr, sign) => {
+      const i0 = Math.round(n * 0.12), i1 = Math.round(n * 0.55), w = Math.max(2, Math.round(n * 0.08));
+      let best = -1e9, bi = i0;
+      for (let i = i0; i < i1; i++) if (sign * arr[i] > best) { best = sign * arr[i]; bi = i; }
+      const lo = sign * arr[Math.max(0, bi - w)], hi = sign * arr[Math.min(n - 1, bi + w)];
+      return best - (lo + hi) / 2;
+    };
+    if (bump(L, -1) > bump(R, 1) * 1.15) { flipProf(); toast("向きを自動で左右反転しました"); return analyze(false); }
+  }
+
+  const H = n;
+  const argBy = (i0, i1, f) => { i0 = Math.max(0, Math.round(i0)); i1 = Math.min(n - 1, Math.round(i1)); let b = i0; for (let i = i0; i <= i1; i++) if (f(i) > f(b)) b = i; return b; };
+  const noseI = argBy(H * 0.12, H * 0.55, i => R[i]);
+  const neckI = argBy(noseI + H * 0.08, noseI + H * 0.5, i => -R[i]);
+  let chinI = argBy(noseI + (neckI - noseI) * 0.4, neckI, i => R[i]);
+  if (chinI <= noseI + 2) chinI = Math.min(n - 1, noseI + Math.round(H * 0.2));
+
+  const noseY = Y[noseI], chinY = Y[chinI];
+  P = {
+    W: prof.width, H: prof.height, R, L, Y, n, y0: Y[0], dy: sy,
+    nose: noseY, chin: chinY, neck: Math.max(Y[neckI], chinY + (chinY - noseY) * 0.3),
+    eye: noseY - 0.82 * (chinY - noseY), mouth: noseY + 0.4 * (chinY - noseY),
+    tint: makeTint(a, mw, mh)
+  };
+  return true;
+}
+
+function makeTint(a, mw, mh) {
+  const c = document.createElement("canvas"); c.width = mw; c.height = mh;
+  const g = c.getContext("2d"), id = g.createImageData(mw, mh);
+  for (let i = 0; i < a.length; i++) { const o = i * 4; id.data[o] = 245; id.data[o + 1] = 245; id.data[o + 2] = 242; id.data[o + 3] = a[i] > 0.5 ? 0 : 150; }
+  g.putImageData(id, 0, 0);
+  return c;
+}
+
+const idxAt = y => Math.max(0, Math.min(P.n - 1, Math.round((y - P.y0) / P.dy)));
+const RAt = y => P.R[idxAt(y)];
+
+/* 横顔シルエットの多角形（横顔画像の座標）。jaw = 下あごを下げる量 */
+function polygon(jaw) {
+  const { R, L, Y, n, W } = P;
+  const big = P.H * 4, step = Math.max(1, Math.round(n / 420));
+  const pts = [];
+  const touchTop = Y[0] < P.dy * 3;
+  if (touchTop) pts.push([R[0], -big]);
+  const off = y => y < P.mouth ? 0 : y <= P.chin ? jaw : y < P.neck ? jaw * (1 - (y - P.chin) / (P.neck - P.chin)) : 0;
+  let lipDone = false;
+  for (let i = 0; i < n; i += step) {
+    const y = Y[i];
+    if (!lipDone && y >= P.mouth) {
+      lipDone = true;
+      if (jaw > 0.5) {
+        const rm = RAt(P.mouth), depth = Math.min(jaw * 1.1, (P.chin - P.nose) * 0.35);
+        pts.push([rm, P.mouth], [rm - depth, P.mouth + jaw * 0.5], [rm, P.mouth + jaw]);
+      }
+    }
+    const x = R[i] >= W - 2 ? R[i] + big : R[i];
+    pts.push([x, y + off(y)]);
+  }
+  const yb = Y[n - 1];
+  pts.push([R[n - 1], yb + big], [L[n - 1], yb + big]);
+  for (let i = n - 1; i >= 0; i -= step) pts.push([L[i] <= 2 ? L[i] - big : L[i], Y[i]]);
+  if (touchTop) pts.push([L[0], -big]);
+  return pts;
+}
+
+/* ---------- 2 目印の調整 ---------- */
+const HANDLES = [["eye", "目"], ["nose", "鼻先"], ["mouth", "口"], ["chin", "あご"]];
+let drag = null;
+
+function drawEdit() {
+  if (!P) return;
+  fitStage(P.W, P.H);
+  const W = P.W, H = P.H, u = Math.max(1, W / 360);
+  ctx.drawImage(prof, 0, 0);
+  ctx.drawImage(P.tint, 0, 0, W, H);
+  // 顔側の輪郭
+  ctx.beginPath();
+  for (let i = 0; i < P.n; i += 2) i ? ctx.lineTo(P.R[i], P.Y[i]) : ctx.moveTo(P.R[i], P.Y[i]);
+  ctx.strokeStyle = "#a8bcb3"; ctx.lineWidth = 2 * u; ctx.stroke();
+  // 目印
+  ctx.font = `${12 * u}px "Zen Kaku Gothic New", sans-serif`; ctx.textBaseline = "middle";
+  for (const [k, label] of HANDLES) {
+    const y = P[k], x = RAt(y), active = drag === k;
+    ctx.strokeStyle = active ? "#ff4b3e" : "rgba(13,16,17,.75)"; ctx.lineWidth = 1.5 * u;
+    ctx.setLineDash([6 * u, 5 * u]); ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle = active ? "#ff4b3e" : "#0d1011";
+    ctx.beginPath(); ctx.arc(x, y, 7 * u, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = "#f5f5f2"; ctx.lineWidth = 2 * u; ctx.stroke();
+    const tw = ctx.measureText(label).width + 16 * u;
+    ctx.fillStyle = "rgba(13,16,17,.85)"; roundRect(8 * u, y - 11 * u, tw, 22 * u, 11 * u); ctx.fill();
+    ctx.fillStyle = "#f5f5f2"; ctx.fillText(label, 16 * u, y + 0.5);
+  }
+}
+function roundRect(x, y, w, h, r) { ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath(); }
+
+function toCanvas(e) {
+  const r = stage.getBoundingClientRect();
+  const sc = Math.min(r.width / stage.width, r.height / stage.height);
+  return { x: (e.clientX - r.left - (r.width - stage.width * sc) / 2) / sc, y: (e.clientY - r.top - (r.height - stage.height * sc) / 2) / sc, sc };
+}
+stage.addEventListener("pointerdown", e => {
+  if (mode !== "edit" || !P) return;
+  const p = toCanvas(e); let best = null, bd = 34 / p.sc;
+  for (const [k] of HANDLES) { const d = Math.abs(P[k] - p.y); if (d < bd) { bd = d; best = k; } }
+  if (best) { drag = best; stage.setPointerCapture(e.pointerId); }
+});
+stage.addEventListener("pointermove", e => {
+  if (!drag) return;
+  const y = toCanvas(e).y, gap = P.H * 0.01;
+  const order = HANDLES.map(h => h[0]), i = order.indexOf(drag);
+  const lo = i > 0 ? P[order[i - 1]] + gap : P.y0;
+  const hi = i < order.length - 1 ? P[order[i + 1]] - gap : P.Y[P.n - 1];
+  P[drag] = Math.max(lo, Math.min(hi, y));
+  if (P.neck < P.chin + gap * 3) P.neck = P.chin + (P.chin - P.nose) * 0.3;
+});
+const endDrag = () => { drag = null; };
+stage.addEventListener("pointerup", endDrag);
+stage.addEventListener("pointercancel", endDrag);
+
+$("retakeBtn").onclick = () => setMode("capture");
+$("mirrorBtn").onclick = () => { flipProf(); analyze(false); };
+$("okBtn").onclick = () => {
+  try {
+    const k = Math.min(1, 900 / Math.max(prof.width, prof.height));
+    const c = document.createElement("canvas"); c.width = Math.round(prof.width * k); c.height = Math.round(prof.height * k);
+    c.getContext("2d").drawImage(prof, 0, 0, c.width, c.height);
+    // 保存は縮小画像なので、目印も同じ比率で保存
+    localStorage.setItem(STORE, JSON.stringify({ img: c.toDataURL("image/jpeg", 0.88), eye: P.eye * k, nose: P.nose * k, mouth: P.mouth * k, chin: P.chin * k, neck: P.neck * k }));
+  } catch (e) {}
+  setMode("live");
+};
+
+/* ---------- 3 正面顔への追従 ---------- */
+function drawLive() {
+  const W = stage.width, H = stage.height;
+  drawVideo();
+  if (sampleBg) { sampleBg = false; pickColor(W, H); }
+
+  if (video.currentTime !== lastVT) {
+    lastVT = video.currentTime;
+    let r = null;
+    try { r = face.detectForVideo(video, performance.now()); } catch (e) {}
+    const lm = r && r.faceLandmarks && r.faceLandmarks[0];
+    if (faceOk(lm) && track(lm, W, H)) lostFrames = 0; else lostFrames++;
+  }
+  if (lostFrames > 20) T = null;
+  $("hint").textContent = T ? "" : HINTS.live;
+  if (!T || !P) return;
+
+  const s = T.Dc / (P.chin - P.eye) * st.scale;
+  const lat = T.lat + st.k * T.iod;
+  const ax = T.mx + lat * T.vx + st.offY * T.Dc * T.ux;
+  const ay = T.my + lat * T.vy + st.offY * T.Dc * T.uy;
+  const nx = RAt(P.nose), ey = P.eye;
+  const jaw = st.jaw ? T.gap / s : 0;
+
+  const pts = polygon(jaw);
+  ctx.beginPath();
+  ctx.rect(0, 0, W, H);
+  for (let i = 0; i < pts.length; i++) {
+    const dx = pts[i][0] - nx, dy = pts[i][1] - ey;
+    const X = ax + s * (dx * T.vx + dy * T.ux), Y = ay + s * (dx * T.vy + dy * T.uy);
+    i ? ctx.lineTo(X, Y) : ctx.moveTo(X, Y);
+  }
+  ctx.closePath();
+  ctx.fillStyle = st.color;
+  ctx.globalAlpha = st.guide && !rec ? 0.55 : 1;
+  ctx.fill("evenodd");
+  ctx.globalAlpha = 1;
+
+  if (st.guide && !rec) {
+    ctx.fillStyle = "#ff4b3e";
+    for (const p of [[T.mx, T.my], [T.nose.x, T.nose.y], [T.chin.x, T.chin.y]]) { ctx.beginPath(); ctx.arc(p[0], p[1], W / 180, 0, Math.PI * 2); ctx.fill(); }
+  }
+}
+
+// 使う点がすべてそろっていて、座標が数値のときだけ追従する
+const FACE_PTS = [33, 133, 362, 263, 1, 152, 13, 14];
+const faceOk = lm => Array.isArray(lm) && lm.length >= 468 &&
+  FACE_PTS.every(i => lm[i] && Number.isFinite(lm[i].x) && Number.isFinite(lm[i].y));
+function track(l, W, H) {
+  const pt = i => ({ x: (mirror ? 1 - l[i].x : l[i].x) * W, y: l[i].y * H });
+  const avg = (a, b) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+  let e1 = avg(pt(33), pt(133)), e2 = avg(pt(362), pt(263));
+  if (e2.x < e1.x) [e1, e2] = [e2, e1];
+  const mid = avg(e1, e2);
+  let vx = e2.x - e1.x, vy = e2.y - e1.y; const iod = Math.hypot(vx, vy);
+  if (!(iod > 1)) return false;  // 目が重なる・画面外：この回は使わない
+  vx /= iod; vy /= iod;
+  const ux = -vy, uy = vx;
+  const nose = pt(1), chin = pt(152), lu = pt(13), ll = pt(14);
+  const along = (p, ax, ay) => (p.x - mid.x) * ax + (p.y - mid.y) * ay;
+  const gap = Math.max(0, (ll.x - lu.x) * ux + (ll.y - lu.y) * uy);
+  const raw = { mx: mid.x, my: mid.y, vx, vy, iod, Dc: along(chin, ux, uy) - gap, lat: along(nose, vx, vy), gap };
+  if (!(raw.Dc > 1)) return false;  // あごが目より上に来る壊れた検出は使わない
+  if (!T) T = { ...raw };
+  else for (const k in raw) T[k] += (raw[k] - T[k]) * (k === "gap" ? 0.7 : 0.5);
+  const nrm = Math.hypot(T.vx, T.vy); T.vx /= nrm; T.vy /= nrm; T.ux = -T.vy; T.uy = T.vx;
+  T.nose = nose; T.chin = chin;
+  return true;
+}
+
+function pickColor(W, H) {
+  const sz = Math.max(8, Math.round(W * 0.04));
+  const d = ctx.getImageData(Math.round(W * 0.92) - sz, Math.round(H * 0.08), sz, sz).data;
+  let r = 0, g = 0, b = 0; for (let i = 0; i < d.length; i += 4) { r += d[i]; g += d[i + 1]; b += d[i + 2]; }
+  const c = d.length / 4, hex = v => Math.round(v / c).toString(16).padStart(2, "0");
+  st.color = "#" + hex(r) + hex(g) + hex(b);
+  document.querySelectorAll(".sw").forEach(s => s.classList.remove("on"));
+  toast("右上の背景色に合わせました");
+}
+
+/* ---------- 操作 ---------- */
+$("backBtn").onclick = () => setMode("capture");
+$("adjBtn").onclick = () => { const a = $("adjust"); a.hidden = !a.hidden; $("adjBtn").classList.toggle("on", !a.hidden); };
+$("guideBtn").onclick = () => { st.guide = !st.guide; $("guideBtn").classList.toggle("on", st.guide); };
+$("jawBtn").onclick = () => { st.jaw = !st.jaw; $("jawBtn").classList.toggle("on", st.jaw); };
+$("audioBtn").onclick = () => { st.audio = !st.audio; $("audioBtn").classList.toggle("on", st.audio); $("audioBtn").setAttribute("aria-pressed", st.audio); };
+$("pickBg").onclick = () => { sampleBg = true; };
+document.querySelectorAll(".sw").forEach(b => b.onclick = () => {
+  st.color = b.dataset.c; document.querySelectorAll(".sw").forEach(s => s.classList.toggle("on", s === b));
+});
+for (const [id, key, out, fmt] of [["sScale", "scale", "oScale", 2], ["sK", "k", "oK", 2], ["sY", "offY", "oY", 2]]) {
+  $(id).oninput = e => { st[key] = +e.target.value; $(out).textContent = (+e.target.value).toFixed(fmt); };
+}
+
+/* ---------- 撮影 ---------- */
+$("shotBtn").onclick = () => {
+  flash(); beep(1320, 0.06);
+  try {
+    stage.toBlob(b => {
+      if (!b) { toast("保存できませんでした"); return; }
+      const a = document.createElement("a"); a.href = URL.createObjectURL(b); a.download = `profile-mask-${Date.now()}.png`;
+      document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 4000);
+      toast("保存しました");
+    }, "image/png");
+  } catch (e) { toast("保存できませんでした"); }
+};
+
+/* ---------- 録画 ---------- */
+let rec = null, chunks = [], recStart = 0, recTimer = 0, lastBlob = null;
+$("recBtn").onclick = async () => {
+  if (rec) { rec.stop(); return; }
+  const cs = stage.captureStream(30);
+  if (st.audio) {
+    try {
+      if (!audioStream) audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      audioStream.getAudioTracks().forEach(t => cs.addTrack(t));
+    } catch (e) { toast("マイクが使えないので映像だけ録画します"); }
+  }
+  const types = ["video/mp4;codecs=avc1", "video/mp4", "video/webm;codecs=vp9", "video/webm"];
+  const mime = types.find(t => window.MediaRecorder && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t)) || "";
+  try { rec = new MediaRecorder(cs, mime ? { mimeType: mime, videoBitsPerSecond: 8e6 } : {}); }
+  catch (e) { toast("このブラウザでは録画できません"); return; }
+  chunks = [];
+  rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+  rec.onstop = () => {
+    const type = rec.mimeType || mime || "video/mp4";
+    lastBlob = new Blob(chunks, { type });
+    rec = null; clearInterval(recTimer);
+    $("recBtn").classList.remove("on"); $("recDot").hidden = true;
+    showResult(lastBlob);
+  };
+  rec.start(500);
+  recStart = Date.now();
+  $("recBtn").classList.add("on"); $("recDot").hidden = false;
+  recTimer = setInterval(() => { const t = Math.floor((Date.now() - recStart) / 1000); $("recTime").textContent = `${Math.floor(t / 60)}:${String(t % 60).padStart(2, "0")}`; }, 250);
+};
+
+function showResult(blob) {
+  const url = URL.createObjectURL(blob);
+  const ext = blob.type.includes("mp4") ? "mp4" : "webm";
+  $("resultVideo").src = url;
+  $("dlLink").href = url; $("dlLink").download = `profile-mask-${Date.now()}.${ext}`;
+  $("result").hidden = false;
+}
+$("shareBtn").onclick = async () => {
+  if (!lastBlob) return;
+  const ext = lastBlob.type.includes("mp4") ? "mp4" : "webm";
+  const file = new File([lastBlob], `profile-mask.${ext}`, { type: lastBlob.type });
+  try {
+    if (navigator.canShare && navigator.canShare({ files: [file] })) await navigator.share({ files: [file] });
+    else $("dlLink").click();
+  } catch (e) { if (e.name !== "AbortError") $("dlLink").click(); }
+};
+$("closeResult").onclick = () => { $("result").hidden = true; $("resultVideo").pause(); };
+
+/* ---------- 小物 ---------- */
+function initAudio() { try { actx = actx || new (window.AudioContext || window.webkitAudioContext)(); actx.resume(); } catch (e) {} }
+function beep(f, d) {
+  if (!actx) return;
+  const o = actx.createOscillator(), g = actx.createGain(), t = actx.currentTime;
+  o.frequency.value = f; g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.25, t + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t + d);
+  o.connect(g).connect(actx.destination); o.start(t); o.stop(t + d + 0.02);
+}
+function flash() { const f = $("flash"); f.classList.add("on"); requestAnimationFrame(() => requestAnimationFrame(() => f.classList.remove("on"))); }
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+let toastT = 0;
+function toast(msg) { const t = $("toast"); t.textContent = msg; t.classList.add("on"); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove("on"), 2200); }
+
+window.__profileMask = {
+  state: () => ({ mode, profile: !!P, tracking: !!T, facing, lostFrames }),
+  feed: lm => faceOk(lm) && track(lm, stage.width || 1280, stage.height || 720),
+};
+
+/* 起動画面の小さなデモ：横顔の板が左右に揺れる */
+(function demo() {
+  const c = $("demo"), g = c.getContext("2d"), w = c.width, h = c.height;
+  const prof = [[0.50,0.05],[0.62,0.10],[0.68,0.22],[0.70,0.33],[0.68,0.38],[0.78,0.50],[0.70,0.54],[0.72,0.60],[0.69,0.64],[0.72,0.70],[0.68,0.78],[0.60,0.82],[0.58,0.90],[0.75,1.0]];
+  let t0 = performance.now();
+  (function f(now) {
+    if ($("start").hidden) return;
+    const k = 0.5 + 0.5 * Math.sin((now - t0) / 900);
+    g.fillStyle = "#a8bcb3"; g.fillRect(0, 0, w, h);
+    g.fillStyle = "#3b2b25"; g.beginPath(); g.ellipse(w * 0.5, h * 0.48, w * 0.27, h * 0.33, 0, 0, Math.PI * 2); g.fill();
+    g.fillStyle = "#f5f5f2"; g.beginPath(); g.ellipse(w * 0.42, h * 0.40, w * 0.05, h * 0.018, 0, 0, Math.PI * 2); g.ellipse(w * 0.58, h * 0.40, w * 0.05, h * 0.018, 0, 0, Math.PI * 2); g.fill();
+    g.fillStyle = "#0d1011"; g.beginPath(); g.arc(w * 0.42, h * 0.40, w * 0.018, 0, Math.PI * 2); g.arc(w * 0.58, h * 0.40, w * 0.018, 0, Math.PI * 2); g.fill();
+    g.globalAlpha = 0.35 + 0.65 * k;
+    g.fillStyle = "#f5f5f2"; g.beginPath(); g.moveTo(w, 0);
+    for (const [x, y] of prof) g.lineTo(x * w, y * h);
+    g.lineTo(w, h); g.closePath(); g.fill(); g.globalAlpha = 1;
+    requestAnimationFrame(f);
+  })(t0);
+})();
+</script>
+</body>
+</html>
